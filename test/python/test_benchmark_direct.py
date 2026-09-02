@@ -1216,7 +1216,6 @@ def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
-    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", raising=False)
     monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_BSSID", raising=False)
 
     with pytest.raises(RuntimeError, match="WIFI_CHANNEL requires.*WIFI_BSSID"):
@@ -1225,28 +1224,103 @@ def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
         )
 
 @pytest.mark.parametrize("frontend", ["native", "esphome", "matter"])
-def test_cpp_radio_pin_requires_distinct_initial_and_final_bssids(monkeypatch, frontend):
+def test_cpp_radio_pin_accepts_a_single_target_bssid(monkeypatch, frontend):
     monkeypatch.setattr(benchmark_settings, "BENCHMARK_LOCAL_ENV", {})
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
-    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", raising=False)
-
-    with pytest.raises(RuntimeError, match="WIFI_INITIAL_BSSID.*real reassociation"):
-        benchmark_settings.require_benchmark_prerequisites(
-            [BenchmarkCase(frontend, "lightweight")]
-        )
-
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "aa:bb:cc:dd:ee:ff")
-    with pytest.raises(RuntimeError, match="must identify different access points"):
-        benchmark_settings.require_benchmark_prerequisites(
-            [BenchmarkCase(frontend, "lightweight")]
-        )
-
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "11:22:33:44:55:66")
     benchmark_settings.require_benchmark_prerequisites(
         [BenchmarkCase(frontend, "lightweight")]
     )
+
+def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
+    case = BenchmarkCase("native", "lightweight")
+
+    class FakeContext:
+        def __enter__(self):
+            return {}, object()
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeClient:
+        def request(self, _method, _params=None):
+            return {}
+
+        def close(self):
+            pass
+
+    bootstrap = BenchmarkResult(
+        case=case,
+        build=CommandResult(["build"], 0, 1.0, ""),
+    )
+    client = FakeClient()
+    monitor_process = SimpleNamespace(poll=lambda: None)
+    readiness_recovery = []
+
+    def fake_flash(_case, _chip, _port, result, **_kwargs):
+        result.flash = CommandResult(["flash"], 0, 1.0, "")
+        return True
+
+    def stop_at_readiness(_client, **kwargs):
+        readiness_recovery.append(kwargs["allow_reboot_recovery"])
+        raise RuntimeError("stop after readiness policy capture")
+
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+    monkeypatch.setattr(
+        bench,
+        "run_command",
+        lambda command, **_kwargs: CommandResult(
+            list(command),
+            0,
+            1.0,
+            '{"endpoint":"http://192.0.2.10:62587"}',
+        ),
+    )
+    monkeypatch.setattr(
+        bench,
+        "_run_background_command",
+        lambda *_args, **_kwargs: (monitor_process, [], [], object(), 1.0),
+    )
+    monkeypatch.setattr(bench, "_connect_direct_with_retry", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(bench, "_reconnect_direct_after_radio_pin", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        bench,
+        "direct_handshake",
+        lambda *_args, **_kwargs: {"config": {}, "diagnostics": {"uptime": 10}},
+    )
+    monkeypatch.setattr(bench, "_verify_default_runtime_baseline", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "_verify_native_baseline", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "configured_traffic_generator_mode", lambda *_args: "ping")
+    monkeypatch.setattr(
+        bench,
+        "_apply_direct_radio_pin",
+        lambda *_args, **_kwargs: (True, "11:22:33:44:55:66"),
+    )
+    monkeypatch.setattr(bench, "_verify_direct_radio_pin", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "_bssid_reboot_observed", lambda *_args: False)
+    monkeypatch.setattr(bench, "prepare_direct_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", stop_at_readiness)
+    monkeypatch.setattr(bench, "_terminate_process", lambda _process: None)
+    monkeypatch.setattr(
+        bench,
+        "_finalize_background_command",
+        lambda *_args: CommandResult(["monitor"], 0, 1.0, ""),
+    )
+    monkeypatch.setattr(bench, "_apply_serial_monitor_evidence", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_DIRECT_SSE_ENABLED", "0")
+
+    results = bench.run_direct_frontend_cases([case], "s3", "/dev/cu.test")
+
+    assert readiness_recovery == [True]
+    assert results[0].reasons == ["stop after readiness policy capture"]
+
 
 def test_native_radio_pin_accepts_committed_values_after_reboot():
     class FakeClient:
@@ -1283,16 +1357,17 @@ def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
                         "channel": 1,
                     }
                 }
+            return {"current_bssid": "11:22:33:44:55:66"}
 
     assert bench._apply_direct_radio_pin(
         FakeClient(),
         "AA:BB:CC:DD:EE:FF",
         requested_channel=6,
         skip_if_associated=True,
-    ) is True
+    ) == (True, "11:22:33:44:55:66")
     assert requests == [
         ("config", None),
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
     ]
 
 def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
@@ -1316,10 +1391,10 @@ def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
         "AA:BB:CC:DD:EE:FF",
         requested_channel=6,
         skip_if_associated=True,
-    ) is False
+    ) == (False, "aa:bb:cc:dd:ee:ff")
     assert requests == [("config", None)]
 
-def test_esphome_radio_pin_sends_command_even_when_already_associated(monkeypatch):
+def test_direct_radio_pin_force_reassociates_even_when_already_associated(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
     requests = []
@@ -1327,25 +1402,20 @@ def test_esphome_radio_pin_sends_command_even_when_already_associated(monkeypatc
     class FakeClient:
         def request(self, method, params=None):
             requests.append((method, params))
-            return {
-                "wifi": {
-                    "configured": True,
-                    "bssid": "aa:bb:cc:dd:ee:ff",
-                    "channel": 6,
-                }
-            }
+            return {"current_bssid": "aa:bb:cc:dd:ee:ff"}
 
     assert bench._apply_direct_radio_pin(
         FakeClient(),
         "AA:BB:CC:DD:EE:FF",
         requested_channel=6,
         skip_if_associated=False,
-    ) is True
+        force=True,
+    ) == (True, "aa:bb:cc:dd:ee:ff")
     assert requests == [
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": True}),
     ]
 
-def test_direct_radio_pin_treats_dropped_response_as_applied(monkeypatch):
+def test_direct_radio_pin_requires_the_acknowledgement_response(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
 
     class FakeClient:
@@ -1353,11 +1423,12 @@ def test_direct_radio_pin_treats_dropped_response_as_applied(monkeypatch):
             assert method == "set_wifi_bssid"
             raise DirectProtocolError("Direct HTTP request failed: connection reset")
 
-    assert bench._apply_direct_radio_pin(
-        FakeClient(),
-        "AA:BB:CC:DD:EE:FF",
-        skip_if_associated=False,
-    ) is True
+    with pytest.raises(DirectProtocolError, match="connection reset"):
+        bench._apply_direct_radio_pin(
+            FakeClient(),
+            "AA:BB:CC:DD:EE:FF",
+            skip_if_associated=False,
+        )
 
 
 def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
@@ -1382,17 +1453,17 @@ def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
     monkeypatch.setattr(bench.time, "monotonic", lambda: next(monotonic))
     monkeypatch.setattr(bench.time, "sleep", sleeps.append)
 
-    assert bench._apply_direct_radio_pin(
-        FakeClient(),
-        "AA:BB:CC:DD:EE:FF",
-        skip_if_associated=False,
-    ) is True
+    with pytest.raises(DirectProtocolError, match="reconnecting"):
+        bench._apply_direct_radio_pin(
+            FakeClient(),
+            "AA:BB:CC:DD:EE:FF",
+            skip_if_associated=False,
+        )
     assert requests == [
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
     ]
-    assert sleeps == [0.5, 0.5]
+    assert sleeps == [0.5]
 
 
 def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):

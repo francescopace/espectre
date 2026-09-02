@@ -107,7 +107,10 @@ RawCsiSessionDiagnostics MockDirectHttpService::raw_diagnostics() const {
 std::string MockDirectHttpService::emit_request(const DirectRequest &request) {
   if (state.request_handler) return state.request_handler(request);
   if (state.deferred_request_handler) {
-    return state.deferred_request_handler(1U, request).response;
+    DeferredRequestResult result = state.deferred_request_handler(1U, request);
+    std::string response = std::move(result.response);
+    if (result.response_sent_callback) result.response_sent_callback(true);
+    return response;
   }
   return {};
 }

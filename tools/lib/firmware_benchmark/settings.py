@@ -118,27 +118,3 @@ def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
             "ESPECTRE_BENCHMARK_WIFI_CHANNEL requires "
             "ESPECTRE_BENCHMARK_WIFI_BSSID so the benchmark can pin and verify one access point"
         )
-    exercises_cpp_radio_pin = any(
-        case.frontend in {"native", "esphome", "matter"} for case in cases
-    )
-    initial_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "") or ""
-    final_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
-    if exercises_cpp_radio_pin and final_bssid and not initial_bssid:
-        raise RuntimeError(
-            "ESPECTRE_BENCHMARK_WIFI_BSSID requires "
-            "ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID so the benchmark can exercise a real reassociation"
-        )
-    if exercises_cpp_radio_pin and initial_bssid and not final_bssid:
-        raise RuntimeError(
-            "ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID requires "
-            "ESPECTRE_BENCHMARK_WIFI_BSSID as the final benchmark association"
-        )
-    if (
-        exercises_cpp_radio_pin
-        and initial_bssid
-        and initial_bssid.casefold() == final_bssid.casefold()
-    ):
-        raise RuntimeError(
-            "ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID and "
-            "ESPECTRE_BENCHMARK_WIFI_BSSID must identify different access points"
-        )

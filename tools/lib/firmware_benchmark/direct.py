@@ -903,32 +903,38 @@ def _apply_direct_radio_pin(
     *,
     requested_channel: int = 0,
     skip_if_associated: bool,
-) -> bool:
+    force: bool = False,
+) -> tuple[bool, str]:
+    """Apply a BSSID pin and return whether a station transition is expected and the prior BSSID."""
     if not bssid:
-        return False
+        return False, ""
     if skip_if_associated:
         config = client.request("config")
         if _direct_radio_pin_matches(config, bssid, requested_channel=requested_channel):
-            return False
-    # ESPHome disconnects the station before the HTTP response can complete, so
-    # a dropped first request is treated as an applied pin. When the previous
-    # BSSID transition explicitly reports itself busy, wait for that state
-    # machine to finish before issuing the next benchmark transition.
+            wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
+            assert isinstance(wifi, dict)
+            return False, str(wifi.get("bssid", ""))
+    # Every frontend acknowledges the staged BSSID mutation before changing
+    # the station association. A lost response is therefore a failed apply,
+    # never evidence that the command was accepted.
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
-    transition_busy = False
-    last_error: DirectProtocolError | DirectRequestError | None = None
+    last_error: DirectRequestError | None = None
     while True:
         try:
-            client.request("set_wifi_bssid", {"bssid": bssid})
-            return True
+            acknowledgement = client.request(
+                "set_wifi_bssid",
+                {"bssid": bssid, "force": force},
+            )
+            current_bssid = acknowledgement.get("current_bssid")
+            if not isinstance(current_bssid, str):
+                raise DirectProtocolError(
+                    "Direct set_wifi_bssid acknowledgement is missing current_bssid"
+                )
+            transition_expected = force or current_bssid.casefold() != bssid.casefold()
+            return transition_expected, current_bssid
         except DirectRequestError as exc:
             if exc.code != "unavailable" or "BSSID update already in progress" not in exc.message:
                 raise
-            transition_busy = True
-            last_error = exc
-        except DirectProtocolError as exc:
-            if not transition_busy:
-                return True
             last_error = exc
         if time.monotonic() >= deadline:
             assert last_error is not None
@@ -1432,17 +1438,11 @@ def run_direct_frontend_cases(
         )
         if frontend == "native":
             _verify_native_baseline(baseline)
-        initial_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "") or ""
-        final_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
-        final_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
-        requested_bssid = bool(final_bssid)
+        target_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+        target_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+        requested_bssid = bool(target_bssid)
         bssid_evidence: dict[str, object] = {
             "requested": requested_bssid,
-            "initial_requested": bool(initial_bssid),
-            "initial_applied": False,
-            "initial_already_associated": False,
-            "initial_verified": False,
-            "initial_reboot_observed": None,
             "applied": False,
             "already_associated": False,
             "reassociation_exercised": False,
@@ -1450,55 +1450,20 @@ def run_direct_frontend_cases(
             "reboot_observed": None,
         }
         if frontend in {"native", "esphome", "matter"}:
-            if initial_bssid:
-                baseline_before_initial_pin = baseline
-                bssid_evidence["initial_already_associated"] = _direct_radio_pin_matches(
-                    baseline["config"],
-                    initial_bssid,
-                )
-                initial_pin_applied = _apply_direct_radio_pin(
-                    client,
-                    initial_bssid,
-                    skip_if_associated=False,
-                )
-                bssid_evidence["initial_applied"] = initial_pin_applied
-                if initial_pin_applied:
-                    client.close()
-                    # Retry the known endpoint first. The reassociation may
-                    # retain its address while mDNS is still recovering; the
-                    # shared connector falls back to fresh discovery when the
-                    # address actually changes.
-                    client = _reconnect_direct_after_radio_pin(
-                        endpoint,
-                        frontend=frontend,
-                        chip=chip,
-                        timed_nonpersistent=timed_nonpersistent,
-                    )
-                    baseline = direct_handshake(client, frontend=frontend, chip=chip)
-                    initial_reboot_observed = _bssid_reboot_observed(
-                        baseline_before_initial_pin,
-                        baseline,
-                    )
-                    bssid_evidence["initial_reboot_observed"] = initial_reboot_observed
-                    if frontend == "native":
-                        _verify_native_baseline(baseline)
-                _verify_direct_radio_pin(client, initial_bssid)
-                bssid_evidence["initial_verified"] = True
-
             baseline_before_radio_pin = baseline
-            bssid_evidence["already_associated"] = requested_bssid and _direct_radio_pin_matches(
-                baseline["config"],
-                final_bssid,
-                requested_channel=final_channel,
-            )
-            radio_pin_applied = _apply_direct_radio_pin(
+            transition_expected, current_bssid = _apply_direct_radio_pin(
                 client,
-                final_bssid,
-                requested_channel=final_channel,
+                target_bssid,
+                requested_channel=target_channel,
                 skip_if_associated=False,
+                force=True,
             )
-            bssid_evidence["applied"] = radio_pin_applied
-            if radio_pin_applied:
+            bssid_evidence["applied"] = requested_bssid
+            bssid_evidence["already_associated"] = (
+                requested_bssid and current_bssid.casefold() == target_bssid.casefold()
+            )
+            bssid_evidence["reassociation_exercised"] = transition_expected
+            if transition_expected:
                 client.close()
                 client = _reconnect_direct_after_radio_pin(
                     endpoint,
@@ -1516,19 +1481,10 @@ def run_direct_frontend_cases(
             if requested_bssid:
                 _verify_direct_radio_pin(
                     client,
-                    final_bssid,
-                    requested_channel=final_channel,
+                    target_bssid,
+                    requested_channel=target_channel,
                 )
                 bssid_evidence["verified"] = True
-                bssid_evidence["reassociation_exercised"] = (
-                    bssid_evidence["initial_verified"] is True
-                    and bssid_evidence["already_associated"] is False
-                    and _direct_radio_pin_matches(
-                        baseline["config"],
-                        final_bssid,
-                        requested_channel=final_channel,
-                    )
-                )
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
             result.transport_evidence = {
@@ -1587,7 +1543,9 @@ def run_direct_frontend_cases(
                         initial_uptime_seconds=_integer(
                             baseline["diagnostics"].get("uptime")
                         ),
-                        allow_reboot_recovery=radio_pin_applied,
+                        allow_reboot_recovery=(
+                            bssid_evidence["reassociation_exercised"] is True
+                        ),
                         reboot_observed_before_wait=(
                             bssid_evidence["reboot_observed"] is True
                         ),

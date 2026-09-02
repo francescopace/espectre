@@ -299,7 +299,7 @@ bool parse_command_fields(const std::string &command_id,
     if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
     if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
     if (parsed.command == "start_raw_stream") return false;
-    if (parsed.command == "set_wifi_bssid") return name == "bssid";
+    if (parsed.command == "set_wifi_bssid") return name == "bssid" || name == "force";
     if (parsed.command == "set_mqtt_config") {
       return name == "host" || name == "port" || name == "username" || name == "password" ||
              name == "topic_prefix";
@@ -370,6 +370,12 @@ bool parse_command_fields(const std::string &command_id,
       return reject("invalid BSSID (accepted: six hexadecimal octets)");
     }
     parsed.has_wifi_bssid = true;
+    if (find_json_object_field(fields, "force") != nullptr) {
+      if (!bool_field("force", &parsed.wifi_bssid_force)) {
+        return reject("invalid force flag (accepted: boolean)");
+      }
+      parsed.has_wifi_bssid_force = true;
+    }
   } else if (parsed.command == "clear_wifi_config") {
     // No additional payload required.
   } else if (parsed.command == "set_mqtt_config") {

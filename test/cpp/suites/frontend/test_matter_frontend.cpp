@@ -328,9 +328,12 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   MatterFrontend frontend(&bindings, 11, &direct);
   frontend.set_runtime_config(config);
   std::vector<std::string> bssid_updates;
+  std::vector<bool> bssid_forces;
   frontend.set_wifi_bssid_pin_setter(
-      [&bssid_updates](const std::string &bssid, std::string *message) {
+      [&bssid_updates, &bssid_forces](const std::string &bssid, bool force,
+                                     std::string *message) {
         bssid_updates.push_back(bssid);
+        bssid_forces.push_back(force);
         if (message != nullptr) *message = "Matter BSSID transaction started";
         return true;
       });
@@ -359,18 +362,23 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
 
   const std::string scan = direct.emit_request(
       DirectRequest{"scan", "scan_wifi_access_points", "{}"});
-  const std::string pin = direct.emit_request(
-      DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  auto pin_request = direct.emit_deferred_request(
+      77U, DirectRequest{"pin", "set_wifi_bssid",
+                         "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"force\":true}"});
+  TEST_ASSERT_TRUE(bssid_updates.empty());
+  TEST_ASSERT_TRUE(pin_request.response.find("\"accepted\":true") != std::string::npos);
+  pin_request.response_sent_callback(true);
   const std::string unpin = direct.emit_request(
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
   const std::string credential_reset = direct.emit_request(
       DirectRequest{"reset", "clear_wifi_config", "{}"});
   TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(2, static_cast<int>(bssid_updates.size()));
   TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", bssid_updates[0].c_str());
   TEST_ASSERT_TRUE(bssid_updates[1].empty());
+  TEST_ASSERT_TRUE(bssid_forces[0]);
+  TEST_ASSERT_FALSE(bssid_forces[1]);
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = direct.emit_request(

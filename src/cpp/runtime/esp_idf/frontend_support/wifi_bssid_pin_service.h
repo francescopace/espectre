@@ -57,7 +57,7 @@ class WifiBssidPinService {
   esp_err_t setup(WifiBssidPinServiceConfig config);
 
   /** Stage a pin update. An empty BSSID clears the current override. */
-  bool request_update(const std::string &bssid, std::string *message);
+  bool request_update(const std::string &bssid, std::string *message, bool force = false);
   /** Schedule a station snapshot refresh after a Wi-Fi or IP event. */
   void notify_station_changed();
   /** Advance verification, rollback, and boot-time enforcement. */

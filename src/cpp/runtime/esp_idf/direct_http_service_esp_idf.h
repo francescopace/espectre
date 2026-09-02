@@ -83,6 +83,12 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   struct CompletedResponse {
     PendingRequest request;
     std::string response;
+    ResponseSentCallback response_sent_callback;
+  };
+
+  struct ResponseCompletion {
+    ResponseSentCallback callback;
+    bool sent{false};
   };
 
   struct RawSampleSlot {
@@ -126,8 +132,12 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool request_allowed_locked_(uint64_t now_us);
   bool mutation_allowed_locked_(const std::string &method, uint64_t now_us);
   bool enqueue_event_locked_(EventClient *client, OutboundEvent event);
-  void enqueue_completed_response_locked_(PendingRequest request, std::string response);
-  bool enqueue_completed_response_(PendingRequest request, std::string response);
+  void enqueue_completed_response_locked_(PendingRequest request,
+                                          std::string response,
+                                          ResponseSentCallback response_sent_callback = {});
+  bool enqueue_completed_response_(PendingRequest request,
+                                   std::string response,
+                                   ResponseSentCallback response_sent_callback = {});
   void release_request_(PendingRequest request);
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
@@ -156,6 +166,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   std::deque<PendingRequest> inbound_;
   std::vector<PendingRequest> deferred_;
   std::deque<CompletedResponse> completed_;
+  std::deque<ResponseCompletion> response_completions_;
   DirectHttpServiceDiagnostics diagnostics_{};
   uint64_t next_request_token_{1U};
   uint64_t request_window_started_us_{0U};

@@ -742,11 +742,13 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "wifi-1",
       "set_wifi_bssid",
-      "{\"bssid\":\"E6:FA:C4:20:19:DE\"}",
+      "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"force\":true}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_wifi_bssid);
   TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", command.wifi_bssid.c_str());
+  TEST_ASSERT_TRUE(command.has_wifi_bssid_force);
+  TEST_ASSERT_TRUE(command.wifi_bssid_force);
 
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "mqtt-1",
@@ -761,6 +763,9 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
 
   TEST_ASSERT_FALSE(parse_espectre_command_request(
       "wifi-bad", "set_wifi_bssid", "{\"bssid\":\"not-a-bssid\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "wifi-force-bad", "set_wifi_bssid",
+      "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"force\":\"true\"}", &command, &error));
   TEST_ASSERT_FALSE(parse_espectre_command_request(
       "wifi-credentials", "set_wifi_bssid", "{\"ssid\":\"Lab\",\"password\":\"secret\"}",
       &command, &error));

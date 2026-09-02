@@ -315,10 +315,12 @@ void EspIdfDirectHttpService::loop() {
   if (have_request) {
     bool deferred = false;
     std::string response;
+    ResponseSentCallback response_sent_callback;
     if (deferred_request_handler_) {
       DeferredRequestResult result = deferred_request_handler_(pending.token, pending.direct);
       deferred = result.deferred;
       response = std::move(result.response);
+      response_sent_callback = std::move(result.response_sent_callback);
     } else if (request_handler_) {
       response = request_handler_(pending.direct);
     }
@@ -347,7 +349,9 @@ void EspIdfDirectHttpService::loop() {
         response = espectre_command_result_payload(
             device, command, false, "internal_error", "Direct response exceeds the size limit");
       }
-      (void) enqueue_completed_response_(std::move(pending), std::move(response));
+      (void) enqueue_completed_response_(std::move(pending),
+                                         std::move(response),
+                                         std::move(response_sent_callback));
     }
   }
 #if !defined(ESP_PLATFORM)
@@ -398,7 +402,13 @@ void EspIdfDirectHttpService::shutdown() {
     for (EventClient &client : event_clients_) requests.push_back(client.request);
     for (PendingRequest &pending : inbound_) requests.push_back(pending.request);
     for (PendingRequest &pending : deferred_) requests.push_back(pending.request);
-    for (CompletedResponse &completed : completed_) requests.push_back(completed.request.request);
+    for (CompletedResponse &completed : completed_) {
+      requests.push_back(completed.request.request);
+      if (completed.response_sent_callback) {
+        response_completions_.push_back(
+            ResponseCompletion{std::move(completed.response_sent_callback), false});
+      }
+    }
     event_clients_.clear();
     pending_event_connections_ = 0U;
     inbound_.clear();
@@ -1047,8 +1057,10 @@ bool EspIdfDirectHttpService::enqueue_event_locked_(EventClient *client, Outboun
 }
 
 void EspIdfDirectHttpService::enqueue_completed_response_locked_(PendingRequest request,
-                                                                 std::string response) {
-  completed_.push_back(CompletedResponse{std::move(request), std::move(response)});
+                                                                 std::string response,
+                                                                 ResponseSentCallback response_sent_callback) {
+  completed_.push_back(CompletedResponse{
+      std::move(request), std::move(response), std::move(response_sent_callback)});
   diagnostics_.queued_messages = inbound_.size() + deferred_.size() + completed_.size();
 }
 
@@ -1067,13 +1079,16 @@ bool EspIdfDirectHttpService::finish_request_(PendingRequest request, const std:
 }
 
 bool EspIdfDirectHttpService::enqueue_completed_response_(PendingRequest request,
-                                                          std::string response) {
+                                                          std::string response,
+                                                          ResponseSentCallback response_sent_callback) {
   if (request.request == nullptr || response.empty()) return false;
   if (!lock_()) {
     release_request_(std::move(request));
     return false;
   }
-  enqueue_completed_response_locked_(std::move(request), std::move(response));
+  enqueue_completed_response_locked_(std::move(request),
+                                     std::move(response),
+                                     std::move(response_sent_callback));
   unlock_();
   notify_worker_();
   return true;
@@ -1272,6 +1287,15 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
     unlock_();
   }
   if (stopped_callback) stopped_callback(stop_reason);
+
+  std::deque<ResponseCompletion> response_completions;
+  if (lock_()) {
+    response_completions.swap(response_completions_);
+    unlock_();
+  }
+  for (ResponseCompletion &completion : response_completions) {
+    if (completion.callback) completion.callback(completion.sent);
+  }
 }
 
 void EspIdfDirectHttpService::worker_loop_() {
@@ -1288,7 +1312,12 @@ void EspIdfDirectHttpService::worker_loop_() {
     unlock_();
   }
   if (have_response) {
-    (void) finish_request_(std::move(completed.request), completed.response);
+    const bool sent = finish_request_(std::move(completed.request), completed.response);
+    if (completed.response_sent_callback && lock_()) {
+      response_completions_.push_back(
+          ResponseCompletion{std::move(completed.response_sent_callback), sent});
+      unlock_();
+    }
   }
   service_event_streams_();
 #if !defined(ESP_PLATFORM)

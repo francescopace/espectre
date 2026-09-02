@@ -36,6 +36,10 @@ void MatterFrontend::set_wifi_bssid_pin_setter(WifiBssidPinSetter setter) {
   wifi_bssid_pin_setter_ = std::move(setter);
 }
 
+void MatterFrontend::set_wifi_bssid_pin_preflight(WifiBssidPinPreflight preflight) {
+  wifi_bssid_pin_preflight_ = std::move(preflight);
+}
+
 bool MatterFrontend::set_runtime_services_armed(bool armed) {
   operational_services_armed_ = armed;
   if (!armed) {
@@ -136,6 +140,7 @@ bool MatterFrontend::start_direct_service_() {
               [this]() { return this->runtime_.diagnostics_sample(); },
               &runtime_events_,
               wifi_bssid_pin_setter_,
+              wifi_bssid_pin_preflight_,
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     return false;

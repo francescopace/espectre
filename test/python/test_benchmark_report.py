@@ -209,13 +209,8 @@ def test_report_keeps_nonregressing_bssid_reboot_evidence_unknown():
     result.transport_evidence = {
         "bssid_provisioning": {
             "requested": True,
-            "initial_requested": True,
-            "initial_applied": True,
-            "initial_already_associated": True,
-            "initial_verified": True,
-            "initial_reboot_observed": None,
             "applied": True,
-            "already_associated": False,
+            "already_associated": True,
             "reassociation_exercised": True,
             "verified": True,
             "reboot_observed": None,

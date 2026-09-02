@@ -53,6 +53,13 @@ uint32_t current_task_stack_high_water_bytes() {
 #endif
 }
 
+std::string wifi_bssid_ack_data(const std::string &current_bssid) {
+  std::string data{"{"};
+  append_json_pair(&data, "current_bssid", current_bssid.c_str(), true);
+  data += "}";
+  return data;
+}
+
 }  // namespace
 
 NativeDirectFrontend::NativeDirectFrontend(NativeFrontend &owner, IDirectHttpService *service)
@@ -95,6 +102,7 @@ void NativeDirectFrontend::refresh() {
 
   peer_discovery_enabled_ = false;
   session_tokens_enabled_ = false;
+  wifi_response_pending_ = false;
   DirectHttpServiceConfig config = DirectHttpServiceConfig::for_first_party_portals();
   config.device_id = owner_.device_config_.device_id;
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
@@ -138,6 +146,7 @@ void NativeDirectFrontend::shutdown() {
   client_count_ = 0U;
   peer_discovery_enabled_ = false;
   session_tokens_enabled_ = false;
+  wifi_response_pending_ = false;
   if (had_clients) {
     owner_.update_live_telemetry_enabled_();
   }
@@ -174,6 +183,55 @@ std::string NativeDirectFrontend::handle_request_(const DirectRequest &request, 
 
 IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_request_(uint64_t connection_token,
                                                                                          const DirectRequest &request) {
+  if (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid" ||
+      request.command == "clear_wifi_config") {
+    EspectreCommand command;
+    std::string parse_error;
+    if (!direct_http_request_to_command(request, &command, &parse_error)) {
+      command.command_id = request.command_id;
+      command.command = request.command;
+      return {false,
+              espectre_command_result_payload(
+                  owner_.device_config_, command, false,
+                  frontend_command_parse_error_code(parse_error), parse_error.c_str())};
+    }
+    if (!owner_.provisioning_command_callback_) {
+      return {false,
+              espectre_command_result_payload(
+                  owner_.device_config_, command, false, "unavailable",
+                  "Wi-Fi configuration changes are unavailable")};
+    }
+    if (wifi_response_pending_ || wifi_info_.apply_state == "verifying" ||
+        wifi_info_.apply_state == "rolling_back" || wifi_info_.scan_pending) {
+      return {false,
+              espectre_command_result_payload(
+                  owner_.device_config_, command, false, "unavailable",
+                  "Wi-Fi BSSID update already in progress")};
+    }
+    if (request.command != "clear_wifi_config" && wifi_info_.ssid.empty()) {
+      return {false,
+              espectre_command_result_payload(
+                  owner_.device_config_, command, false, "unavailable",
+                  "provision Wi-Fi over Improv Serial before selecting a BSSID")};
+    }
+    const DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
+    wifi_response_pending_ = true;
+    const char *message = request.command == "set_wifi_bssid"
+                              ? "Wi-Fi BSSID update accepted"
+                              : request.command == "clear_wifi_bssid"
+                                    ? "Wi-Fi BSSID clear accepted"
+                                    : "Wi-Fi configuration clear accepted";
+    return {
+        false,
+        espectre_command_result_payload(
+            owner_.device_config_, command, true, "ok", message,
+            wifi_bssid_ack_data(wifi.bssid)),
+        [this, request, connection_token](bool sent) {
+          this->wifi_response_pending_ = false;
+          if (sent) (void) this->handle_request_(request, connection_token);
+        },
+    };
+  }
   if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
     return {false, handle_request_(request, connection_token)};
   }

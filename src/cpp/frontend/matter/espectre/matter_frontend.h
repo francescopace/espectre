@@ -26,7 +26,8 @@ namespace espectre {
 class MatterFrontend : public IRuntimeListener {
  public:
   using WifiBssidPinSetter =
-      std::function<bool(const std::string &bssid, std::string *message)>;
+      std::function<bool(const std::string &bssid, bool force, std::string *message)>;
+  using WifiBssidPinPreflight = std::function<bool(std::string *message)>;
 
   MatterFrontend(IMatterBindings *bindings,
                  uint16_t endpoint_id,
@@ -34,6 +35,7 @@ class MatterFrontend : public IRuntimeListener {
 
   void set_runtime_config(const RuntimeConfig &config);
   void set_wifi_bssid_pin_setter(WifiBssidPinSetter setter);
+  void set_wifi_bssid_pin_preflight(WifiBssidPinPreflight preflight);
   bool set_runtime_services_armed(bool armed);
   void prepare_for_wifi_reconfigure();
   void resume_after_wifi_reconfigure();
@@ -74,6 +76,7 @@ class MatterFrontend : public IRuntimeListener {
   EspIdfPeerDiscoveryService peer_discovery_;
   RuntimeEventMailbox runtime_events_{};
   WifiBssidPinSetter wifi_bssid_pin_setter_{};
+  WifiBssidPinPreflight wifi_bssid_pin_preflight_{};
   bool live_telemetry_enabled_{true};
   bool operational_services_armed_{true};
   bool wifi_reconfigure_quiesced_{false};

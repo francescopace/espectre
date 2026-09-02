@@ -192,7 +192,9 @@ void test_wifi_provisioning_bssid_command_validates_and_persists_selection(void)
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
 
   TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_BSSID:ssid=Lab", &message));
-  TEST_ASSERT_EQUAL_STRING("set Wi-Fi BSSID requires exactly one bssid field", message.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "set Wi-Fi BSSID requires bssid and optional boolean force fields",
+      message.c_str());
   TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_BSSID:bssid=not-a-bssid", &message));
   TEST_ASSERT_EQUAL_STRING("BSSID must be empty or 17 chars", message.c_str());
 
@@ -243,6 +245,29 @@ void test_wifi_provisioning_bssid_selection_updates_wifi_manager_live(void) {
   TEST_ASSERT_EQUAL_STRING("DefaultSSID", service.config().ssid.c_str());
   TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", service.config().bssid.c_str());
   TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::APPLIED);
+}
+
+void test_wifi_provisioning_bssid_force_controls_active_association_reapply(void) {
+  StandaloneWifiService manager;
+  WifiProvisioningService service(&manager);
+  std::string message;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
+  const uint8_t active_bssid[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  std::copy(std::begin(active_bssid), std::end(active_bssid),
+            g_esp_wifi_mock.current_ap_info.bssid);
+  const int initial_set_config_calls = g_esp_wifi_mock.set_config_call_count;
+
+  TEST_ASSERT_TRUE(service.handle_command(
+      "SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF", &message));
+  TEST_ASSERT_FALSE(service.apply_pending());
+  TEST_ASSERT_EQUAL_STRING("Wi-Fi BSSID pin verified and saved", message.c_str());
+  TEST_ASSERT_EQUAL(initial_set_config_calls, g_esp_wifi_mock.set_config_call_count);
+
+  TEST_ASSERT_TRUE(service.handle_command(
+      "SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF&force=true", &message));
+  TEST_ASSERT_TRUE(service.apply_pending());
+  service.loop();
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_call_count > initial_set_config_calls);
 }
 
 void test_wifi_provisioning_stages_standard_improv_credentials_without_radio_lock(void) {
@@ -578,6 +603,7 @@ int process(void) {
   RUN_TEST(test_wifi_provisioning_records_load_error_and_falls_back_to_defaults);
   RUN_TEST(test_wifi_provisioning_bssid_command_validates_and_persists_selection);
   RUN_TEST(test_wifi_provisioning_bssid_selection_updates_wifi_manager_live);
+  RUN_TEST(test_wifi_provisioning_bssid_force_controls_active_association_reapply);
   RUN_TEST(test_wifi_provisioning_stages_standard_improv_credentials_without_radio_lock);
   RUN_TEST(test_wifi_provisioning_rejects_overlapping_direct_and_improv_candidates);
   RUN_TEST(test_improv_serial_reports_info_and_completes_verified_provisioning);

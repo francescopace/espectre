@@ -90,7 +90,9 @@ esp_err_t WifiBssidPinService::setup(WifiBssidPinServiceConfig config) {
   return ESP_OK;
 }
 
-bool WifiBssidPinService::request_update(const std::string &bssid, std::string *message) {
+bool WifiBssidPinService::request_update(const std::string &bssid,
+                                         std::string *message,
+                                         bool force) {
   if (!initialized_) {
     if (message != nullptr) *message = "Wi-Fi BSSID persistence is unavailable";
     return false;
@@ -111,7 +113,7 @@ bool WifiBssidPinService::request_update(const std::string &bssid, std::string *
     return false;
   }
 
-  if (!normalized.empty() && station.connected && station.has_ipv4 &&
+  if (!force && !normalized.empty() && station.connected && station.has_ipv4 &&
       station.bssid == normalized) {
     const esp_err_t save_err = persist_pin_(station.ssid, normalized);
     if (save_err != ESP_OK) {

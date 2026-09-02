@@ -394,6 +394,48 @@ void test_deferred_post_completes_only_once() {
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
 }
 
+void test_response_completion_runs_after_send_and_reports_delivery(void) {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  bool callback_called = false;
+  bool response_sent = false;
+  int sends_observed_by_callback = 0;
+  TEST_ASSERT_TRUE(service.setup_deferred(
+      config(),
+      [&callback_called, &response_sent, &sends_observed_by_callback](
+          uint64_t, const DirectRequest &request) {
+        return IDirectHttpService::DeferredRequestResult{
+            false,
+            command_result(request),
+            [&callback_called, &response_sent, &sends_observed_by_callback](bool sent) {
+              callback_called = true;
+              response_sent = sent;
+              sends_observed_by_callback = g_httpd_mock.send_calls;
+            },
+        };
+      },
+      {}));
+
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"ack\",\"command\":\"set_wifi_bssid\",\"bssid\":\"AA:BB:CC:DD:EE:FF\"}");
+  httpd_req_t request = request_for(0U);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  TEST_ASSERT_FALSE(callback_called);
+  service.loop();
+  TEST_ASSERT_TRUE(callback_called);
+  TEST_ASSERT_TRUE(response_sent);
+  TEST_ASSERT_EQUAL(1, sends_observed_by_callback);
+
+  callback_called = false;
+  response_sent = true;
+  g_httpd_mock.send_result = ESP_FAIL;
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"lost\",\"command\":\"clear_wifi_bssid\"}");
+  request = request_for(0U);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  service.loop();
+  TEST_ASSERT_TRUE(callback_called);
+  TEST_ASSERT_FALSE(response_sent);
+}
+
 void test_raw_get_requires_bearer_and_emits_v2_frame() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
@@ -667,6 +709,7 @@ int main() {
   RUN_TEST(test_sse_peer_close_is_not_a_send_failure);
   RUN_TEST(test_sse_retries_backpressure_before_disconnect);
   RUN_TEST(test_deferred_post_completes_only_once);
+  RUN_TEST(test_response_completion_runs_after_send_and_reports_delivery);
   RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
   RUN_TEST(test_raw_bind_revalidates_session_after_async_handler_creation);

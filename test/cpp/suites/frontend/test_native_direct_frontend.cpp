@@ -5,6 +5,8 @@
  */
 #include "native_frontend_test_support.h"
 
+#include "esp_wifi.h"
+
 void test_native_frontend_direct_service_follows_station_address_lifecycle(void) {
   MockDirectHttpService direct;
   NativeFrontend frontend(nullptr, nullptr, &direct);
@@ -213,12 +215,27 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
       });
   TEST_ASSERT_TRUE(frontend.setup());
 
-  const std::string wifi_response = direct.emit_request(
-      DirectRequest{"wifi-1", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  g_esp_wifi_mock.current_ap_info.bssid[0] = 0xE6;
+  g_esp_wifi_mock.current_ap_info.bssid[1] = 0xFA;
+  g_esp_wifi_mock.current_ap_info.bssid[2] = 0xC4;
+  g_esp_wifi_mock.current_ap_info.bssid[3] = 0x20;
+  g_esp_wifi_mock.current_ap_info.bssid[4] = 0x19;
+  g_esp_wifi_mock.current_ap_info.bssid[5] = 0xDE;
+
+  auto wifi_request = direct.emit_deferred_request(
+      77U, DirectRequest{"wifi-1", "set_wifi_bssid",
+                         "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"force\":true}"});
+  TEST_ASSERT_TRUE(provisioning_command.empty());
+  TEST_ASSERT_TRUE(wifi_request.response.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(
+      wifi_request.response.find("\"current_bssid\":\"E6:FA:C4:20:19:DE\"") !=
+      std::string::npos);
+  TEST_ASSERT_TRUE(static_cast<bool>(wifi_request.response_sent_callback));
+  wifi_request.response_sent_callback(true);
   TEST_ASSERT_EQUAL_STRING(
-      "SET_WIFI_BSSID:bssid=E6%3AFA%3AC4%3A20%3A19%3ADE", provisioning_command.c_str());
-  TEST_ASSERT_TRUE(wifi_response.find("\"accepted\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(wifi_response.find("password") == std::string::npos);
+      "SET_WIFI_BSSID:bssid=E6%3AFA%3AC4%3A20%3A19%3ADE&force=true",
+      provisioning_command.c_str());
+  TEST_ASSERT_TRUE(wifi_request.response.find("password") == std::string::npos);
 
   const std::string scan_response = direct.emit_request(
       DirectRequest{"wifi-scan", "scan_wifi_access_points", "{}"});
@@ -302,6 +319,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   info.network.ip_address = "192.168.1.42";
   info.network.channel = 36U;
   frontend.set_device_info(info);
+  g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
   TEST_ASSERT_TRUE(frontend.setup());
   direct.emit_client_count(1U);
 

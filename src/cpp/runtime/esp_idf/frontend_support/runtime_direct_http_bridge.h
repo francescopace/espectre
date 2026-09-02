@@ -45,7 +45,8 @@ struct RuntimeDirectHttpBridgeConfig {
   // Empty BSSID clears the pin. Frontends that provide this callback own the
   // complete live-apply and persistence transaction; frontends that omit it
   // apply the pin to the current station session only.
-  std::function<bool(const std::string &bssid, std::string *message)> wifi_bssid_pin_setter;
+  std::function<bool(const std::string &bssid, bool force, std::string *message)> wifi_bssid_pin_setter;
+  std::function<bool(std::string *message)> wifi_bssid_pin_preflight;
 };
 
 /** Apply or clear the live ESP-IDF station BSSID pin and reconnect. */
@@ -107,6 +108,7 @@ class RuntimeDirectHttpBridge {
   RawCsiSessionController raw_session_controller_{};
   std::atomic<size_t> event_client_count_{0U};
   bool deferred_requests_enabled_{false};
+  bool wifi_response_pending_{false};
 };
 
 }  // namespace espectre

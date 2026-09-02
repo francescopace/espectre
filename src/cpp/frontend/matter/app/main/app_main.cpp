@@ -152,12 +152,23 @@ bool apply_matter_wifi_bssid_pin(const std::string &bssid,
   return applied;
 }
 
-bool handle_wifi_bssid_pin_update(const std::string &bssid, std::string *message) {
+bool handle_wifi_bssid_pin_update(const std::string &bssid,
+                                  bool force,
+                                  std::string *message) {
   if (g_wifi_bssid_pin_service == nullptr) {
     if (message != nullptr) *message = "Wi-Fi BSSID persistence is unavailable";
     return false;
   }
-  return g_wifi_bssid_pin_service->request_update(bssid, message);
+  return g_wifi_bssid_pin_service->request_update(bssid, message, force);
+}
+
+bool wifi_bssid_pin_update_available(std::string *message) {
+  const bool available = g_wifi_bssid_pin_service != nullptr &&
+                         !g_wifi_bssid_pin_service->apply_pending();
+  if (!available && message != nullptr) {
+    *message = "Wi-Fi BSSID update already in progress";
+  }
+  return available;
 }
 
 espectre::RuntimeConfig build_runtime_config() {
@@ -529,6 +540,7 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(wifi_bssid_pin_service.setup(std::move(wifi_bssid_pin_config)));
   g_wifi_bssid_pin_service = &wifi_bssid_pin_service;
   frontend.set_wifi_bssid_pin_setter(handle_wifi_bssid_pin_update);
+  frontend.set_wifi_bssid_pin_preflight(wifi_bssid_pin_update_available);
   g_mdns_discovery = &mdns_discovery;
   g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
   const std::string initial_device_label = CONFIG_ESPECTRE_MATTER_NODE_LABEL;

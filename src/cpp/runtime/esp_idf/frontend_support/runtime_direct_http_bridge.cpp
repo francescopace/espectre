@@ -29,6 +29,13 @@ namespace espectre {
 
 namespace {
 
+std::string wifi_bssid_ack_data(const std::string &current_bssid) {
+  std::string data{"{"};
+  append_json_pair(&data, "current_bssid", current_bssid.c_str(), true);
+  data += "}";
+  return data;
+}
+
 void append_bool(std::string *out, const char *key, bool value, bool first = false) {
   if (out == nullptr || key == nullptr) {
     return;
@@ -90,16 +97,13 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
       [this](size_t client_count) {
         this->event_client_count_.store(client_count, std::memory_order_relaxed);
       };
-  bool setup = false;
-  if (config_.peer_discovery != nullptr) {
-    setup = service_->setup_deferred(
-        service_config,
-        [this](uint64_t token, const DirectRequest &request) {
-          return this->handle_deferred_request_(token, request);
-        },
-        client_count_changed);
-    deferred_requests_enabled_ = setup;
-  }
+  bool setup = service_->setup_deferred(
+      service_config,
+      [this](uint64_t token, const DirectRequest &request) {
+        return this->handle_deferred_request_(token, request);
+      },
+      client_count_changed);
+  deferred_requests_enabled_ = setup;
   if (!setup) {
     setup = service_->setup(
         service_config,
@@ -143,6 +147,7 @@ void RuntimeDirectHttpBridge::shutdown() {
   config_changed_ = {};
   event_client_count_.store(0U, std::memory_order_relaxed);
   deferred_requests_enabled_ = false;
+  wifi_response_pending_ = false;
 }
 
 bool RuntimeDirectHttpBridge::running() const { return service_ != nullptr && service_->running(); }
@@ -277,6 +282,50 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
 IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferred_request_(
     uint64_t request_token,
     const DirectRequest &request) {
+  if (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid") {
+    EspectreDeviceConfig device;
+    device.device_id = config_.device_id;
+    EspectreCommand command;
+    std::string parse_error;
+    if (!direct_http_request_to_command(request, &command, &parse_error)) {
+      command.command_id = request.command_id;
+      command.command = request.command;
+      return {false,
+              espectre_command_result_payload(
+                  device, command, false,
+                  frontend_command_parse_error_code(parse_error), parse_error.c_str())};
+    }
+    if (wifi_response_pending_) {
+      return {false,
+              espectre_command_result_payload(
+                  device, command, false, "unavailable",
+                  "Wi-Fi BSSID update already in progress")};
+    }
+    std::string preflight_message;
+    if (config_.wifi_bssid_pin_preflight &&
+        !config_.wifi_bssid_pin_preflight(&preflight_message)) {
+      return {false,
+              espectre_command_result_payload(
+                  device, command, false, "unavailable",
+                  preflight_message.empty()
+                      ? "Wi-Fi BSSID update is unavailable"
+                      : preflight_message.c_str())};
+    }
+    const DirectWifiSnapshot wifi = wifi_snapshot_();
+    wifi_response_pending_ = true;
+    const char *message = request.command == "set_wifi_bssid"
+                              ? "Wi-Fi BSSID update accepted"
+                              : "Wi-Fi BSSID clear accepted";
+    return {
+        false,
+        espectre_command_result_payload(
+            device, command, true, "ok", message, wifi_bssid_ack_data(wifi.bssid)),
+        [this, request](bool sent) {
+          this->wifi_response_pending_ = false;
+          if (sent) (void) this->handle_request_(request);
+        },
+    };
+  }
   if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
     return {false, handle_request_(request)};
   }
@@ -558,7 +607,7 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
   }
   const std::string pin = command.command == "clear_wifi_bssid" ? std::string{} : command.wifi_bssid;
   if (config_.wifi_bssid_pin_setter) {
-    return config_.wifi_bssid_pin_setter(pin, message);
+    return config_.wifi_bssid_pin_setter(pin, command.wifi_bssid_force, message);
   }
   return apply_wifi_bssid_pin(pin, message);
 }

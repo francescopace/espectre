@@ -106,6 +106,22 @@ void test_wifi_bssid_pin_service_commits_only_after_verified_ipv4(void) {
   TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", reloaded.stored_bssid().c_str());
 }
 
+void test_wifi_bssid_pin_service_force_reapplies_the_active_bssid(void) {
+  set_connected_station("MatterLab", "AA:BB:CC:DD:EE:FF");
+  WifiBssidPinService service;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(make_config()));
+
+  std::string message;
+  TEST_ASSERT_TRUE(service.request_update("AA:BB:CC:DD:EE:FF", &message));
+  TEST_ASSERT_TRUE(g_applied_pins.empty());
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::APPLIED);
+
+  TEST_ASSERT_TRUE(service.request_update("AA:BB:CC:DD:EE:FF", &message, true));
+  TEST_ASSERT_EQUAL(1, static_cast<int>(g_applied_pins.size()));
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", g_applied_pins.back().c_str());
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::VERIFYING);
+}
+
 void test_wifi_bssid_pin_service_restores_the_previous_pin_after_timeout(void) {
   seed_pin("MatterLab", "11:22:33:44:55:66");
   WifiBssidPinService service;
@@ -265,6 +281,7 @@ void test_wifi_bssid_pin_service_keeps_services_stopped_when_rollback_times_out(
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_bssid_pin_service_commits_only_after_verified_ipv4);
+  RUN_TEST(test_wifi_bssid_pin_service_force_reapplies_the_active_bssid);
   RUN_TEST(test_wifi_bssid_pin_service_restores_the_previous_pin_after_timeout);
   RUN_TEST(test_wifi_bssid_pin_service_reapplies_a_stored_pin_after_boot);
   RUN_TEST(test_wifi_bssid_pin_service_keeps_a_pin_dormant_when_matter_changes_ssid);

@@ -760,8 +760,11 @@
     }
 
     async function cfgApply(action, successMessage, method, params = {}, verify) {
+        const resolvedSuccessMessage = (result = {}) => (
+            typeof successMessage === 'function' ? successMessage(result) : successMessage
+        );
         if (conn.mode === 'demo') {
-            toast(successMessage + ' (demo — nothing written)');
+            toast(resolvedSuccessMessage() + ' (demo — nothing written)');
             return true;
         }
         if (!directClient?.connected) {
@@ -770,8 +773,8 @@
             return false;
         }
         try {
-            await directClient.request(method, params);
-            toast(successMessage);
+            const result = await directClient.request(method, params);
+            toast(resolvedSuccessMessage(result));
             track('configure_change', { action, result: 'accepted' });
             if (verify) beginConfigVerification(action, verify);
             return true;
@@ -868,10 +871,16 @@
     async function cfgSaveWifi() {
         const bssid = cfgValue('cfg-bssid').trim().toUpperCase();
         const method = bssid ? 'set_wifi_bssid' : 'clear_wifi_bssid';
-        const params = bssid ? { bssid } : {};
+        const params = bssid ? { bssid, force: false } : {};
         await cfgApply(
             method,
-            bssid ? 'Wi-Fi preference saved. The device is reconnecting.' : 'Automatic Wi-Fi selection saved. The device is reconnecting.',
+            (acknowledgement) => {
+                if (!bssid) return 'Automatic Wi-Fi selection saved. The device is reconnecting.';
+                const currentBssid = String(acknowledgement?.current_bssid || '').toUpperCase();
+                return currentBssid === bssid
+                    ? 'Wi-Fi preference saved. This access point is already active.'
+                    : 'Wi-Fi preference saved. The device is reconnecting.';
+            },
             method, params,
             (snapshot) => String(snapshot.wifi_bssid || '').toUpperCase() === bssid);
     }

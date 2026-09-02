@@ -126,6 +126,10 @@ target_link_libraries(espectre_runtime_testlib
         espectre_test_mocks
         improv_wifi_testlib
 )
+target_compile_definitions(espectre_runtime_testlib
+    PRIVATE
+        ESPECTRE_HOST_WIFI_CONTROL_TEST=1
+)
 
 add_library(espectre_runtime_invalid_kconfig_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"

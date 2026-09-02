@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <cstring>
 
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
 #include <esp_netif.h>
 #include <esp_wifi.h>
 #endif
@@ -19,7 +19,7 @@ namespace espectre {
 
 DirectWifiSnapshot read_direct_wifi_snapshot() {
   DirectWifiSnapshot snapshot;
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
   wifi_config_t config{};
   if (esp_wifi_get_config(WIFI_IF_STA, &config) == ESP_OK) {
     const char *ssid = reinterpret_cast<const char *>(config.sta.ssid);
@@ -52,7 +52,7 @@ DirectWifiSnapshot read_direct_wifi_snapshot() {
 }
 
 bool read_direct_wifi_connected() {
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
   esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   esp_netif_ip_info_t ip_info{};
   return station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK &&

@@ -133,8 +133,17 @@ void ESpectreComponent::setup() {
               &this->peer_discovery_,
               [this]() { return this->runtime_.diagnostics_sample(); },
               &this->runtime_events_,
-              [this](const std::string &bssid, std::string *message) {
-                return this->begin_wifi_bssid_pin_update_(bssid, message);
+              [this](const std::string &bssid, bool force, std::string *message) {
+                return this->begin_wifi_bssid_pin_update_(bssid, force, message);
+              },
+              [this](std::string *message) {
+                const bool available =
+                    this->wifi_bssid_apply_mode_ == WifiBssidApplyMode::NONE &&
+                    !this->wifi_bssid_recovery_pending_;
+                if (!available && message != nullptr) {
+                  *message = "Wi-Fi BSSID update already in progress";
+                }
+                return available;
               },
           },
           [this]() { this->sync_direct_config_(); })) {
@@ -316,13 +325,14 @@ bool ESpectreComponent::apply_esphome_wifi_bssid_pin_(const std::string &bssid,
 }
 
 bool ESpectreComponent::begin_wifi_bssid_pin_update_(const std::string &bssid,
+                                                     bool force,
                                                      std::string *message) {
   if (this->wifi_bssid_apply_mode_ != WifiBssidApplyMode::NONE ||
       this->wifi_bssid_recovery_pending_) {
     if (message != nullptr) *message = "Wi-Fi BSSID update already in progress";
     return false;
   }
-  if (!bssid.empty() && bssid_equals(this->wifi_associated_bssid_, bssid)) {
+  if (!force && !bssid.empty() && bssid_equals(this->wifi_associated_bssid_, bssid)) {
     return this->persist_wifi_bssid_pin_(bssid, message);
   }
   if (!bssid.empty() && bssid_equals(this->wifi_bssid_pin_, bssid)) {

@@ -157,6 +157,7 @@ describe('website tool contracts', () => {
         assert.match(styles, /\.wifi-link-row \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
         assert.match(configure, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
         assert.match(configure, /id="cfg-bssid-help"[^>]*aria-live="polite"/);
+        assert.doesNotMatch(configure, /id="cfg-bssid-force"/);
         assert.doesNotMatch(configure, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
@@ -172,6 +173,7 @@ describe('website tool contracts', () => {
         assert.match(app, /\.js-wifi-scan'\)\.addEventListener\('click', cfgRefreshWifiAccessPoints\)/);
         assert.doesNotMatch(app, /void cfgRefreshWifiAccessPoints\(\)/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
+        assert.match(app, /acknowledgement\?\.current_bssid/);
         assert.match(app, /new Option\(`\$\{bssid\} · \$\{rssi\} dBm`, bssid\)/);
         assert.match(app, /if \(!select \|\| !scanButton\) return;/);
         assert.match(index, /class="conn-dropdown-meta"/);
@@ -367,7 +369,7 @@ describe('website tool contracts', () => {
         assert.doesNotMatch(staticPageBuilder, /location\.replace\(destination\)/);
         assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
-        assert.match(app, /const params = bssid \? \{ bssid \} : \{\}/);
+        assert.match(app, /const params = bssid \? \{ bssid, force: false \} : \{\}/);
         assert.match(app, /String\(snapshot\.wifi_bssid \|\| ''\)\.toUpperCase\(\) === bssid/);
         assert.match(app, /directClient\.request\('clear_wifi_config', \{\}, \{ timeoutMs: 3000 \}\)/);
         assert.match(app, /teardownConnection\('wifi_cleared'\)/);

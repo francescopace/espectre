@@ -186,7 +186,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   MdnsTxtRecords mdns_txt_records_() const;
   bool set_device_label_(const std::string &device_label, std::string *message);
   bool apply_esphome_wifi_bssid_pin_(const std::string &bssid, std::string *message);
-  bool begin_wifi_bssid_pin_update_(const std::string &bssid, std::string *message);
+  bool begin_wifi_bssid_pin_update_(const std::string &bssid, bool force, std::string *message);
   bool persist_wifi_bssid_pin_(const std::string &bssid, std::string *message);
   void handle_wifi_bssid_association_(const std::string &associated_bssid);
   void process_wifi_bssid_apply_();

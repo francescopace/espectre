@@ -172,7 +172,7 @@ Direct methods are grouped by capability:
 | Base reads | `capabilities`, `info`, `status`, `config` | Available to every compatible client. Every frontend exposes `runtime`, `device`, and read-only `wifi` sections; Native additionally exposes non-secret MQTT configuration. Passwords are never returned. |
 | Diagnostics | `diagnostics` | Returns the latest bounded runtime and transport diagnostics sample. |
 | Device configuration | `set_device_label` | Native persists its saved device label, Matter maps it to the Basic Information `NodeLabel`, and ESPHome persists an ESPectre-only override without changing its hostname, YAML, or entity IDs. The shared maximum is 32 UTF-8 bytes. |
-| Wi-Fi access-point selection | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_bssid` | Native, Matter, and ESPHome return BSSID, channel, and RSSI only for scan results matching the configured SSID. `set_wifi_bssid` pins one BSSID; `clear_wifi_bssid` restores automatic access-point selection without removing the SSID or password. All three C++ frontends suspend sensing, verify the new association and address acquisition, persist the pin, reset the CSI session, and recalibrate without an intentional reboot. Failed updates restore the last-known-good selection. ESPHome keeps its pin separate from YAML. Matter keeps its override separate from Matter-owned credentials, binds it to the commissioned SSID, and reapplies it after restart only while that SSID matches. |
+| Wi-Fi access-point selection | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_bssid` | Native, Matter, and ESPHome return BSSID, channel, and RSSI only for scan results matching the configured SSID. `set_wifi_bssid` pins one BSSID and accepts optional Boolean `force`, which defaults to `false`. Its successful acknowledgement returns the pre-apply association as `data.current_bssid`. When that value matches the requested BSSID, the default behavior persists the pin without reassociation; `force=true` performs the reassociation anyway. `clear_wifi_bssid` restores automatic access-point selection without removing the SSID or password. Reassociations suspend sensing, verify the new association and address acquisition, persist the pin, reset the CSI session, and recalibrate without an intentional reboot. Failed updates restore the last-known-good selection. ESPHome keeps its pin separate from YAML. Matter keeps its override separate from Matter-owned credentials, binds it to the commissioned SSID, and reapplies it after restart only while that SSID matches. |
 | Native-owned configuration | `clear_wifi_config`, `set_mqtt_config`, `clear_mqtt_config` | Native alone owns removal of provisioned Wi-Fi credentials, MQTT settings, and write-only MQTT secrets. `clear_wifi_config` disconnects Direct HTTP and returns the device to Improv Serial provisioning. |
 | Sensing | `set_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `set_sensing` carries the required Boolean `enabled` parameter and does not require MQTT. |
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
@@ -501,6 +501,18 @@ Set or clear the persisted user-facing label on frontends that advertise device 
   "command": "set_device_label",
   "device_label": "Living Room"
 }
+```
+
+Pin the station to one access point. Omit `force` or set it to `false` to avoid reassociation when the requested BSSID is already active:
+
+```json
+{"protocol_version":"1.0","command_id":"cmd-bssid","command":"set_wifi_bssid","bssid":"E6:FA:C4:20:19:DE","force":false}
+```
+
+A successful acknowledgement reports the association observed before applying the request:
+
+```json
+{"protocol_version":"1.0","device_id":"0123456789abcdef","command_id":"cmd-bssid","command":"set_wifi_bssid","accepted":true,"code":"ok","message":"Wi-Fi BSSID update accepted","data":{"current_bssid":"E6:FA:C4:20:19:DE"}}
 ```
 
 Native republishes its retained `info` payload and Home Assistant discovery after accepting the change.

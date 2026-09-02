@@ -309,6 +309,7 @@ typedef struct {
   int set_config_sequences[4];
   int get_ap_info_call_count;
   esp_err_t get_ap_info_result;
+  wifi_ap_record_t current_ap_info;
   esp_err_t scan_start_result;
   int scan_start_call_count;
   bool last_scan_block;
@@ -643,8 +644,7 @@ static inline esp_err_t esp_wifi_get_channel(uint8_t *primary,
 static inline esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap_info) {
   g_esp_wifi_mock.get_ap_info_call_count++;
   if (ap_info && g_esp_wifi_mock.get_ap_info_result == ESP_OK) {
-    ap_info->rssi = -55;
-    ap_info->primary = 6;
+    *ap_info = g_esp_wifi_mock.current_ap_info;
   }
   return g_esp_wifi_mock.get_ap_info_result;
 }

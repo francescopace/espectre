@@ -61,9 +61,12 @@ struct DirectHttpServiceDiagnostics {
 class IDirectHttpService {
  public:
   using RequestHandler = std::function<std::string(const DirectRequest &request)>;
+  using ResponseSentCallback = std::function<void(bool sent)>;
   struct DeferredRequestResult {
     bool deferred{false};
     std::string response;
+    /** Runs on the frontend task after the response send attempt completes. */
+    ResponseSentCallback response_sent_callback;
   };
   using DeferredRequestHandler =
       std::function<DeferredRequestResult(uint64_t request_token, const DirectRequest &request)>;

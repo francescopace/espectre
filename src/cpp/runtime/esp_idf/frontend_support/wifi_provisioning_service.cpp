@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "espectre_log.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 #include "protocol_json.h"
 #include "runtime_config_utils.h"
 #include "runtime_time.h"
@@ -272,12 +273,29 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       set_message(error.c_str());
       return false;
     }
-    if (pairs.size() != 1U || pairs.front().first != "bssid") {
-      set_message("set Wi-Fi BSSID requires exactly one bssid field");
+    std::string requested_bssid;
+    bool force = false;
+    bool has_bssid = false;
+    bool has_force = false;
+    for (const auto &pair : pairs) {
+      if (pair.first == "bssid" && !has_bssid) {
+        requested_bssid = pair.second;
+        has_bssid = true;
+      } else if (pair.first == "force" && !has_force &&
+                 (pair.second == "true" || pair.second == "false")) {
+        force = pair.second == "true";
+        has_force = true;
+      } else {
+        set_message("set Wi-Fi BSSID requires bssid and optional boolean force fields");
+        return false;
+      }
+    }
+    if (!has_bssid) {
+      set_message("set Wi-Fi BSSID requires bssid and optional boolean force fields");
       return false;
     }
     StoredWifiConfig updated = wifi_config_;
-    if (!assign_wifi_config_field("bssid", pairs.front().second, &updated, &error)) {
+    if (!assign_wifi_config_field("bssid", requested_bssid, &updated, &error)) {
       set_message(error.c_str());
       return false;
     }
@@ -293,6 +311,24 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       }
     }
     updated.has_saved_config = true;
+    const DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
+    if (!force && !updated.bssid.empty() && wifi.connected &&
+        wifi.bssid == updated.bssid) {
+      const esp_err_t save_err = save_stored_wifi_config(updated);
+      if (save_err != ESP_OK) {
+        set_message(esp_err_to_name(save_err));
+        return false;
+      }
+      wifi_config_ = std::move(updated);
+      last_good_config_ = wifi_config_;
+      candidate_config_ = StoredWifiConfig{};
+      refresh_cached_strings_();
+      set_apply_state_(WifiProvisioningApplyState::APPLIED,
+                       "Wi-Fi BSSID pin verified and saved");
+      notify_changed_();
+      set_message(apply_message_.c_str());
+      return true;
+    }
     return begin_candidate_apply_(std::move(updated), message);
   }
 

@@ -264,6 +264,9 @@ struct EspectreCommand {
   bool has_detector{false};
   std::string wifi_bssid;
   bool has_wifi_bssid{false};
+  /** Force reassociation even when `wifi_bssid` is already active. */
+  bool wifi_bssid_force{false};
+  bool has_wifi_bssid_force{false};
   std::string mqtt_host;
   std::string mqtt_username;
   std::string mqtt_password;

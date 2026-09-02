@@ -154,7 +154,8 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
           return false;
         }
         const std::string encoded = "SET_WIFI_BSSID:bssid=" + encode_urlencoded_component(wifi_command.wifi_bssid);
-        return this->owner_.provisioning_command_callback_(encoded, message);
+        return this->owner_.provisioning_command_callback_(
+            encoded + (wifi_command.wifi_bssid_force ? "&force=true" : ""), message);
       },
       [this](const EspectreCommand &mqtt_command, bool clear, std::string *message) {
         EspectreDeviceConfig updated = this->owner_.device_config_;

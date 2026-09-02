@@ -9,6 +9,7 @@
  */
 #include "test_harness.h"
 
+#include <algorithm>
 #include <memory>
 #define private public
 #define protected public
@@ -848,6 +849,63 @@ void test_esphome_wifi_bssid_pin_persists_across_setup(void) {
   TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", reboot.wifi_bssid_pin_.c_str());
 }
 
+void test_esphome_bssid_mutation_starts_only_after_direct_acknowledgement(void) {
+  ESpectreComponentProbe component;
+  component.runtime_.config().device_id = 0x112233445566ULL;
+  component.setup();
+  const int initial_set_config_calls = g_esp_wifi_mock.set_config_call_count;
+
+  auto undelivered = component.direct_bridge_.handle_deferred_request_(
+      1U, DirectRequest{"pin-lost", "set_wifi_bssid",
+                        "{\"bssid\":\"AA:BB:CC:DD:EE:FF\"}"});
+  TEST_ASSERT_TRUE(undelivered.response.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL(initial_set_config_calls, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_TRUE(static_cast<bool>(undelivered.response_sent_callback));
+  undelivered.response_sent_callback(false);
+  TEST_ASSERT_EQUAL(initial_set_config_calls, g_esp_wifi_mock.set_config_call_count);
+
+  auto delivered = component.direct_bridge_.handle_deferred_request_(
+      2U, DirectRequest{"pin-ack", "set_wifi_bssid",
+                        "{\"bssid\":\"AA:BB:CC:DD:EE:FF\"}"});
+  TEST_ASSERT_EQUAL(initial_set_config_calls, g_esp_wifi_mock.set_config_call_count);
+  auto concurrent = component.direct_bridge_.handle_deferred_request_(
+      3U, DirectRequest{"pin-busy", "set_wifi_bssid",
+                        "{\"bssid\":\"11:22:33:44:55:66\"}"});
+  TEST_ASSERT_TRUE(concurrent.response.find("\"code\":\"unavailable\"") !=
+                   std::string::npos);
+  delivered.response_sent_callback(true);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_call_count > initial_set_config_calls);
+}
+
+void test_esphome_bssid_force_controls_reassociation_and_ack_reports_current_bssid(void) {
+  ESpectreComponentProbe component;
+  component.runtime_.config().device_id = 0x112233445566ULL;
+  component.setup();
+  component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
+  const uint8_t current_bssid[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  std::copy(std::begin(current_bssid), std::end(current_bssid),
+            g_esp_wifi_mock.current_ap_info.bssid);
+  const int initial_set_config_calls = g_esp_wifi_mock.set_config_call_count;
+
+  auto unchanged = component.direct_bridge_.handle_deferred_request_(
+      4U, DirectRequest{"pin-same", "set_wifi_bssid",
+                        "{\"bssid\":\"AA:BB:CC:DD:EE:FF\"}"});
+  TEST_ASSERT_TRUE(
+      unchanged.response.find("\"current_bssid\":\"AA:BB:CC:DD:EE:FF\"") !=
+      std::string::npos);
+  unchanged.response_sent_callback(true);
+  TEST_ASSERT_EQUAL(initial_set_config_calls, g_esp_wifi_mock.set_config_call_count);
+
+  auto forced = component.direct_bridge_.handle_deferred_request_(
+      5U, DirectRequest{"pin-force", "set_wifi_bssid",
+                        "{\"bssid\":\"AA:BB:CC:DD:EE:FF\",\"force\":true}"});
+  TEST_ASSERT_TRUE(
+      forced.response.find("\"current_bssid\":\"AA:BB:CC:DD:EE:FF\"") !=
+      std::string::npos);
+  forced.response_sent_callback(true);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_call_count > initial_set_config_calls);
+}
+
 void test_esphome_wifi_bssid_pin_retries_after_bounded_enforcement_failure(void) {
   esphome::ESPPreferences preferences;
   esphome::global_preferences = &preferences;
@@ -896,11 +954,11 @@ void test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails(void) {
     ESpectreComponentProbe component;
     component.setup();
     component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
-    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("AA:BB:CC:DD:EE:FF", nullptr));
+    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("AA:BB:CC:DD:EE:FF", false, nullptr));
     TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", component.wifi_bssid_pin_.c_str());
 
     component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
-    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("11:22:33:44:55:66", nullptr));
+    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("11:22:33:44:55:66", false, nullptr));
     esphome::g_esphome_preference_save_success = false;
     complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
     TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", component.wifi_bssid_pin_.c_str());
@@ -938,6 +996,8 @@ int process(void) {
   RUN_TEST(test_wifi_bssid_pin_rollback_keeps_requested_config_when_connect_fails);
   RUN_TEST(test_wifi_bssid_pin_rollback_does_not_reconnect_candidate_when_config_update_fails);
   RUN_TEST(test_esphome_wifi_bssid_pin_persists_across_setup);
+  RUN_TEST(test_esphome_bssid_mutation_starts_only_after_direct_acknowledgement);
+  RUN_TEST(test_esphome_bssid_force_controls_reassociation_and_ack_reports_current_bssid);
   RUN_TEST(test_esphome_wifi_bssid_pin_retries_after_bounded_enforcement_failure);
   RUN_TEST(test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails);
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);
