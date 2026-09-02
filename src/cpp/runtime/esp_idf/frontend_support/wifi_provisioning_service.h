@@ -34,7 +34,6 @@ struct WifiProvisioningDefaults {
 enum class WifiProvisioningApplyState : uint8_t {
   IDLE = 0,
   VERIFYING,
-  VERIFYING_WITHOUT_BSSID,
   ROLLING_BACK,
   APPLIED,
   ROLLED_BACK,

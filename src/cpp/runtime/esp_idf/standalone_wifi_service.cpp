@@ -314,6 +314,7 @@ esp_err_t StandaloneWifiService::start() {
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
   wifi_retry_count_ = 0;
+  station_restart_pending_ = false;
   const esp_err_t err = esp_wifi_start();
   wifi_started_ = err == ESP_OK;
   return err;
@@ -413,35 +414,18 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
 
-  if (wifi_started_) {
-    const esp_err_t disconnect_err = esp_wifi_disconnect();
-    if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
-      ESPECTRE_LOGW(TAG, "esp_wifi_disconnect before reconfigure failed: %s", esp_err_to_name(disconnect_err));
-    }
-  }
-
-  esp_err_t err = configure_station_();
-  if (err != ESP_OK) {
-    return err;
-  }
-
   if (!wifi_started_) {
-    return ESP_OK;
+    return configure_station_();
   }
 
-  if (!has_text(config_.ssid)) {
-    ESPECTRE_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
-    return ESP_OK;
-  }
-
-  wifi_connect_requested_ = true;
-  err = esp_wifi_connect();
-  if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-    ESPECTRE_LOGE(TAG, "esp_wifi_connect after reconfigure failed: %s", esp_err_to_name(err));
-    wifi_connect_requested_ = false;
+  station_restart_pending_ = true;
+  const esp_err_t err = esp_wifi_stop();
+  if (err != ESP_OK) {
+    station_restart_pending_ = false;
+    ESPECTRE_LOGE(TAG, "esp_wifi_stop before reconfigure failed: %s", esp_err_to_name(err));
     return err;
   }
-  ESPECTRE_LOGI(TAG, "Wi-Fi station config updated; reconnecting");
+  ESPECTRE_LOGI(TAG, "Wi-Fi station state machine restart requested");
   return ESP_OK;
 }
 
@@ -465,6 +449,7 @@ void StandaloneWifiService::shutdown() {
     wifi_lifecycle_.unregister_handlers();
   }
   setup_complete_ = false;
+  station_restart_pending_ = false;
   scan_pending_ = false;
   scan_callback_ = {};
   pending_events_.clear();
@@ -514,6 +499,20 @@ void StandaloneWifiService::handle_wifi_stopped_() {
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
   clear_cached_ip_info_();
+  if (!station_restart_pending_) {
+    return;
+  }
+
+  station_restart_pending_ = false;
+  const esp_err_t config_err = configure_station_();
+  if (config_err != ESP_OK) {
+    ESPECTRE_LOGE(TAG, "Wi-Fi station reconfigure failed after stop: %s", esp_err_to_name(config_err));
+  }
+  defer_connect_once_after_start_ = true;
+  const esp_err_t start_err = esp_wifi_start();
+  if (start_err != ESP_OK) {
+    ESPECTRE_LOGE(TAG, "esp_wifi_start after reconfigure failed: %s", esp_err_to_name(start_err));
+  }
 }
 
 void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {

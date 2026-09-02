@@ -155,6 +155,34 @@ void test_wifi_config_store_round_trips_and_clears_saved_values(void) {
   TEST_ASSERT_FALSE(loaded.has_saved_band_policy);
 }
 
+void test_pending_wifi_config_store_round_trips_without_replacing_confirmed(void) {
+  StoredWifiConfig confirmed;
+  confirmed.ssid = "KnownGood";
+  confirmed.password = "known-good-secret";
+  TEST_ASSERT_EQUAL(ESP_OK, save_stored_wifi_config(confirmed));
+
+  StoredWifiConfig candidate = confirmed;
+  candidate.bssid = "AA:BB:CC:DD:EE:FF";
+  candidate.channel = 6U;
+  TEST_ASSERT_EQUAL(ESP_OK, save_pending_wifi_config(candidate));
+
+  StoredWifiConfig loaded_candidate;
+  bool has_pending = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_pending_wifi_config(&loaded_candidate, &has_pending));
+  TEST_ASSERT_TRUE(has_pending);
+  TEST_ASSERT_EQUAL_STRING("KnownGood", loaded_candidate.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", loaded_candidate.bssid.c_str());
+
+  StoredWifiConfig loaded_confirmed;
+  TEST_ASSERT_EQUAL(ESP_OK, load_stored_wifi_config(&loaded_confirmed));
+  TEST_ASSERT_EQUAL_STRING("KnownGood", loaded_confirmed.ssid.c_str());
+  TEST_ASSERT_TRUE(loaded_confirmed.bssid.empty());
+
+  TEST_ASSERT_EQUAL(ESP_OK, clear_pending_wifi_config());
+  TEST_ASSERT_EQUAL(ESP_OK, load_pending_wifi_config(&loaded_candidate, &has_pending));
+  TEST_ASSERT_FALSE(has_pending);
+}
+
 void test_wifi_config_store_marks_saved_when_only_ssid_exists(void) {
   nvs_mock_put_str("wifi_ssid", "SSIDOnly");
 
@@ -322,6 +350,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_config_store_handles_missing_namespace_and_invalid_args);
   RUN_TEST(test_wifi_config_store_round_trips_and_clears_saved_values);
+  RUN_TEST(test_pending_wifi_config_store_round_trips_without_replacing_confirmed);
   RUN_TEST(test_wifi_config_store_marks_saved_when_only_ssid_exists);
   RUN_TEST(test_wifi_config_store_rejects_an_invalid_saved_band_policy);
   RUN_TEST(test_device_config_store_handles_missing_namespace_and_invalid_args);

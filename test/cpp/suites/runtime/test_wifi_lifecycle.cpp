@@ -575,12 +575,27 @@ void test_standalone_wifi_service_update_station_config_handles_setup_and_reconn
   StandaloneWifiConfig empty = config;
   empty.ssid = "";
   TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(empty));
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.stop_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.start_call_count);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  service.loop();
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.start_call_count);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  service.loop();
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
 
   TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(config));
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.stop_call_count);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  service.loop();
+  TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.start_call_count);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  service.loop();
+  TEST_ASSERT_TRUE(StandaloneWifiServiceTestAccess::deferred_connect_fallback_pending(service));
+  StandaloneWifiServiceTestAccess::expire_deferred_connect_fallback(service);
+  service.loop();
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_ps_call_count);
 }
 

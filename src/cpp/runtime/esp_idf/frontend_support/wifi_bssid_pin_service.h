@@ -40,8 +40,7 @@ const char *wifi_bssid_pin_apply_state_name(WifiBssidPinApplyState state);
 struct WifiBssidPinServiceConfig {
   using ApplyCallback = std::function<bool(const std::string &bssid,
                                            std::string *message,
-                                           bool *station_transition_started,
-                                           bool restore_current_config_on_failure)>;
+                                           bool *station_transition_started)>;
   using StationStateGetter = std::function<WifiBssidPinStationState()>;
   using ChangeCallback = std::function<void()>;
 
@@ -78,6 +77,9 @@ class WifiBssidPinService {
   void begin_rollback_(const char *reason);
   void finish_apply_(WifiBssidPinApplyState state, const char *message);
   esp_err_t load_stored_pin_();
+  esp_err_t persist_pending_pin_(const std::string &ssid, const std::string &bssid);
+  esp_err_t clear_pending_pin_();
+  esp_err_t commit_candidate_pin_();
   esp_err_t persist_pin_(const std::string &ssid, const std::string &bssid);
   esp_err_t clear_stored_pin_();
 
@@ -89,11 +91,14 @@ class WifiBssidPinService {
   std::string candidate_ssid_;
   std::string candidate_bssid_;
   std::string previous_bssid_;
+  std::string pending_ssid_;
+  std::string pending_bssid_;
   uint32_t apply_started_ms_{0U};
   bool initialized_{false};
   bool station_refresh_pending_{false};
   bool persist_on_success_{false};
   bool reconfigure_active_{false};
+  bool pending_pin_loaded_{false};
 };
 
 }  // namespace espectre

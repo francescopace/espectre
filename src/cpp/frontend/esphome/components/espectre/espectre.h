@@ -188,6 +188,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   bool apply_esphome_wifi_bssid_pin_(const std::string &bssid, std::string *message);
   bool begin_wifi_bssid_pin_update_(const std::string &bssid, bool force, std::string *message);
   bool persist_wifi_bssid_pin_(const std::string &bssid, std::string *message);
+  bool stage_wifi_bssid_pin_(const std::string &bssid, std::string *message);
   void handle_wifi_bssid_association_(const std::string &associated_bssid);
   void process_wifi_bssid_apply_();
   void finish_wifi_bssid_apply_();
@@ -210,9 +211,12 @@ class ESpectreComponent : public Component, public IRuntimeListener
   ESPPreferenceObject device_label_preference_;
   std::string device_label_override_;
   struct StoredWifiBssid {
-    uint8_t version{1U};
+    uint8_t version{2U};
     uint8_t pinned{0U};
+    uint8_t pending{0U};
+    uint8_t reserved{0U};
     std::array<char, 18> value{};
+    std::array<char, 18> pending_value{};
   };
   ESPPreferenceObject wifi_bssid_preference_;
   std::string wifi_bssid_pin_;
@@ -226,15 +230,15 @@ class ESpectreComponent : public Component, public IRuntimeListener
   std::string wifi_bssid_apply_previous_pin_;
   std::string wifi_associated_bssid_;
   bool wifi_has_ipv4_{false};
-  uint8_t wifi_bssid_apply_attempts_{0U};
   uint32_t wifi_bssid_apply_started_ms_{0U};
-  uint32_t wifi_bssid_apply_last_attempt_ms_{0U};
-  uint32_t wifi_bssid_enforce_last_failure_ms_{0U};
-  bool wifi_bssid_enforce_backoff_active_{false};
-  bool wifi_bssid_apply_saw_disconnect_{false};
   bool wifi_bssid_apply_resume_sensing_{false};
+  bool wifi_bssid_apply_transition_started_{false};
+  bool wifi_bssid_pending_loaded_{false};
+  std::string wifi_bssid_pending_target_;
   bool wifi_bssid_recovery_pending_{false};
+  bool wifi_bssid_recovery_journal_pending_{false};
   bool wifi_bssid_recovery_resume_sensing_{false};
+  std::string wifi_bssid_recovery_target_;
   uint32_t wifi_bssid_recovery_started_ms_{0U};
 
   SensorPublisher sensor_publisher_;

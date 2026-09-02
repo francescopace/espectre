@@ -31,6 +31,9 @@ struct StoredWifiConfig {
 esp_err_t load_stored_wifi_config(StoredWifiConfig *config);
 esp_err_t save_stored_wifi_config(const StoredWifiConfig &config);
 esp_err_t clear_stored_wifi_config();
+esp_err_t load_pending_wifi_config(StoredWifiConfig *config, bool *has_pending);
+esp_err_t save_pending_wifi_config(const StoredWifiConfig &config);
+esp_err_t clear_pending_wifi_config();
 
 esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_saved_config);
 esp_err_t save_stored_device_config(const EspectreDeviceConfig &config);

@@ -106,6 +106,7 @@ class StandaloneWifiService {
   bool defer_connect_once_after_start_{false};
   bool deferred_connect_fallback_pending_{false};
   bool wifi_started_{false};
+  bool station_restart_pending_{false};
   bool scan_pending_{false};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   int wifi_retry_count_{0};

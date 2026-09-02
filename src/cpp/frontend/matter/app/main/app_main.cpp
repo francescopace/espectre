@@ -126,16 +126,15 @@ espectre::WifiBssidPinStationState matter_wifi_station_state() {
 
 bool apply_matter_wifi_bssid_pin(const std::string &bssid,
                                  std::string *message,
-                                 bool *station_transition_started,
-                                 bool restore_current_config_on_failure) {
+                                 bool *station_transition_started) {
   const esp_err_t ram_err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (ram_err != ESP_OK) {
     if (message != nullptr) *message = esp_err_to_name(ram_err);
     return false;
   }
 
-  const bool applied = espectre::apply_wifi_bssid_pin(
-      bssid, message, station_transition_started, restore_current_config_on_failure);
+  const bool applied =
+      espectre::apply_wifi_bssid_pin(bssid, message, station_transition_started);
   const esp_err_t flash_err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
   if (flash_err != ESP_OK) {
     const std::string storage_error =

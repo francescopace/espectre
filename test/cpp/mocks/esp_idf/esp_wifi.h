@@ -292,7 +292,11 @@ typedef struct {
   int init_call_count;
   int set_storage_call_count;
   int set_mode_call_count;
+  esp_err_t start_results[4];
+  int start_result_count;
   int start_call_count;
+  esp_err_t stop_result;
+  int stop_call_count;
   esp_err_t connect_results[4];
   int connect_result_count;
   int connect_call_count;
@@ -374,11 +378,18 @@ static inline esp_err_t esp_wifi_get_mode(wifi_mode_t *mode) {
 }
 
 static inline esp_err_t esp_wifi_start(void) {
+  const int index = g_esp_wifi_mock.start_call_count;
+  const esp_err_t result = index < g_esp_wifi_mock.start_result_count
+                               ? g_esp_wifi_mock.start_results[index]
+                               : ESP_OK;
   g_esp_wifi_mock.start_call_count++;
-  return ESP_OK;
+  return result;
 }
 
-static inline esp_err_t esp_wifi_stop(void) { return ESP_OK; }
+static inline esp_err_t esp_wifi_stop(void) {
+  g_esp_wifi_mock.stop_call_count++;
+  return g_esp_wifi_mock.stop_result;
+}
 
 static inline esp_err_t esp_wifi_connect(void) {
   const int index = g_esp_wifi_mock.connect_call_count;

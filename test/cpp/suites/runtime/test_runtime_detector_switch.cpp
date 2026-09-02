@@ -58,16 +58,11 @@ class DetectorListener : public IRuntimeListener {
 
 bool accept_raw_packet(void *, const RawCsiPacketView &) { return true; }
 
-int restart_calls = 0;
-
-void record_restart(void) { restart_calls++; }
-
 }  // namespace
 
 void setUp(void) {
   nvs_mock_reset();
   esp_timer_mock::reset();
-  restart_calls = 0;
 }
 void tearDown(void) {}
 
@@ -288,7 +283,6 @@ void test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture(void) {
 
   runtime.set_services_armed(true);
   TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(runtime.csi_rearm_verification_pending_);
   TEST_ASSERT_TRUE(runtime.wifi_ready_);
   TEST_ASSERT_EQUAL(0x0101A8C0U, runtime.wifi_ip_info_.ip.addr);
   TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
@@ -300,126 +294,6 @@ void test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture(void) {
   TEST_ASSERT_EQUAL(0U, runtime.wifi_ip_info_.ip.addr);
   TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
   runtime.csi_traffic_service_.stop();
-}
-
-void test_runtime_live_csi_rearm_verification_accepts_first_callback(void) {
-  RuntimeConfig config;
-  EspIdfRuntime runtime(config);
-  runtime.restart_callback_ = &record_restart;
-  runtime.csi_rearm_verification_pending_ = true;
-  runtime.csi_rearm_callback_baseline_ = 0U;
-  runtime.csi_pipeline_.capture_service_.callback_invocations_.store(
-      1U, std::memory_order_relaxed);
-
-  runtime.process_csi_rearm_verification_();
-
-  TEST_ASSERT_FALSE(runtime.csi_rearm_verification_pending_);
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(0, restart_calls);
-}
-
-void test_runtime_live_csi_rearm_immediate_reboot_skips_capture_and_traffic(
-    void) {
-  RuntimeConfig config;
-  EspIdfRuntime runtime(config);
-  runtime.restart_callback_ = &record_restart;
-  runtime.setup_complete_ = true;
-  runtime.services_armed_ = true;
-  runtime.csi_session_started_once_ = true;
-  runtime.csi_rearm_immediate_reboot_enabled_ = true;
-  esp_netif_ip_info_t ip_info{};
-  ip_info.ip.addr = 0x0101A8C0U;
-  ip_info.gw.addr = 0x0101A8C0U;
-
-  runtime.start_sensing_services_(ip_info);
-
-  TEST_ASSERT_FALSE(runtime.services_armed_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(runtime.csi_traffic_service_.is_running());
-  TEST_ASSERT_FALSE(runtime.csi_rearm_verification_pending_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(0, restart_calls);
-
-  runtime.loop();
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(1, restart_calls);
-}
-
-void test_runtime_live_csi_start_restarts_traffic_before_rebooting(
-    void) {
-  RuntimeConfig config;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  runtime.restart_callback_ = &record_restart;
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
-  runtime.config_.csi_traffic_mode = CsiTrafficMode::INTERNAL;
-  runtime.wifi_ready_ = true;
-  runtime.services_armed_ = true;
-  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
-  runtime.csi_pipeline_.enabled_ = true;
-  runtime.csi_rearm_verification_pending_ = true;
-  runtime.csi_rearm_traffic_baseline_ = 0U;
-  runtime.csi_rearm_callback_baseline_ = 0U;
-  traffic_ingress.packets_received = 10U;
-  esp_timer_mock::reset(1000000, 0);
-
-  runtime.process_csi_rearm_verification_();
-  TEST_ASSERT_TRUE(runtime.csi_rearm_verification_pending_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_traffic_observed_);
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-
-  esp_timer_mock::advance(2999000);
-  traffic_ingress.packets_received = 20U;
-  runtime.process_csi_rearm_verification_();
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-
-  esp_timer_mock::advance(1000);
-  runtime.process_csi_rearm_verification_();
-  TEST_ASSERT_TRUE(runtime.services_armed_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_verification_pending_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_traffic_restart_attempted_);
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(0, restart_calls);
-
-  traffic_ingress.packets_received = 10U;
-  runtime.process_csi_rearm_verification_();
-  esp_timer_mock::advance(3000000);
-  traffic_ingress.packets_received = 20U;
-  runtime.process_csi_rearm_verification_();
-
-  TEST_ASSERT_FALSE(runtime.services_armed_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_restart_pending_);
-  runtime.loop();
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(1, restart_calls);
-  runtime.csi_traffic_service_.stop();
-}
-
-void test_runtime_live_csi_rearm_does_not_restart_after_a_stalled_traffic_burst(
-    void) {
-  RuntimeConfig config;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  runtime.restart_callback_ = &record_restart;
-  runtime.services_armed_ = true;
-  runtime.csi_rearm_verification_pending_ = true;
-  runtime.csi_rearm_traffic_baseline_ = 0U;
-  runtime.csi_rearm_callback_baseline_ = 0U;
-  traffic_generator.send_successes = 10U;
-  esp_timer_mock::reset(1000000, 0);
-
-  runtime.process_csi_rearm_verification_();
-  esp_timer_mock::advance(3000000);
-  runtime.process_csi_rearm_verification_();
-
-  TEST_ASSERT_TRUE(runtime.services_armed_);
-  TEST_ASSERT_TRUE(runtime.csi_rearm_verification_pending_);
-  TEST_ASSERT_FALSE(runtime.csi_rearm_traffic_observed_);
-  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
-  TEST_ASSERT_EQUAL(0, restart_calls);
 }
 
 void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
@@ -541,13 +415,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_diagnostics_cache_current_wifi_association);
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);
-  RUN_TEST(test_runtime_live_csi_rearm_verification_accepts_first_callback);
-  RUN_TEST(
-      test_runtime_live_csi_rearm_immediate_reboot_skips_capture_and_traffic);
-  RUN_TEST(
-      test_runtime_live_csi_start_restarts_traffic_before_rebooting);
-  RUN_TEST(
-      test_runtime_live_csi_rearm_does_not_restart_after_a_stalled_traffic_burst);
   RUN_TEST(test_runtime_raw_collection_restores_armed_and_disarmed_sensing);
   RUN_TEST(test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change);
   RUN_TEST(test_runtime_channel_change_cold_resets_ml_without_calibration);

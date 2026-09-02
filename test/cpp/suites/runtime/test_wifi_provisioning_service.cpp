@@ -105,6 +105,9 @@ WifiProvisioningDefaults make_defaults() {
 }
 
 void emit_got_ip(StandaloneWifiService *manager) {
+  const uint8_t candidate_bssid[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  std::copy(std::begin(candidate_bssid), std::end(candidate_bssid),
+            g_esp_wifi_mock.current_ap_info.bssid);
   ip_event_got_ip_t event{};
   event.ip_info.ip.addr = 0x0101A8C0U;
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
@@ -516,7 +519,7 @@ void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
   TEST_ASSERT_EQUAL(ESP_OK, manager.start());
   emit_got_ip(&manager);
-  const int disconnect_calls = g_esp_wifi_mock.disconnect_call_count;
+  const int stop_calls = g_esp_wifi_mock.stop_call_count;
   const int connect_calls = g_esp_wifi_mock.connect_call_count;
 
   TEST_ASSERT_TRUE(service.handle_command("CLEAR_WIFI", &message));
@@ -526,8 +529,10 @@ void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
   TEST_ASSERT_TRUE(service.config().password.empty());
   TEST_ASSERT_TRUE(service.config().bssid.empty());
   TEST_ASSERT_EQUAL_UINT8(0U, service.config().channel);
+  TEST_ASSERT_EQUAL(stop_calls + 1, g_esp_wifi_mock.stop_call_count);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  manager.loop();
   TEST_ASSERT_EQUAL_STRING("", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
-  TEST_ASSERT_EQUAL(disconnect_calls + 1, g_esp_wifi_mock.disconnect_call_count);
   TEST_ASSERT_EQUAL(connect_calls, g_esp_wifi_mock.connect_call_count);
 
   StoredWifiConfig after_clear;
@@ -536,7 +541,7 @@ void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
   TEST_ASSERT_TRUE(after_clear.ssid.empty());
 }
 
-void test_wifi_provisioning_falls_back_from_bssid_then_rolls_back_to_last_good(void) {
+void test_wifi_provisioning_rolls_back_failed_bssid_to_last_good(void) {
   StoredWifiConfig saved;
   saved.ssid = "KnownGood";
   saved.password = "known-good-secret";
@@ -554,12 +559,6 @@ void test_wifi_provisioning_falls_back_from_bssid_then_rolls_back_to_last_good(v
   TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff", &message));
   TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::VERIFYING);
   service.loop();
-
-  esp_timer_mock::advance(1000000);
-  service.loop();
-  TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_config.sta.bssid_set);
-  TEST_ASSERT_EQUAL_UINT8(0U, g_esp_wifi_mock.last_config.sta.channel);
 
   esp_timer_mock::advance(1000000);
   service.loop();
@@ -593,6 +592,42 @@ void test_wifi_provisioning_reboot_during_apply_keeps_last_good(void) {
   TEST_ASSERT_EQUAL(ESP_OK, after_reboot.load_or_set_defaults(make_defaults()));
   TEST_ASSERT_EQUAL_STRING("KnownGood", after_reboot.config().ssid.c_str());
   TEST_ASSERT_EQUAL_STRING("known-good-secret", after_reboot.config().password.c_str());
+  TEST_ASSERT_TRUE(after_reboot.apply_pending());
+
+  StoredWifiConfig pending;
+  bool has_pending = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_pending_wifi_config(&pending, &has_pending));
+  TEST_ASSERT_TRUE(has_pending);
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", pending.bssid.c_str());
+}
+
+void test_wifi_provisioning_requires_recovery_when_rollback_journal_cannot_clear(void) {
+  StoredWifiConfig saved;
+  saved.ssid = "KnownGood";
+  saved.password = "known-good-secret";
+  saved.has_saved_config = true;
+  TEST_ASSERT_EQUAL(ESP_OK, save_stored_wifi_config(saved));
+
+  StandaloneWifiService manager;
+  WifiProvisioningService service(&manager);
+  WifiProvisioningDefaults defaults = make_defaults();
+  defaults.candidate_timeout_ms = 1000U;
+  std::string message;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(defaults));
+  TEST_ASSERT_TRUE(service.handle_command(
+      "SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF", &message));
+  service.loop();
+
+  nvs_mock_set_open_result(ESP_FAIL);
+  esp_timer_mock::advance(1000000);
+  service.loop();
+  TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::RECOVERY_REQUIRED);
+
+  nvs_mock_set_open_result(ESP_OK);
+  StoredWifiConfig pending;
+  bool has_pending = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_pending_wifi_config(&pending, &has_pending));
+  TEST_ASSERT_TRUE(has_pending);
 }
 
 int process(void) {
@@ -611,8 +646,9 @@ int process(void) {
   RUN_TEST(test_wifi_provisioning_bssid_command_preserves_credentials);
   RUN_TEST(test_wifi_provisioning_scan_filters_provisioned_ssid_and_tracks_lifecycle);
   RUN_TEST(test_wifi_provisioning_clear_command_erases_and_disconnects);
-  RUN_TEST(test_wifi_provisioning_falls_back_from_bssid_then_rolls_back_to_last_good);
+  RUN_TEST(test_wifi_provisioning_rolls_back_failed_bssid_to_last_good);
   RUN_TEST(test_wifi_provisioning_reboot_during_apply_keeps_last_good);
+  RUN_TEST(test_wifi_provisioning_requires_recovery_when_rollback_journal_cannot_clear);
   return UNITY_END();
 }
 

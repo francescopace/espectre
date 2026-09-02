@@ -128,8 +128,6 @@ const char *wifi_provisioning_apply_state_name(WifiProvisioningApplyState state)
   switch (state) {
     case WifiProvisioningApplyState::VERIFYING:
       return "verifying";
-    case WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID:
-      return "verifying_without_bssid";
     case WifiProvisioningApplyState::ROLLING_BACK:
       return "rolling_back";
     case WifiProvisioningApplyState::APPLIED:
@@ -209,6 +207,18 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
   apply_message_.clear();
   candidate_apply_pending_ = false;
   apply_started_ms_ = 0U;
+  StoredWifiConfig pending_config;
+  bool has_pending = false;
+  const esp_err_t pending_err = load_pending_wifi_config(&pending_config, &has_pending);
+  if (pending_err != ESP_OK) {
+    ESPECTRE_LOGW(TAG, "Failed to load pending Wi-Fi config: %s", esp_err_to_name(pending_err));
+    last_load_result_ = pending_err;
+  } else if (has_pending && !pending_config.ssid.empty()) {
+    candidate_config_ = std::move(pending_config);
+    candidate_apply_pending_ = true;
+    apply_state_ = WifiProvisioningApplyState::VERIFYING;
+    apply_message_ = "Resuming pending Wi-Fi candidate from non-volatile storage";
+  }
   refresh_cached_strings_();
   notify_changed_();
   return ESP_OK;
@@ -319,6 +329,11 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
         set_message(esp_err_to_name(save_err));
         return false;
       }
+      const esp_err_t clear_err = clear_pending_wifi_config();
+      if (clear_err != ESP_OK) {
+        set_message(esp_err_to_name(clear_err));
+        return false;
+      }
       wifi_config_ = std::move(updated);
       last_good_config_ = wifi_config_;
       candidate_config_ = StoredWifiConfig{};
@@ -340,6 +355,11 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     const esp_err_t err = clear_stored_wifi_config();
     if (err != ESP_OK) {
       set_message(esp_err_to_name(err));
+      return false;
+    }
+    const esp_err_t pending_err = clear_pending_wifi_config();
+    if (pending_err != ESP_OK) {
+      set_message(esp_err_to_name(pending_err));
       return false;
     }
     const WifiBandPolicy previous_band_policy = wifi_config_.band_policy;
@@ -467,6 +487,13 @@ bool WifiProvisioningService::begin_candidate_apply_(StoredWifiConfig candidate,
     }
     return false;
   }
+  const esp_err_t save_err = save_pending_wifi_config(candidate);
+  if (save_err != ESP_OK) {
+    if (message != nullptr) {
+      *message = esp_err_to_name(save_err);
+    }
+    return false;
+  }
   last_good_config_ = wifi_config_;
   candidate_config_ = std::move(candidate);
   candidate_apply_pending_ = true;
@@ -501,11 +528,23 @@ void WifiProvisioningService::handle_connected_() {
   if (candidate_apply_pending_) {
     return;
   }
-  if (apply_state_ == WifiProvisioningApplyState::VERIFYING ||
-      apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID) {
+  if (apply_state_ == WifiProvisioningApplyState::VERIFYING) {
+    if (!candidate_config_.bssid.empty()) {
+      const DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
+      if (!wifi.connected || wifi.bssid != candidate_config_.bssid) return;
+    }
     const esp_err_t save_err = save_stored_wifi_config(candidate_config_);
     if (save_err != ESP_OK) {
       begin_rollback_(esp_err_to_name(save_err));
+      return;
+    }
+    const esp_err_t clear_err = clear_pending_wifi_config();
+    if (clear_err != ESP_OK) {
+      wifi_config_ = candidate_config_;
+      last_good_config_ = wifi_config_;
+      refresh_cached_strings_();
+      set_apply_state_(WifiProvisioningApplyState::RECOVERY_REQUIRED,
+                       "Wi-Fi candidate was saved, but the pending journal could not be cleared");
       return;
     }
     wifi_config_ = candidate_config_;
@@ -546,21 +585,7 @@ void WifiProvisioningService::loop() {
     return;
   }
 
-  if (apply_state_ == WifiProvisioningApplyState::VERIFYING && !candidate_config_.bssid.empty()) {
-    candidate_config_.bssid.clear();
-    candidate_config_.channel = WIFI_CHANNEL_AUTO;
-    apply_started_ms_ = monotonic_now_ms();
-    set_apply_state_(WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID,
-                     "Pinned BSSID unavailable; verifying the same SSID without a radio lock");
-    std::string apply_error;
-    if (!apply_config_live_(candidate_config_, &apply_error)) {
-      begin_rollback_(apply_error.c_str());
-    }
-    return;
-  }
-
-  if (apply_state_ == WifiProvisioningApplyState::VERIFYING ||
-      apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID) {
+  if (apply_state_ == WifiProvisioningApplyState::VERIFYING) {
     begin_rollback_("candidate association or address acquisition timed out");
     return;
   }
@@ -571,6 +596,7 @@ void WifiProvisioningService::loop() {
 
 void WifiProvisioningService::begin_rollback_(const char *reason) {
   candidate_apply_pending_ = false;
+  const esp_err_t clear_err = clear_pending_wifi_config();
   apply_started_ms_ = monotonic_now_ms();
   std::string rollback_message = "Wi-Fi candidate failed";
   if (reason != nullptr && reason[0] != '\0') {
@@ -583,6 +609,9 @@ void WifiProvisioningService::begin_rollback_(const char *reason) {
   if (!apply_config_live_(last_good_config_, &apply_error)) {
     set_apply_state_(WifiProvisioningApplyState::RECOVERY_REQUIRED,
                      "last-known-good Wi-Fi rollback could not be applied; use Improv Serial recovery");
+  } else if (clear_err != ESP_OK) {
+    set_apply_state_(WifiProvisioningApplyState::RECOVERY_REQUIRED,
+                     "last-known-good Wi-Fi rollback started, but the pending journal could not be cleared");
   }
 }
 
@@ -594,7 +623,6 @@ void WifiProvisioningService::set_apply_state_(WifiProvisioningApplyState state,
 
 bool WifiProvisioningService::apply_pending() const {
   return apply_state_ == WifiProvisioningApplyState::VERIFYING ||
-         apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID ||
          apply_state_ == WifiProvisioningApplyState::ROLLING_BACK;
 }
 

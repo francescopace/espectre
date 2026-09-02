@@ -25,6 +25,9 @@ static const char *const TAG = "espectre.bssid_pin";
 constexpr const char *kNamespace = "espectre";
 constexpr const char *kSsidKey = "pin_ssid";
 constexpr const char *kBssidKey = "pin_bssid";
+constexpr const char *kPendingKey = "pin_pending";
+constexpr const char *kPendingSsidKey = "pin_p_ssid";
+constexpr const char *kPendingBssidKey = "pin_p_bssid";
 
 esp_err_t read_string(nvs_handle_t handle, const char *key, std::string *value) {
   size_t length = 0U;
@@ -120,6 +123,11 @@ bool WifiBssidPinService::request_update(const std::string &bssid,
       if (message != nullptr) *message = esp_err_to_name(save_err);
       return false;
     }
+    const esp_err_t clear_err = clear_pending_pin_();
+    if (clear_err != ESP_OK) {
+      if (message != nullptr) *message = esp_err_to_name(clear_err);
+      return false;
+    }
     apply_state_ = WifiBssidPinApplyState::APPLIED;
     apply_message_ = "Wi-Fi BSSID pin verified and saved";
     if (message != nullptr) *message = apply_message_;
@@ -158,6 +166,13 @@ bool WifiBssidPinService::begin_apply_(const WifiBssidPinStationState &station,
                                        const std::string &target_bssid,
                                        bool persist_on_success,
                                        std::string *message) {
+  if (persist_on_success) {
+    const esp_err_t persist_err = persist_pending_pin_(station.ssid, target_bssid);
+    if (persist_err != ESP_OK) {
+      if (message != nullptr) *message = esp_err_to_name(persist_err);
+      return false;
+    }
+  }
   candidate_ssid_ = station.ssid;
   candidate_bssid_ = target_bssid;
   previous_bssid_ = stored_ssid_ == candidate_ssid_ ? stored_bssid_ : std::string{};
@@ -173,8 +188,17 @@ bool WifiBssidPinService::begin_apply_(const WifiBssidPinStationState &station,
 
   std::string apply_error;
   bool station_transition_started = false;
-  if (!config_.apply_callback(target_bssid, &apply_error, &station_transition_started, true)) {
+  if (!config_.apply_callback(target_bssid, &apply_error, &station_transition_started)) {
     if (station_transition_started) {
+      if (persist_on_success) {
+        const esp_err_t clear_err = clear_pending_pin_();
+        if (clear_err != ESP_OK) {
+          finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
+                        "Wi-Fi BSSID rollback started, but the pending journal could not be cleared");
+          if (message != nullptr) *message = apply_message_;
+          return false;
+        }
+      }
       apply_state_ = WifiBssidPinApplyState::ROLLING_BACK;
       apply_message_ = apply_error.empty()
                            ? "Wi-Fi BSSID update failed; waiting for the previous station config"
@@ -183,14 +207,15 @@ bool WifiBssidPinService::begin_apply_(const WifiBssidPinStationState &station,
       if (message != nullptr) *message = apply_message_;
       return false;
     }
-    apply_state_ = WifiBssidPinApplyState::IDLE;
-    apply_message_ = apply_error.empty() ? "Wi-Fi BSSID update could not be started" : apply_error;
-    candidate_ssid_.clear();
-    candidate_bssid_.clear();
-    previous_bssid_.clear();
-    persist_on_success_ = false;
-    if (reconfigure_active_ && config_.resume_callback) config_.resume_callback();
-    reconfigure_active_ = false;
+    const esp_err_t clear_err = persist_on_success ? clear_pending_pin_() : ESP_OK;
+    if (clear_err != ESP_OK) {
+      finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
+                    "Wi-Fi BSSID update did not start, and the pending journal could not be cleared");
+    } else {
+      finish_apply_(WifiBssidPinApplyState::IDLE,
+                    apply_error.empty() ? "Wi-Fi BSSID update could not be started"
+                                        : apply_error.c_str());
+    }
     if (message != nullptr) *message = apply_message_;
     return false;
   }
@@ -201,8 +226,14 @@ bool WifiBssidPinService::begin_apply_(const WifiBssidPinStationState &station,
 void WifiBssidPinService::process_station_state_(const WifiBssidPinStationState &station) {
   if (apply_pending() && station.configured && !station.ssid.empty() &&
       station.ssid != candidate_ssid_) {
-    finish_apply_(WifiBssidPinApplyState::ROLLED_BACK,
-                  "Wi-Fi BSSID candidate discarded after the commissioned SSID changed");
+    const esp_err_t clear_err = clear_pending_pin_();
+    if (clear_err != ESP_OK) {
+      finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
+                    "commissioned SSID changed, but the pending Wi-Fi BSSID journal could not be cleared");
+    } else {
+      finish_apply_(WifiBssidPinApplyState::ROLLED_BACK,
+                    "Wi-Fi BSSID candidate discarded after the commissioned SSID changed");
+    }
     return;
   }
 
@@ -211,9 +242,7 @@ void WifiBssidPinService::process_station_state_(const WifiBssidPinStationState 
     if (!station.connected || !station.has_ipv4 || !target_matches) return;
 
     if (persist_on_success_) {
-      const esp_err_t persist_err = candidate_bssid_.empty()
-                                        ? clear_stored_pin_()
-                                        : persist_pin_(candidate_ssid_, candidate_bssid_);
+      const esp_err_t persist_err = commit_candidate_pin_();
       if (persist_err != ESP_OK) {
         begin_rollback_(esp_err_to_name(persist_err));
         return;
@@ -222,6 +251,25 @@ void WifiBssidPinService::process_station_state_(const WifiBssidPinStationState 
     finish_apply_(WifiBssidPinApplyState::APPLIED,
                   candidate_bssid_.empty() ? "Wi-Fi BSSID pin cleared"
                                            : "Wi-Fi BSSID pin verified and saved");
+    return;
+  }
+
+  if (pending_pin_loaded_) {
+    if (!station.configured || !station.connected || !station.has_ipv4) return;
+    if (station.ssid != pending_ssid_) {
+      const esp_err_t clear_err = clear_pending_pin_();
+      if (clear_err != ESP_OK) {
+        finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
+                      "commissioned SSID changed, but the pending Wi-Fi BSSID journal could not be cleared");
+      }
+      return;
+    }
+    const std::string target_bssid = pending_bssid_;
+    pending_pin_loaded_ = false;
+    std::string message;
+    if (!begin_apply_(station, target_bssid, true, &message)) {
+      ESPECTRE_LOGW(TAG, "Pending Wi-Fi BSSID pin could not be resumed: %s", message.c_str());
+    }
     return;
   }
 
@@ -245,6 +293,7 @@ void WifiBssidPinService::process_station_state_(const WifiBssidPinStationState 
 }
 
 void WifiBssidPinService::begin_rollback_(const char *reason) {
+  const esp_err_t clear_err = clear_pending_pin_();
   apply_state_ = WifiBssidPinApplyState::ROLLING_BACK;
   apply_message_ = "Wi-Fi BSSID candidate failed";
   if (reason != nullptr && reason[0] != '\0') {
@@ -256,10 +305,13 @@ void WifiBssidPinService::begin_rollback_(const char *reason) {
   persist_on_success_ = false;
 
   std::string rollback_error;
-  if (!config_.apply_callback(previous_bssid_, &rollback_error, nullptr, false)) {
+  if (!config_.apply_callback(previous_bssid_, &rollback_error, nullptr)) {
     finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
                   rollback_error.empty() ? "previous Wi-Fi BSSID configuration could not be restored"
                                          : rollback_error.c_str());
+  } else if (clear_err != ESP_OK) {
+    finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
+                  "previous Wi-Fi BSSID configuration was restored, but the pending journal could not be cleared");
   }
 }
 
@@ -288,8 +340,31 @@ esp_err_t WifiBssidPinService::load_stored_pin_() {
   std::string bssid;
   err = read_string(handle, kSsidKey, &ssid);
   if (err == ESP_OK) err = read_string(handle, kBssidKey, &bssid);
+  uint8_t has_pending = 0U;
+  const esp_err_t pending_flag_err = nvs_get_u8(handle, kPendingKey, &has_pending);
+  if (err == ESP_OK && pending_flag_err != ESP_OK && pending_flag_err != ESP_ERR_NVS_NOT_FOUND) {
+    err = pending_flag_err;
+  }
+  if (err == ESP_OK && has_pending != 0U) {
+    err = read_string(handle, kPendingSsidKey, &pending_ssid_);
+    if (err == ESP_OK) err = read_string(handle, kPendingBssidKey, &pending_bssid_);
+  }
   nvs_close(handle);
   if (err != ESP_OK) return err;
+
+  if (has_pending != 0U) {
+    std::string normalized_pending;
+    if (pending_ssid_.empty() || pending_ssid_.size() > 32U ||
+        (!pending_bssid_.empty() && !normalize_bssid(pending_bssid_, &normalized_pending))) {
+      ESPECTRE_LOGW(TAG, "Discarding an invalid pending Wi-Fi BSSID pin");
+      const esp_err_t clear_err = clear_pending_pin_();
+      if (clear_err != ESP_OK) return clear_err;
+    } else {
+      if (!pending_bssid_.empty()) pending_bssid_ = std::move(normalized_pending);
+      pending_pin_loaded_ = true;
+    }
+  }
+
   if (ssid.empty() && bssid.empty()) return ESP_OK;
 
   std::string normalized;
@@ -300,6 +375,75 @@ esp_err_t WifiBssidPinService::load_stored_pin_() {
   stored_ssid_ = std::move(ssid);
   stored_bssid_ = std::move(normalized);
   return ESP_OK;
+}
+
+esp_err_t WifiBssidPinService::persist_pending_pin_(const std::string &ssid,
+                                                    const std::string &bssid) {
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kNamespace, NVS_READWRITE, &handle);
+  if (err != ESP_OK) return err;
+  err = nvs_set_str(handle, kPendingSsidKey, ssid.c_str());
+  if (err == ESP_OK) err = nvs_set_str(handle, kPendingBssidKey, bssid.c_str());
+  if (err == ESP_OK) err = nvs_set_u8(handle, kPendingKey, 1U);
+  if (err == ESP_OK) err = nvs_commit(handle);
+  nvs_close(handle);
+  if (err == ESP_OK) {
+    pending_ssid_ = ssid;
+    pending_bssid_ = bssid;
+  }
+  return err;
+}
+
+esp_err_t WifiBssidPinService::clear_pending_pin_() {
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kNamespace, NVS_READWRITE, &handle);
+  if (err == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+  if (err != ESP_OK) return err;
+  const char *keys[] = {kPendingKey, kPendingSsidKey, kPendingBssidKey};
+  for (const char *key : keys) {
+    const esp_err_t erase_err = nvs_erase_key(handle, key);
+    if (err == ESP_OK && erase_err != ESP_OK && erase_err != ESP_ERR_NVS_NOT_FOUND) {
+      err = erase_err;
+    }
+  }
+  if (err == ESP_OK) err = nvs_commit(handle);
+  nvs_close(handle);
+  if (err == ESP_OK) {
+    pending_ssid_.clear();
+    pending_bssid_.clear();
+    pending_pin_loaded_ = false;
+  }
+  return err;
+}
+
+esp_err_t WifiBssidPinService::commit_candidate_pin_() {
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(kNamespace, NVS_READWRITE, &handle);
+  if (err != ESP_OK) return err;
+  if (candidate_bssid_.empty()) {
+    const esp_err_t ssid_err = nvs_erase_key(handle, kSsidKey);
+    const esp_err_t bssid_err = nvs_erase_key(handle, kBssidKey);
+    if (ssid_err != ESP_OK && ssid_err != ESP_ERR_NVS_NOT_FOUND) err = ssid_err;
+    if (err == ESP_OK && bssid_err != ESP_OK && bssid_err != ESP_ERR_NVS_NOT_FOUND) err = bssid_err;
+  } else {
+    err = nvs_set_str(handle, kSsidKey, candidate_ssid_.c_str());
+    if (err == ESP_OK) err = nvs_set_str(handle, kBssidKey, candidate_bssid_.c_str());
+  }
+  const char *pending_keys[] = {kPendingKey, kPendingSsidKey, kPendingBssidKey};
+  for (const char *key : pending_keys) {
+    const esp_err_t erase_err = nvs_erase_key(handle, key);
+    if (err == ESP_OK && erase_err != ESP_OK && erase_err != ESP_ERR_NVS_NOT_FOUND) err = erase_err;
+  }
+  if (err == ESP_OK) err = nvs_commit(handle);
+  nvs_close(handle);
+  if (err == ESP_OK) {
+    stored_ssid_ = candidate_bssid_.empty() ? std::string{} : candidate_ssid_;
+    stored_bssid_ = candidate_bssid_;
+    pending_ssid_.clear();
+    pending_bssid_.clear();
+    pending_pin_loaded_ = false;
+  }
+  return err;
 }
 
 esp_err_t WifiBssidPinService::persist_pin_(const std::string &ssid, const std::string &bssid) {

@@ -49,11 +49,10 @@ struct RuntimeDirectHttpBridgeConfig {
   std::function<bool(std::string *message)> wifi_bssid_pin_preflight;
 };
 
-/** Apply or clear the live ESP-IDF station BSSID pin and reconnect. */
+/** Apply or clear the ESP-IDF station BSSID pin through a Wi-Fi state-machine restart. */
 bool apply_wifi_bssid_pin(const std::string &bssid,
                           std::string *message,
-                          bool *station_transition_started = nullptr,
-                          bool restore_current_config_on_failure = true);
+                          bool *station_transition_started = nullptr);
 
 /**
  * Exposes the common runtime controls over the versioned Direct HTTP API.

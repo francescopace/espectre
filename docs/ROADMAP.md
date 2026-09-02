@@ -23,7 +23,7 @@
 **Release tasks**:
 
 - [ ] Run a classic ESP32/ESP32-S2 DNS/UDP A/B with Direct HTTPD task priorities 1 and 4 across ESPHome, Native, and Matter; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
-- [ ] Investigate a driver-level CSI recovery after a managed Wi-Fi reconnect, validate it on every supported chip before adding it to the runtime, and keep the existing one-shot fallback reboot as the production watchdog
+- [ ] Investigate driver-level CSI recovery after a managed Wi-Fi reconnect and validate it on every supported chip before adding any recovery policy to the runtime
 - [ ] Complete the v3 corpus collection backlog, including replacement `empty` captures for the low-occupancy recordings removed from the catalog and missing original ESP32 label and environment coverage; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
 - [ ] Benchmark the C++ Direct raw CSI queue with fixed 512-, 256-, and 128-byte payload bounds, then retain or reduce its internal fixed-slot size without changing the published raw-record contract or advertised capabilities.
 
