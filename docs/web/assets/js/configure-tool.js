@@ -692,6 +692,7 @@
             wifi_ssid: wifi.ssid || '',
             wifi_band: wifi.band || '',
             wifi_bssid: wifi.bssid || '',
+            wifi_connected: wifi.connected === true,
             wifi_apply_state: wifi.apply_state || '',
             mqtt_host: mqtt.host || '',
             mqtt_port: mqtt.port || 0,
@@ -699,11 +700,12 @@
         };
     }
 
-    function finishConfigVerification(result, errorType) {
+    function finishConfigVerification(result, errorType, message = '') {
         if (!pendingConfigVerification) return;
         clearTimeout(pendingConfigVerification.timer);
         const action = pendingConfigVerification.action;
         pendingConfigVerification = null;
+        if (message) toast(message);
         track('configure_change', {
             action,
             result,
@@ -711,38 +713,82 @@
         });
     }
 
-    function requestConfigVerification() {
+    function configVerificationCanWait(pending) {
+        return pending.waitForReconnect && Date.now() < pending.deadlineAt;
+    }
+
+    function scheduleConfigVerification(pending) {
+        if (pendingConfigVerification !== pending) return;
+        clearTimeout(pending.timer);
+        pending.timer = setTimeout(requestConfigVerification, CONFIG_VERIFICATION_RETRY_MS);
+    }
+
+    async function requestConfigVerification() {
         const pending = pendingConfigVerification;
         if (!pending) return;
         if (directClient && conn.mode === 'direct' && conn.status === 'connecting') {
-            pending.timer = setTimeout(requestConfigVerification, CONFIG_VERIFICATION_RETRY_MS);
+            if (configVerificationCanWait(pending)) {
+                pending.observedDisconnect = true;
+                scheduleConfigVerification(pending);
+            } else {
+                finishConfigVerification(
+                    'unconfirmed', 'VerificationTimeout', pending.timeoutMessage);
+            }
             return;
         }
         if (!directClient?.connected) {
-            finishConfigVerification('unconfirmed', 'VerificationUnavailable');
+            if (configVerificationCanWait(pending)) {
+                pending.observedDisconnect = true;
+                scheduleConfigVerification(pending);
+            } else {
+                finishConfigVerification(
+                    'unconfirmed', 'VerificationUnavailable', pending.timeoutMessage);
+            }
             return;
         }
         pending.attempts += 1;
-        directClient.request('config').then((config) => {
+        try {
+            const config = await directClient.request('config');
+            if (pendingConfigVerification !== pending) return;
             applyDirectConfig(config);
             evaluateConfigVerification(directConfigSnapshot(config));
-        }).catch(() => finishConfigVerification('unconfirmed', 'VerificationRequestFailed'));
-        pending.timer = setTimeout(() => {
+        } catch (_error) {
             if (pendingConfigVerification !== pending) return;
-            if (pending.attempts >= CONFIG_VERIFICATION_MAX_ATTEMPTS) {
-                finishConfigVerification('unconfirmed', 'VerificationTimeout');
+            if (configVerificationCanWait(pending)) {
+                pending.observedDisconnect = true;
+                scheduleConfigVerification(pending);
             } else {
-                requestConfigVerification();
+                finishConfigVerification(
+                    'unconfirmed', 'VerificationRequestFailed', pending.timeoutMessage);
             }
-        }, CONFIG_VERIFICATION_RETRY_MS);
+        }
     }
 
-    function beginConfigVerification(action, verify) {
+    function beginConfigVerification(action, verification, acknowledgement = {}) {
         if (pendingConfigVerification) finishConfigVerification('unconfirmed', 'Superseded');
-        pendingConfigVerification = { action, verify, attempts: 0, timer: null };
+        const normalized = typeof verification === 'function'
+            ? { verify: verification }
+            : verification;
+        const timeoutMs = Number(normalized.timeoutMs) || 0;
+        const waitForReconnect = normalized.waitForReconnect === true;
+        pendingConfigVerification = {
+            action,
+            verify: normalized.verify,
+            evaluate: normalized.evaluate,
+            attempts: 0,
+            timer: null,
+            waitForReconnect,
+            observedDisconnect: waitForReconnect
+                && (conn.status === 'connecting' || !directClient?.connected || directReconnectAttempt > 0),
+            requiresReconnect: typeof normalized.requiresReconnect === 'function'
+                ? normalized.requiresReconnect(acknowledgement)
+                : false,
+            deadlineAt: timeoutMs > 0 ? Date.now() + timeoutMs : 0,
+            timeoutMessage: normalized.timeoutMessage || ''
+        };
         pendingConfigVerification.timer = setTimeout(
             requestConfigVerification,
-            CONFIG_VERIFICATION_INITIAL_DELAY_MS
+            Number(normalized.initialDelayMs) || CONFIG_VERIFICATION_INITIAL_DELAY_MS
         );
     }
 
@@ -750,6 +796,18 @@
         const pending = pendingConfigVerification;
         if (!pending) return;
         clearTimeout(pending.timer);
+        if (pending.evaluate) {
+            const outcome = pending.evaluate(snapshot, pending);
+            if (outcome) {
+                finishConfigVerification(outcome.result, outcome.errorType, outcome.message);
+            } else if (pending.deadlineAt > 0 && Date.now() >= pending.deadlineAt) {
+                finishConfigVerification(
+                    'unconfirmed', 'VerificationTimeout', pending.timeoutMessage);
+            } else {
+                scheduleConfigVerification(pending);
+            }
+            return;
+        }
         if (pending.verify(snapshot)) {
             finishConfigVerification('success');
         } else if (pending.attempts >= CONFIG_VERIFICATION_MAX_ATTEMPTS) {
@@ -759,7 +817,7 @@
         }
     }
 
-    async function cfgApply(action, successMessage, method, params = {}, verify) {
+    async function cfgApply(action, successMessage, method, params = {}, verification) {
         const resolvedSuccessMessage = (result = {}) => (
             typeof successMessage === 'function' ? successMessage(result) : successMessage
         );
@@ -776,7 +834,7 @@
             const result = await directClient.request(method, params);
             toast(resolvedSuccessMessage(result));
             track('configure_change', { action, result: 'accepted' });
-            if (verify) beginConfigVerification(action, verify);
+            if (verification) beginConfigVerification(action, verification, result);
             return true;
         } catch (error) {
             console.warn('Device setting update failed:', error);
@@ -872,6 +930,53 @@
         const bssid = cfgValue('cfg-bssid').trim().toUpperCase();
         const method = bssid ? 'set_wifi_bssid' : 'clear_wifi_bssid';
         const params = bssid ? { bssid, force: false } : {};
+        const verification = {
+            waitForReconnect: true,
+            timeoutMs: WIFI_BSSID_VERIFICATION_TIMEOUT_MS,
+            initialDelayMs: CONFIG_VERIFICATION_RETRY_MS,
+            timeoutMessage: 'The Wi-Fi update could not be confirmed. Reconnect to the device and check its current access point.',
+            requiresReconnect: (acknowledgement) => {
+                const current = String(acknowledgement?.current_bssid || '').toUpperCase();
+                return !bssid || current !== bssid;
+            },
+            evaluate: (snapshot, pending) => {
+                const state = String(snapshot.wifi_apply_state || '').toLowerCase();
+                const configuredBssid = String(snapshot.wifi_bssid || '').toUpperCase();
+                const matches = configuredBssid === bssid;
+                if (state === 'recovery_required') {
+                    return {
+                        result: 'failure', errorType: 'WifiRecoveryRequired',
+                        message: 'The previous Wi-Fi selection could not be restored. Device recovery is required.'
+                    };
+                }
+                if (state === 'rolled_back') {
+                    return {
+                        result: 'failure', errorType: 'WifiRolledBack',
+                        message: 'The requested access point was unavailable. The previous Wi-Fi selection was restored.'
+                    };
+                }
+                if (state === 'applied') {
+                    return matches
+                        ? { result: 'success', message: 'Wi-Fi access-point selection verified.' }
+                        : {
+                            result: 'unconfirmed', errorType: 'VerificationMismatch',
+                            message: 'The device reconnected with a different Wi-Fi selection.'
+                        };
+                }
+                if (state) return null;
+                if (pending.requiresReconnect && !pending.observedDisconnect) return null;
+                if (snapshot.wifi_connected && matches) {
+                    return { result: 'success', message: 'Wi-Fi access-point selection verified.' };
+                }
+                if (pending.observedDisconnect && snapshot.wifi_connected && !matches) {
+                    return {
+                        result: 'failure', errorType: 'WifiRolledBack',
+                        message: 'The requested access point was unavailable. The previous Wi-Fi selection was restored.'
+                    };
+                }
+                return null;
+            }
+        };
         await cfgApply(
             method,
             (acknowledgement) => {
@@ -881,8 +986,7 @@
                     ? 'Wi-Fi preference saved. This access point is already active.'
                     : 'Wi-Fi preference saved. The device is reconnecting.';
             },
-            method, params,
-            (snapshot) => String(snapshot.wifi_bssid || '').toUpperCase() === bssid);
+            method, params, verification);
     }
 
     const CONFIG_CLEAR_DIALOGS = Object.freeze({

@@ -370,7 +370,15 @@ describe('website tool contracts', () => {
         assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /const params = bssid \? \{ bssid, force: false \} : \{\}/);
-        assert.match(app, /String\(snapshot\.wifi_bssid \|\| ''\)\.toUpperCase\(\) === bssid/);
+        assert.match(app, /WIFI_BSSID_VERIFICATION_TIMEOUT_MS = 75 \* 1000/);
+        assert.match(app, /waitForReconnect: true/);
+        assert.match(app, /requiresReconnect: \(acknowledgement\) =>/);
+        assert.match(app, /state === 'applied'/);
+        assert.match(app, /state === 'rolled_back'/);
+        assert.match(app, /state === 'recovery_required'/);
+        assert.match(app, /pending\.requiresReconnect && !pending\.observedDisconnect/);
+        assert.match(app, /const extendedVerification = pendingConfigVerification\?\.waitForReconnect === true/);
+        assert.match(app, /if \(verification\) beginConfigVerification\(action, verification, result\)/);
         assert.match(app, /directClient\.request\('clear_wifi_config', \{\}, \{ timeoutMs: 3000 \}\)/);
         assert.match(app, /teardownConnection\('wifi_cleared'\)/);
         assert.match(app, /track\('firmware_installer_open', flashParams\(\)\)/);

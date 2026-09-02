@@ -515,13 +515,24 @@
 
     function scheduleDirectReconnect(client) {
         if (directClient !== client || conn.mode !== 'direct' || directReconnectTimer) return;
-        if (directReconnectAttempt >= DIRECT_RECONNECT_DELAYS_MS.length) {
+        if (pendingConfigVerification?.waitForReconnect) {
+            pendingConfigVerification.observedDisconnect = true;
+        }
+        const extendedVerification = pendingConfigVerification?.waitForReconnect === true
+            && Date.now() < pendingConfigVerification.deadlineAt;
+        if (directReconnectAttempt >= DIRECT_RECONNECT_DELAYS_MS.length && !extendedVerification) {
+            if (pendingConfigVerification?.waitForReconnect) {
+                finishConfigVerification(
+                    'unconfirmed', 'VerificationTimeout', pendingConfigVerification.timeoutMessage);
+            }
             directClient = null;
             teardownConnection('reconnect_failed');
             toast('The device disconnected. Enter its address to reconnect.');
             return;
         }
-        const delay = DIRECT_RECONNECT_DELAYS_MS[directReconnectAttempt++];
+        const delay = DIRECT_RECONNECT_DELAYS_MS[
+            Math.min(directReconnectAttempt++, DIRECT_RECONNECT_DELAYS_MS.length - 1)
+        ];
         setStatus('connecting');
         directReconnectTimer = setTimeout(async () => {
             directReconnectTimer = 0;
