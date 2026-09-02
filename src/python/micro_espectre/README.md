@@ -129,13 +129,13 @@ MicroPython and is not exposed by ESPectre.
 | Command | Purpose |
 | --- | --- |
 | `./espectre micro build [--chip <esp32|c3|s3|c5|c6>]` | Build the lean project firmware; the default chip is `esp32` |
-| `./espectre micro flash [--chip <chip>] --erase` | Build and flash the project image |
+| `./espectre micro flash --chip <chip> --erase` | Build and flash the canonical project image |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
 | `./espectre micro run` | Start the device application |
 | `./espectre micro verify` | Check firmware, native modules, and deployed bytecode |
-| `./espectre monitor --reset` | Follow serial output with auto-reconnect |
+| `./espectre monitor --chip <chip> --reset` | Start the application through esptool, then follow serial output |
 
-`--port` is optional for `flash`, `deploy`, `run`, and `verify`. `--chip` is optional for every Micro-ESPectre command: `build` defaults to `esp32`, while device-facing commands use an explicit chip to resolve ambiguous candidates. The CLI auto-detects a compatible serial device when possible. `micro flash --firmware <path>` flashes an explicitly supplied image. `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`, which is useful for isolated laboratory settings.
+`--port` is optional for `flash`, `deploy`, `run`, and `verify`. `micro flash` requires `--chip`, builds the canonical project image, and flashes the files listed in its generated `flasher_args.json` metadata in one esptool session. Other device-facing commands accept an optional chip to resolve ambiguous candidates, while `build` defaults to `esp32`. `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`, which is useful for isolated laboratory settings.
 
 `micro build --json` emits final artifact metadata, `micro flash --json` adds the selected port after a successful flash, and `micro run --json` streams logs and emits a `direct_ready` event when the application reports its endpoint. Run `./espectre micro <command> --help` for the current flags.
 

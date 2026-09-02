@@ -19,6 +19,11 @@
 ## Firmware Benchmark Contract
 
 - Treat [`README.md`](README.md#firmware-benchmark-contract) as the normative owner of the firmware benchmark contract. Keep `benchmark_firmware.py` and its split owners aligned with that section.
+- Keep the firmware benchmark a dumb client of `./espectre` for build, flash, erase, reset, provisioning, onboarding, and serial monitoring. Direct sampling and scoring remain benchmark responsibilities.
+- Require an explicit benchmark serial port and pass it unchanged to delegated CLI commands. Do not perform benchmark-local serial discovery or track USB identities across re-enumeration.
+- Do not import or invoke esptool, pyserial reset controls, USB power controls, or other hardware lifecycle mechanisms from the benchmark.
+- Treat delegated CLI exit status as final. Do not parse human-readable flash output or add retries, fallback resets, power cycles, or recovery paths that turn a failed flash into success.
+- Consume final machine-readable CLI records when a delegated workflow exposes them. Do not scrape equivalent human-readable output.
 - Do not add benchmark-specific firmware configuration, dedicated build directories, forced clean builds, serial-derived runtime metrics, or frontend-specific provisioning shortcuts that bypass the production workflow.
 - Preserve provisioning boundaries explicitly: Matter must commission through a revision-compatible CHIP Tool controller, and Micro-ESPectre may inject connectivity settings because it does not support Improv Serial.
 - Update the behavioral contract tests whenever the build, flash, provisioning, Direct evidence, BSSID evidence, or serial-error policy changes.

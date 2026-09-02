@@ -9,7 +9,7 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
@@ -43,6 +43,16 @@ PROJECT_FIRMWARE_BOARDS = {
     "c6": "ESP32C6_MICRO_ESPECTRE",
     "s3": "ESP32S3_MICRO_ESPECTRE",
 }
+
+
+@dataclass(frozen=True)
+class BuiltProjectFirmware:
+    """Canonical MicroPython image and the build arguments that produced it."""
+
+    image: Path
+    build_dir: Path
+
+
 PROJECT_FIRMWARE_NAMES = {
     "esp32": f"ESP32_GENERIC-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
     "c3": f"ESP32_GENERIC_C3-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
@@ -1180,7 +1190,7 @@ def build_project_firmware(
     cache_dir: Path = FIRMWARE_CACHE_DIR,
     backend: str = "auto",
     pull_policy: str = "ask",
-) -> Path:
+) -> BuiltProjectFirmware:
     """Build a lean project firmware used with filesystem bytecode."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     lock_path = cache_dir / "micro-esp32.lock"
@@ -1222,7 +1232,7 @@ def _build_project_firmware_locked(
     cache_dir: Path,
     backend: str,
     pull_policy: str,
-) -> Path:
+) -> BuiltProjectFirmware:
     """Build while holding the shared MicroPython workspace lock."""
     board = PROJECT_FIRMWARE_BOARDS.get(chip)
     firmware_name = PROJECT_FIRMWARE_NAMES.get(chip)
@@ -1384,4 +1394,4 @@ def _build_project_firmware_locked(
     firmware_path = cache_dir / firmware_name
     shutil.copy2(build_dir / "firmware.bin", firmware_path)
     _write_kconfig_profile(build_dir, kconfig_profile)
-    return firmware_path
+    return BuiltProjectFirmware(image=firmware_path, build_dir=build_dir)

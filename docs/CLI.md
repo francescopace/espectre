@@ -37,7 +37,7 @@ Run the CLI from the repository root.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
 - `Native` and `Matter` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
-- Serial selection is shared across published frontend flash, monitor, provision, and onboarding operations. The resolver first waits through a bounded USB re-enumeration window, then keeps ports compatible with the frontend and action. It classifies the physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`) from non-destructive USB metadata. Native and ESPHome provision and monitor operations, and Matter monitor operations, prefer a single native USB console over a secondary UART bridge. If several equally suitable ports remain, the resolver prompts before probing any board. A chip-qualified flash verifies only the selected candidate through esptool, including when there was only one candidate. Pass `--port` to require that exact compatible device; explicit ports use the same re-enumeration and compatibility checks. UART and USB Serial/JTAG flash operations let the flasher enter download mode through their reset channel; only USB CDC waits for a manually preserved loader.
+- Serial selection is shared across published frontend flash, monitor, provision, and onboarding operations. It classifies the physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`) from non-destructive USB metadata and never opens or resets candidates. Native and ESPHome provision and monitor operations, and Matter monitor operations, prefer a single native USB console over a secondary UART bridge. If several equally suitable ports remain, the resolver prompts for a selection. Pass `--port` to require that exact compatible device. Serial flash commands require `--chip`, and esptool verifies the connected target while flashing. UART and USB Serial/JTAG use esptool's normal loader entry; ESP32-S2 USB CDC must already be in download mode.
 
 ## Frontend Workflow Commands
 
@@ -94,13 +94,15 @@ Build environment flags are:
 
 `native build --json` and `matter build --json` emit the same final build-metadata object as ESPHome, including the exact artifact selected from the resolved chip build directory.
 
+Each chip build directory owns its generated `sdkconfig`. The CLI passes `IDF_TARGET` directly to CMake, so an ordinary build never runs `set-target` or its implicit `fullclean` and cannot invalidate another chip's configuration.
+
 Local builds enable `ccache` automatically when the binary is on `PATH`. Docker builds already keep a persistent compiler cache. Set `IDF_CCACHE_ENABLE=0` to disable the local cache.
 
-Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
+Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` uses the host esptool installation and serial port.
 
-For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Serial selection follows the shared `--chip` rule above. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. `--erase` clears all flash data before writing the selected Native or Matter image. On Matter, this also removes the persisted onboarding identity, so the next boot generates a new QR code.
+For `flash`, the required `--chip` selects that chip's existing build directory, such as `build-esp32c5` for `--chip c5`. The CLI reads ESP-IDF's generated `flasher_args.json` metadata and passes its flash settings and files to one esptool operation using esptool 5 option names. `--erase` adds `write-flash --erase-all`. The verified image starts through `--after watchdog-reset`, except on classic ESP32, where esptool requires `--after hard-reset`. On Matter, erasing also removes the persisted onboarding identity, so the next boot generates new onboarding codes.
 
-When the current `sdkconfig` already matches the selected chip, `flash` delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that directory before writing the firmware. When `sdkconfig` belongs to a different chip, `flash` writes the already-built image from the selected directory and does not rebuild. Rebuilds still share one `sdkconfig`, so `native build --chip c5` after an S3 build overwrites that file.
+`flash` never configures or rebuilds firmware. If the selected build does not contain `flasher_args.json`, it fails and directs the operator to run the matching `build` command first.
 
 Matter also exposes:
 
@@ -110,7 +112,7 @@ Matter also exposes:
 
 Use `matter qr --json` or `matter flash --json` when another tool must consume onboarding data. The final JSON object contains the selected port, chip, QR payload, and manual code; treat that output as a commissioning secret.
 
-`qr` uses the shared serial selection when `--chip` is supplied.
+`qr` requires `--chip`, uses the shared serial selection, and asks esptool to start the installed application before reading its onboarding output unless `--no-reset` is supplied.
 
 Examples:
 
@@ -124,7 +126,7 @@ Examples:
 ./espectre esphome build --chip c3 --clean-all
 ./espectre matter build --chip c6
 ./espectre matter flash --chip c6 --port /dev/cu.usbmodemXXXX
-./espectre matter qr --port /dev/cu.usbmodemXXXX
+./espectre matter qr --chip c6 --port /dev/cu.usbmodemXXXX
 ```
 
 ## Device And Host Commands
@@ -142,7 +144,7 @@ Common flags:
 - `--raw`
 - `--reset`
 
-When `--chip` is supplied, serial selection follows the shared rule above and keeps ports whose USB console matches the chip. An explicit incompatible `--port` is rejected. Without `--chip`, Native and ESPHome `monitor` and `provision`, and Matter `monitor`, automatically prefer a single native USB console over a secondary UART bridge; they prompt without resetting either interface when several equally suitable ports remain. By default, `monitor` attaches without resetting the device after the port is chosen. Add `--reset` on UART and USB Serial/JTAG consoles when you want a hard reset on open, for example to capture boot-time logs from the beginning. USB CDC consoles such as the ESP32-S2 TinyUSB console do not expose a generic hard-reset channel; reset those boards manually and run `monitor` without `--reset`.
+When `--chip` is supplied, serial selection follows the shared rule above and keeps ports whose USB console matches the chip. An explicit incompatible `--port` is rejected. Without `--chip`, Native and ESPHome `monitor` and `provision`, and Matter `monitor`, automatically prefer a single native USB console over a secondary UART bridge; they prompt without resetting either interface when several equally suitable ports remain. By default, `monitor` attaches without resetting the device. With `--reset`, the CLI requires `--chip` and delegates application start to esptool before opening the monitor. USB CDC consoles such as the ESP32-S2 TinyUSB console still require a manual reset and `monitor` without `--reset`.
 
 Example:
 

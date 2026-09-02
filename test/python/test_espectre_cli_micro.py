@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-import builtins
 import subprocess
-import sys
 import tokenize
 from io import BytesIO
 from pathlib import Path
@@ -307,197 +305,94 @@ def test_reset_device_decodes_bytes_when_repl_is_unavailable(monkeypatch, capsys
     assert "\\r\\n" not in output
 
 
-def test_flash_firmware_raises_when_esptool_missing(monkeypatch) -> None:
-    original_import = builtins.__import__
-
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "esptool":
-            raise ImportError("missing esptool")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-
-    with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args())
-
-
-def test_flash_firmware_uses_shared_loader_lifecycle_after_chip_selection(
-    tmp_path: Path, monkeypatch
+def test_flash_firmware_delegates_canonical_build_to_shared_runner(
+    monkeypatch,
+    tmp_path: Path,
 ) -> None:
-    firmware = tmp_path / "fw.bin"
-    firmware.write_bytes(b"fw")
-    calls: list[tuple[list[str], str, bool, str]] = []
-
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
-    monkeypatch.setattr(micro, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(micro, "detect_chip_type", lambda _port: None)
-    monkeypatch.setattr(micro, "prompt_chip_type", lambda _choices: "c5")
+    build_dir = tmp_path / "build"
+    image = build_dir / "firmware.bin"
+    image.parent.mkdir()
+    image.write_bytes(b"firmware")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(micro, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
         micro,
-        "resolve_serial_port",
-        lambda _port, **_kwargs: "/dev/cu.loader",
-    )
-    monkeypatch.setattr(
-        micro,
-        "build_project_firmware_image",
-        lambda *, chip, clean, backend, pull_policy: firmware,
-    )
-    monkeypatch.setattr(
-        micro,
-        "run_idf_flash_lifecycle",
-        lambda command, port, *, erase, before: calls.append(
-            (command, port, erase, before)
+        "build_project_firmware_artifact",
+        lambda **_kwargs: micro_firmware.BuiltProjectFirmware(
+            image=image,
+            build_dir=build_dir,
         ),
     )
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace())
+    monkeypatch.setattr(
+        micro,
+        "flash_build",
+        lambda *args, **kwargs: calls.append((*args, kwargs)),
+    )
 
-    micro.flash_firmware(_make_args(chip=None, erase=True))
+    micro.flash_firmware(
+        _make_args(chip="c6", port="/dev/cu.test", erase=True)
+    )
 
-    command, port, erase, before = calls[0]
-    assert command[:6] == [
-        "--chip",
-        "esp32c5",
-        "--port",
-        "/dev/cu.loader",
-        "--baud",
-        "460800",
+    assert calls == [
+        (
+            build_dir,
+            {
+                "chip": "c6",
+                "idf_target": "esp32c6",
+                "port": "/dev/cu.test",
+                "erase": True,
+            },
+        )
     ]
-    assert command[-2:] == ["0x2000", str(firmware)]
-    assert port == "/dev/cu.loader"
-    assert erase is True
-    assert before == "default-reset"
 
 
-def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=lambda _cmd: None))
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
-
-    with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args(firmware="/tmp/does-not-exist.bin"))
-
-
-@pytest.mark.parametrize(
-    ("chip", "esptool_chip", "baud", "offset"),
-    (
-        ("esp32", "esp32", "460800", "0x1000"),
-        ("c3", "esp32c3", "460800", "0x0"),
-        ("c5", "esp32c5", "460800", "0x2000"),
-        ("c6", "esp32c6", "460800", "0x0"),
-        ("s3", "esp32s3", "460800", "0x0"),
-    ),
-)
-def test_flash_firmware_uses_project_build_for_supported_chips(
-    chip: str, esptool_chip: str, baud: str, offset: str, tmp_path: Path, monkeypatch
+def test_flash_firmware_propagates_first_runner_failure(
+    monkeypatch,
+    tmp_path: Path,
 ) -> None:
-    firmware = tmp_path / "project.bin"
-    firmware.write_bytes(b"project")
-    calls: list[list[str]] = []
-    resolutions: list[tuple[object, dict[str, object]]] = []
-
-    monkeypatch.setitem(
-        sys.modules,
-        "esptool",
-        SimpleNamespace(),
+    artifact = micro_firmware.BuiltProjectFirmware(
+        image=tmp_path / "firmware.bin",
+        build_dir=tmp_path,
     )
+    artifact.image.write_bytes(b"firmware")
+    attempts: list[Path] = []
+    monkeypatch.setattr(micro, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
         micro,
-        "resolve_serial_port",
-        lambda port, **kwargs: resolutions.append((port, kwargs)) or "/dev/cu.usbmodem1",
-    )
-    monkeypatch.setattr(
-        micro,
-        "run_idf_flash_lifecycle",
-        lambda command, _port, *, erase, before: calls.append(command),
-    )
-    monkeypatch.setattr(
-        micro,
-        "build_project_firmware_image",
-        lambda *, chip, clean, backend, pull_policy: firmware,
+        "build_project_firmware_artifact",
+        lambda **_kwargs: artifact,
     )
 
-    micro.flash_firmware(_make_args(chip=chip))
+    def fail_once(build_dir: Path, **_kwargs) -> None:
+        attempts.append(build_dir)
+        raise subprocess.CalledProcessError(7, ["esptool"])
 
-    assert calls[-1][:2] == ["--chip", esptool_chip]
-    assert calls[-1][5] == baud
-    assert calls[-1][-2:] == [offset, str(firmware)]
-    assert resolutions == [
-        (None, {"chip": chip, "frontend": "micro", "purpose": "flash"})
-    ]
+    monkeypatch.setattr(micro, "flash_build", fail_once)
+
+    with pytest.raises(SystemExit) as exc_info:
+        micro.flash_firmware(
+            _make_args(chip="s3", port="/dev/cu.test")
+        )
+
+    assert exc_info.value.code == 7
+    assert attempts == [tmp_path]
 
 
 def test_flash_firmware_rejects_experimental_s2_profile(monkeypatch, capsys) -> None:
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace())
     monkeypatch.setattr(
         micro,
-        "get_serial_port",
-        lambda *_args, **_kwargs: pytest.fail("unsupported chips must fail before serial access"),
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: pytest.fail(
+            "unsupported chips must fail before serial access"
+        ),
     )
 
     with pytest.raises(SystemExit):
         micro.flash_firmware(
-            _make_args(chip="s2", port="/dev/cu.application", erase=True)
+            _make_args(chip="s2", port="/dev/cu.test", erase=True)
         )
 
     assert "Unsupported Micro-ESPectre chip: s2" in capsys.readouterr().out
-
-
-def test_flash_firmware_rejects_auto_detected_s2_profile(monkeypatch, capsys) -> None:
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace())
-    monkeypatch.setattr(
-        micro,
-        "get_serial_port",
-        lambda _port, **_kwargs: "/dev/cu.application",
-    )
-    monkeypatch.setattr(micro, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(micro, "detect_chip_type", lambda _port: "s2")
-    monkeypatch.setattr(
-        micro,
-        "build_project_firmware_image",
-        lambda **_kwargs: pytest.fail("unsupported detected chips must not build"),
-    )
-
-    with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args(chip=None))
-
-    assert "Unsupported Micro-ESPectre chip: s2" in capsys.readouterr().out
-
-
-def test_flash_firmware_exits_when_chip_cannot_be_selected(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=lambda _cmd: None))
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
-    monkeypatch.setattr(micro, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(micro, "detect_chip_type", lambda _port: None)
-    monkeypatch.setattr(micro, "prompt_chip_type", lambda _choices: None)
-
-    with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args(chip=None))
-
-
-def test_flash_firmware_exits_after_shared_lifecycle_failure(tmp_path: Path, monkeypatch) -> None:
-    firmware = tmp_path / "fw.bin"
-    firmware.write_bytes(b"fw")
-    attempts: list[list[str]] = []
-
-    def always_fail(command, _port, *, erase, before):
-        attempts.append(command)
-        raise RuntimeError("boom")
-
-    monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace())
-    monkeypatch.setattr(
-        micro,
-        "resolve_serial_port",
-        lambda _port, **_kwargs: "/dev/cu.usbmodem1",
-    )
-    monkeypatch.setattr(micro, "run_idf_flash_lifecycle", always_fail)
-    monkeypatch.setattr(
-        micro,
-        "build_project_firmware_image",
-        lambda *, chip, clean, backend, pull_policy: firmware,
-    )
-    with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args(chip="c6"))
-
-    assert len(attempts) == 1
 
 
 def test_deploy_code_requires_config_local(monkeypatch, tmp_path: Path) -> None:

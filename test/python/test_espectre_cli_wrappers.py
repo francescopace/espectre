@@ -11,7 +11,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import os
 import shlex
@@ -30,6 +29,7 @@ from espectre_cli import (
     device_control,
     device_discovery,
     esphome,
+    esptool_runner,
     idf,
     idf_container,
     micro,
@@ -174,7 +174,7 @@ def test_get_serial_port_returns_compatible_explicit_argument(monkeypatch) -> No
 
 def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None:
     fake_serial = ModuleType("serial")
-    reset_calls: list[object] = []
+    reset_calls: list[tuple[str, str, str]] = []
 
     class FakeConnection:
         def __init__(self, *_args, **_kwargs):
@@ -202,9 +202,11 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
     monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
-        serial_monitor,
-        "hard_reset_serial",
-        lambda connection: reset_calls.append(connection),
+        idf,
+        "run_firmware",
+        lambda *, chip, idf_target, port: reset_calls.append(
+            (chip, idf_target, port)
+        ),
     )
 
     assert idf.read_matter_onboarding(
@@ -221,12 +223,12 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
         "port": "/dev/cu.test",
         "qr_payload": "MT:TESTPAYLOAD",
     }
-    assert len(reset_calls) == 1
+    assert reset_calls == [("s3", "esp32s3", "/dev/cu.test")]
 
 
 def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
-    reset_calls: list[object] = []
+    reset_calls: list[tuple[str, str, str]] = []
 
     class FakeConnection:
         def __init__(self, *_args, **_kwargs):
@@ -254,35 +256,27 @@ def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> N
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
     monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
-        serial_monitor,
-        "hard_reset_serial",
-        lambda connection: reset_calls.append(connection),
+        idf,
+        "run_firmware",
+        lambda *, chip, idf_target, port: reset_calls.append(
+            (chip, idf_target, port)
+        ),
     )
 
     assert idf.read_matter_onboarding("/dev/cu.test", reset=False)
     assert reset_calls == []
 
 
-def test_matter_onboarding_reopens_after_usb_reenumeration(monkeypatch) -> None:
+def test_matter_onboarding_does_not_retry_serial_failure(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
     opened: list[str] = []
-    reset_calls: list[object] = []
 
     class FakeConnection:
         def __init__(self, port, **_kwargs):
             opened.append(port)
-            self.instance = len(opened)
-            self.lines = iter(
-                [
-                    b"MATTER_QR=MT:TESTPAYLOAD\n",
-                    b"MATTER_MANUAL_CODE=12704227053\n",
-                ]
-            )
 
         def readline(self):
-            if self.instance == 1:
-                raise OSError("device re-enumerated")
-            return next(self.lines, b"")
+            raise OSError("device disconnected")
 
         def close(self):
             return None
@@ -290,18 +284,16 @@ def test_matter_onboarding_reopens_after_usb_reenumeration(monkeypatch) -> None:
     fake_serial.Serial = FakeConnection
     fake_serial.SerialException = OSError
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    resolved = iter(["/dev/cu.loader", "/dev/cu.runtime"])
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: next(resolved))
-    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
+    resolutions: list[str] = []
     monkeypatch.setattr(
-        serial_monitor,
-        "hard_reset_serial",
-        lambda connection: reset_calls.append(connection),
+        idf,
+        "resolve_serial_port",
+        lambda port, **_kwargs: resolutions.append(port) or port,
     )
 
-    assert idf.read_matter_onboarding("/dev/cu.loader", reset=False)
-    assert opened == ["/dev/cu.loader", "/dev/cu.runtime"]
-    assert reset_calls == []
+    assert not idf.read_matter_onboarding("/dev/cu.loader", reset=False)
+    assert opened == ["/dev/cu.loader"]
+    assert resolutions == ["/dev/cu.loader"]
 
 
 def test_micro_run_json_emits_direct_ready_event(monkeypatch, capsys) -> None:
@@ -352,7 +344,6 @@ def test_get_serial_port_auto_detects_single_port(monkeypatch) -> None:
 
 def test_get_serial_port_prompts_for_multiple_ports(monkeypatch) -> None:
     monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.a", "/dev/cu.b"])
-    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: "c3" if port.endswith("a") else "s3")
     monkeypatch.setattr("builtins.input", lambda _prompt: "2")
 
     assert common.get_serial_port(None) == "/dev/cu.b"
@@ -360,7 +351,6 @@ def test_get_serial_port_prompts_for_multiple_ports(monkeypatch) -> None:
 
 def test_get_serial_port_rejects_invalid_selection(monkeypatch) -> None:
     monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.a", "/dev/cu.b"])
-    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "c6")
     monkeypatch.setattr("builtins.input", lambda _prompt: "9")
 
     with pytest.raises(SystemExit):
@@ -395,9 +385,6 @@ def test_resolve_serial_port_rejects_explicit_incompatible_port(monkeypatch) -> 
         "compatible_serial_ports",
         lambda **_kwargs: ["/dev/cu.usb-jtag"],
     )
-    monkeypatch.setattr(common, "SERIAL_REENUMERATION_ATTEMPTS", 2)
-    monkeypatch.setattr(common.time, "sleep", lambda _delay: None)
-
     with pytest.raises(SystemExit):
         common.resolve_serial_port(
             "/dev/cu.bridge",
@@ -407,159 +394,41 @@ def test_resolve_serial_port_rejects_explicit_incompatible_port(monkeypatch) -> 
         )
 
 
-def test_resolve_serial_port_does_not_use_fresh_identity_to_bypass_compatibility(
-    monkeypatch,
-) -> None:
-    identity = common.SerialPortIdentity(
-        device="/dev/cu.bridge",
-        location="1-1",
-        serial_number="selected",
-        vid=0x1A86,
-        pid=1,
-    )
-    monkeypatch.setattr(common, "_remembered_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(common, "serial_port_identity", lambda _port: identity)
-    monkeypatch.setattr(common, "_export_serial_port_identity", lambda _identity: None)
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.native"],
-    )
-    monkeypatch.setattr(
-        common,
-        "_serial_ports_for_identity",
-        lambda _identity: [identity.device],
-    )
-    monkeypatch.setattr(common, "SERIAL_REENUMERATION_ATTEMPTS", 1)
-
-    with pytest.raises(SystemExit):
-        common.resolve_serial_port(
-            identity.device,
-            chip="s3",
-            frontend="native",
-            purpose="improv",
-        )
-
-
-def test_remember_serial_port_identity_exports_physical_usb_attributes(monkeypatch) -> None:
+def test_resolve_serial_port_uses_metadata_without_opening_devices(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
     fake_tools = ModuleType("serial.tools")
     fake_list_ports = ModuleType("serial.tools.list_ports")
     fake_list_ports.comports = lambda: [
         SimpleNamespace(
-            device="/dev/cu.bootloader",
-            location="20-1",
-            serial_number="device-1",
+            device="/dev/cu.native",
+            description="USB JTAG/serial debug unit",
+            product="USB JTAG/serial debug unit",
+            interface=None,
+            manufacturer="Espressif",
             vid=common.ESPRESSIF_USB_VENDOR_ID,
-            pid=2,
         )
     ]
     fake_tools.list_ports = fake_list_ports
     fake_serial.tools = fake_tools
+    fake_serial.Serial = lambda *_args, **_kwargs: pytest.fail("serial port was opened")
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
     monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
     monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
-
-    identity = common.remember_serial_port_identity("/dev/cu.bootloader")
-
-    assert identity == common.SerialPortIdentity(
-        "/dev/cu.bootloader",
-        "20-1",
-        "device-1",
-        common.ESPRESSIF_USB_VENDOR_ID,
-        2,
-    )
-    assert json.loads(os.environ[common.SERIAL_PORT_IDENTITY_ENV]) == identity._asdict()
-
-
-def test_resolve_serial_port_follows_physical_usb_device_after_reenumeration(
-    monkeypatch,
-    capsys,
-) -> None:
-    identity = common.SerialPortIdentity(
-        "/dev/cu.bootloader",
-        "20-1",
-        "rom-serial",
-        common.ESPRESSIF_USB_VENDOR_ID,
-        2,
-    )
-    monkeypatch.setenv(
-        common.SERIAL_PORT_IDENTITY_ENV,
-        json.dumps(identity._asdict()),
-    )
-    runtime_port = SimpleNamespace(
-        device="/dev/cu.runtime",
-        location="20-1",
-        serial_number="runtime-serial",
-        vid=0xCAFE,
-        pid=0x4001,
-    )
-    fake_serial = ModuleType("serial")
-    fake_tools = ModuleType("serial.tools")
-    fake_list_ports = ModuleType("serial.tools.list_ports")
-    fake_list_ports.comports = lambda: [runtime_port]
-    fake_tools.list_ports = fake_list_ports
-    fake_serial.tools = fake_tools
-    monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
-    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: [])
 
     assert common.resolve_serial_port(
-        "/dev/cu.bootloader",
-        chip="s2",
-        frontend="native",
-        purpose="improv",
-    ) == "/dev/cu.runtime"
-    assert "USB device re-enumerated" in capsys.readouterr().out
-
-
-def test_resolve_serial_port_does_not_match_usb_vendor_alone(monkeypatch) -> None:
-    identity = common.SerialPortIdentity(
-        "/dev/cu.requested",
-        "20-1",
         None,
-        common.ESPRESSIF_USB_VENDOR_ID,
-        2,
-    )
-    monkeypatch.setenv(
-        common.SERIAL_PORT_IDENTITY_ENV,
-        json.dumps(identity._asdict()),
-    )
-    other_port = SimpleNamespace(
-        device="/dev/cu.other",
-        location="20-2",
-        serial_number=None,
-        vid=common.ESPRESSIF_USB_VENDOR_ID,
-        pid=2,
-    )
-    fake_serial = ModuleType("serial")
-    fake_tools = ModuleType("serial.tools")
-    fake_list_ports = ModuleType("serial.tools.list_ports")
-    fake_list_ports.comports = lambda: [other_port]
-    fake_tools.list_ports = fake_list_ports
-    fake_serial.tools = fake_tools
-    monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
-    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: [other_port.device],
-    )
-    monkeypatch.setattr(common, "SERIAL_REENUMERATION_ATTEMPTS", 1)
-
-    with pytest.raises(SystemExit):
-        common.resolve_serial_port(
-            identity.device,
-            chip="s2",
-            frontend="native",
-            purpose="improv",
-        )
+        chip="s3",
+        frontend="native",
+        purpose="flash",
+    ) == "/dev/cu.native"
 
 
 def test_compatible_serial_ports_keeps_uart_bridge_for_flash(monkeypatch) -> None:
-    monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.SLAB_USBtoUART"])
+    monkeypatch.setattr(
+        common,
+        "detect_serial_ports",
+        lambda: ["/dev/cu.SLAB_USBtoUART"],
+    )
 
     assert common.compatible_serial_ports(
         chip="c3",
@@ -568,611 +437,13 @@ def test_compatible_serial_ports_keeps_uart_bridge_for_flash(monkeypatch) -> Non
     ) == ["/dev/cu.SLAB_USBtoUART"]
 
 
-def test_resolve_serial_port_waits_for_the_required_canonical_console(monkeypatch) -> None:
-    fake_serial = ModuleType("serial")
-    fake_tools = ModuleType("serial.tools")
-    fake_list_ports = ModuleType("serial.tools.list_ports")
-    snapshots = iter(
-        [
-            [SimpleNamespace(device="/dev/cu.bridge", vid=0x1A86)],
-            [
-                SimpleNamespace(device="/dev/cu.bridge", vid=0x1A86),
-                SimpleNamespace(
-                    device="/dev/cu.native",
-                    vid=common.ESPRESSIF_USB_VENDOR_ID,
-                ),
-            ],
-        ]
-    )
-    fake_list_ports.comports = lambda: next(snapshots)
-    fake_tools.list_ports = fake_list_ports
-    fake_serial.tools = fake_tools
-    sleeps: list[float] = []
-    monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
-    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-    monkeypatch.setattr(
-        common,
-        "identify_serial_port_candidates",
-        lambda ports: [common.SerialCandidate(ports[0], "s3", "usb_serial_jtag")],
-    )
-    monkeypatch.setattr(common, "serial_console_mode", lambda *_args: "usb_serial_jtag")
-
-    assert common.resolve_serial_port(
-        None,
-        chip="s3",
-        frontend="esphome",
-        purpose="flash",
-        require_canonical_console=True,
-    ) == "/dev/cu.native"
-    assert sleeps == [common.SERIAL_REENUMERATION_DELAY_S]
-
-
-def test_required_canonical_console_keeps_uart_for_classic_esp32(monkeypatch) -> None:
-    monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.bridge"])
-
-    assert common.compatible_serial_ports(
-        chip="esp32",
-        frontend="native",
-        purpose="flash",
-        require_canonical_console=True,
-    ) == ["/dev/cu.bridge"]
-
-
-@pytest.mark.parametrize("frontend", ["native", "esphome", "matter", "micro"])
-@pytest.mark.parametrize("purpose", ["flash", "monitor", "improv"])
-def test_resolve_serial_port_waits_for_explicit_port_after_reenumeration(
-    frontend: str,
-    purpose: str,
-    monkeypatch,
-) -> None:
-    snapshots = iter([[], [], ["/dev/serial/by-id/espectre"]])
-    sleeps: list[float] = []
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: next(snapshots),
-    )
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-
-    assert common.resolve_serial_port(
-        "/dev/serial/by-id/espectre",
-        chip="c3",
-        frontend=frontend,
-        purpose=purpose,
-    ) == "/dev/serial/by-id/espectre"
-    assert sleeps == [
-        common.SERIAL_REENUMERATION_DELAY_S,
-        common.SERIAL_REENUMERATION_DELAY_S,
-    ]
-
-
-def test_resolve_serial_port_waits_for_firmware_download_mode(monkeypatch, capsys) -> None:
-    detected = iter([None, "s2", "s2"])
-    sleeps: list[float] = []
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.device"],
-    )
-    monkeypatch.setattr(common, "_firmware_download_chip", lambda *_args: next(detected))
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-
-    assert common.resolve_serial_port(
-        "/dev/cu.device",
-        chip="s2",
-        frontend="esphome",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == "/dev/cu.device"
-    assert sleeps == [
-        common.SERIAL_REENUMERATION_DELAY_S,
-        common.SERIAL_REENUMERATION_DELAY_S,
-    ]
-    assert "Waiting for firmware download mode" in capsys.readouterr().out
-
-
-def test_resolve_serial_port_does_not_request_manual_loader_after_successful_probe(
-    monkeypatch, capsys
-) -> None:
-    detected = iter(["s3", "s3"])
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.device"],
-    )
-    monkeypatch.setattr(common, "_firmware_download_chip", lambda *_args: next(detected))
-    monkeypatch.setattr(common.time, "sleep", lambda _delay: None)
-
-    assert common.resolve_serial_port(
-        "/dev/cu.device",
-        chip="s3",
-        frontend="native",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == "/dev/cu.device"
-    assert "Waiting for firmware download mode" not in capsys.readouterr().out
-
-
-def test_resolve_serial_port_rejects_wrong_chip_in_download_mode(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.device"],
-    )
-    monkeypatch.setattr(common, "_firmware_download_chip", lambda *_args: "c3")
-
-    with pytest.raises(SystemExit):
-        common.resolve_serial_port(
-            "/dev/cu.device",
-            chip="s3",
-            frontend="native",
-            purpose="flash",
-            require_firmware_download=True,
-        )
-
-    assert "contains ESP32-C3; expected ESP32-S3" in capsys.readouterr().out
-
-
-def test_download_mode_probe_is_limited_to_remembered_physical_device(
-    monkeypatch,
-) -> None:
-    identity = common.SerialPortIdentity(
-        device="/dev/cu.selected",
-        location="1-1",
-        serial_number="selected",
-        vid=common.ESPRESSIF_USB_VENDOR_ID,
-        pid=1,
-    )
-    probes: list[str] = []
-    monkeypatch.setattr(
-        common,
-        "_remembered_serial_port_identity",
-        lambda _port: identity,
-    )
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.selected", "/dev/cu.other"],
-    )
-    monkeypatch.setattr(
-        common,
-        "_serial_ports_for_identity",
-        lambda _identity: ["/dev/cu.selected"],
-    )
-    monkeypatch.setattr(
-        common,
-        "_firmware_download_chip",
-        lambda port, _chip: probes.append(port) or "c3",
-    )
-    monkeypatch.setattr(common.time, "sleep", lambda _delay: None)
-
-    assert common.resolve_serial_port(
-        "/dev/cu.selected",
-        chip="c3",
-        frontend="native",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == "/dev/cu.selected"
-    assert probes == ["/dev/cu.selected", "/dev/cu.selected"]
-
-
-def test_resolve_serial_port_captures_live_explicit_identity(monkeypatch) -> None:
-    identity = common.SerialPortIdentity(
-        device="/dev/cu.application",
-        location="1-1",
-        serial_number="selected",
-        vid=common.ESPRESSIF_USB_VENDOR_ID,
-        pid=1,
-    )
-    exported: list[common.SerialPortIdentity] = []
-    monkeypatch.setattr(
-        common,
-        "_remembered_serial_port_identity",
-        lambda _port: None,
-    )
-    monkeypatch.setattr(common, "serial_port_identity", lambda _port: identity)
-    monkeypatch.setattr(
-        common,
-        "_export_serial_port_identity",
-        exported.append,
-    )
-    monkeypatch.setattr(
-        common,
-        "_wait_for_compatible_serial_ports",
-        lambda *_args, **_kwargs: [identity.device],
-    )
-    monkeypatch.setattr(
-        common,
-        "_serial_ports_for_identity",
-        lambda _identity: [identity.device],
-    )
-
-    assert common.resolve_serial_port(
-        identity.device,
-        chip="s2",
-        frontend="esphome",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == identity.device
-    assert exported == [identity]
-
-
-def test_firmware_download_probe_uses_actual_s2_uart_console(monkeypatch) -> None:
-    before_modes: list[str] = []
-
-    class FakePort:
-        def close(self) -> None:
-            return None
-
-    def connect(**kwargs):
-        before_modes.append(kwargs["before"])
-        if kwargs["before"] == "no-reset":
-            raise OSError("not in loader")
-        return SimpleNamespace(CHIP_NAME="ESP32-S2", _port=FakePort())
-
-    monkeypatch.setitem(
-        sys.modules,
-        "esptool",
-        SimpleNamespace(get_default_connected_device=connect),
-    )
-    monkeypatch.setattr(common, "serial_console_mode", lambda *_args: "uart")
-
-    assert common._firmware_download_chip("/dev/cu.bridge", "s2") == "s2"
-    assert before_modes == ["no-reset", "default-reset"]
-
-
-def test_resolve_serial_port_waits_for_download_port_path_to_stabilize(monkeypatch) -> None:
-    identity = common.SerialPortIdentity(
-        device="/dev/cu.application",
-        location="1-1",
-        serial_number=None,
-        vid=common.ESPRESSIF_USB_VENDOR_ID,
-        pid=1,
-    )
-    identity_ports = iter(
-        [
-            ["/dev/cu.application"],
-            ["/dev/cu.rom"],
-            ["/dev/cu.rom"],
-            ["/dev/cu.rom"],
-        ]
-    )
-    monkeypatch.setattr(common, "_remembered_serial_port_identity", lambda _port: identity)
-    monkeypatch.setattr(common, "_serial_ports_for_identity", lambda _identity: next(identity_ports))
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: [])
-    monkeypatch.setattr(common, "_firmware_download_chip", lambda *_args: "s2")
-    monkeypatch.setattr(common.time, "sleep", lambda _delay: None)
-
-    assert common.resolve_serial_port(
-        "/dev/cu.application",
-        chip="s2",
-        frontend="esphome",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == "/dev/cu.rom"
-
-
-def test_resolve_serial_port_waits_for_auto_detected_port(monkeypatch) -> None:
-    snapshots = iter([[], ["/dev/cu.reenumerated"]])
-    sleeps: list[float] = []
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: next(snapshots),
-    )
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-
-    assert common.resolve_serial_port(
-        None,
-        chip="s3",
-        frontend="matter",
-        purpose="monitor",
-    ) == "/dev/cu.reenumerated"
-    assert sleeps == [common.SERIAL_REENUMERATION_DELAY_S]
-
-
-@pytest.mark.parametrize("frontend", ["native", "esphome", "matter"])
-@pytest.mark.parametrize("purpose", ["flash", "monitor", "improv"])
-def test_resolve_serial_port_prefers_the_canonical_console_for_every_action(
-    frontend: str,
-    purpose: str,
-    monkeypatch,
-) -> None:
-    fake_serial = ModuleType("serial")
-    fake_tools = ModuleType("serial.tools")
-    fake_list_ports = ModuleType("serial.tools.list_ports")
-    fake_list_ports.comports = lambda: [
-        SimpleNamespace(
-            device="/dev/cu.bridge",
-            description="USB Single Serial",
-            product="USB Single Serial",
-            interface=None,
-            manufacturer="QinHeng Electronics",
-            vid=0x1A86,
-        ),
-        SimpleNamespace(
-            device="/dev/cu.native",
-            description="USB JTAG/serial debug unit",
-            product="USB JTAG/serial debug unit",
-            interface=None,
-            manufacturer="Espressif",
-            vid=common.ESPRESSIF_USB_VENDOR_ID,
-        ),
-    ]
-    fake_tools.list_ports = fake_list_ports
-    fake_serial.tools = fake_tools
-    monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
-    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.bridge", "/dev/cu.native"],
-    )
-    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "s3")
-    monkeypatch.setattr("builtins.input", lambda _prompt: pytest.fail("should not prompt"))
-
-    assert common.resolve_serial_port(
-        None,
-        chip="s3",
-        frontend=frontend,
-        purpose=purpose,
-    ) == "/dev/cu.native"
-
-
-def test_resolve_serial_port_accepts_alias_for_compatible_console(monkeypatch) -> None:
-    alias = "/dev/serial/by-id/espectre"
-    device = "/dev/ttyACM0"
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: [device])
-    monkeypatch.setattr(
-        common.os.path,
-        "realpath",
-        lambda value: device if value in {alias, device} else value,
-    )
-
-    assert common.resolve_serial_port(
-        alias,
-        chip="c3",
-        frontend="native",
-        purpose="monitor",
-    ) == alias
-
-
-def test_resolve_serial_port_prompts_only_among_compatible_candidates(monkeypatch) -> None:
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.valid-a", "/dev/cu.valid-b"],
-    )
-    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "s3")
-    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
-
-    assert common.resolve_serial_port(
-        None,
-        chip="s3",
-        frontend="native",
-        purpose="monitor",
-    ) == "/dev/cu.valid-b"
-
-
-def test_identify_serial_port_candidates_refreshes_reenumerated_path(
-    monkeypatch,
-) -> None:
-    identity = common.SerialPortIdentity(
-        device="/dev/cu.application",
-        location="1-1",
-        serial_number="selected",
-        vid=common.ESPRESSIF_USB_VENDOR_ID,
-        pid=1,
-    )
-    current_ports = iter([[], ["/dev/cu.runtime"], ["/dev/cu.runtime"]])
-    sleeps: list[float] = []
-    monkeypatch.setattr(common, "serial_port_identity", lambda _port: identity)
-    monkeypatch.setattr(common, "detect_chip_type", lambda *_args, **_kwargs: "s2")
-    monkeypatch.setattr(
-        common,
-        "_serial_ports_for_identity",
-        lambda _identity: next(current_ports),
-    )
-    monkeypatch.setattr(common, "serial_console_mode", lambda *_args: "usb_cdc")
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-
-    assert common.identify_serial_port_candidates(
-        ["/dev/cu.application"]
-    ) == [common.SerialCandidate("/dev/cu.runtime", "s2", "usb_cdc")]
-    assert sleeps == [
-        common.SERIAL_REENUMERATION_DELAY_S,
-        common.SERIAL_REENUMERATION_DELAY_S,
-    ]
-
-
-def test_resolve_serial_port_does_not_reset_verified_download_candidates(monkeypatch) -> None:
-    monkeypatch.setattr(common, "_remembered_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(
-        common,
-        "_wait_for_compatible_serial_ports",
-        lambda *_args, **_kwargs: ["/dev/cu.loader-a", "/dev/cu.loader-b"],
-    )
-    monkeypatch.setattr(
-        common,
-        "identify_serial_port_candidates",
-        lambda _ports: pytest.fail("verified loader ports must not be reset for identification"),
-    )
-    monkeypatch.setattr(common, "serial_console_mode", lambda *_args: "usb_cdc")
-    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
-
-    assert common.resolve_serial_port(
-        None,
-        chip="s2",
-        frontend="esphome",
-        purpose="flash",
-        require_firmware_download=True,
-    ) == "/dev/cu.loader-b"
-
-
-def test_resolve_serial_port_without_chip_uses_action_candidates(monkeypatch) -> None:
-    observed = []
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **kwargs: observed.append(kwargs) or ["/dev/cu.flash"],
-    )
-
-    assert common.resolve_serial_port(
-        None,
-        chip=None,
-        frontend="native",
-        purpose="flash",
-    ) == "/dev/cu.flash"
-    assert observed == [
-        {
-            "chip": None,
-            "frontend": "native",
-            "purpose": "flash",
-            "require_canonical_console": False,
-        }
-    ]
-
-
-def test_resolve_serial_port_prompts_before_probing_multiple_devices(monkeypatch) -> None:
-    ports = {
-        "/dev/cu.esp32": "esp32",
-        "/dev/cu.s3": "s3",
-        "/dev/cu.c3": "c3",
-        "/dev/cu.c6": "c6",
-    }
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: list(ports))
-    probes: list[str] = []
-    monkeypatch.setattr(
-        common,
-        "detect_chip_type",
-        lambda port, **_kwargs: probes.append(port) or ports[port],
-    )
-    monkeypatch.setattr("builtins.input", lambda _prompt: "4")
-
-    assert (
-        common.resolve_serial_port(
-            None,
-            chip="c6",
-            frontend="native",
-            purpose="flash",
-        )
-        == "/dev/cu.c6"
-    )
-    assert probes == ["/dev/cu.c6"]
-
-
-def test_resolve_serial_port_verifies_single_flash_candidate_chip(monkeypatch) -> None:
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.only"],
-    )
-    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "c3")
-
-    with pytest.raises(SystemExit):
-        common.resolve_serial_port(
-            None,
-            chip="s3",
-            frontend="native",
-            purpose="flash",
-        )
-
-
-def test_resolve_serial_port_prompts_among_native_usb_consoles_without_probing(
-    monkeypatch, capsys
-) -> None:
-    ports = ["/dev/cu.native-a", "/dev/cu.bridge", "/dev/cu.native-b"]
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: ports)
-    monkeypatch.setattr(
-        common,
-        "serial_console_mode",
-        lambda _chip, port: "uart" if port.endswith("bridge") else "usb_serial_jtag",
-    )
-    monkeypatch.setattr(
-        common,
-        "detect_chip_type",
-        lambda *_args, **_kwargs: pytest.fail("selection must not probe every device"),
-    )
-    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
-
-    assert (
-        common.resolve_serial_port(
-            None,
-            chip=None,
-            frontend="native",
-            purpose="improv",
-        )
-        == "/dev/cu.native-b"
-    )
-    output = capsys.readouterr().out
-    assert "1. /dev/cu.native-a  usb_serial_jtag" in output
-    assert "2. /dev/cu.native-b  usb_serial_jtag" in output
-    assert "/dev/cu.bridge" not in output
-    assert "unknown" not in output
-
-
-@pytest.mark.parametrize(
-    ("frontend", "purpose"),
-    [
-        ("native", "improv"),
-        ("esphome", "improv"),
-        ("native", "monitor"),
-        ("esphome", "monitor"),
-        ("matter", "monitor"),
-    ],
-)
-def test_resolve_serial_port_prefers_single_native_usb_console_without_chip(
-    frontend: str,
-    purpose: str,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        common,
-        "compatible_serial_ports",
-        lambda **_kwargs: ["/dev/cu.bridge", "/dev/cu.native"],
-    )
-    monkeypatch.setattr(
-        common,
-        "serial_console_mode",
-        lambda _chip, port: "uart" if port.endswith("bridge") else "usb_serial_jtag",
-    )
-    monkeypatch.setattr("builtins.input", lambda _prompt: pytest.fail("should not prompt"))
-
-    assert common.resolve_serial_port(
-        None,
-        chip=None,
-        frontend=frontend,
-        purpose=purpose,
-    ) == "/dev/cu.native"
-
-
-def test_resolve_serial_port_errors_when_requested_chip_not_connected(monkeypatch) -> None:
-    ports = {
-        "/dev/cu.c3": "c3",
-        "/dev/cu.s3": "s3",
-    }
-    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: list(ports))
-    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: ports[port])
-    monkeypatch.setattr("builtins.input", lambda _prompt: "1")
-
-    with pytest.raises(SystemExit):
-        common.resolve_serial_port(
-            None,
-            chip="c6",
-            frontend="native",
-            purpose="flash",
-        )
-
-
 def test_get_serial_port_forwards_operation_to_shared_resolver(monkeypatch) -> None:
     observed = []
     monkeypatch.setattr(
         common,
         "resolve_serial_port",
-        lambda port_arg, **kwargs: observed.append((port_arg, kwargs)) or "/dev/cu.c6",
+        lambda port_arg, **kwargs: observed.append((port_arg, kwargs))
+        or "/dev/cu.c6",
     )
 
     assert common.get_serial_port(
@@ -1242,7 +513,7 @@ def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> Non
     ]
 
 
-def test_improv_provision_resolves_port_before_prompting_for_password(monkeypatch) -> None:
+def test_improv_provision_validates_port_before_requesting_password(monkeypatch) -> None:
     def reject_port(*_args, **_kwargs):
         raise SystemExit(1)
 
@@ -1255,7 +526,9 @@ def test_improv_provision_resolves_port_before_prompting_for_password(monkeypatc
     monkeypatch.setattr(
         device_control.getpass,
         "getpass",
-        lambda _prompt: pytest.fail("password must not be requested before port validation"),
+        lambda _prompt: pytest.fail(
+            "password must not be requested before port validation"
+        ),
     )
 
     with pytest.raises(SystemExit):
@@ -1270,123 +543,6 @@ def test_improv_provision_resolves_port_before_prompting_for_password(monkeypatc
                 json=False,
             )
         )
-
-
-@pytest.mark.parametrize(
-    ("chip_name", "expected"),
-    (("ESP32-C6", "c6"), ("ESP32-S2", "s2")),
-)
-def test_detect_chip_type_returns_detected_chip_and_closes_port(
-    chip_name: str,
-    expected: str,
-    monkeypatch,
-) -> None:
-    lifecycle = []
-
-    class FakePort:
-        def close(self) -> None:
-            lifecycle.append("close")
-
-    class FakeDevice:
-        CHIP_NAME = chip_name
-        _port = FakePort()
-
-        def hard_reset(self) -> None:
-            lifecycle.append("reset")
-
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
-
-    assert common.detect_chip_type("/dev/cu.test") == expected
-    assert lifecycle == ["reset", "close"]
-
-
-def test_detect_chip_type_can_preserve_bootloader_state(monkeypatch) -> None:
-    lifecycle = []
-
-    class FakePort:
-        def close(self) -> None:
-            lifecycle.append("close")
-
-    class FakeDevice:
-        CHIP_NAME = "ESP32-S3"
-        _port = FakePort()
-
-        def hard_reset(self) -> None:
-            lifecycle.append("reset")
-
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
-
-    assert common.detect_chip_type("/dev/cu.test", reset_after=False) == "s3"
-    assert lifecycle == ["close"]
-
-
-def test_detect_chip_type_returns_none_when_detection_fails(monkeypatch) -> None:
-    fake_esptool = ModuleType("esptool")
-
-    def _raise(**_kwargs):
-        raise RuntimeError("no chip")
-
-    fake_esptool.get_default_connected_device = _raise
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
-
-    assert common.detect_chip_type("/dev/cu.test") is None
-
-
-@pytest.mark.parametrize(
-    "first_error",
-    [
-        FileNotFoundError("No such file or directory: '/dev/cu.test'"),
-        OSError(errno.EBUSY, "Resource busy: '/dev/cu.test'"),
-    ],
-)
-def test_detect_chip_type_retries_a_port_that_is_reenumerating(
-    first_error: OSError,
-    monkeypatch,
-) -> None:
-    calls = 0
-    sleeps = []
-
-    class FakePort:
-        def close(self) -> None:
-            pass
-
-    class FakeDevice:
-        CHIP_NAME = "ESP32-S3"
-        _port = FakePort()
-
-        def hard_reset(self) -> None:
-            pass
-
-    def connect(**_kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise first_error
-        return FakeDevice()
-
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = connect
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(common.time, "sleep", sleeps.append)
-
-    assert common.detect_chip_type("/dev/cu.test") == "s3"
-    assert calls == 2
-    assert sleeps == [common.SERIAL_REENUMERATION_DELAY_S, 1.0]
-
-
-def test_prompt_chip_type_handles_valid_and_invalid_choices(monkeypatch) -> None:
-    monkeypatch.setattr("builtins.input", lambda _prompt: "3")
-    assert common.prompt_chip_type() == "s2"
-
-    monkeypatch.setattr("builtins.input", lambda _prompt: "0")
-    assert common.prompt_chip_type() is None
 
 
 def test_resolve_esphome_config_supports_chip_and_explicit_path() -> None:
@@ -1435,7 +591,6 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
         lambda port, **kwargs: resolutions.append((port, kwargs)) or port,
     )
     monkeypatch.setattr(esphome, "resolve_esphome_build_artifact", lambda _config: build_dir / "espectre.bin")
-    monkeypatch.setattr(esphome, "serial_console_mode", lambda *_args: "usb_serial_jtag")
     monkeypatch.setattr(
         esphome,
         "flash_prebuilt_idf_build",
@@ -1456,7 +611,7 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
             build_dir,
             "/dev/cu.usb",
             "esp32c3",
-            {"erase": False, "before": "default-reset"},
+            {"chip": "c3", "erase": False},
         )
     ]
     assert resolutions == [
@@ -1486,7 +641,6 @@ def test_run_esphome_serial_firmware_uses_factory_image(monkeypatch, tmp_path: P
         "resolve_esphome_build_artifact",
         lambda _config: pytest.fail("a factory image must not require a local build artifact"),
     )
-    monkeypatch.setattr(esphome, "serial_console_mode", lambda *_args: "usb_cdc")
     monkeypatch.setattr(
         esphome,
         "flash_factory_image",
@@ -1510,8 +664,8 @@ def test_run_esphome_serial_firmware_uses_factory_image(monkeypatch, tmp_path: P
             "/dev/cu.loader",
             "esp32s2",
             {
+                "chip": "s2",
                 "erase": False,
-                "before": "no-reset",
             },
         )
     ]
@@ -1519,15 +673,6 @@ def test_run_esphome_serial_firmware_uses_factory_image(monkeypatch, tmp_path: P
         (
             "/dev/cu.loader",
             {"chip": "s2", "frontend": "esphome", "purpose": "flash"},
-        ),
-        (
-            "/dev/cu.loader",
-            {
-                "chip": "s2",
-                "frontend": "esphome",
-                "purpose": "flash",
-                "require_firmware_download": True,
-            },
         ),
     ]
 
@@ -1621,7 +766,6 @@ def test_run_esphome_flash_can_erase_all_data_before_upload(monkeypatch, tmp_pat
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
     monkeypatch.setattr(esphome, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.resolved")
     monkeypatch.setattr(esphome, "resolve_esphome_build_artifact", lambda _config: build_dir / "espectre.bin")
-    monkeypatch.setattr(esphome, "serial_console_mode", lambda *_args: "usb_cdc")
     monkeypatch.setattr(
         esphome,
         "flash_prebuilt_idf_build",
@@ -1649,7 +793,7 @@ def test_run_esphome_flash_can_erase_all_data_before_upload(monkeypatch, tmp_pat
             build_dir,
             "/dev/cu.resolved",
             "esp32s2",
-            {"erase": True, "before": "no-reset"},
+            {"chip": "s2", "erase": True},
         )
     ]
 
@@ -1763,15 +907,25 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
+                "build",
+            ],
+            app_dir,
+        ),
     ]
 
 
-def test_run_idf_command_build_reuses_matching_target(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
     calls: list[tuple[list[str], Path]] = []
     env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
 
@@ -1782,21 +936,28 @@ def test_run_idf_command_build_reuses_matching_target(monkeypatch, tmp_path: Pat
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
 
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", "build"], app_dir),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
+                "build",
+            ],
+            app_dir,
+        ),
     ]
 
 
-def test_run_idf_command_build_reuses_cached_target_when_generated_sdkconfig_is_missing(
+def test_run_idf_command_build_uses_explicit_sdkconfig_when_missing(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     app_dir = tmp_path / "app"
     build_dir = app_dir / "build-esp32c3"
     build_dir.mkdir(parents=True)
-    (build_dir / "CMakeCache.txt").write_text(
-        "IDF_TARGET:STRING=esp32c3\n",
-        encoding="utf-8",
-    )
     generated_sdkconfig = build_dir / "sdkconfig.lightweight"
     calls: list[tuple[list[str], Path]] = []
     env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
@@ -1815,6 +976,7 @@ def test_run_idf_command_build_reuses_cached_target_when_generated_sdkconfig_is_
                 "-B",
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DIDF_TARGET=esp32c3",
                 f"-DSDKCONFIG={generated_sdkconfig}",
                 "build",
             ],
@@ -1857,15 +1019,8 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
                     "-B",
                     "build-esp32c3-docker",
                     "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
-                    "-DNATIVE_OTA_CHANNEL=preview",
-                    "set-target",
-                    "esp32c3",
-                ],
-                [
-                    "idf.py",
-                    "-B",
-                    "build-esp32c3-docker",
-                    "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                    "-DIDF_TARGET=esp32c3",
+                    "-DSDKCONFIG=build-esp32c3-docker/sdkconfig",
                     "-DNATIVE_OTA_CHANNEL=preview",
                     "build",
                 ],
@@ -2050,12 +1205,6 @@ def test_idf_subprocess_env_inherits_shell_when_already_configured(monkeypatch) 
     assert idf.idf_subprocess_env(env) is None
 
 
-def test_sdkconfig_matches_target_rejects_a_different_target(tmp_path: Path) -> None:
-    (tmp_path / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
-
-    assert not idf.sdkconfig_matches_target(tmp_path, "esp32c3")
-
-
 def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
@@ -2073,11 +1222,15 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
 
     assert calls == [
         (
-            ["idf.py", "-B", "build-esp32", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "set-target", "esp32"],
-            app_dir,
-        ),
-        (
-            ["idf.py", "-B", "build-esp32", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi", "build"],
+            [
+                "idf.py",
+                "-B",
+                "build-esp32",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi",
+                "-DIDF_TARGET=esp32",
+                "-DSDKCONFIG=build-esp32/sdkconfig",
+                "build",
+            ],
             app_dir,
         ),
     ]
@@ -2113,8 +1266,18 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
     assert (app_dir / "dependencies.lock").exists()
     assert (app_dir / "sdkconfig.wifi").exists()
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
+                "build",
+            ],
+            app_dir,
+        ),
     ]
 
 
@@ -2141,8 +1304,18 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
 
     assert not build_dir.exists()
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults", "build"], app_dir),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
+                "build",
+            ],
+            app_dir,
+        ),
     ]
 
 
@@ -2167,11 +1340,15 @@ def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Pa
     sdkconfig_arg = f"-DSDKCONFIG={isolated_sdkconfig.resolve()}"
     assert calls == [
         (
-            ["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", sdkconfig_arg, "set-target", "esp32c3"],
-            app_dir,
-        ),
-        (
-            ["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", sdkconfig_arg, "build"],
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DIDF_TARGET=esp32c3",
+                sdkconfig_arg,
+                "build",
+            ],
             app_dir,
         ),
     ]
@@ -2212,160 +1389,37 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
     assert not (app_dir / "dependencies.lock").exists()
     assert (app_dir / "sdkconfig.wifi").exists()
     assert calls == [
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"], app_dir),
-        (["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"], app_dir),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
+                "build",
+            ],
+            app_dir,
+        ),
     ]
 
 
-def test_run_idf_command_flash_resolves_port(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    calls: list[list[str]] = []
-    resolutions: list[tuple[object, dict[str, object]]] = []
-
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(
-        idf,
-        "resolve_serial_port",
-        lambda port, **kwargs: resolutions.append((port, kwargs)) or "/dev/cu.auto",
-    )
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
-    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(
-        idf,
-        "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
-
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
-
-    assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
-    assert resolutions == [
-        (None, {"chip": None, "frontend": "matter", "purpose": "flash"})
-    ]
-
-
-def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    calls: list[list[str]] = []
-
-    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "c3")
-    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(
-        idf,
-        "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
-
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
-
-    assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
-
-
-def test_run_idf_command_flash_reclaims_stale_temporary_sdkconfig_cache(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    build_dir = app_dir / "build-esp32c3"
-    build_dir.mkdir(parents=True)
-    temporary_sdkconfig = app_dir / ".espectre-benchmark-c3-default.sdkconfig"
-    (build_dir / "CMakeCache.txt").write_text(
-        f"SDKCONFIG:UNINITIALIZED={temporary_sdkconfig}\n",
-        encoding="utf-8",
-    )
-    calls: list[list[str]] = []
-
-    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "c3")
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"))
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
-
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
-
-    assert calls == [[
-        "idf.py",
-        "-B",
-        "build-esp32c3",
-        f"-DSDKCONFIG={(app_dir / 'sdkconfig').resolve()}",
-        "-p",
-        "/dev/cu.auto",
-        "flash",
-    ]]
-
-
-def test_run_idf_command_flash_uses_target_specific_build_dir_from_sdkconfig(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
-    (app_dir / "build-esp32c3").mkdir()
-    calls: list[list[str]] = []
-
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
-    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(
-        idf,
-        "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
-
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
-
-    assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
-
-
-def test_run_idf_command_flash_keeps_legacy_build_dir_when_target_build_is_missing(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
-    (app_dir / "build").mkdir()
-    calls: list[list[str]] = []
-
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: None)
-    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(
-        idf,
-        "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
-
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
-
-    assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
-
-
-def _write_flasher_args(build_dir: Path, chip: str) -> None:
+def _write_flasher_args(build_dir: Path) -> None:
     build_dir.mkdir(parents=True, exist_ok=True)
     (build_dir / "flasher_args.json").write_text(
         json.dumps(
             {
-                "write_flash_args": ["--flash_mode", "dio", "--flash_freq", "80m", "--flash_size", "2MB"],
+                "write_flash_args": [
+                    "--flash_mode",
+                    "dio",
+                    "--flash_freq",
+                    "40m",
+                    "--flash_size",
+                    "4MB",
+                ],
                 "flash_files": {
-                    "0x0": "bootloader/bootloader.bin",
-                    "0x8000": "partition_table/partition-table.bin",
-                    "0x10000": "espectre.bin",
-                },
-                "app": {"offset": "0x10000", "file": "espectre.bin"},
-                "extra_esptool_args": {
-                    "after": "hard_reset",
-                    "before": "default_reset",
-                    "chip": chip,
+                    "0x10000": "app.bin",
+                    "0x0": "bootloader.bin",
                 },
             }
         ),
@@ -2373,884 +1427,222 @@ def _write_flasher_args(build_dir: Path, chip: str) -> None:
     )
 
 
-def test_erase_idf_flash_clears_all_data(monkeypatch) -> None:
-    calls = []
-    monkeypatch.setattr(idf, "run_esptool_main", lambda command: calls.append(command))
+@pytest.mark.parametrize(
+    ("chip", "idf_target", "console", "before", "after", "baud"),
+    [
+        ("esp32", "esp32", "uart", "default-reset", "hard-reset", "115200"),
+        ("s2", "esp32s2", "usb_cdc", "no-reset", "watchdog-reset", "460800"),
+        ("s2", "esp32s2", "uart", "default-reset", "watchdog-reset", "460800"),
+        ("s3", "esp32s3", "usb_serial_jtag", "default-reset", "watchdog-reset", "460800"),
+        ("c6", "esp32c6", "usb_serial_jtag", "default-reset", "watchdog-reset", "460800"),
+    ],
+)
+def test_flash_build_uses_one_esptool_session(
+    monkeypatch,
+    tmp_path: Path,
+    chip: str,
+    idf_target: str,
+    console: str,
+    before: str,
+    after: str,
+    baud: str,
+) -> None:
+    build_dir = tmp_path / "build"
+    _write_flasher_args(build_dir)
+    calls: list[tuple[list[str], Path, bool]] = []
+    monkeypatch.setattr(
+        esptool_runner,
+        "serial_console_mode",
+        lambda _chip, _port: console,
+    )
+    monkeypatch.setattr(
+        esptool_runner.subprocess,
+        "run",
+        lambda command, *, cwd, check: calls.append((command, Path(cwd), check)),
+    )
 
-    idf.erase_idf_flash("/dev/cu.valid")
+    esptool_runner.flash_build(
+        build_dir,
+        chip=chip,
+        idf_target=idf_target,
+        port="/dev/cu.test",
+        erase=True,
+    )
 
     assert calls == [
-        [
-            "--port",
-            "/dev/cu.valid",
-            "--before",
-            "default-reset",
-            "--after",
-            "no-reset",
-            "erase-flash",
-        ]
-    ]
-
-
-def test_run_esptool_main_retries_transient_port_reenumeration(monkeypatch, capsys) -> None:
-    calls: list[list[str]] = []
-    sleeps: list[float] = []
-    failures = iter(
-        [
-            OSError(errno.ENXIO, "Device not configured"),
-            OSError(errno.EBUSY, "Resource busy"),
-            None,
-        ]
-    )
-    fake_esptool = ModuleType("esptool")
-
-    def fake_main(args):
-        calls.append(args)
-        failure = next(failures)
-        if failure is not None:
-            raise failure
-
-    fake_esptool.main = fake_main
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf.time, "sleep", sleeps.append)
-
-    command = ["--port", "/dev/cu.loader", "erase-flash"]
-    idf.run_esptool_main(command)
-
-    assert calls == [command, command, command]
-    assert sleeps == [
-        common.SERIAL_REENUMERATION_DELAY_S,
-        common.SERIAL_REENUMERATION_DELAY_S,
-    ]
-    assert "retrying the esptool operation" in capsys.readouterr().out
-
-
-def test_run_idf_flash_lifecycle_retries_uart_at_safe_baud(monkeypatch, capsys) -> None:
-    calls: list[list[str]] = []
-    starts: list[str] = []
-    serial_error = RuntimeError("No serial data received.")
-    stub_error = RuntimeError("Failed to start stub flasher. There was no response.")
-    stub_error.__cause__ = serial_error
-
-    def fake_esptool(command: list[str]) -> None:
-        calls.append(command)
-        if len(calls) <= 2:
-            raise stub_error
-
-    command = [
-        "--chip",
-        "esp32s3",
-        "--port",
-        "/dev/cu.usbserial",
-        "--baud",
-        "460800",
-        "--before",
-        "default-reset",
-        "write-flash",
-        "0x0",
-        "firmware.bin",
-    ]
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
-    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
-    monkeypatch.setattr(
-        idf,
-        "start_flashed_idf_firmware",
-        lambda port: starts.append(port) or True,
-    )
-
-    idf.run_idf_flash_lifecycle(
-        command,
-        "/dev/cu.usbserial",
-        erase=False,
-        before="default-reset",
-    )
-
-    assert calls[0] == command
-    assert calls[1][calls[1].index("--baud") + 1] == "460800"
-    assert calls[2][calls[2].index("--baud") + 1] == "115200"
-    assert calls[2][calls[2].index("--before") + 1] == "default-reset"
-    assert starts == ["/dev/cu.usbserial"]
-    assert "retrying at 115200 baud" in capsys.readouterr().out
-
-
-def test_run_idf_flash_lifecycle_reconnects_reused_uart_loader_at_same_baud(
-    monkeypatch, capsys
-) -> None:
-    calls: list[list[str]] = []
-
-    def fake_esptool(command: list[str]) -> None:
-        calls.append(command)
-        if len(calls) == 1:
-            raise RuntimeError(
-                "Failed to read target memory. Only got 1 byte status response."
-            )
-
-    command = [
-        "--chip",
-        "esp32",
-        "--port",
-        "/dev/cu.usbserial",
-        "--baud",
-        "460800",
-        "--before",
-        "no-reset",
-        "write-flash",
-        "0x0",
-        "firmware.bin",
-    ]
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
-    monkeypatch.setattr(idf, "erase_idf_flash", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
-
-    idf.run_idf_flash_lifecycle(
-        command,
-        "/dev/cu.usbserial",
-        erase=True,
-        before="default-reset",
-    )
-
-    assert len(calls) == 2
-    assert calls[1][calls[1].index("--baud") + 1] == "460800"
-    assert calls[1][calls[1].index("--before") + 1] == "default-reset"
-    assert "retrying at 460800 baud after a fresh reset" in capsys.readouterr().out
-
-
-def test_run_idf_flash_lifecycle_retries_fresh_uart_session_at_same_baud(
-    monkeypatch
-) -> None:
-    calls: list[list[str]] = []
-
-    def fake_esptool(command: list[str]) -> None:
-        calls.append(command)
-        if len(calls) == 1:
-            raise RuntimeError("No more data to read from the serial port.")
-
-    command = [
-        "--chip",
-        "esp32",
-        "--port",
-        "/dev/cu.usbserial",
-        "--baud",
-        "460800",
-        "--before",
-        "default-reset",
-        "write-flash",
-        "0x0",
-        "firmware.bin",
-    ]
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
-    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
-    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
-
-    idf.run_idf_flash_lifecycle(
-        command,
-        "/dev/cu.usbserial",
-        erase=False,
-        before="default-reset",
-    )
-
-    assert len(calls) == 2
-    assert calls[1][calls[1].index("--baud") + 1] == "460800"
-    assert calls[1][calls[1].index("--before") + 1] == "default-reset"
-
-
-@pytest.mark.parametrize(
-    ("console_mode", "error"),
-    (
-        ("usb_serial_jtag", RuntimeError("No serial data received.")),
-        ("uart", RuntimeError("Firmware image overlaps another segment")),
-    ),
-)
-def test_run_idf_flash_lifecycle_does_not_retry_unrelated_failures(
-    monkeypatch,
-    console_mode: str,
-    error: RuntimeError,
-) -> None:
-    calls: list[list[str]] = []
-    command = [
-        "--chip",
-        "esp32s3",
-        "--port",
-        "/dev/cu.test",
-        "--baud",
-        "460800",
-        "--before",
-        "default-reset",
-        "write-flash",
-        "0x0",
-        "firmware.bin",
-    ]
-
-    def fake_esptool(actual_command: list[str]) -> None:
-        calls.append(actual_command)
-        raise error
-
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: console_mode)
-    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
-
-    with pytest.raises(RuntimeError, match=str(error)):
-        idf.run_idf_flash_lifecycle(
-            command,
-            "/dev/cu.test",
-            erase=False,
-            before="default-reset",
+        (
+            [
+                sys.executable,
+                "-m",
+                "esptool",
+                "--chip",
+                idf_target,
+                "--port",
+                "/dev/cu.test",
+                "--baud",
+                baud,
+                "--before",
+                before,
+                "--after",
+                after,
+                "write-flash",
+                "--erase-all",
+                "--flash-mode",
+                "dio",
+                "--flash-freq",
+                "40m",
+                "--flash-size",
+                "4MB",
+                "0x0",
+                "bootloader.bin",
+                "0x10000",
+                "app.bin",
+            ],
+            build_dir,
+            True,
         )
-
-    assert calls == [command]
-
-
-def test_flash_prebuilt_idf_build_keeps_loader_between_erase_and_write(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    build_dir = tmp_path / "build"
-    _write_flasher_args(build_dir, "esp32s2")
-    lifecycle: list[object] = []
-    monkeypatch.setattr(
-        idf,
-        "erase_idf_flash",
-        lambda port, *, before: lifecycle.append(("erase", port, before)),
-    )
-    monkeypatch.setattr(
-        idf,
-        "run_esptool_main",
-        lambda command: lifecycle.append(("write", command)),
-    )
-    monkeypatch.setattr(
-        idf,
-        "start_flashed_idf_firmware",
-        lambda port: lifecycle.append(("start", port)) or True,
-    )
-
-    idf.flash_prebuilt_idf_build(
-        build_dir,
-        "/dev/cu.loader",
-        "esp32s2",
-        erase=True,
-        before="no-reset",
-    )
-
-    assert lifecycle[0] == ("erase", "/dev/cu.loader", "no-reset")
-    assert lifecycle[1][0] == "write"
-    write_command = lifecycle[1][1]
-    assert write_command[write_command.index("--before") + 1] == "no-reset"
-    assert write_command[write_command.index("--after") + 1] == "no-reset"
-    assert lifecycle[2] == ("start", "/dev/cu.loader")
-
-
-def test_flash_prebuilt_idf_build_reconnects_uart_after_erase(
-    monkeypatch, tmp_path: Path
-) -> None:
-    build_dir = tmp_path / "build"
-    _write_flasher_args(build_dir, "esp32")
-    lifecycle: list[object] = []
-    monkeypatch.setattr(
-        idf,
-        "erase_idf_flash",
-        lambda port, *, before: lifecycle.append(("erase", port, before)),
-    )
-    monkeypatch.setattr(
-        idf,
-        "run_esptool_main",
-        lambda command: lifecycle.append(("write", command)),
-    )
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
-
-    idf.flash_prebuilt_idf_build(
-        build_dir,
-        "/dev/cu.usbserial",
-        "esp32",
-        erase=True,
-        before="default-reset",
-    )
-
-    write_command = lifecycle[1][1]
-    assert write_command[write_command.index("--before") + 1] == "default-reset"
-    assert write_command[write_command.index("--baud") + 1] == "460800"
-
-
-def test_flash_factory_image_validates_file_before_erasing(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    missing = tmp_path / "missing.factory.bin"
-    monkeypatch.setattr(
-        idf,
-        "erase_idf_flash",
-        lambda *_args, **_kwargs: pytest.fail("missing factory image must not erase flash"),
-    )
-    monkeypatch.setattr(
-        idf,
-        "run_esptool_main",
-        lambda *_args, **_kwargs: pytest.fail("missing factory image must not be written"),
-    )
-
-    with pytest.raises(FileNotFoundError, match="Factory image not found"):
-        idf.flash_factory_image(
-            missing,
-            "/dev/cu.loader",
-            "esp32s2",
-            erase=True,
-            before="no-reset",
-        )
-
-
-@pytest.mark.parametrize(
-    ("chip_name", "console_mode", "expected_reset"),
-    (
-        ("ESP32-C3", "usb_serial_jtag", "watchdog_reset"),
-        ("ESP32-C3", "uart", "hard_reset"),
-        ("ESP32-C5", "usb_serial_jtag", "watchdog_reset"),
-        ("ESP32-C5", "uart", "hard_reset"),
-        ("ESP32-S3", "usb_serial_jtag", "watchdog_reset"),
-        ("ESP32-S3", "uart", "hard_reset"),
-        ("ESP32-C6", "usb_serial_jtag", "hard_reset"),
-        ("ESP32-C6", "uart", "hard_reset"),
-    ),
-)
-def test_start_flashed_idf_firmware_resets_application_from_loader(
-    monkeypatch,
-    chip_name: str,
-    console_mode: str,
-    expected_reset: str,
-) -> None:
-    lifecycle = []
-    connection_args = []
-
-    class FakePort:
-        def setDTR(self, state: bool) -> None:
-            lifecycle.append(("set_dtr", state))
-
-        def close(self) -> None:
-            lifecycle.append("close")
-
-    class FakeDevice:
-        CHIP_NAME = chip_name
-        _port = FakePort()
-
-        def watchdog_reset(self) -> None:
-            lifecycle.append("watchdog_reset")
-
-        def hard_reset(self) -> None:
-            lifecycle.append("hard_reset")
-
-    fake_esptool = ModuleType("esptool")
-
-    def fake_connect(**kwargs):
-        connection_args.append(kwargs)
-        return FakeDevice()
-
-    fake_esptool.get_default_connected_device = fake_connect
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: console_mode)
-    monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
-
-    assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
-    assert connection_args == [
-        {
-            "serial_list": ["/dev/cu.test"],
-            "port": "/dev/cu.test",
-            "connect_attempts": 1,
-            "initial_baud": 115200,
-            "before": "no-reset",
-        }
-    ]
-    assert lifecycle == [("set_dtr", False), expected_reset, "close", ("sleep", 1.0)]
-
-
-def test_start_flashed_idf_firmware_treats_watchdog_usb_drop_as_success(
-    monkeypatch,
-) -> None:
-    lifecycle = []
-
-    class FakePort:
-        def setDTR(self, state: bool) -> None:
-            lifecycle.append(("set_dtr", state))
-
-        def close(self) -> None:
-            lifecycle.append("close")
-
-    class FakeDevice:
-        CHIP_NAME = "ESP32-S3"
-        RTC_CNTL_OPTION1_REG = 0x6000812C
-        RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK = 0x1
-        RTC_CNTL_WDTWPROTECT_REG = 0x600080A4
-        RTC_CNTL_WDT_WKEY = 0x50D83AA1
-        RTC_CNTL_WDTCONFIG1_REG = 0x6000809C
-        RTC_CNTL_WDTCONFIG0_REG = 0x60008098
-        _port = FakePort()
-
-        def write_reg(self, register: int, value: int, mask: int | None = None) -> None:
-            lifecycle.append(("write_reg", register, value, mask))
-            if register == self.RTC_CNTL_WDTCONFIG0_REG:
-                raise OSError("USB re-enumerated")
-
-        def hard_reset(self) -> None:
-            lifecycle.append("hard_reset")
-
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "usb_serial_jtag")
-    monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
-
-    assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
-    assert lifecycle == [
-        ("set_dtr", False),
-        (
-            "write_reg",
-            FakeDevice.RTC_CNTL_OPTION1_REG,
-            0,
-            FakeDevice.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK,
-        ),
-        (
-            "write_reg",
-            FakeDevice.RTC_CNTL_WDTWPROTECT_REG,
-            FakeDevice.RTC_CNTL_WDT_WKEY,
-            None,
-        ),
-        ("write_reg", FakeDevice.RTC_CNTL_WDTCONFIG1_REG, 2000, None),
-        (
-            "write_reg",
-            FakeDevice.RTC_CNTL_WDTCONFIG0_REG,
-            (1 << 31) | (5 << 28) | (1 << 8) | 2,
-            None,
-        ),
-        "close",
-        ("sleep", 1.0),
     ]
 
 
-def test_start_flashed_idf_firmware_rejects_watchdog_failure_before_arming(
-    monkeypatch,
-) -> None:
-    class FakePort:
-        def setDTR(self, _state: bool) -> None:
-            pass
-
-        def close(self) -> None:
-            pass
-
-    class FakeDevice:
-        CHIP_NAME = "ESP32-C3"
-        RTC_CNTL_WDTWPROTECT_REG = 0x600080A4
-        RTC_CNTL_WDT_WKEY = 0x50D83AA1
-        RTC_CNTL_WDTCONFIG1_REG = 0x6000809C
-        RTC_CNTL_WDTCONFIG0_REG = 0x60008098
-        _port = FakePort()
-
-        def write_reg(self, _register: int, _value: int) -> None:
-            raise OSError("write failed before watchdog setup")
-
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "usb_serial_jtag")
-    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
-
-    assert idf.start_flashed_idf_firmware("/dev/cu.test") is False
-
-
-def test_start_flashed_idf_firmware_ignores_firmware_that_is_already_running(monkeypatch) -> None:
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: (_ for _ in ()).throw(OSError("no reply"))
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: None)
-
-    assert idf.start_flashed_idf_firmware("/dev/cu.test") is False
-
-
-def test_start_flashed_idf_firmware_falls_back_to_uart_reset(monkeypatch) -> None:
-    fake_esptool = ModuleType("esptool")
-    fake_esptool.get_default_connected_device = lambda **_kwargs: (_ for _ in ()).throw(
-        OSError("loader released")
-    )
-    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
-
-    lifecycle: list[object] = []
-
-    class FakeConnection:
-        dtr = True
-        rts = True
-
-        def __enter__(self):
-            lifecycle.append("open")
-            return self
-
-        def __exit__(self, *_args):
-            lifecycle.append("close")
-
-    fake_serial = ModuleType("serial")
-    fake_serial.Serial = lambda *args, **kwargs: FakeConnection()
-    monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setattr(
-        sys.modules["espectre_cli.serial_monitor"],
-        "hard_reset_serial",
-        lambda connection: lifecycle.append(("hard_reset", connection.dtr, connection.rts)),
-    )
-    monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
-
-    assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
-    assert lifecycle == ["open", ("hard_reset", False, False), "close", ("sleep", 1.0)]
-
-
-def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
-    (app_dir / "build-esp32c6").mkdir()
-    s3_build = app_dir / "build-esp32s3"
-    _write_flasher_args(s3_build, "esp32s3")
-    idf_calls: list[list[str]] = []
-    esptool_calls: list[list[str]] = []
-    starts: list[str] = []
-
-    monkeypatch.setitem(
-        idf.IDF_FRONTENDS,
-        "native",
-        {"app_dir": app_dir, "targets": {"c6": "esp32c6", "s3": "esp32s3"}},
-    )
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "s3")
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: idf_calls.append(cmd))
-    monkeypatch.setattr(idf, "run_esptool_main", lambda cmd: esptool_calls.append(cmd))
-    monkeypatch.setattr(
-        idf,
-        "start_flashed_idf_firmware",
-        lambda port: starts.append(port) or True,
-    )
-
-    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None))
-
-    assert idf_calls == []
-    assert esptool_calls == [
-        [
-            "--chip",
-            "esp32s3",
-            "--port",
-            "/dev/cu.auto",
-            "--baud",
-            "460800",
-            "--before",
-            "default-reset",
-            "--after",
-            "no-reset",
-            "write-flash",
-            "--flash-mode",
-            "dio",
-            "--flash-freq",
-            "80m",
-            "--flash-size",
-            "2MB",
-            "0x0",
-            str(s3_build / "bootloader" / "bootloader.bin"),
-            "0x8000",
-            str(s3_build / "partition_table" / "partition-table.bin"),
-            "0x10000",
-            str(s3_build / "espectre.bin"),
-        ]
-    ]
-    assert starts == ["/dev/cu.auto"]
-
-
-def test_run_idf_command_flash_fails_when_prebuilt_firmware_does_not_start(
+def test_factory_flash_and_application_start_use_public_esptool_commands(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
-    s3_build = app_dir / "build-esp32s3"
-    _write_flasher_args(s3_build, "esp32s3")
+    image = tmp_path / "factory.bin"
+    image.write_bytes(b"factory")
+    calls: list[tuple[list[str], Path | None]] = []
+    monkeypatch.setattr(
+        esptool_runner,
+        "serial_console_mode",
+        lambda selected_chip, _port: (
+            "usb_cdc" if selected_chip == "s2" else "usb_serial_jtag"
+        ),
+    )
+    monkeypatch.setattr(
+        esptool_runner,
+        "run_esptool",
+        lambda args, *, cwd=None: calls.append((args, cwd)),
+    )
 
+    esptool_runner.flash_factory_image(
+        image,
+        chip="s2",
+        idf_target="esp32s2",
+        port="/dev/cu.loader",
+        erase=False,
+    )
+    esptool_runner.run_firmware(
+        chip="c6",
+        idf_target="esp32c6",
+        port="/dev/cu.test",
+    )
+
+    assert calls == [
+        (
+            [
+                "--chip",
+                "esp32s2",
+                "--port",
+                "/dev/cu.loader",
+                "--baud",
+                "460800",
+                "--before",
+                "no-reset",
+                "--after",
+                "watchdog-reset",
+                "write-flash",
+                "0x0",
+                str(image),
+            ],
+            common.REPO_ROOT,
+        ),
+        (
+            [
+                "--chip",
+                "esp32c6",
+                "--port",
+                "/dev/cu.test",
+                "--before",
+                "default-reset",
+                "--after",
+                "no-reset",
+                "run",
+            ],
+            common.REPO_ROOT,
+        ),
+    ]
+
+
+def test_run_idf_flash_delegates_existing_build(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    build_dir = app_dir / "build-esp32s3"
+    _write_flasher_args(build_dir)
+    calls: list[tuple[object, ...]] = []
     monkeypatch.setitem(
         idf.IDF_FRONTENDS,
         "native",
-        {"app_dir": app_dir, "targets": {"c6": "esp32c6", "s3": "esp32s3"}},
+        {"app_dir": app_dir, "targets": {"s3": "esp32s3"}},
     )
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "s3")
-    monkeypatch.setattr(idf, "run_esptool_main", lambda _command: None)
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: False)
-
-    with pytest.raises(SystemExit, match="1"):
-        idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None))
-
-
-def test_run_idf_command_flash_uses_requested_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
-    (app_dir / "build-esp32s3").mkdir()
-    c5_build = app_dir / "build-esp32c5"
-    _write_flasher_args(c5_build, "esp32c5")
-    idf_calls: list[list[str]] = []
-    esptool_calls: list[list[str]] = []
-    detected: list[str] = []
-    resets: list[str] = []
-
-    monkeypatch.setitem(
-        idf.IDF_FRONTENDS,
-        "native",
-        {"app_dir": app_dir, "targets": {"c5": "esp32c5", "s3": "esp32s3"}},
-    )
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
         idf,
-        "detect_chip_type",
-        lambda port, **kwargs: detected.append((port, kwargs)) or "c5",
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: idf_calls.append(cmd))
-    monkeypatch.setattr(idf, "run_esptool_main", lambda cmd: esptool_calls.append(cmd))
-    monkeypatch.setattr(
-        idf,
-        "start_flashed_idf_firmware",
-        lambda port: resets.append(port) or True,
-    )
-
-    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None, chip="c5"))
-
-    assert detected == []
-    assert idf_calls == []
-    assert esptool_calls[0][:6] == ["--chip", "esp32c5", "--port", "/dev/cu.auto", "--baud", "460800"]
-    assert str(c5_build / "espectre.bin") in esptool_calls[0]
-    assert resets == ["/dev/cu.auto"]
-
-
-def test_run_idf_command_flash_chip_uses_idf_when_sdkconfig_matches(monkeypatch, tmp_path: Path) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c5"\n', encoding="utf-8")
-    (app_dir / "build-esp32c5").mkdir()
-    calls: list[list[str]] = []
-    detected: list[str] = []
-    resets: list[str] = []
-    erased: list[tuple[str, dict[str, str]]] = []
-
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "native", {"app_dir": app_dir, "targets": {"c5": "esp32c5"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(
-        idf,
-        "detect_chip_type",
-        lambda port, **kwargs: detected.append((port, kwargs)) or "c5",
-    )
-    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(
-        idf,
-        "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
-    )
-    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append(cmd))
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda port: resets.append(port))
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args, **_kwargs: "uart")
-    monkeypatch.setattr(
-        idf,
-        "erase_idf_flash",
-        lambda port, **kwargs: erased.append((port, kwargs)),
+        "flash_prebuilt_idf_build",
+        lambda *args, **kwargs: calls.append((*args, kwargs)),
     )
 
     idf.run_idf_command(
         "native",
-        argparse.Namespace(idf_command="flash", port=None, chip="c5", erase=True),
+        argparse.Namespace(
+            chip="s3",
+            idf_command="flash",
+            port="/dev/cu.test",
+            erase=True,
+        ),
     )
 
-    assert detected == []
-    assert calls == [["idf.py", "-B", "build-esp32c5", "-p", "/dev/cu.auto", "flash"]]
-    assert erased == [("/dev/cu.auto", {"before": "default-reset"})]
-    assert resets == ["/dev/cu.auto"]
+    assert calls == [
+        (
+            build_dir,
+            "/dev/cu.test",
+            "esp32s3",
+            {"chip": "s3", "erase": True},
+        )
+    ]
 
 
-def test_run_idf_command_flash_does_not_erase_before_idf_environment_preflight(
+def test_matter_flash_fails_when_startup_codes_are_not_captured(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c5"\n', encoding="utf-8")
-    (app_dir / "build-esp32c5").mkdir()
-    erased: list[str] = []
-
-    monkeypatch.setitem(idf.IDF_FRONTENDS, "native", {"app_dir": app_dir, "targets": {"c5": "esp32c5"}})
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port, **_kwargs: "c5")
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
-    monkeypatch.setattr(
-        idf,
-        "erase_idf_flash",
-        erased.append,
-    )
-
-    with pytest.raises(SystemExit, match="1"):
-        idf.run_idf_command(
-            "native",
-            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase=True),
-        )
-
-    assert erased == []
-
-
-def test_run_idf_command_flash_chip_requires_existing_image_when_sdkconfig_mismatches(
-    monkeypatch, tmp_path: Path
-) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
-    (app_dir / "build-esp32c5").mkdir()
-
+    _write_flasher_args(app_dir / "build-esp32c3")
     monkeypatch.setitem(
         idf.IDF_FRONTENDS,
-        "native",
-        {"app_dir": app_dir, "targets": {"c5": "esp32c5", "s3": "esp32s3"}},
+        "matter",
+        {"app_dir": app_dir, "targets": {"c3": "esp32c3"}},
     )
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(idf, "detect_chip_type", lambda _port, **_kwargs: "c5")
-    erased: list[str] = []
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
+    monkeypatch.setattr(idf, "flash_prebuilt_idf_build", lambda *_args, **_kwargs: None)
+    onboarding: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         idf,
-        "erase_idf_flash",
-        erased.append,
+        "read_matter_onboarding_for_command",
+        lambda port, _args, *, reset: onboarding.append((port, reset)) or False,
     )
 
-    with pytest.raises(SystemExit, match="1"):
+    with pytest.raises(SystemExit) as exc_info:
         idf.run_idf_command(
-            "native",
-            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase=True),
+            "matter",
+            argparse.Namespace(
+                chip="c3",
+                idf_command="flash",
+                port="/dev/cu.test",
+                erase=False,
+            ),
         )
 
-    assert erased == []
-
-
-def test_run_idf_command_flash_explicit_usb_cdc_preserves_manual_loader(
-    monkeypatch, tmp_path: Path
-) -> None:
-    app_dir = tmp_path / "app"
-    app_dir.mkdir()
-    c5_build = app_dir / "build-esp32c5"
-    _write_flasher_args(c5_build, "esp32c5")
-    esptool_calls: list[list[str]] = []
-
-    monkeypatch.setitem(
-        idf.IDF_FRONTENDS,
-        "native",
-        {"app_dir": app_dir, "targets": {"c5": "esp32c5", "s3": "esp32s3"}},
-    )
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(
-        idf,
-        "detect_chip_type",
-        lambda *_args, **_kwargs: pytest.fail("explicit-chip flash must not probe before writing"),
-    )
-    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args, **_kwargs: "usb_cdc")
-    monkeypatch.setattr(idf, "run_esptool_main", lambda command: esptool_calls.append(command))
-    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
-
-    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None, chip="c5"))
-
-    assert esptool_calls[0][esptool_calls[0].index("--before") + 1] == "no-reset"
-
-
-def test_build_prebuilt_idf_esptool_command_uses_flash_file_offsets(tmp_path: Path) -> None:
-    build_dir = tmp_path / "build-esp32c5"
-    _write_flasher_args(build_dir, "esp32c5")
-
-    command = idf.build_prebuilt_idf_esptool_command(build_dir, "/dev/cu.auto", "esp32c5")
-
-    assert command[:8] == [
-        "--chip",
-        "esp32c5",
-        "--port",
-        "/dev/cu.auto",
-        "--baud",
-        "460800",
-        "--before",
-        "default-reset",
-    ]
-    assert command[command.index("write-flash") + 1 : command.index("write-flash") + 7] == [
-        "--flash-mode",
-        "dio",
-        "--flash-freq",
-        "80m",
-        "--flash-size",
-        "2MB",
-    ]
-
-
-def test_build_prebuilt_idf_esptool_command_uses_fast_classic_esp32_baud(
-    tmp_path: Path,
-) -> None:
-    build_dir = tmp_path / "build-esp32"
-    _write_flasher_args(build_dir, "esp32")
-
-    command = idf.build_prebuilt_idf_esptool_command(
-        build_dir,
-        "/dev/cu.usbserial",
-        "esp32",
-    )
-
-    assert command[command.index("--baud") + 1] == "460800"
-
-
-def test_build_prebuilt_idf_esptool_command_can_reuse_verified_loader(tmp_path: Path) -> None:
-    build_dir = tmp_path / "build-esp32c5"
-    _write_flasher_args(build_dir, "esp32c5")
-
-    command = idf.build_prebuilt_idf_esptool_command(
-        build_dir,
-        "/dev/cu.auto",
-        "esp32c5",
-        before="no-reset",
-        after="no-reset",
-    )
-
-    assert command[command.index("--before") + 1] == "no-reset"
-    assert command[command.index("--after") + 1] == "no-reset"
-
-
-def test_build_prebuilt_idf_esptool_command_writes_factory_image_at_zero(tmp_path: Path) -> None:
-    factory_image = tmp_path / "firmware.factory.bin"
-
-    command = idf.build_factory_esptool_command(
-        factory_image,
-        "/dev/cu.loader",
-        "esp32s2",
-        before="no-reset",
-        after="no-reset",
-    )
-
-    write_args = command[command.index("write-flash") + 1 :]
-    assert write_args == ["0x0", str(factory_image)]
-
-
-def test_build_factory_esptool_command_uses_fast_classic_esp32_baud(
-    tmp_path: Path,
-) -> None:
-    command = idf.build_factory_esptool_command(
-        tmp_path / "firmware.factory.bin",
-        "/dev/cu.usbserial",
-        "esp32",
-        before="default-reset",
-    )
-
-    assert command[command.index("--baud") + 1] == "460800"
-
-
-def test_build_prebuilt_idf_esptool_command_replaces_only_app_image(tmp_path: Path) -> None:
-    build_dir = tmp_path / "build-esp32s2"
-    _write_flasher_args(build_dir, "esp32s2")
-    app_image = tmp_path / "firmware.ota.bin"
-
-    command = idf.build_prebuilt_idf_esptool_command(
-        build_dir,
-        "/dev/cu.loader",
-        "esp32s2",
-        app_image=app_image,
-    )
-
-    assert command[command.index("0x10000") + 1] == str(app_image)
-    assert str(build_dir / "bootloader" / "bootloader.bin") in command
+    assert exc_info.value.code == 1
+    assert onboarding == [("/dev/cu.test", False)]
 
 
 def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path) -> None:
@@ -3260,215 +1652,123 @@ def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path
 
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
     monkeypatch.setattr(idf, "get_serial_port", lambda port, **_kwargs: port or "/dev/cu.auto")
-    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: ports.append(port) or True)
+    monkeypatch.setattr(
+        idf,
+        "read_matter_onboarding_for_command",
+        lambda port, _args: ports.append(port) or True,
+    )
 
-    idf.run_idf_command("matter", argparse.Namespace(idf_command="qr", port=None))
+    idf.run_idf_command(
+        "matter",
+        argparse.Namespace(
+            chip="c3",
+            idf_command="qr",
+            port=None,
+            no_reset=False,
+            timeout=20.0,
+            json=False,
+        ),
+    )
 
     assert ports == ["/dev/cu.auto"]
 
 
-def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:
-    opened: list[tuple[str, int, float]] = []
-    written: list[tuple[bytes, bool]] = []
-    resets: list[tuple[bool, bool]] = []
+def test_serial_monitor_reset_uses_esptool_run_before_open(monkeypatch) -> None:
+    events: list[object] = []
 
     class FakeSerialConnection:
         def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
-            opened.append((port, baudrate, timeout))
-            self.dtr = True
-            self.rts = False
-            self._reads = [b"hello", KeyboardInterrupt()]
-
-        @property
-        def in_waiting(self) -> int:
-            next_item = self._reads[0]
-            return len(next_item) if isinstance(next_item, bytes) else 0
-
-        def read(self, _size: int) -> bytes:
-            next_item = self._reads.pop(0)
-            if isinstance(next_item, BaseException):
-                raise next_item
-            return next_item
-
-        def close(self) -> None:
-            resets.append((self.dtr, self.rts))
-            return None
-
-    fake_serial = type(
-        "FakeSerialModule",
-        (),
-        {
-            "Serial": FakeSerialConnection,
-            "SerialException": RuntimeError,
-        },
-    )
-
-    monkeypatch.setattr(serial_monitor, "serial", fake_serial)
-    monkeypatch.setattr(serial_monitor, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(serial_monitor, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(serial_monitor, "serial_console_mode", lambda *_args: "uart")
-    monkeypatch.setattr(serial_monitor, "_write_serial_output", lambda data, *, raw: written.append((data, raw)))
-    monkeypatch.setattr(serial_monitor.time, "sleep", lambda _seconds: None)
-
-    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=74880, raw=True, reset=True))
-
-    assert opened == [("/dev/cu.auto", 74880, 1.0)]
-    assert written == [(b"hello", True)]
-    assert resets == [(False, False)]
-
-
-def test_run_serial_monitor_does_not_reset_by_default(monkeypatch) -> None:
-    reset_calls: list[object] = []
-    closed_lines: list[tuple[bool, bool]] = []
-
-    class FakeSerialConnection:
-        def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
-            del port, baudrate, timeout
-            self.dtr = True
-            self.rts = True
-            self._reads = [KeyboardInterrupt()]
+            events.append(("open", port, baudrate, timeout))
 
         @property
         def in_waiting(self) -> int:
             return 0
 
         def read(self, _size: int) -> bytes:
-            raise self._reads.pop(0)
+            raise KeyboardInterrupt
 
         def close(self) -> None:
-            closed_lines.append((self.dtr, self.rts))
-            return None
+            events.append("close")
 
-    fake_serial = type(
-        "FakeSerialModule",
-        (),
-        {
-            "Serial": FakeSerialConnection,
-            "SerialException": RuntimeError,
-        },
+    fake_serial = SimpleNamespace(
+        Serial=FakeSerialConnection,
+        SerialException=OSError,
     )
-
     monkeypatch.setattr(serial_monitor, "serial", fake_serial)
-    monkeypatch.setattr(serial_monitor, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
-    monkeypatch.setattr(serial_monitor, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(serial_monitor, "hard_reset_serial", lambda connection: reset_calls.append(connection))
-
-    serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=115200, raw=False, reset=False))
-
-    assert reset_calls == []
-    assert closed_lines == [(False, False)]
-
-
-def test_run_serial_monitor_retries_after_disconnect(monkeypatch) -> None:
-    opened: list[str] = []
-    writes: list[bytes] = []
-    sleeps: list[float] = []
-    port_requests: list[str | None] = []
-
-    class FakeSerialError(Exception):
-        pass
-
-    class FakeSerialConnection:
-        instance_count = 0
-
-        def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
-            del baudrate, timeout
-            opened.append(port)
-            self.dtr = True
-            self.rts = False
-            self.instance_id = FakeSerialConnection.instance_count
-            FakeSerialConnection.instance_count += 1
-            if self.instance_id == 0:
-                self._reads = [FakeSerialError("device disappeared")]
-            else:
-                self._reads = [b"ok", KeyboardInterrupt()]
-
-        @property
-        def in_waiting(self) -> int:
-            next_item = self._reads[0]
-            return len(next_item) if isinstance(next_item, bytes) else 0
-
-        def read(self, _size: int) -> bytes:
-            next_item = self._reads.pop(0)
-            if isinstance(next_item, BaseException):
-                raise next_item
-            return next_item
-
-        def close(self) -> None:
-            return None
-
-    fake_serial = type(
-        "FakeSerialModule",
-        (),
-        {
-            "Serial": FakeSerialConnection,
-            "SerialException": FakeSerialError,
-        },
-    )
-
-    monkeypatch.setattr(serial_monitor, "serial", fake_serial)
-    resolved_ports = iter(["/dev/cu.initial", "/dev/cu.runtime"])
     monkeypatch.setattr(
         serial_monitor,
         "resolve_serial_port",
-        lambda port, **_kwargs: port_requests.append(port)
-        or next(resolved_ports),
+        lambda *_args, **_kwargs: "/dev/cu.test",
     )
-    monkeypatch.setattr(serial_monitor, "remember_serial_port_identity", lambda _port: None)
     monkeypatch.setattr(serial_monitor, "serial_console_mode", lambda *_args: "uart")
-    monkeypatch.setattr(serial_monitor, "_write_serial_output", lambda data, *, raw: writes.append(data))
     monkeypatch.setattr(
-        serial_monitor.time,
-        "sleep",
-        lambda seconds: sleeps.append(seconds) if seconds == serial_monitor.RECONNECT_DELAY_SECONDS else None,
+        serial_monitor,
+        "run_firmware",
+        lambda **kwargs: events.append(("run", kwargs)),
     )
 
     serial_monitor.run_serial_monitor(
-        argparse.Namespace(port="/dev/cu.initial", baud=115200, raw=False, reset=True)
+        argparse.Namespace(
+            port="/dev/cu.test",
+            chip="c6",
+            frontend="native",
+            baud=115200,
+            raw=False,
+            reset=True,
+        )
     )
 
-    assert opened == ["/dev/cu.initial", "/dev/cu.runtime"]
-    assert writes == [b"ok"]
-    assert sleeps == [serial_monitor.RECONNECT_DELAY_SECONDS]
-    assert port_requests == ["/dev/cu.initial", "/dev/cu.initial"]
+    assert events == [
+        (
+            "run",
+            {
+                "chip": "c6",
+                "idf_target": "esp32c6",
+                "port": "/dev/cu.test",
+            },
+        ),
+        ("open", "/dev/cu.test", 115200, 1.0),
+        "close",
+    ]
 
 
-def test_run_serial_monitor_rejects_automatic_usb_cdc_reset(
-    monkeypatch,
-    capsys,
-) -> None:
-    fake_serial = type(
-        "FakeSerialModule",
-        (),
-        {
-            "Serial": lambda *_args, **_kwargs: pytest.fail(
-                "USB CDC monitor must reject reset before opening the port"
-            ),
-            "SerialException": RuntimeError,
-        },
+def test_serial_monitor_does_not_retry_a_disconnect(monkeypatch) -> None:
+    class DisconnectedSerial:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        @property
+        def in_waiting(self) -> int:
+            raise OSError("disconnected")
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        serial_monitor,
+        "serial",
+        SimpleNamespace(Serial=DisconnectedSerial, SerialException=OSError),
     )
-    monkeypatch.setattr(serial_monitor, "serial", fake_serial)
+    resolutions: list[object] = []
     monkeypatch.setattr(
         serial_monitor,
         "resolve_serial_port",
-        lambda *_args, **_kwargs: "/dev/cu.s2",
+        lambda port, **_kwargs: resolutions.append(port) or "/dev/cu.test",
     )
-    monkeypatch.setattr(serial_monitor, "remember_serial_port_identity", lambda _port: None)
-    monkeypatch.setattr(serial_monitor, "serial_console_mode", lambda *_args: "usb_cdc")
 
     with pytest.raises(SystemExit):
         serial_monitor.run_serial_monitor(
             argparse.Namespace(
-                port="/dev/cu.s2",
-                chip="s2",
+                port="/dev/cu.test",
+                chip="s3",
                 frontend="native",
                 baud=115200,
                 raw=False,
-                reset=True,
+                reset=False,
             )
         )
 
-    assert "Automatic hard reset is unavailable" in capsys.readouterr().out
+    assert resolutions == ["/dev/cu.test"]
 
 
 def test_build_parser_accepts_top_level_monitor() -> None:
@@ -3545,7 +1845,7 @@ def test_idf_flash_parser_accepts_chip() -> None:
 def test_idf_flash_parser_accepts_full_erase(frontend: str) -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args([frontend, "flash", "--erase"])
+    args = parser.parse_args([frontend, "flash", "--chip", "s3", "--erase"])
 
     assert args.erase is True
 
@@ -3596,7 +1896,7 @@ def test_generic_parsers_continue_to_accept_s2() -> None:
     assert monitor.chip == "s2"
 
 
-def test_matter_qr_parser_accepts_optional_chip() -> None:
+def test_matter_qr_parser_requires_chip() -> None:
     parser = app.build_parser()
 
     args = parser.parse_args(
@@ -3607,6 +1907,43 @@ def test_matter_qr_parser_accepts_optional_chip() -> None:
     assert args.port is None
     assert args.no_reset is True
     assert args.timeout == 45.0
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["matter", "qr", "--no-reset"])
+
+
+@pytest.mark.parametrize("frontend", ["native", "matter", "micro"])
+def test_serial_flash_parsers_require_chip(frontend: str) -> None:
+    with pytest.raises(SystemExit):
+        app.build_parser().parse_args([frontend, "flash"])
+
+
+def test_esphome_serial_flash_requires_chip(monkeypatch, tmp_path: Path) -> None:
+    config = tmp_path / "firmware.yaml"
+    config.write_text("esphome:\n", encoding="utf-8")
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config)
+    monkeypatch.setattr(
+        esphome,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: pytest.fail("port resolution requires a chip"),
+    )
+
+    with pytest.raises(SystemExit):
+        esphome.run_esphome_command(
+            argparse.Namespace(
+                chip=None,
+                config=str(config),
+                esphome_command="flash",
+                device="/dev/cu.test",
+            )
+        )
+
+
+def test_micro_flash_rejects_custom_firmware_option() -> None:
+    with pytest.raises(SystemExit):
+        app.build_parser().parse_args(
+            ["micro", "flash", "--chip", "s3", "--firmware", "custom.bin"]
+        )
 
 
 def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:
@@ -3676,18 +2013,8 @@ def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Pat
                 "-B",
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
-                "-DNATIVE_OTA_CHANNEL=develop",
-                "set-target",
-                "esp32c3",
-            ],
-            app_dir,
-        ),
-        (
-            [
-                "idf.py",
-                "-B",
-                "build-esp32c3",
-                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "-DNATIVE_OTA_CHANNEL=develop",
                 "build",
             ],
@@ -3917,6 +2244,8 @@ def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp
                 "-B",
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DIDF_TARGET=esp32c3",
+                "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
             app_dir,
@@ -3971,7 +2300,7 @@ def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
     )
     command, used_export = idf.prepare_idf_subprocess_command_sequence(
         [
-            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "set-target", "esp32c3"],
+            ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "reconfigure"],
             ["idf.py", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi", "build"],
         ],
         env,
@@ -3982,7 +2311,7 @@ def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
         "-lc",
         (
             f". {shlex.quote(str(export_script))} >/dev/null"
-            " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
+            " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' reconfigure"
             " && idf.py '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
         ),
     ]
@@ -4026,8 +2355,8 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
                 "-lc",
                 (
                     f". {shlex.quote(str(export_script))} >/dev/null"
-                    " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' set-target esp32c3"
-                    " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi' build"
+                    " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi'"
+                    " -DIDF_TARGET=esp32c3 -DSDKCONFIG=build-esp32c3/sdkconfig build"
                 ),
             ],
             app_dir,

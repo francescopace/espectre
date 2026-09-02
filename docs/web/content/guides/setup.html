@@ -60,7 +60,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt</code></pre>
     <p>Choose the firmware type from Step&nbsp;1. The examples target ESP32-C3; replace <code>c3</code> with <code>c5</code>, <code>c6</code>, <code>s2</code>, <code>s3</code>, or <code>esp32</code> for another supported board. Support depends on the frontend: ESP32-S2 is supported by ESPHome and Native, but not Matter or Micro-ESPectre.</p>
-    <p><code>--clean</code> is optional and is normally needed only after a configuration or toolchain change. Flashing resets the board and starts the application, so no firmware type needs a separate <code>run</code> command. Flash, QR, and serial-monitor commands select the only connected device automatically or present a menu when several devices are available.</p>
+    <p><code>--clean</code> is optional and is normally needed only after a configuration or toolchain change. Flashing resets the board and starts the application, so no firmware type needs a separate <code>run</code> command. Serial flash and Matter QR commands require <code>--chip</code>. The port remains optional: the CLI uses the only connected device or presents a menu when several devices are available.</p>
     <div class="code-tabs" data-code-tabs>
       <div class="code-tabs-list" role="tablist" aria-label="Firmware frontend">
         <button type="button" role="tab" id="setup-native-tab" aria-controls="setup-native-panel" aria-selected="true">Native</button>
@@ -71,7 +71,7 @@ python -m pip install -r requirements.txt</code></pre>
         <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor follows its serial output:</p>
         <pre class="code"><code>./espectre native build --chip c3 --clean
 ./espectre native flash --chip c3
-./espectre monitor --chip c3 --frontend native --reset</code></pre>
+./espectre monitor --chip c3 --frontend native</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-esphome-panel" role="tabpanel" aria-labelledby="setup-esphome-tab" data-frontend="esphome" hidden>
         <p>ESPHome selects the maintained YAML for the target chip and manages its own build toolchain. Use the same chip when building, flashing, and monitoring:</p>
@@ -85,11 +85,11 @@ python -m pip install -r requirements.txt</code></pre>
 ./espectre esphome monitor --chip c3 --config path/to/espectre.yaml</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-matter-panel" role="tabpanel" aria-labelledby="setup-matter-tab" data-frontend="matter" hidden>
-        <p>Matter uses the shared ESP-IDF build environment. After flashing, retrieve the device-specific onboarding code and use the serial monitor while commissioning:</p>
+        <p>Matter uses the shared ESP-IDF build environment. Flashing starts the application and prints the device-specific onboarding code from its first boot. Attach the serial monitor without resetting the board:</p>
         <pre class="code"><code>./espectre matter build --chip c3 --clean
 ./espectre matter flash --chip c3
-./espectre matter qr
-./espectre monitor --chip c3 --frontend matter --reset</code></pre>
+./espectre monitor --chip c3 --frontend matter</code></pre>
+        <p>To retrieve the persisted onboarding code later, run <code>./espectre matter qr --chip c3</code>.</p>
       </div>
     </div>
     <p>Run <code>./espectre devices</code> to list ESPectre devices on the local network. Native, ESPHome, Matter, and Micro-ESPectre publish the same <code>_espectre._tcp.local.</code> service. Use <code>--frontend</code> when you need only one firmware type.</p>
@@ -130,7 +130,7 @@ espectre&gt; recalibrate</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-network-matter-panel" role="tabpanel" aria-labelledby="setup-network-matter-tab" data-network-frontend="matter" hidden>
         <ol class="steps-list">
-          <li><h3>Get the QR code</h3><p>After flashing, use <em>Show Matter setup code</em> on the <a href="/tools/flash/">Install ESPectre</a> page, or run <code>./espectre matter qr</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
+          <li><h3>Get the QR code</h3><p>The CLI prints the code while <code>matter flash</code> captures the first boot. To retrieve it later, use <em>Show Matter setup code</em> on the <a href="/tools/flash/">Install ESPectre</a> page, or run <code>./espectre matter qr --chip c3</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
           <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
           <li><h3>Choose an access point, if needed</h3><p>After commissioning, open <a href="/tools/device-settings/">Device settings</a> over Direct HTTP. If several access points share the commissioned network name, choose the one ESPectre should use. Matter stores this BSSID preference separately from its credentials and reapplies it after restart only while the commissioned network matches. Select <em>Automatic (strongest available)</em> to remove the preference without changing the Matter fabric or Wi-Fi credentials.</p></li>
           <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>

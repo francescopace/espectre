@@ -25,12 +25,8 @@ from .common import (
     MICRO_CHIP_CHOICES,
     PYTHON_SRC_DIR,
     Style,
-    detect_chip_type,
     get_serial_port,
-    prompt_chip_type,
-    remember_serial_port_identity,
     resolve_serial_port,
-    serial_console_mode,
     cli_command,
     copy_config_command,
     print_box_banner,
@@ -38,7 +34,9 @@ from .common import (
 from .build_artifacts import build_artifact_metadata, print_build_artifact_metadata
 from .device_discovery import ESPECTRE_DIRECT_PORT
 from .device_transport import direct_endpoint_from_device_url
-from .idf import idf_flash_baud, run_idf_flash_lifecycle
+from .esptool_runner import flash_build
+from .micro_firmware import BuiltProjectFirmware
+from .targets import IDF_TARGET_BY_CHIP
 
 
 MICRO_DEVICE_RELATIVE_FILES = [
@@ -133,13 +131,13 @@ def compile_deployment_files(
     return compiled
 
 
-def build_project_firmware_image(
+def build_project_firmware_artifact(
     *,
     chip: str = "esp32",
     clean: bool = False,
     backend: str = "auto",
     pull_policy: str = "ask",
-) -> Path:
+) -> BuiltProjectFirmware:
     """Build the pinned lean firmware for a supported Micro-ESPectre chip."""
     from .micro_firmware import build_project_firmware
 
@@ -158,7 +156,7 @@ def build_project_firmware_command(args) -> None:
     _require_supported_micro_chip(chip)
     print_box_banner("Building Micro-ESPectre Firmware")
     try:
-        firmware_path = build_project_firmware_image(
+        firmware = build_project_firmware_artifact(
             chip=chip,
             clean=bool(getattr(args, "clean", False)),
             backend=getattr(args, "backend", "auto"),
@@ -169,12 +167,12 @@ def build_project_firmware_command(args) -> None:
         raise SystemExit(1) from exc
     print()
     print(f"{Fore.GREEN}✅ Project firmware built successfully{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}Firmware: {firmware_path}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Firmware: {firmware.image}{Style.RESET_ALL}")
     if bool(getattr(args, "json", False)):
         print_build_artifact_metadata(
             frontend="micro",
             chip=chip,
-            artifact=firmware_path,
+            artifact=firmware.image,
         )
 
 
@@ -286,156 +284,62 @@ def _require_supported_micro_chip(chip: str | None) -> None:
 
 
 def flash_firmware(args) -> None:
-    """Flash MicroPython firmware to ESP32 using esptool."""
-    try:
-        import esptool
-    except ImportError:
-        print(f"{Fore.RED}❌ esptool not found. Install it with:{Style.RESET_ALL}")
-        print("   pip install esptool")
-        raise SystemExit(1)
-
+    """Build and flash the canonical Micro-ESPectre firmware."""
     chip = args.chip
     _require_supported_micro_chip(chip)
-    discovery_port = None
-    if not chip or args.port:
-        discovery_port = get_serial_port(
-            args.port,
-            chip=chip,
-            frontend="micro",
-            purpose="flash",
-        )
-        remember_serial_port_identity(discovery_port)
-    if not chip:
-        assert discovery_port is not None
-        chip = detect_chip_type(discovery_port)
-        if not chip:
-            print(f"\n{Fore.YELLOW}💡 Tip: If the chip is not responding, try:{Style.RESET_ALL}")
-            print("   1. Hold the BOOT button on your ESP32")
-            print("   2. Press and release the RESET button (while holding BOOT)")
-            print("   3. Release the BOOT button")
-            print("   4. Try flashing again")
-            print()
-            chip = prompt_chip_type(MICRO_CHIP_CHOICES)
-            if not chip:
-                raise SystemExit(1)
-    _require_supported_micro_chip(chip)
-
-    if args.firmware:
-        firmware_path = Path(args.firmware)
-        if not firmware_path.exists():
-            print(f"{Fore.RED}❌ Firmware not found: {firmware_path}{Style.RESET_ALL}")
-            raise SystemExit(1)
-    else:
-        try:
-            firmware_path = build_project_firmware_image(
-                chip=chip,
-                clean=bool(getattr(args, "clean", False)),
-                backend=getattr(args, "backend", "auto"),
-                pull_policy=getattr(args, "pull", "ask"),
-            )
-        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
-            print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
-            raise SystemExit(1) from exc
-
     port = resolve_serial_port(
-        discovery_port,
+        args.port,
         chip=chip,
         frontend="micro",
         purpose="flash",
     )
-    if serial_console_mode(chip, port) == "usb_cdc":
-        port = resolve_serial_port(
-            port,
+    try:
+        firmware = build_project_firmware_artifact(
             chip=chip,
-            frontend="micro",
-            purpose="flash",
-            require_firmware_download=True,
+            clean=bool(getattr(args, "clean", False)),
+            backend=getattr(args, "backend", "auto"),
+            pull_policy=getattr(args, "pull", "ask"),
         )
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
+        raise SystemExit(1) from exc
 
     print_box_banner("Flashing MicroPython Firmware")
     print()
     print(f"{Fore.CYAN}Chip:     {chip.upper()}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Port:     {port}{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}Firmware: {firmware_path.name}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Firmware: {firmware.image.name}{Style.RESET_ALL}")
     print()
 
-    chip_name_map = {
-        "esp32": "esp32",
-        "c3": "esp32c3",
-        "s2": "esp32s2",
-        "s3": "esp32s3",
-        "c5": "esp32c5",
-        "c6": "esp32c6",
-    }
-    chip_name = chip_name_map.get(chip, "esp32")
-    flash_baud = idf_flash_baud(chip_name)
-    before = "no-reset" if serial_console_mode(chip, port) == "usb_cdc" else "default-reset"
-
     try:
-        print(f"{Fore.YELLOW}Flashing firmware...{Style.RESET_ALL}")
-        flash_offset_map = {
-            "esp32": "0x1000",
-            "c3": "0x0",
-            "s2": "0x1000",
-            "s3": "0x0",
-            "c5": "0x2000",
-            "c6": "0x0",
-        }
-        flash_offset = flash_offset_map.get(chip, "0x0")
-        flash_command = [
-            "--chip",
-            chip_name,
-            "--port",
-            port,
-            "--baud",
-            flash_baud,
-            "--before",
-            "no-reset" if args.erase else before,
-            "--after",
-            "no-reset",
-            "write-flash",
-            "--flash-mode",
-            "dio",
-            "--flash-freq",
-            "40m",
-            "--flash-size",
-            "detect",
-            flash_offset,
-            str(firmware_path),
-        ]
-        run_idf_flash_lifecycle(
-            flash_command,
-            port,
+        flash_build(
+            firmware.build_dir,
+            chip=chip,
+            idf_target=IDF_TARGET_BY_CHIP[chip],
+            port=port,
             erase=bool(args.erase),
-            before=before,
         )
-        print()
-        print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
-        print()
-        print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
-        print(f"  1. {copy_config_command()}")
-        print("  2. Edit src/python/micro_espectre/config_local.py with your credentials")
-        print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
-        print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
-        print()
-        if bool(getattr(args, "json", False)):
-            metadata = build_artifact_metadata(
-                frontend="micro",
-                chip=chip,
-                artifact=firmware_path,
-            )
-            metadata.update({"command": "flash", "port": port})
-            print(json.dumps(metadata, sort_keys=True))
-    except Exception as e:
-        print(f"\n{Fore.RED}❌ Error flashing firmware: {e}{Style.RESET_ALL}")
-        print(f"\n{Fore.YELLOW}Troubleshooting tips:{Style.RESET_ALL}")
-        print("  1. Try holding the BOOT button while connecting")
-        print("  2. Use a different USB cable (data cable, not charge-only)")
-        print("  3. Try a different USB port (preferably USB 2.0)")
-        print("  4. Ensure no other programs are using the serial port")
-        print(f"  5. Try with --erase flag: {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
-        print()
-        raise SystemExit(1)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        print(f"\n{Fore.RED}❌ Error flashing firmware: {exc}{Style.RESET_ALL}")
+        raise SystemExit(getattr(exc, "returncode", 1)) from exc
+
+    print()
+    print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
+    print()
+    print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
+    print(f"  1. {copy_config_command()}")
+    print("  2. Edit src/python/micro_espectre/config_local.py with your credentials")
+    print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
+    print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
+    print()
+    if bool(getattr(args, "json", False)):
+        metadata = build_artifact_metadata(
+            frontend="micro",
+            chip=chip,
+            artifact=firmware.image,
+        )
+        metadata.update({"command": "flash", "port": port})
+        print(json.dumps(metadata, sort_keys=True))
 
 
 def deploy_code(args) -> None:
@@ -480,7 +384,11 @@ def deploy_code(args) -> None:
                 if health_detail:
                     print(f"{Fore.YELLOW}   Probe output: {health_detail}{Style.RESET_ALL}")
                 print(f"\n{Fore.CYAN}Recommended fix:{Style.RESET_ALL}")
-                print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
+                print(
+                    f"  {Fore.GREEN}"
+                    f"{cli_command('micro', 'flash', '--chip', 'CHIP', '--erase')}"
+                    f"{Style.RESET_ALL}"
+                )
                 print(f"  {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
                 print()
                 raise SystemExit(1)
@@ -728,7 +636,7 @@ def verify_installation(args) -> None:
         else:
             print(f"{Fore.RED}❌ CSI methods not found in firmware{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}   Hint: Flash the CSI-enabled firmware:{Style.RESET_ALL}")
-            print(f"   {cli_command('micro', 'flash', '--erase')}")
+            print(f"   {cli_command('micro', 'flash', '--chip', 'CHIP', '--erase')}")
             all_ok = False
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ Failed to check CSI support: {e.stderr.strip()}{Style.RESET_ALL}")

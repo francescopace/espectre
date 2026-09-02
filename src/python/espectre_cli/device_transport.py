@@ -219,11 +219,6 @@ class ImprovSerialClient:
 
             serial_factory = Serial
         self._serial = serial_factory(port=port, baudrate=baudrate, timeout=0.1, write_timeout=2.0)
-        # Release the auto-reset lines after opening a USB-UART bridge. Native
-        # USB consoles ignore them, while classic ESP32 boards use them for EN
-        # and boot-mode control.
-        self._serial.dtr = False
-        self._serial.rts = False
         self._parser = ImprovFrameParser()
         self._pending_frames: list[ImprovFrame] = []
 
@@ -310,9 +305,9 @@ class ImprovSerialClient:
             except TimeoutError:
                 if time.monotonic() >= deadline:
                     raise
-                # The native USB console may still be re-enumerating after a
-                # flash. Retry the idempotent state query instead of waiting
-                # for the entire provisioning deadline on a lost first frame.
+                # The firmware service may not answer the first query while it
+                # starts. Retry this idempotent protocol request within the
+                # caller's provisioning deadline.
         device_info = self._rpc(ImprovCommand.GET_DEVICE_INFO, deadline)
         self._send_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
 

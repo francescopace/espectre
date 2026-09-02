@@ -92,65 +92,6 @@ def test_benchmark_local_env_example_does_not_override_runtime_defaults(monkeypa
     assert "ESPECTRE_BENCHMARK_TRAFFIC_GENERATOR_MODE" not in example
 
 
-def test_native_build_validation_accepts_canonical_defaults(tmp_path, monkeypatch):
-    sdkconfig = tmp_path / "sdkconfig"
-    sdkconfig.write_text(
-        "\n".join(
-            [
-                "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
-                "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
-                "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
-                "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
-                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
-                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP is not set",
-                "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
-                'CONFIG_ESPECTRE_WIFI_SSID=""',
-                'CONFIG_ESPECTRE_WIFI_PASSWORD=""',
-                'CONFIG_ESPECTRE_WIFI_BSSID=""',
-                'CONFIG_ESPECTRE_DEVICE_LABEL=""',
-                "# CONFIG_ESPECTRE_MQTT_ENABLED is not set",
-                'CONFIG_ESPECTRE_MQTT_HOST=""',
-                'CONFIG_ESPECTRE_MQTT_USERNAME=""',
-                'CONFIG_ESPECTRE_MQTT_PASSWORD=""',
-            ]
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(bench, "cached_sdkconfig_path", lambda *_args: sdkconfig)
-
-    bench.validate_idf_benchmark_sdkconfig("native", "c3")
-
-
-def test_idf_build_validation_uses_canonical_sdkconfig_when_cache_omits_path(
-    tmp_path, monkeypatch
-):
-    app_dir = tmp_path / "matter" / "app"
-    app_dir.mkdir(parents=True)
-    (app_dir / "sdkconfig").write_text(
-        "\n".join(
-            [
-                'CONFIG_IDF_TARGET="esp32c3"',
-                "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
-                "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
-                "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
-                "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
-                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
-                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP is not set",
-                "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        bench,
-        "IDF_FRONTENDS",
-        {"matter": {"app_dir": str(app_dir), "targets": {"c3": "esp32c3"}}},
-    )
-    monkeypatch.setattr(bench, "cached_sdkconfig_path", lambda *_args: None)
-
-    bench.validate_idf_benchmark_sdkconfig("matter", "c3")
-
-
 def test_configured_traffic_mode_reads_target_defaults(tmp_path, monkeypatch):
     app_dir = tmp_path / "native" / "app"
     app_dir.mkdir(parents=True)

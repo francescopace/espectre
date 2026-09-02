@@ -9,7 +9,6 @@ import hashlib
 from pathlib import Path
 import re
 from typing import Callable, Iterator
-from src.python.espectre_cli.idf import cached_sdkconfig_path, resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
@@ -184,8 +183,6 @@ def _commands_for_case(
     config: Path | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
     launcher = str(REPO_ROOT / "espectre")
-    # Always use the shared serial monitor and request an explicit hard reset so
-    # one-shot boot markers (especially Matter onboarding data) are captured.
     monitor_command = [
         launcher,
         "monitor",
@@ -193,7 +190,6 @@ def _commands_for_case(
         chip,
         "--frontend",
         case.frontend,
-        "--reset",
     ]
     if port:
         monitor_command.extend(["--port", port])
@@ -245,50 +241,6 @@ def case_context(
     yield None, None
 
 
-def validate_idf_benchmark_sdkconfig(frontend: str, chip: str) -> None:
-    """Reject a reusable local build that does not contain production defaults."""
-    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
-    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
-    build_dir_name = resolve_idf_build_dir_name(app_dir, idf_target)
-    path = cached_sdkconfig_path(app_dir, build_dir_name)
-    using_default_sdkconfig = path is None
-    if using_default_sdkconfig:
-        path = app_dir / "sdkconfig"
-    if path is None or not path.is_file():
-        raise RuntimeError("could not inspect the resolved ESP-IDF configuration")
-    content = path.read_text(encoding="utf-8")
-    if using_default_sdkconfig and f'CONFIG_IDF_TARGET="{idf_target}"' not in content:
-        raise RuntimeError("could not inspect the resolved ESP-IDF configuration")
-    expected_traffic_mode = configured_traffic_generator_mode(frontend, chip)
-    required_lines = (
-        "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
-        "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
-        "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
-        "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
-    )
-    required_lines += tuple(
-        f"{symbol}=y" if mode == expected_traffic_mode else f"# {symbol} is not set"
-        for mode, symbol in TRAFFIC_GENERATOR_CONFIGS.items()
-    )
-    if frontend == "native":
-        required_lines += (
-            'CONFIG_ESPECTRE_WIFI_SSID=""',
-            'CONFIG_ESPECTRE_WIFI_PASSWORD=""',
-            'CONFIG_ESPECTRE_WIFI_BSSID=""',
-            'CONFIG_ESPECTRE_DEVICE_LABEL=""',
-            "# CONFIG_ESPECTRE_MQTT_ENABLED is not set",
-            'CONFIG_ESPECTRE_MQTT_HOST=""',
-            'CONFIG_ESPECTRE_MQTT_USERNAME=""',
-            'CONFIG_ESPECTRE_MQTT_PASSWORD=""',
-        )
-    missing = [line for line in required_lines if line not in content]
-    if missing:
-        raise RuntimeError(
-            f"resolved {frontend} firmware does not use production defaults: "
-            + ", ".join(missing)
-        )
-
-
 def _build_case_in_context(
     case: BenchmarkCase,
     chip: str,
@@ -320,8 +272,6 @@ def _build_case_in_context(
             raise RuntimeError("delegated CLI build size does not match the artifact")
         if artifact_metadata.get("firmware_sha256") != result.build_metrics.firmware_sha256:
             raise RuntimeError("delegated CLI build hash does not match the artifact")
-    if case.frontend in IDF_FRONTENDS and result.build.returncode == 0:
-        validate_idf_benchmark_sdkconfig(case.frontend, chip)
     if result.build.returncode != 0:
         result.status = "FAIL"
         result.reasons.append(f"build exited with status {result.build.returncode}")

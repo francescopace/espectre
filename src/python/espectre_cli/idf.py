@@ -23,18 +23,16 @@ from pathlib import Path
 from .build_artifacts import print_build_artifact_metadata
 from .common import (
     Fore,
-    NATIVE_CONSOLE_BY_CHIP,
     REPO_ROOT,
-    SERIAL_REENUMERATION_ATTEMPTS,
-    SERIAL_REENUMERATION_DELAY_S,
     Style,
-    chip_alias_from_esptool_name,
     cli_command,
-    detect_chip_type,
     get_serial_port,
-    is_transient_serial_port_error,
     resolve_serial_port,
-    serial_console_mode,
+)
+from .esptool_runner import (
+    flash_build as run_esptool_flash_build,
+    flash_factory_image as run_esptool_flash_factory_image,
+    run_firmware,
 )
 from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
 from .targets import (
@@ -49,27 +47,6 @@ MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
 MATTER_MANUAL_CODE_PATTERN = re.compile(r"MATTER_MANUAL_CODE=([0-9]+)")
 IDF_TARGET_CONFIG_PATTERN = re.compile(r'^CONFIG_IDF_TARGET="([^"]+)"$', re.MULTILINE)
 ESPHOME_IDF_STAMP_FILE = ".esphome.stamp.json"
-LEGACY_ESPTOOL_OPTION_ALIASES = {
-    "--flash_freq": "--flash-freq",
-    "--flash_mode": "--flash-mode",
-    "--flash_size": "--flash-size",
-}
-FAST_FLASH_BAUD = "460800"
-SAFE_UART_FLASH_BAUD = "115200"
-ESPTOOL_SERIAL_ERROR_MARKERS = (
-    "failed to set baud rate",
-    "invalid head of packet",
-    "invalid slip escape",
-    "no more data to read",
-    "no serial data received",
-    "packet content transfer stopped",
-    "failed to read target memory",
-    "status response",
-    "serial data stream stopped",
-    "write timeout",
-)
-
-
 @dataclass(frozen=True)
 class ResolvedIdfEnvironment:
     """Describe how the CLI will launch idf.py on the current host."""
@@ -158,48 +135,6 @@ def build_idf_base_command(build_dir_name: str | None) -> list[str]:
     return command
 
 
-def sdkconfig_matches_target(app_path: Path, idf_target: str, sdkconfig_path: Path | None = None) -> bool:
-    """Return whether the generated sdkconfig already selects the requested target."""
-    sdkconfig = sdkconfig_path or app_path / "sdkconfig"
-    if not sdkconfig.is_file():
-        return False
-    try:
-        content = sdkconfig.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return f'CONFIG_IDF_TARGET="{idf_target}"' in content
-
-
-def cached_sdkconfig_path(app_path: Path, build_dir_name: str | None) -> Path | None:
-    """Return the sdkconfig path retained by one CMake build cache, if any."""
-    cache_path = app_path / (build_dir_name or "build") / "CMakeCache.txt"
-    try:
-        lines = cache_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        if line.startswith("SDKCONFIG:") and "=" in line:
-            value = line.split("=", 1)[1]
-            if not value:
-                return None
-            path = Path(value)
-            return path.resolve() if path.is_absolute() else (app_path / path).resolve()
-    return None
-
-
-def cached_idf_target(app_path: Path, build_dir_name: str | None) -> str | None:
-    """Return the target retained by one CMake build cache, if any."""
-    cache_path = app_path / (build_dir_name or "build") / "CMakeCache.txt"
-    try:
-        lines = cache_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        if line.startswith("IDF_TARGET:") and "=" in line:
-            return line.split("=", 1)[1].strip() or None
-    return None
-
-
 def resolve_configured_idf_target(app_path: Path) -> str | None:
     """Read the configured ESP-IDF target from sdkconfig when present."""
     sdkconfig = app_path / "sdkconfig"
@@ -242,395 +177,26 @@ def resolve_idf_build_dir_name(
 def resolve_flash_idf_selection(
     frontend: str,
     app_path: Path,
-    port: str,
-    chip: str | None = None,
-) -> tuple[str | None, str | None]:
-    """Return (idf_target, build_dir_name) for flashing."""
+    chip: str,
+) -> tuple[str, str | None]:
+    """Return the requested target and its existing build directory."""
     env_build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR")
-    if chip:
-        try:
-            _, idf_target = resolve_idf_target(frontend, chip)
-        except ValueError as exc:
-            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
-            raise SystemExit(1) from exc
-        if env_build_dir:
-            return idf_target, env_build_dir
-        return idf_target, resolve_idf_build_dir_name(app_path, idf_target)
-
+    try:
+        _, idf_target = resolve_idf_target(frontend, chip)
+    except ValueError as exc:
+        print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+        raise SystemExit(1) from exc
     if env_build_dir:
-        return None, env_build_dir
-
-    detected_chip = detect_chip_type(port)
-    if detected_chip:
-        try:
-            _, detected_target = resolve_idf_target(frontend, detected_chip)
-        except ValueError:
-            print(
-                f"{Fore.RED}❌ Connected chip {detected_chip} is not supported by the {frontend} frontend.{Style.RESET_ALL}"
-            )
-            raise SystemExit(1)
-        return detected_target, resolve_idf_build_dir_name(
-            app_path,
-            detected_target,
-            prefer_existing_default=True,
-        )
-
-    configured_target = resolve_configured_idf_target(app_path)
-    return configured_target, resolve_idf_build_dir_name(app_path, prefer_existing_default=True)
+        return idf_target, env_build_dir
+    return idf_target, resolve_idf_build_dir_name(app_path, idf_target)
 
 
-def chip_alias_for_idf_target(frontend: str, idf_target: str) -> str | None:
-    """Return the CLI chip alias for an ESP-IDF target name."""
-    for alias, target in IDF_FRONTENDS[frontend]["targets"].items():
-        if target == idf_target:
-            return alias
-    return None
-
-
-def prebuilt_idf_flasher_args_path(app_path: Path, build_dir_name: str | None) -> Path | None:
-    """Return the ESP-IDF flasher args path when a complete image is present."""
+def prebuilt_idf_flash_metadata_path(app_path: Path, build_dir_name: str | None) -> Path | None:
+    """Return the generated ESP-IDF flash metadata for a complete build."""
     if not build_dir_name:
         return None
-    flasher_args = app_path / build_dir_name / "flasher_args.json"
-    return flasher_args if flasher_args.is_file() else None
-
-
-def idf_flash_baud(_idf_target: str) -> str:
-    """Return the preferred esptool baud rate for the selected target."""
-    return FAST_FLASH_BAUD
-
-
-def _is_esptool_serial_error(exc: Exception) -> bool:
-    """Return whether esptool failed while exchanging serial data."""
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        error_text = str(current).lower()
-        if (
-            (isinstance(current, Exception) and is_transient_serial_port_error(current))
-            or current.__class__.__module__.startswith("serial.")
-            or any(marker in error_text for marker in ESPTOOL_SERIAL_ERROR_MARKERS)
-        ):
-            return True
-        current = current.__cause__ or current.__context__
-    return False
-
-
-def _uart_flash_fallback_command(
-    command: list[str],
-    port: str,
-    *,
-    before: str,
-    error: Exception,
-) -> list[str] | None:
-    """Build a safe retry for a high-speed UART flash failure."""
-    if "write-flash" not in command or not _is_esptool_serial_error(error):
-        return None
-    try:
-        baud_index = command.index("--baud") + 1
-        chip_index = command.index("--chip") + 1
-    except ValueError:
-        return None
-    if baud_index >= len(command) or chip_index >= len(command):
-        return None
-    if command[baud_index] == SAFE_UART_FLASH_BAUD:
-        return None
-
-    chip_alias = next(
-        (alias for alias, target in IDF_TARGET_BY_CHIP.items() if target == command[chip_index]),
-        None,
-    )
-    if serial_console_mode(chip_alias, port) != "uart":
-        return None
-
-    fallback = list(command)
-    fallback[baud_index] = SAFE_UART_FLASH_BAUD
-    try:
-        before_index = fallback.index("--before") + 1
-    except ValueError:
-        return None
-    if before_index >= len(fallback):
-        return None
-    fallback[before_index] = before
-    return fallback
-
-
-def _uart_loader_reconnect_command(
-    command: list[str],
-    port: str,
-    *,
-    before: str,
-    error: Exception,
-) -> list[str] | None:
-    """Retry a transient UART disconnect without changing the flash baud."""
-    if "write-flash" not in command or not _is_esptool_serial_error(error):
-        return None
-    try:
-        before_index = command.index("--before") + 1
-        chip_index = command.index("--chip") + 1
-    except ValueError:
-        return None
-    if before_index >= len(command) or chip_index >= len(command):
-        return None
-    if before == "no-reset":
-        return None
-    chip_alias = next(
-        (alias for alias, target in IDF_TARGET_BY_CHIP.items() if target == command[chip_index]),
-        None,
-    )
-    if serial_console_mode(chip_alias, port) != "uart":
-        return None
-
-    retry = list(command)
-    retry[before_index] = before
-    return retry
-
-
-def build_prebuilt_idf_esptool_command(
-    build_dir: Path,
-    port: str,
-    idf_target: str,
-    *,
-    before: str | None = None,
-    after: str | None = None,
-    app_image: Path | None = None,
-) -> list[str]:
-    """Build an esptool write-flash command from an ESP-IDF flasher_args.json file."""
-    payload = json.loads((build_dir / "flasher_args.json").read_text(encoding="utf-8"))
-    extra = payload.get("extra_esptool_args") or {}
-    chip = str(extra.get("chip") or idf_target)
-    before_mode = str(before or extra.get("before") or "default_reset").replace("_", "-")
-    after_mode = str(after or extra.get("after") or "hard_reset").replace("_", "-")
-    write_args = [
-        LEGACY_ESPTOOL_OPTION_ALIASES.get(str(arg), str(arg))
-        for arg in (payload.get("write_flash_args") or [])
-    ]
-    flash_files = payload.get("flash_files") or {}
-    if not flash_files:
-        raise ValueError(f"flasher_args.json in {build_dir} does not list flash files")
-    app_entry = payload.get("app") or {}
-    app_relative_path = str(app_entry.get("file")) if app_entry.get("file") else None
-    if app_image is not None and app_relative_path is None:
-        raise ValueError(f"flasher_args.json in {build_dir} does not identify the app image")
-    command = [
-        "--chip",
-        chip,
-        "--port",
-        port,
-        "--baud",
-        idf_flash_baud(chip),
-        "--before",
-        before_mode,
-        "--after",
-        after_mode,
-    ]
-    if extra.get("stub") is False:
-        command.append("--no-stub")
-    command.append("write-flash")
-    command.extend(write_args)
-    for offset, relative_path in sorted(flash_files.items(), key=lambda item: int(str(item[0]), 0)):
-        image_path = (
-            app_image
-            if app_image is not None and str(relative_path) == app_relative_path
-            else build_dir / relative_path
-        )
-        command.extend([str(offset), str(image_path)])
-    return command
-
-
-def run_esptool_main(args: list[str]) -> None:
-    """Invoke esptool with the given argument list."""
-    import esptool
-
-    for attempt in range(SERIAL_REENUMERATION_ATTEMPTS):
-        try:
-            esptool.main(args)
-            return
-        except Exception as exc:
-            if (
-                not is_transient_serial_port_error(exc)
-                or attempt == SERIAL_REENUMERATION_ATTEMPTS - 1
-            ):
-                raise
-            if attempt == 0:
-                print(
-                    f"{Fore.YELLOW}⏳ Serial port is re-enumerating; "
-                    f"retrying the esptool operation...{Style.RESET_ALL}"
-                )
-            time.sleep(SERIAL_REENUMERATION_DELAY_S)
-
-
-def erase_idf_flash(port: str, *, before: str = "default-reset") -> None:
-    """Erase all flash data through the same selected serial port as flash."""
-    # Keep the loader active for the immediately following write operation.
-    # Callers that already own a loader session explicitly select no-reset.
-    command = [
-        "--port",
-        port,
-        "--before",
-        before,
-        "--after",
-        "no-reset",
-        "erase-flash",
-    ]
-    print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
-    try:
-        run_esptool_main(command)
-    except SystemExit as exc:
-        if exc.code not in (0, None):
-            raise
-
-
-# esptool disables RTC watchdog reset on ESP32-C6 USB Serial/JTAG because
-# that controller can drop the host port. Other USB Serial/JTAG chips keep
-# the watchdog path; UART bridges keep DTR/RTS hard reset.
-_USB_SERIAL_JTAG_WATCHDOG_RESET_EXCLUDED_ALIASES = frozenset({"c6"})
-
-
-def _use_usb_serial_jtag_watchdog_reset(alias: str | None, port: str) -> bool:
-    """Return True when the selected USB Serial/JTAG chip should leave the loader via watchdog reset."""
-    return (
-        alias is not None
-        and NATIVE_CONSOLE_BY_CHIP.get(alias) == "usb_serial_jtag"
-        and alias not in _USB_SERIAL_JTAG_WATCHDOG_RESET_EXCLUDED_ALIASES
-        and serial_console_mode(alias, port) == "usb_serial_jtag"
-    )
-
-
-def _is_expected_watchdog_disconnect(exc: Exception) -> bool:
-    """Return whether USB disappeared while an armed watchdog reset the chip."""
-    error_text = str(exc).lower()
-    return is_transient_serial_port_error(exc) or any(
-        marker in error_text
-        for marker in (
-            "usb re-enumerated",
-            "device disconnected",
-            "device has been disconnected",
-            "input/output error",
-        )
-    )
-
-
-def _watchdog_reset_with_disconnect_tolerance(esp: object) -> None:
-    """Arm the RTC watchdog and tolerate USB loss only after its setup writes succeed."""
-    required_registers = (
-        "RTC_CNTL_WDTWPROTECT_REG",
-        "RTC_CNTL_WDT_WKEY",
-        "RTC_CNTL_WDTCONFIG1_REG",
-        "RTC_CNTL_WDTCONFIG0_REG",
-    )
-    if not all(hasattr(esp, attribute) for attribute in required_registers):
-        esp.watchdog_reset()
-        return
-
-    esp.write_reg(esp.RTC_CNTL_WDTWPROTECT_REG, esp.RTC_CNTL_WDT_WKEY)
-    esp.write_reg(esp.RTC_CNTL_WDTCONFIG1_REG, 2000)
-    try:
-        esp.write_reg(
-            esp.RTC_CNTL_WDTCONFIG0_REG,
-            (1 << 31) | (5 << 28) | (1 << 8) | 2,
-        )
-        esp.write_reg(esp.RTC_CNTL_WDTWPROTECT_REG, 0)
-    except Exception as exc:
-        if not _is_expected_watchdog_disconnect(exc):
-            raise
-        return
-    time.sleep(0.5)
-
-
-def start_flashed_idf_firmware(port: str) -> bool:
-    """Reset a residual ROM loader into the flashed application."""
-    try:
-        import esptool
-    except ImportError:
-        return False
-
-    esp = None
-    try:
-        # Do not toggle boot pins while probing. If firmware is already running,
-        # the non-resetting probe simply receives no reply. USB Serial/JTAG can
-        # remain in the ROM loader after an RTS reset, so use the watchdog reset
-        # recommended by esptool on that transport except on ESP32-C6.
-        esp = esptool.get_default_connected_device(
-            serial_list=[port],
-            port=port,
-            connect_attempts=1,
-            initial_baud=115200,
-            before="no-reset",
-        )
-        if esp is None:
-            return False
-        print(f"{Fore.CYAN}Resetting into the flashed firmware...{Style.RESET_ALL}")
-        # A fresh no-reset serial connection can leave DTR asserted. On common
-        # UART auto-reset circuits that holds GPIO0 low, so an RTS-only hard
-        # reset enters the loader again instead of starting the application.
-        esp._port.setDTR(False)
-        alias = chip_alias_from_esptool_name(getattr(esp, "CHIP_NAME", ""))
-        use_watchdog = _use_usb_serial_jtag_watchdog_reset(alias, port)
-        if (
-            use_watchdog
-            and hasattr(esp, "RTC_CNTL_OPTION1_REG")
-            and hasattr(esp, "RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK")
-        ):
-            # esptool's S3 hard_reset() clears this sticky bit before resetting.
-            # A watchdog reset without that clear can return to the ROM loader.
-            esp.write_reg(
-                esp.RTC_CNTL_OPTION1_REG,
-                0,
-                esp.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK,
-            )
-        if use_watchdog:
-            _watchdog_reset_with_disconnect_tolerance(esp)
-        else:
-            esp.hard_reset()
-        return True
-    except Exception:
-        # Some UART auto-reset bridges release GPIO0 when esptool closes the
-        # verified write session. The loader probe then receives no reply even
-        # though the bridge can still reset the chip into the application.
-        if serial_console_mode(None, port) != "uart":
-            return False
-        try:
-            import serial
-
-            from .serial_monitor import hard_reset_serial
-
-            print(f"{Fore.CYAN}Resetting the flashed firmware through UART...{Style.RESET_ALL}")
-            with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
-                connection.dtr = False
-                connection.rts = False
-                hard_reset_serial(connection)
-            time.sleep(1.0)
-            return True
-        except Exception:
-            return False
-    finally:
-        if esp and hasattr(esp, "_port") and esp._port:
-            try:
-                esp._port.close()
-            except Exception:
-                pass
-        if esp is not None:
-            time.sleep(1.0)
-
-
-def flash_prebuilt_idf_image(
-    app_path: Path,
-    build_dir_name: str,
-    port: str,
-    idf_target: str,
-    *,
-    command: list[str] | None = None,
-) -> None:
-    """Flash an already-built ESP-IDF image without reconfiguring CMake."""
-    command = command or build_prebuilt_idf_esptool_command(app_path / build_dir_name, port, idf_target)
-    print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
-    try:
-        run_esptool_main(command)
-    except SystemExit as exc:
-        if exc.code not in (0, None):
-            raise
+    metadata_path = app_path / build_dir_name / "flasher_args.json"
+    return metadata_path if metadata_path.is_file() else None
 
 
 def flash_prebuilt_idf_build(
@@ -638,51 +204,17 @@ def flash_prebuilt_idf_build(
     port: str,
     idf_target: str,
     *,
+    chip: str,
     erase: bool,
-    before: str,
-    app_image: Path | None = None,
 ) -> None:
-    """Erase, write, and start one prebuilt ESP-IDF image."""
-    flash_command = build_prebuilt_idf_esptool_command(
+    """Flash one generated ESP-IDF build through the shared esptool owner."""
+    run_esptool_flash_build(
         build_dir,
-        port,
-        idf_target,
-        before=before,
-        after="no-reset",
-        app_image=app_image,
-    )
-    run_idf_flash_lifecycle(
-        flash_command,
-        port,
+        chip=chip,
+        idf_target=idf_target,
+        port=port,
         erase=erase,
-        before=before,
     )
-
-
-def build_factory_esptool_command(
-    factory_image: Path,
-    port: str,
-    idf_target: str,
-    *,
-    before: str,
-    after: str = "no-reset",
-) -> list[str]:
-    """Build a standalone full-image flash command with no local build dependency."""
-    return [
-        "--chip",
-        idf_target,
-        "--port",
-        port,
-        "--baud",
-        idf_flash_baud(idf_target),
-        "--before",
-        before,
-        "--after",
-        after,
-        "write-flash",
-        "0x0",
-        str(factory_image),
-    ]
 
 
 def flash_factory_image(
@@ -690,80 +222,17 @@ def flash_factory_image(
     port: str,
     idf_target: str,
     *,
+    chip: str,
     erase: bool,
-    before: str,
 ) -> None:
-    """Flash and start a standalone factory image without consulting build artifacts."""
-    if not factory_image.is_file():
-        raise FileNotFoundError(f"Factory image not found: {factory_image}")
-    flash_command = build_factory_esptool_command(
+    """Flash one merged factory image through the shared esptool owner."""
+    run_esptool_flash_factory_image(
         factory_image,
-        port,
-        idf_target,
-        before=before,
-    )
-    run_idf_flash_lifecycle(
-        flash_command,
-        port,
+        chip=chip,
+        idf_target=idf_target,
+        port=port,
         erase=erase,
-        before=before,
     )
-
-
-def run_idf_flash_lifecycle(
-    flash_command: list[str],
-    port: str,
-    *,
-    erase: bool,
-    before: str,
-) -> None:
-    """Erase, write, and start firmware while preserving one verified loader session."""
-    if erase:
-        erase_idf_flash(port, before=before)
-    print(f"{Fore.CYAN}Command: esptool {' '.join(flash_command)}{Style.RESET_ALL}")
-    try:
-        run_esptool_main(flash_command)
-    except Exception as exc:
-        retry_command = _uart_loader_reconnect_command(
-            flash_command, port, before=before, error=exc
-        )
-        retry_error = exc
-        if retry_command is not None:
-            baud = retry_command[retry_command.index("--baud") + 1]
-            print(
-                f"{Fore.YELLOW}⚠️  UART flash disconnected; "
-                f"retrying at {baud} baud after a fresh reset...{Style.RESET_ALL}"
-            )
-            print(f"{Fore.CYAN}Command: esptool {' '.join(retry_command)}{Style.RESET_ALL}")
-            try:
-                time.sleep(SERIAL_REENUMERATION_DELAY_S)
-                run_esptool_main(retry_command)
-                retry_error = None
-            except Exception as reconnect_exc:
-                retry_error = reconnect_exc
-                flash_command = retry_command
-        if retry_error is None:
-            pass
-        else:
-            fallback_command = _uart_flash_fallback_command(
-                flash_command,
-                port,
-                before=before,
-                error=retry_error,
-            )
-            if fallback_command is None:
-                raise retry_error
-            print(
-                f"{Fore.YELLOW}⚠️  High-speed UART flash failed; "
-                f"retrying at {SAFE_UART_FLASH_BAUD} baud...{Style.RESET_ALL}"
-            )
-            print(f"{Fore.CYAN}Command: esptool {' '.join(fallback_command)}{Style.RESET_ALL}")
-            run_esptool_main(fallback_command)
-    except SystemExit as exc:
-        if exc.code not in (0, None):
-            raise
-    if not start_flashed_idf_firmware(port):
-        raise RuntimeError("flashed firmware did not start from the ROM loader")
 
 
 def is_windows_host() -> bool:
@@ -1165,87 +634,85 @@ def read_matter_onboarding(
         print(f"{Fore.RED}❌ pyserial is required to read the Matter QR code.{Style.RESET_ALL}")
         return False
 
-    action = "resetting and waiting on" if reset else "reading current boot from"
+    action = "starting and waiting on" if reset else "reading current boot from"
     print(f"{Fore.CYAN}Matter QR: {action} {port}...{Style.RESET_ALL}")
-    from .serial_monitor import hard_reset_serial
+
+    if reset:
+        if chip is None:
+            print(f"{Fore.RED}❌ --chip is required when resetting a Matter device.{Style.RESET_ALL}")
+            return False
+        run_firmware(
+            chip=chip,
+            idf_target=IDF_TARGET_BY_CHIP[chip],
+            port=port,
+        )
 
     deadline = time.monotonic() + timeout_seconds
     qr_payload = None
     manual_code = None
-    reset_pending = reset
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        connection = None
-        try:
-            port = resolve_serial_port(
-                port,
-                chip=chip,
-                frontend="matter",
-                purpose="onboarding",
-            )
-            connection = serial.Serial(port, baudrate=115200, timeout=1.0)
-            connection.dtr = False
-            connection.rts = False
-            if reset_pending:
-                hard_reset_serial(connection)
-                reset_pending = False
-
-            while time.monotonic() < deadline:
-                line = connection.readline().decode("utf-8", errors="replace")
-                if qr_match := MATTER_QR_PATTERN.search(line):
-                    qr_payload = qr_match.group(1)
-                if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
-                    manual_code = manual_match.group(1)
-                if qr_payload and manual_code:
-                    if json_output:
-                        print(
-                            json.dumps(
-                                {
-                                    "chip": chip,
-                                    "event": "matter_onboarding",
-                                    "frontend": "matter",
-                                    "manual_code": manual_code,
-                                    "port": port,
-                                    "qr_payload": qr_payload,
-                                },
-                                sort_keys=True,
-                            )
+    connection = None
+    try:
+        port = resolve_serial_port(
+            port,
+            chip=chip,
+            frontend="matter",
+            purpose="onboarding",
+        )
+        connection = serial.Serial(port, baudrate=115200, timeout=1.0)
+        while time.monotonic() < deadline:
+            line = connection.readline().decode("utf-8", errors="replace")
+            if qr_match := MATTER_QR_PATTERN.search(line):
+                qr_payload = qr_match.group(1)
+            if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
+                manual_code = manual_match.group(1)
+            if qr_payload and manual_code:
+                if json_output:
+                    print(
+                        json.dumps(
+                            {
+                                "chip": chip,
+                                "event": "matter_onboarding",
+                                "frontend": "matter",
+                                "manual_code": manual_code,
+                                "port": port,
+                                "qr_payload": qr_payload,
+                            },
+                            sort_keys=True,
                         )
-                    else:
-                        print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
-                        print(f"  QR payload:  {qr_payload}")
-                        print(f"  Manual code: {manual_code}")
-                    return True
-        except (OSError, serial.SerialException) as exc:
-            last_error = exc
-            time.sleep(1.0)
-        finally:
-            if connection is not None:
-                connection.close()
+                    )
+                else:
+                    print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
+                    print(f"  QR payload:  {qr_payload}")
+                    print(f"  Manual code: {manual_code}")
+                return True
+    except (OSError, serial.SerialException) as exc:
+        print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {exc}{Style.RESET_ALL}")
+    finally:
+        if connection is not None:
+            connection.close()
 
-    if last_error is not None:
-        print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {last_error}{Style.RESET_ALL}")
-
-    print(f"{Fore.YELLOW}Matter onboarding data was not received. Reset the board and retry with "
-          f"{cli_command('matter', 'qr', '--port', port)}.{Style.RESET_ALL}")
+    retry_args = ["matter", "qr", "--port", port]
+    if chip is not None:
+        retry_args.extend(["--chip", chip])
+    print(
+        f"{Fore.YELLOW}Matter onboarding data was not received. Reset the board and retry with "
+        f"{cli_command(*retry_args)}.{Style.RESET_ALL}"
+    )
     return False
 
 
-def read_matter_onboarding_for_command(port: str, args) -> bool:
+def read_matter_onboarding_for_command(port: str, args, *, reset: bool | None = None) -> bool:
     """Read onboarding data using the command's optional JSON contract."""
-    reset = not bool(getattr(args, "no_reset", False))
+    if reset is None:
+        reset = not bool(getattr(args, "no_reset", False))
     timeout_seconds = float(getattr(args, "timeout", 20.0))
-    if bool(getattr(args, "json", False)):
-        return read_matter_onboarding(
-            port,
-            timeout_seconds=timeout_seconds,
-            chip=getattr(args, "chip", None),
-            json_output=True,
-            reset=reset,
-        )
-    if not reset:
-        return read_matter_onboarding(port, timeout_seconds=timeout_seconds, reset=False)
-    return read_matter_onboarding(port)
+    return read_matter_onboarding(
+        port,
+        timeout_seconds=timeout_seconds,
+        chip=getattr(args, "chip", None),
+        json_output=bool(getattr(args, "json", False)),
+        reset=reset,
+    )
 
 
 def print_idf_build_metadata(
@@ -1317,124 +784,74 @@ def run_idf_command(frontend: str, args) -> None:
             idf_target,
             container=build_backend == "docker",
         )
-    clean_requested = getattr(args, "clean", False) or getattr(args, "clean_all", False)
     if args.idf_command == "build":
         if getattr(args, "clean_all", False):
             clean_all_idf_build_artifacts(app_path)
         elif getattr(args, "clean", False):
             clean_idf_build_artifacts(app_path, build_dir_name)
 
-    sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
-    defaults_arg = f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}"
-    custom_sdkconfig = os.environ.get("ESPECTRE_IDF_SDKCONFIG")
-    sdkconfig_path = Path(custom_sdkconfig).resolve() if custom_sdkconfig else None
-    cmake_args = [defaults_arg]
-    if sdkconfig_path is not None:
-        cmake_args.append(f"-DSDKCONFIG={sdkconfig_path}")
-    if frontend == "native" and args.idf_command == "build":
-        ota_channel = getattr(args, "ota_channel", None)
-        if ota_channel:
-            cmake_args.append(f"-DNATIVE_OTA_CHANNEL={ota_channel}")
-            print(f"{Fore.CYAN}OTA channel: {ota_channel}{Style.RESET_ALL}")
-
+    sdkconfig_defaults = ""
     commands = []
-    flash_port = None
     if args.idf_command == "build":
+        sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
         base_command = build_idf_base_command(build_dir_name)
-        cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
-        if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
-            cmake_args.append(f"-DSDKCONFIG={(app_path / 'sdkconfig').resolve()}")
-        commands = []
-        target_matches = sdkconfig_matches_target(app_path, idf_target, sdkconfig_path)
-        selected_sdkconfig = sdkconfig_path or app_path / "sdkconfig"
-        if not selected_sdkconfig.is_file():
-            target_matches = cached_idf_target(app_path, build_dir_name) == idf_target
-        if clean_requested or not target_matches:
-            commands.append([*base_command, *cmake_args, "set-target", idf_target])
-        commands.append([*base_command, *cmake_args, "build"])
+        cmake_args = [
+            f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}",
+            f"-DIDF_TARGET={idf_target}",
+        ]
+        if custom_sdkconfig := os.environ.get("ESPECTRE_IDF_SDKCONFIG"):
+            cmake_args.append(f"-DSDKCONFIG={Path(custom_sdkconfig).resolve()}")
+        else:
+            generated_sdkconfig = Path(build_dir_name or "build") / "sdkconfig"
+            cmake_args.append(f"-DSDKCONFIG={generated_sdkconfig}")
+        if frontend == "native":
+            ota_channel = getattr(args, "ota_channel", None)
+            if ota_channel:
+                cmake_args.append(f"-DNATIVE_OTA_CHANNEL={ota_channel}")
+                print(f"{Fore.CYAN}OTA channel: {ota_channel}{Style.RESET_ALL}")
+        commands = [[*base_command, *cmake_args, "build"]]
     elif args.idf_command == "flash":
-        flash_chip = getattr(args, "chip", None)
+        flash_chip = args.chip
         port = resolve_serial_port(
             args.port,
             chip=flash_chip,
             frontend=frontend,
             purpose="flash",
         )
-        if serial_console_mode(flash_chip, port) == "usb_cdc":
-            port = resolve_serial_port(
-                port,
-                chip=flash_chip,
-                frontend=frontend,
-                purpose="flash",
-                require_firmware_download=True,
-            )
-        flash_port = port
         erase_requested = bool(getattr(args, "erase", False))
-        idf_target, build_dir_name = resolve_flash_idf_selection(frontend, app_path, port, flash_chip)
-        if idf_target:
-            print(f"{Fore.CYAN}Target:   {idf_target}{Style.RESET_ALL}")
-        target_matches = bool(
-            idf_target and sdkconfig_matches_target(app_path, idf_target, sdkconfig_path)
+        idf_target, build_dir_name = resolve_flash_idf_selection(
+            frontend,
+            app_path,
+            flash_chip,
         )
-        prebuilt_args = prebuilt_idf_flasher_args_path(app_path, build_dir_name)
-        use_prebuilt = flash_chip is not None and prebuilt_args is not None
-        loader_preserved = (
-            flash_chip is not None
-            and serial_console_mode(flash_chip, port) == "usb_cdc"
-        )
-        initial_before = "no-reset" if loader_preserved else "default-reset"
-        if idf_target and (not target_matches or use_prebuilt):
-            image_dir = build_dir_name
-            if image_dir is None or prebuilt_idf_flasher_args_path(app_path, image_dir) is None:
-                current_target = resolve_configured_idf_target(app_path)
-                build_label = image_dir or "build"
-                print(
-                    f"{Fore.RED}❌ No complete {idf_target} image in {build_label}.{Style.RESET_ALL}"
-                )
-                if current_target and current_target != idf_target:
-                    print(
-                        f"{Fore.RED}   Current sdkconfig selects {current_target}, so flash cannot rebuild {idf_target}.{Style.RESET_ALL}"
-                    )
-                chip_alias = flash_chip or chip_alias_for_idf_target(frontend, idf_target)
-                if chip_alias:
-                    print(
-                        f"  Build it first with: {Fore.GREEN}{cli_command(frontend, 'build', '--chip', chip_alias)}{Style.RESET_ALL}"
-                    )
-                raise SystemExit(1)
-            current_target = resolve_configured_idf_target(app_path)
-            current_note = (
-                f"; sdkconfig currently selects {current_target}"
-                if current_target and current_target != idf_target
-                else ""
-            )
+        print(f"{Fore.CYAN}Target:   {idf_target}{Style.RESET_ALL}")
+        if build_dir_name is None or prebuilt_idf_flash_metadata_path(app_path, build_dir_name) is None:
+            build_label = build_dir_name or f"build-{idf_target}"
+            print(f"{Fore.RED}❌ No complete {idf_target} image in {build_label}.{Style.RESET_ALL}")
             print(
-                f"{Fore.CYAN}Flashing existing {idf_target} image from {image_dir}{current_note}.{Style.RESET_ALL}"
+                f"  Build it first with: "
+                f"{Fore.GREEN}{cli_command(frontend, 'build', '--chip', flash_chip)}{Style.RESET_ALL}"
             )
-            try:
-                # UART and USB Serial/JTAG can enter the loader through their
-                # reset control. Native USB CDC instead preserves a manually
-                # entered ROM loader because it has no generic reset channel.
-                flash_prebuilt_idf_build(
-                    app_path / image_dir,
-                    port,
-                    idf_target,
-                    erase=erase_requested,
-                    before=initial_before,
-                )
-            except (OSError, ValueError, json.JSONDecodeError) as exc:
-                print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
-                raise SystemExit(1) from exc
-            except Exception as exc:
-                print(f"{Fore.RED}❌ Error flashing firmware: {exc}{Style.RESET_ALL}")
-                raise SystemExit(1) from exc
-            if frontend == "matter":
-                read_matter_onboarding_for_command(flash_port, args)
-            return
-        base_command = build_idf_base_command(build_dir_name)
-        cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
-        if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
-            cmake_args.append(f"-DSDKCONFIG={(app_path / 'sdkconfig').resolve()}")
-        commands = [[*base_command, *cmake_args[1:], "-p", port, "flash"]]
+            raise SystemExit(1)
+        print(f"{Fore.CYAN}Flashing existing {idf_target} image from {build_dir_name}.{Style.RESET_ALL}")
+        try:
+            flash_prebuilt_idf_build(
+                app_path / build_dir_name,
+                port,
+                idf_target,
+                chip=flash_chip,
+                erase=erase_requested,
+            )
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            print(f"{Fore.RED}❌ Error flashing firmware: {exc}{Style.RESET_ALL}")
+            raise SystemExit(getattr(exc, "returncode", 1)) from exc
+        if frontend == "matter" and not read_matter_onboarding_for_command(
+            port,
+            args,
+            reset=False,
+        ):
+            raise SystemExit(1)
+        return
 
     if args.idf_command == "build" and build_backend == "docker":
         for command in commands:
@@ -1468,12 +885,6 @@ def run_idf_command(frontend: str, args) -> None:
     process_env = idf_subprocess_env(env)
     if (process_env or os.environ).get("IDF_CCACHE_ENABLE") == "1":
         print(f"{Fore.CYAN}Compiler cache: ccache{Style.RESET_ALL}")
-    if args.idf_command == "flash" and erase_requested:
-        try:
-            erase_idf_flash(flash_port, before=initial_before)
-        except (OSError, ValueError) as exc:
-            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
-            raise SystemExit(1) from exc
     try:
         if env.mode == "export" and len(commands) > 1:
             for command in commands:
@@ -1491,10 +902,6 @@ def run_idf_command(frontend: str, args) -> None:
                     print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
                     fallback_notice_printed = True
                 run_idf_subprocess(subprocess_command, env, cwd=app_dir)
-        if args.idf_command == "flash" and flash_chip and flash_port is not None:
-            start_flashed_idf_firmware(flash_port)
-        if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
-            read_matter_onboarding_for_command(flash_port, args)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
         print_idf_recovery_instructions()

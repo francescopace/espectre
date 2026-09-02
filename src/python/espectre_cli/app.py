@@ -304,10 +304,9 @@ def _add_micro_namespace(subparsers) -> None:
     build_parser.set_defaults(handler=build_project_firmware_command)
 
     flash_parser = micro_subparsers.add_parser("flash", help="Flash MicroPython firmware to ESP32")
-    flash_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="ESP32 chip type (auto-detected if not specified)")
+    flash_parser.add_argument("--chip", required=True, choices=MICRO_CHIP_CHOICES, help="ESP32 chip type")
     flash_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
-    flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
     flash_parser.add_argument("--clean", action="store_true", help="Discard the cached project build directory first")
     flash_parser.add_argument("--json", action="store_true", help="Print final machine-readable flash metadata")
     _add_idf_build_backend_arguments(flash_parser)
@@ -346,7 +345,11 @@ def _add_esphome_namespace(subparsers) -> None:
         "monitor": "Open logs for the selected ESPHome config",
     }.items():
         command_parser = esphome_subparsers.add_parser(command_name, help=help_text)
-        command_parser.add_argument("--chip", choices=sorted(ESPHOME_CONFIGS.keys()), help="Target chip family")
+        command_parser.add_argument(
+            "--chip",
+            choices=sorted(ESPHOME_CONFIGS.keys()),
+            help="Target chip family",
+        )
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
         if command_name == "flash":
@@ -418,8 +421,9 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         if command_name == "flash":
             command_parser.add_argument(
                 "--chip",
+                required=True,
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
-                help="Target chip whose existing build directory should be flashed (auto-detected if omitted)",
+                help="Target chip whose existing build directory should be flashed",
             )
             command_parser.add_argument(
                 "--erase",
@@ -429,8 +433,9 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         if command_name == "qr":
             command_parser.add_argument(
                 "--chip",
+                required=True,
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
-                help="Target chip used to filter compatible ports",
+                help="Target chip",
             )
             command_parser.add_argument(
                 "--no-reset",
@@ -458,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     examples = "\n".join(
         [
             "Examples:",
-            f"  {cli_command('micro', 'flash', '--erase')}",
+            f"  {cli_command('micro', 'flash', '--chip', 'c3', '--erase')}",
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
             f"  {cli_command('devices')}",

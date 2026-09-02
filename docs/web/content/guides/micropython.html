@@ -49,7 +49,7 @@
   <p>The repository wrapper builds and flashes the matching project image, then deploys and verifies the Micro-ESPectre application.</p>
   <ol class="steps-list">
     <li><h3>Prepare the repository environment</h3><p>Create the project virtual environment and install the base requirements.</p></li>
-    <li><h3>Build and flash the project image</h3><p>The wrapper detects the chip, builds the matching pinned MicroPython revision and native components, then installs the image over USB.</p></li>
+    <li><h3>Build and flash the project image</h3><p>Select the target chip. The wrapper builds the matching pinned MicroPython revision and native components, then installs the canonical project image over USB.</p></li>
     <li><h3>Deploy and run Micro-ESPectre</h3><p>Create the local configuration from the provided example, then copy the runtime to the device and start it.</p></li>
   </ol>
   <pre class="code"><code>python3.14 -m venv .venv
@@ -59,7 +59,7 @@ python -m pip install -r requirements.txt
 cp src/python/micro_espectre/config_local.py.example \
   src/python/micro_espectre/config_local.py
 
-./espectre micro flash --erase
+./espectre micro flash --chip c3 --erase
 ./espectre micro deploy
 ./espectre micro verify
 ./espectre micro run</code></pre>

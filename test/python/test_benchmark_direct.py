@@ -432,139 +432,6 @@ def test_runtime_monitor_keeps_benchmark_physical_port(
     ]
 
 
-@pytest.mark.parametrize("frontend", ["native", "esphome"])
-def test_runtime_uses_monitor_port_separate_from_flash_port(monkeypatch, frontend):
-    case = BenchmarkCase(frontend, "lightweight")
-
-    class FakeContext:
-        def __enter__(self):
-            return {}, object()
-
-        def __exit__(self, *_args):
-            return False
-
-    bootstrap = BenchmarkResult(
-        case=case,
-        build=CommandResult(["build"], 0, 1.0, ""),
-    )
-    flash_ports: list[str] = []
-    reset_ports: list[str] = []
-    commands: list[list[str]] = []
-
-    def fake_flash(_case, _chip, port, result, **_kwargs):
-        flash_ports.append(port)
-        result.flash = CommandResult(["flash"], 0, 1.0, "")
-        return True
-
-    def capture_command(command, **_kwargs):
-        commands.append(list(command))
-        if command[1] == "provision":
-            return CommandResult(
-                list(command),
-                1,
-                1.0,
-                "provisioning stopped after port capture",
-            )
-        raise AssertionError(command)
-
-    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
-    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
-    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
-    monkeypatch.setattr(bench, "run_command", capture_command)
-    monkeypatch.setattr(bench, "hard_reset_benchmark_device", reset_ports.append)
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
-
-    results = bench.run_direct_frontend_cases(
-        [case],
-        "s3",
-        "/dev/cu.flash",
-        monitor_port="/dev/cu.console",
-        reset_port="/dev/cu.reset",
-    )
-
-    assert results[0].status == "FAIL"
-    assert flash_ports == ["/dev/cu.flash"]
-    assert reset_ports == ["/dev/cu.reset"]
-    assert commands[0][commands[0].index("--port") + 1] == "/dev/cu.console"
-
-
-def test_verified_post_flash_start_failure_can_use_usb_power_cycle(monkeypatch):
-    flash = CommandResult(
-        ["flash"],
-        1,
-        1.0,
-        "Hash of data verified.\n"
-        "Error flashing firmware: flashed firmware did not start from the ROM loader\n",
-    )
-    commands: list[list[str]] = []
-
-    monkeypatch.setattr(bench.shutil, "which", lambda _name: "/opt/homebrew/bin/uhubctl")
-    sleeps: list[float] = []
-    monkeypatch.setattr(bench.time, "sleep", sleeps.append)
-    monkeypatch.setattr(
-        bench,
-        "run_command",
-        lambda command, **_kwargs: (
-            commands.append(list(command))
-            or CommandResult(list(command), 0, 2.0, "power cycled")
-        ),
-    )
-
-    assert bench.recover_verified_flash_with_usb_power_cycle(flash, ("0-1.2", 4))
-    assert flash.returncode == 0
-    assert sleeps == [3.0]
-    assert commands == [[
-        "/opt/homebrew/bin/uhubctl",
-        "-l",
-        "0-1.2",
-        "-p",
-        "4",
-        "-a",
-        "cycle",
-        "-d",
-        "2",
-    ]]
-
-
-def test_matter_onboarding_recovery_reads_runtime_port_and_redacts(monkeypatch):
-    capture = bench.MatterOnboardingCapture()
-    observed: dict[str, object] = {}
-
-    def fake_run_command(command, **kwargs):
-        observed["command"] = list(command)
-        observed["kwargs"] = kwargs
-        event = (
-            '{"event":"matter_onboarding","manual_code":"12704227053",'
-            '"qr_payload":"MT:TESTPAYLOAD"}\n'
-        )
-        kwargs["line_callback"](event)
-        redacted = kwargs["output_redactor"](event)
-        return CommandResult(list(command), 0, 1.0, redacted)
-
-    monkeypatch.setattr(bench, "run_command", fake_run_command)
-
-    result = bench.capture_matter_onboarding("/dev/cu.runtime", "c5", capture)
-
-    assert result.returncode == 0
-    assert observed["command"] == [
-        str(bench.REPO_ROOT / "espectre"),
-        "matter",
-        "qr",
-        "--chip",
-        "c5",
-        "--port",
-        "/dev/cu.runtime",
-        "--json",
-        "--no-reset",
-        "--timeout",
-        str(int(bench.MATTER_ONBOARDING_TIMEOUT_SECONDS)),
-    ]
-    assert capture.require_data().qr_payload == "MT:TESTPAYLOAD"
-    assert "MT:TESTPAYLOAD" not in result.output
-    assert "12704227053" not in result.output
-
-
 def test_matter_commissioning_uses_captured_onboarding_data(monkeypatch):
     case = BenchmarkCase("matter", "lightweight")
 
@@ -644,6 +511,41 @@ def test_matter_commissioning_uses_captured_onboarding_data(monkeypatch):
     assert results[0].status == "FAIL"
     assert results[0].reasons == ["commissioning stopped after capture"]
     assert results[0].monitor is not None
+
+
+def test_matter_flash_without_onboarding_stops_without_recovery(monkeypatch):
+    case = BenchmarkCase("matter", "lightweight")
+
+    class FakeContext:
+        def __enter__(self):
+            return {}, object()
+
+        def __exit__(self, *_args):
+            return False
+
+    bootstrap = BenchmarkResult(
+        case=case,
+        build=CommandResult(["build"], 0, 1.0, ""),
+    )
+    commands: list[list[str]] = []
+
+    def fake_flash(_case, _chip, _port, result, **_kwargs):
+        result.flash = CommandResult(["flash"], 0, 1.0, "")
+        commands.append(["flash"])
+        return True
+
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+
+    results = bench.run_direct_frontend_cases([case], "s3", "/dev/cu.test")
+
+    assert commands == [["flash"]]
+    assert results[0].status == "FAIL"
+    assert results[0].reasons == [
+        "Matter flash succeeded without complete onboarding data"
+    ]
+
 
 def test_parse_json_object_from_output_uses_final_json_line():
     parsed = bench.parse_json_object_from_output(
@@ -1524,7 +1426,7 @@ def test_bssid_reboot_check_is_unknown_without_direct_uptime():
 
 @pytest.mark.parametrize(
     ("chip", "selected_port"),
-    [("c3", ""), ("esp32", "/dev/cu.selected")],
+    [("c3", "/dev/cu.c3"), ("esp32", "/dev/cu.esp32")],
 )
 def test_run_micro_case_uses_production_cli_workflow(
     monkeypatch, tmp_path, chip, selected_port
@@ -1536,7 +1438,6 @@ def test_run_micro_case_uses_production_cli_workflow(
     sleeps: list[float] = []
     firmware = tmp_path / f"micro-{chip}.bin"
     firmware.write_bytes(b"firmware")
-    flashed_port = "/dev/cu.usbmodem1"
 
     def fake_run_command(command, **_kwargs):
         resolved = list(command)
@@ -1551,7 +1452,7 @@ def test_run_micro_case_uses_production_cli_workflow(
                     "firmware_sha256": "unused-by-this-test",
                     "firmware_size_bytes": firmware.stat().st_size,
                     "frontend": "micro",
-                    "port": flashed_port,
+                    "port": selected_port,
                     "schema_version": 1,
                 }
             )
@@ -1631,14 +1532,9 @@ def test_run_micro_case_uses_production_cli_workflow(
         ["micro", "run"],
     ]
     assert all(command[command.index("--chip") + 1] == chip for command in commands)
-    if selected_port:
-        assert commands[0][commands[0].index("--port") + 1] == selected_port
-    else:
-        assert "--port" not in commands[0]
-    runtime_port = selected_port or flashed_port
     assert all(
-        command[command.index("--port") + 1] == runtime_port
-        for command in commands[1:]
+        command[command.index("--port") + 1] == selected_port
+        for command in commands
     )
     assert "--frozen" not in commands[0]
 

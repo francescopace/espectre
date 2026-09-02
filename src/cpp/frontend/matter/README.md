@@ -28,7 +28,7 @@ ESP32-S2 is intentionally excluded. It has no Bluetooth radio, while the support
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
-2. use **Read the onboarding QR over USB** on the web flasher, or run `./espectre matter qr --port <port>`, to retrieve the device-specific code
+2. use **Read the onboarding QR over USB** on the web flasher, or run `./espectre matter qr --chip <chip> --port <port>`, to retrieve the device-specific code
 3. use a Matter controller that supports BLE commissioning
 4. commission the device into your target fabric
 5. use the standard Matter occupancy surface exposed by the firmware
@@ -44,29 +44,17 @@ Repository CLI:
 ```bash
 ./espectre matter build --chip c3
 ./espectre matter flash --chip c3 --port /dev/cu.usbmodemXXXX
-./espectre matter qr --port /dev/cu.usbmodemXXXX
-./espectre monitor --port /dev/cu.usbmodemXXXX
+./espectre monitor --chip c3 --frontend matter --port /dev/cu.usbmodemXXXX
 ```
+
+The flash command prints the onboarding codes captured from the first boot. To retrieve the persisted codes later, run `./espectre matter qr --chip c3 --port /dev/cu.usbmodemXXXX`.
 
 Notes:
 
-- On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
+- On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --chip c3 --frontend matter --port COM5`.
 - Shared sensing options are selected through the shared ESPectre sensing `sdkconfig` menu.
 - The first build downloads managed components and compiles `esp_matter`, so it is significantly slower than incremental builds.
 - Subsequent builds reuse the target-specific build directory; use `--clean` only when changing an incompatible toolchain or recovering from stale build state.
-
-<details>
-<summary>Advanced raw ESP-IDF flow</summary>
-
-```bash
-cd src/cpp/frontend/matter/app
-idf.py set-target esp32c3
-idf.py build
-idf.py -p /dev/cu.usbmodemXXXX flash
-idf.py -p /dev/cu.usbmodemXXXX monitor
-```
-
-</details>
 
 ## Commissioning and Runtime Ownership
 

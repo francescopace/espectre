@@ -109,7 +109,7 @@ Use the repository CLI from the repository root for local build, flash, monitor,
 Matter generates a unique onboarding identity on first boot and stores it in a dedicated factory partition. Retrieve the same QR payload after either a web or CLI flash with:
 
 ```bash
-./espectre matter qr --port /dev/cu.usbmodemXXXX
+./espectre matter qr --chip s3 --port /dev/cu.usbmodemXXXX
 ```
 
 Normal flashes preserve the QR. Erasing the complete flash generates a new identity on the next boot.

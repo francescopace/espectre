@@ -19,7 +19,6 @@ from .common import (
     REPO_ROOT,
     Style,
     resolve_serial_port,
-    serial_console_mode,
 )
 from .idf import flash_factory_image, flash_prebuilt_idf_build
 from .targets import IDF_TARGET_BY_CHIP, resolve_esphome_config
@@ -90,21 +89,16 @@ def run_esphome_command(args) -> None:
     device = getattr(args, "device", None)
     if args.esphome_command in {"flash", "monitor"} and not _is_network_device(device):
         if args.esphome_command == "flash":
-            chip = getattr(args, "chip", None)
+            if args.chip is None:
+                print(f"{Fore.RED}❌ --chip is required for serial flash.{Style.RESET_ALL}")
+                raise SystemExit(1)
+            chip = args.chip
             device = resolve_serial_port(
                 device,
                 chip=chip,
                 frontend="esphome",
                 purpose="flash",
             )
-            if serial_console_mode(chip, device) == "usb_cdc":
-                device = resolve_serial_port(
-                    device,
-                    chip=chip,
-                    frontend="esphome",
-                    purpose="flash",
-                    require_firmware_download=True,
-                )
         else:
             device = resolve_serial_port(
                 device,
@@ -113,28 +107,27 @@ def run_esphome_command(args) -> None:
                 purpose="monitor",
             )
     if args.esphome_command == "flash" and not _is_network_device(device):
-        chip = getattr(args, "chip", None)
-        before = "no-reset" if serial_console_mode(chip, device) == "usb_cdc" else "default-reset"
+        chip = args.chip
         try:
             if getattr(args, "firmware", None):
                 flash_factory_image(
                     Path(args.firmware).resolve(),
                     device,
-                    IDF_TARGET_BY_CHIP.get(chip, "auto"),
+                    IDF_TARGET_BY_CHIP[chip],
+                    chip=chip,
                     erase=bool(getattr(args, "erase", False)),
-                    before=before,
                 )
             else:
                 flash_prebuilt_idf_build(
                     resolve_esphome_build_artifact(config_path).parent,
                     device,
-                    IDF_TARGET_BY_CHIP.get(chip, "auto"),
+                    IDF_TARGET_BY_CHIP[chip],
+                    chip=chip,
                     erase=bool(getattr(args, "erase", False)),
-                    before=before,
                 )
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:
             print(f"{Fore.RED}❌ Error flashing ESPHome firmware: {exc}{Style.RESET_ALL}")
-            raise SystemExit(1) from exc
+            raise SystemExit(getattr(exc, "returncode", 1)) from exc
         return
     if device:
         command.extend(["--device", device])

@@ -132,7 +132,7 @@ def test_improv_rpc_response_validates_lengths_and_utf8():
         parse_improv_rpc_response(frame.data + b"\x01")
 
 
-def test_improv_client_releases_usb_uart_reset_lines():
+def test_improv_client_does_not_touch_modem_control_lines():
     class FakeSerial:
         def __init__(self):
             self.dtr = True
@@ -144,8 +144,8 @@ def test_improv_client_releases_usb_uart_reset_lines():
     serial = FakeSerial()
     client = ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial)
 
-    assert serial.dtr is False
-    assert serial.rts is False
+    assert serial.dtr is True
+    assert serial.rts is True
     client.close()
 
 
