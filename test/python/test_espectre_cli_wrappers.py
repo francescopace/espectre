@@ -2700,9 +2700,14 @@ def test_flash_factory_image_validates_file_before_erasing(
 @pytest.mark.parametrize(
     ("chip_name", "console_mode", "expected_reset"),
     (
+        ("ESP32-C3", "usb_serial_jtag", "watchdog_reset"),
+        ("ESP32-C3", "uart", "hard_reset"),
         ("ESP32-C5", "usb_serial_jtag", "watchdog_reset"),
         ("ESP32-C5", "uart", "hard_reset"),
-        ("ESP32-S3", "usb_serial_jtag", "hard_reset"),
+        ("ESP32-S3", "usb_serial_jtag", "watchdog_reset"),
+        ("ESP32-S3", "uart", "hard_reset"),
+        ("ESP32-C6", "usb_serial_jtag", "hard_reset"),
+        ("ESP32-C6", "uart", "hard_reset"),
     ),
 )
 def test_start_flashed_idf_firmware_resets_application_from_loader(
@@ -2753,6 +2758,99 @@ def test_start_flashed_idf_firmware_resets_application_from_loader(
         }
     ]
     assert lifecycle == [("set_dtr", False), expected_reset, "close", ("sleep", 1.0)]
+
+
+def test_start_flashed_idf_firmware_treats_watchdog_usb_drop_as_success(
+    monkeypatch,
+) -> None:
+    lifecycle = []
+
+    class FakePort:
+        def setDTR(self, state: bool) -> None:
+            lifecycle.append(("set_dtr", state))
+
+        def close(self) -> None:
+            lifecycle.append("close")
+
+    class FakeDevice:
+        CHIP_NAME = "ESP32-S3"
+        RTC_CNTL_OPTION1_REG = 0x6000812C
+        RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK = 0x1
+        RTC_CNTL_WDTWPROTECT_REG = 0x600080A4
+        RTC_CNTL_WDT_WKEY = 0x50D83AA1
+        RTC_CNTL_WDTCONFIG1_REG = 0x6000809C
+        RTC_CNTL_WDTCONFIG0_REG = 0x60008098
+        _port = FakePort()
+
+        def write_reg(self, register: int, value: int, mask: int | None = None) -> None:
+            lifecycle.append(("write_reg", register, value, mask))
+            if register == self.RTC_CNTL_WDTCONFIG0_REG:
+                raise OSError("USB re-enumerated")
+
+        def hard_reset(self) -> None:
+            lifecycle.append("hard_reset")
+
+    fake_esptool = ModuleType("esptool")
+    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
+    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "usb_serial_jtag")
+    monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
+
+    assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
+    assert lifecycle == [
+        ("set_dtr", False),
+        (
+            "write_reg",
+            FakeDevice.RTC_CNTL_OPTION1_REG,
+            0,
+            FakeDevice.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK,
+        ),
+        (
+            "write_reg",
+            FakeDevice.RTC_CNTL_WDTWPROTECT_REG,
+            FakeDevice.RTC_CNTL_WDT_WKEY,
+            None,
+        ),
+        ("write_reg", FakeDevice.RTC_CNTL_WDTCONFIG1_REG, 2000, None),
+        (
+            "write_reg",
+            FakeDevice.RTC_CNTL_WDTCONFIG0_REG,
+            (1 << 31) | (5 << 28) | (1 << 8) | 2,
+            None,
+        ),
+        "close",
+        ("sleep", 1.0),
+    ]
+
+
+def test_start_flashed_idf_firmware_rejects_watchdog_failure_before_arming(
+    monkeypatch,
+) -> None:
+    class FakePort:
+        def setDTR(self, _state: bool) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class FakeDevice:
+        CHIP_NAME = "ESP32-C3"
+        RTC_CNTL_WDTWPROTECT_REG = 0x600080A4
+        RTC_CNTL_WDT_WKEY = 0x50D83AA1
+        RTC_CNTL_WDTCONFIG1_REG = 0x6000809C
+        RTC_CNTL_WDTCONFIG0_REG = 0x60008098
+        _port = FakePort()
+
+        def write_reg(self, _register: int, _value: int) -> None:
+            raise OSError("write failed before watchdog setup")
+
+    fake_esptool = ModuleType("esptool")
+    fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
+    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "usb_serial_jtag")
+    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
+
+    assert idf.start_flashed_idf_firmware("/dev/cu.test") is False
 
 
 def test_start_flashed_idf_firmware_ignores_firmware_that_is_already_running(monkeypatch) -> None:

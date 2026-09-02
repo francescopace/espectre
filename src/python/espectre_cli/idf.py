@@ -23,10 +23,12 @@ from pathlib import Path
 from .build_artifacts import print_build_artifact_metadata
 from .common import (
     Fore,
+    NATIVE_CONSOLE_BY_CHIP,
     REPO_ROOT,
     SERIAL_REENUMERATION_ATTEMPTS,
     SERIAL_REENUMERATION_DELAY_S,
     Style,
+    chip_alias_from_esptool_name,
     cli_command,
     detect_chip_type,
     get_serial_port,
@@ -480,6 +482,63 @@ def erase_idf_flash(port: str, *, before: str = "default-reset") -> None:
             raise
 
 
+# esptool disables RTC watchdog reset on ESP32-C6 USB Serial/JTAG because
+# that controller can drop the host port. Other USB Serial/JTAG chips keep
+# the watchdog path; UART bridges keep DTR/RTS hard reset.
+_USB_SERIAL_JTAG_WATCHDOG_RESET_EXCLUDED_ALIASES = frozenset({"c6"})
+
+
+def _use_usb_serial_jtag_watchdog_reset(alias: str | None, port: str) -> bool:
+    """Return True when the selected USB Serial/JTAG chip should leave the loader via watchdog reset."""
+    return (
+        alias is not None
+        and NATIVE_CONSOLE_BY_CHIP.get(alias) == "usb_serial_jtag"
+        and alias not in _USB_SERIAL_JTAG_WATCHDOG_RESET_EXCLUDED_ALIASES
+        and serial_console_mode(alias, port) == "usb_serial_jtag"
+    )
+
+
+def _is_expected_watchdog_disconnect(exc: Exception) -> bool:
+    """Return whether USB disappeared while an armed watchdog reset the chip."""
+    error_text = str(exc).lower()
+    return is_transient_serial_port_error(exc) or any(
+        marker in error_text
+        for marker in (
+            "usb re-enumerated",
+            "device disconnected",
+            "device has been disconnected",
+            "input/output error",
+        )
+    )
+
+
+def _watchdog_reset_with_disconnect_tolerance(esp: object) -> None:
+    """Arm the RTC watchdog and tolerate USB loss only after its setup writes succeed."""
+    required_registers = (
+        "RTC_CNTL_WDTWPROTECT_REG",
+        "RTC_CNTL_WDT_WKEY",
+        "RTC_CNTL_WDTCONFIG1_REG",
+        "RTC_CNTL_WDTCONFIG0_REG",
+    )
+    if not all(hasattr(esp, attribute) for attribute in required_registers):
+        esp.watchdog_reset()
+        return
+
+    esp.write_reg(esp.RTC_CNTL_WDTWPROTECT_REG, esp.RTC_CNTL_WDT_WKEY)
+    esp.write_reg(esp.RTC_CNTL_WDTCONFIG1_REG, 2000)
+    try:
+        esp.write_reg(
+            esp.RTC_CNTL_WDTCONFIG0_REG,
+            (1 << 31) | (5 << 28) | (1 << 8) | 2,
+        )
+        esp.write_reg(esp.RTC_CNTL_WDTWPROTECT_REG, 0)
+    except Exception as exc:
+        if not _is_expected_watchdog_disconnect(exc):
+            raise
+        return
+    time.sleep(0.5)
+
+
 def start_flashed_idf_firmware(port: str) -> bool:
     """Reset a residual ROM loader into the flashed application."""
     try:
@@ -490,10 +549,9 @@ def start_flashed_idf_firmware(port: str) -> bool:
     esp = None
     try:
         # Do not toggle boot pins while probing. If firmware is already running,
-        # the non-resetting probe simply receives no reply. ESP32-C5 can remain
-        # in download mode after a USB Serial/JTAG core reset, so use the full
-        # watchdog reset recommended by esptool on that transport. UART bridges
-        # still need the classic DTR/RTS hard-reset path.
+        # the non-resetting probe simply receives no reply. USB Serial/JTAG can
+        # remain in the ROM loader after an RTS reset, so use the watchdog reset
+        # recommended by esptool on that transport except on ESP32-C6.
         esp = esptool.get_default_connected_device(
             serial_list=[port],
             port=port,
@@ -508,11 +566,22 @@ def start_flashed_idf_firmware(port: str) -> bool:
         # UART auto-reset circuits that holds GPIO0 low, so an RTS-only hard
         # reset enters the loader again instead of starting the application.
         esp._port.setDTR(False)
+        alias = chip_alias_from_esptool_name(getattr(esp, "CHIP_NAME", ""))
+        use_watchdog = _use_usb_serial_jtag_watchdog_reset(alias, port)
         if (
-            getattr(esp, "CHIP_NAME", "") == "ESP32-C5"
-            and serial_console_mode("c5", port) == "usb_serial_jtag"
+            use_watchdog
+            and hasattr(esp, "RTC_CNTL_OPTION1_REG")
+            and hasattr(esp, "RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK")
         ):
-            esp.watchdog_reset()
+            # esptool's S3 hard_reset() clears this sticky bit before resetting.
+            # A watchdog reset without that clear can return to the ROM loader.
+            esp.write_reg(
+                esp.RTC_CNTL_OPTION1_REG,
+                0,
+                esp.RTC_CNTL_FORCE_DOWNLOAD_BOOT_MASK,
+            )
+        if use_watchdog:
+            _watchdog_reset_with_disconnect_tolerance(esp)
         else:
             esp.hard_reset()
         return True
