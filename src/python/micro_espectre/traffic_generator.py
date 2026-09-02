@@ -7,6 +7,11 @@ import network
 
 from espectre_native_traffic import TrafficGenerator as _NativeTrafficGenerator
 
+try:
+    from src.console_output import print_log
+except ImportError:
+    from console_output import print_log
+
 
 TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
 TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
@@ -47,7 +52,7 @@ class TrafficGenerator:
     def set_mode(self, mode):
         """Set traffic-generation mode while stopped."""
         if self.running:
-            print("Cannot change traffic generator mode while running")
+            print_log("WARN", "Cannot change traffic generator mode while running")
             return False
         self.mode = self._normalize_mode(mode)
         return True
@@ -62,13 +67,13 @@ class TrafficGenerator:
             ip_info = wlan.ifconfig()
             return ip_info[2] if len(ip_info) >= 3 else None
         except Exception as exc:
-            print(f"Error getting gateway IP: {exc}")
+            print_log("ERROR", "Failed to get gateway IP: {}".format(exc))
             return None
 
     def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
         """Start firmware-native sensing traffic at a fixed packet cadence."""
         if self.running:
-            print("Traffic generator already running")
+            print_log("WARN", "Traffic generator already running")
             return False
         if rate_pps == 0:
             self.rate_pps = 0
@@ -77,9 +82,10 @@ class TrafficGenerator:
         if mode is not None:
             self.mode = self._normalize_mode(mode)
         if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
-            print(
+            print_log(
+                "ERROR",
                 "Invalid rate: %s (must be %s-%s packets/sec)"
-                % (rate_pps, TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX)
+                % (rate_pps, TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX),
             )
             return False
 
@@ -87,11 +93,17 @@ class TrafficGenerator:
             self.gateway_ip = self._get_gateway_ip()
             if self.gateway_ip:
                 break
-            print(f"Failed to get gateway IP (attempt {attempt}/{max_retries})")
+            print_log(
+                "WARN",
+                "Failed to get gateway IP (attempt {}/{})".format(attempt, max_retries),
+            )
             if attempt < max_retries:
                 time.sleep(retry_delay)
         if not self.gateway_ip:
-            print(f"ERROR: Could not get gateway IP after {max_retries} attempts")
+            print_log(
+                "ERROR",
+                "Could not get gateway IP after {} attempts".format(max_retries),
+            )
             return False
 
         self.packet_count = 0
@@ -107,7 +119,7 @@ class TrafficGenerator:
                 self._native_traffic.start(self.gateway_ip, rate_pps, self.mode)
             )
         except Exception as exc:
-            print(f"Failed to start native traffic generator: {exc}")
+            print_log("ERROR", "Failed to start native traffic generator: {}".format(exc))
             self.running = False
         if not self.running:
             self.rate_pps = 0

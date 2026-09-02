@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import protocol
-from console_output import format_detection_publish_line
+from console_output import format_detection_publish_line, print_log
 from src.python.micro_espectre.runtime_diagnostics import (
     advance_periodic_anchor,
     periodic_maintenance_due,
@@ -44,6 +44,12 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
         "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
         "csi:99/100 cb:102 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
     )
+
+
+def test_print_log_uses_a_stable_level_prefix(capsys):
+    print_log("WARN", "CSI link stalled; rearming CSI")
+
+    assert capsys.readouterr().out == "[WARN] CSI link stalled; rearming CSI\n"
 
 
 def test_micro_heartbeat_schedule_does_not_accumulate_maintenance_time():

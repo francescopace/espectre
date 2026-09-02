@@ -308,7 +308,7 @@ def test_micro_run_json_emits_direct_ready_event(monkeypatch, capsys) -> None:
     class FakeProcess:
         stdout = iter(
             [
-                "WiFi connected - IP: 192.0.2.10, Protocol: 802.11n, "
+                "[INFO] WiFi connected - IP: 192.0.2.10, Protocol: 802.11n, "
                 "Bandwidth: 20MHz\n"
             ]
         )

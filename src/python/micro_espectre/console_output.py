@@ -8,6 +8,15 @@ Shared console formatting helpers for live motion detection output.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+
+def print_log(level, message):
+    """Print one operational console line with a stable ``[LEVEL]`` prefix.
+
+    Use ``INFO``, ``WARN``, or ``ERROR``. Keep banners, calibration ceremony, and status bars on plain ``print()``.
+    """
+    print("[{}] {}".format(level, message))
+
+
 def _clamp_unit_interval(value):
     """Clamp a metric onto the shared 0-1 display scale."""
     numeric = float(value)

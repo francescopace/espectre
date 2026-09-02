@@ -8,13 +8,18 @@ import time
 
 import src.config as config
 
+try:
+    from src.console_output import print_log
+except ImportError:
+    from console_output import print_log
+
 
 def cleanup_wifi(wlan):
     """Disable CSI and reset the station interface when it is active."""
     if not wlan.active():
         return
 
-    print("Forcing WiFi/CSI cleanup...")
+    print_log("INFO", "Forcing WiFi/CSI cleanup...")
     try:
         wlan.csi_disable()
     except Exception:
@@ -41,8 +46,13 @@ def print_wifi_status(wlan):
         else "unknown"
     )
     ip_address = wlan.ifconfig()[0]
-    print(
-        f"WiFi connected - IP: {ip_address}, Protocol: {protocol_label}, Bandwidth: {bandwidth}"
+    print_log(
+        "INFO",
+        "WiFi connected - IP: {}, Protocol: {}, Bandwidth: {}".format(
+            ip_address,
+            protocol_label,
+            bandwidth,
+        ),
     )
 
 
@@ -114,9 +124,9 @@ def recover_wifi(wlan, timeout_seconds=30, force_reconnect=False):
         _configure_station_radio(wlan)
         if _connect_station(wlan, attempt_timeout, rearm_csi=True):
             return True
-        print("[WARN] WiFi reassociation timed out; resetting the station")
+        print_log("WARN", "WiFi reassociation timed out; resetting the station")
     elif force_reconnect:
-        print("[WARN] Resetting the WiFi station to recover CSI")
+        print_log("WARN", "Resetting the WiFi station to recover CSI")
     for attempt in range(2):
         # A station reset is the strong recovery tier. Release the old capture
         # boundary before stopping Wi-Fi so a corrupted ring is not carried into
@@ -135,13 +145,13 @@ def recover_wifi(wlan, timeout_seconds=30, force_reconnect=False):
         if _connect_station(wlan, attempt_timeout, rearm_csi=False):
             return True
         if attempt == 0:
-            print("[WARN] WiFi reconnect timed out; resetting the station again")
+            print_log("WARN", "WiFi reconnect timed out; resetting the station again")
     return False
 
 
 def connect_wifi():
     """Connect Wi-Fi and reserve CSI resources before loading the runtime."""
-    print("Activating WiFi interface...")
+    print_log("INFO", "Activating WiFi interface...")
     gc.collect()
     wlan = network.WLAN(network.STA_IF)
     cleanup_wifi(wlan)
@@ -156,7 +166,7 @@ def connect_wifi():
     bssid_hex = getattr(config, "WIFI_BSSID", None)
     bssid = _configured_bssid()
     bssid_info = f" (BSSID: {bssid_hex})" if bssid else ""
-    print(f"Connecting to WiFi{bssid_info}...")
+    print_log("INFO", "Connecting to WiFi{}...".format(bssid_info))
     if not _connect_station(wlan, 30):
         raise RuntimeError("Connection timeout")
 

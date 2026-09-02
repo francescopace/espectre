@@ -33,6 +33,11 @@ from src.detector_interface import (
 from src.runtime_motion_policy import RuntimeMotionPolicy
 from src.wifi_bootstrap import cleanup_wifi, connect_wifi, print_wifi_status, recover_wifi
 
+try:
+    from src.console_output import format_detection_publish_line, print_log
+except ImportError:
+    from console_output import format_detection_publish_line, print_log
+
 HEARTBEAT_INTERVAL_MS = 1000
 HEARTBEAT_MAX_DRAIN_DEFERRAL_MS = 100
 DIAGNOSTIC_INTERVAL_MS = 1000
@@ -111,7 +116,7 @@ def create_detector(detection_algorithm, window_packets):
     except ValueError:
         raise ValueError(f"Unsupported Micro detector: {detection_algorithm}")
 
-    print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
+    print_log("INFO", "Detection algorithm: {}".format(get_detector_label(detection_algorithm)))
     detector = detector_class(
         window_size=window_packets,
         threshold=1.0,
@@ -127,7 +132,7 @@ def create_detector(detection_algorithm, window_packets):
         raise RuntimeError(
             "Micro-ESPectre requires the espectre_core detector backend"
         )
-    print(f'Detector backend: {backend}')
+    print_log("INFO", "Detector backend: {}".format(backend))
     return detector
 
 
@@ -244,18 +249,25 @@ def run_startup_calibration(wlan, detector, traffic_gen):
             if assessment["disposition"] != DISPOSITION_SENSE:
                 filtered_count += 1
                 if filtered_count % 100 == 1:
-                    print(
-                        "[WARN] Filtered {} packets before calibration "
+                    print_log(
+                        "WARN",
+                        "Filtered {} packets before calibration "
                         "(reason={}, len={})".format(
                             filtered_count,
                             assessment["reason_code"],
                             assessment["raw_len"],
-                        )
+                        ),
                     )
                 del frame
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                    print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{calibration_target_packets})")
-                    print("Startup calibration aborted")
+                    print_log(
+                        "WARN",
+                        "Startup calibration aborted: timed out waiting for valid CSI packets "
+                        "(collected {}/{})".format(
+                            calibration_progress,
+                            calibration_target_packets,
+                        ),
+                    )
                     detector.reset()
                     g_state.calibration_mode = False
                     return False
@@ -271,8 +283,14 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 filtered_count += 1
                 del frame
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                    print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{calibration_target_packets})")
-                    print("Startup calibration aborted")
+                    print_log(
+                        "WARN",
+                        "Startup calibration aborted: timed out waiting for valid CSI packets "
+                        "(collected {}/{})".format(
+                            calibration_progress,
+                            calibration_target_packets,
+                        ),
+                    )
                     detector.reset()
                     g_state.calibration_mode = False
                     return False
@@ -288,10 +306,10 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 continue
 
             if remap_tag in (NORMALIZATION_DOUBLE_HT20, NORMALIZATION_DOUBLE_HT57_TO_64) and not collapse_logged:
-                print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
+                print_log("INFO", "CSI double-length collapse active: 256->128 and/or 228->114")
                 collapse_logged = True
             if remap_tag in (NORMALIZATION_HT57_TO_64, NORMALIZATION_DOUBLE_HT57_TO_64) and not remap_logged:
-                print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                print_log("INFO", "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
             current_timestamp_us = frame_result[4]
@@ -389,8 +407,14 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         else:
             time.sleep_us(100)
             if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{calibration_target_packets})")
-                print("Startup calibration aborted")
+                print_log(
+                    "WARN",
+                    "Startup calibration aborted: timed out waiting for CSI packets "
+                    "(collected {}/{})".format(
+                        calibration_progress,
+                        calibration_target_packets,
+                    ),
+                )
                 detector.reset()
                 g_state.calibration_mode = False
                 return False
@@ -402,7 +426,10 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         detector.set_adaptive_threshold(startup_threshold)
         startup_threshold = detector.get_threshold()
         threshold_source = f"automatic ({threshold_formula})"
-        print(f'Startup threshold: {startup_threshold:.4f} ({threshold_source})')
+        print_log(
+            "INFO",
+            "Startup threshold: {:.4f} ({})".format(startup_threshold, threshold_source),
+        )
 
         detector.reset()
 
@@ -448,7 +475,7 @@ def restart_traffic_generator(traffic_gen):
     gc.collect()
     target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
     if not traffic_gen.start(target_pps):
-        print("Warning: Failed to restart traffic generator, retrying...")
+        print_log("WARN", "Failed to restart traffic generator, retrying...")
         time.sleep(2)
         gc.collect()
         traffic_gen.start(target_pps)
@@ -456,7 +483,7 @@ def restart_traffic_generator(traffic_gen):
 
 def main(wlan=None):
     """Main application loop"""
-    print('Micro-ESPectre starting...')
+    print_log("INFO", "Micro-ESPectre starting...")
     collect_and_print_heap('boot')
 
     # Detect chip type
@@ -464,13 +491,13 @@ def main(wlan=None):
     # ESP-IDF's CSI RX-control v2, used by C5 and C6, does not expose the
     # sig_mode/cwb fields carried by the classic RX-control structure.
     g_state.csi_phy_metadata_missing = g_state.chip_type in ("C5", "C6")
-    print(f'Detected chip: {g_state.chip_type}')
+    print_log("INFO", "Detected chip: {}".format(g_state.chip_type))
 
     # Connect to WiFi
     if wlan is None:
         wlan = connect_wifi()
     refresh_csi_capture_context(wlan)
-    print('CSI capture profile: {}'.format(g_state.csi_capture_profile))
+    print_log("INFO", "CSI capture profile: {}".format(g_state.csi_capture_profile))
     collect_and_print_heap('after_connect_wifi')
 
     # Detector capacity is fixed by the configured temporal grid. Measured
@@ -496,14 +523,21 @@ def main(wlan=None):
     collect_and_print_heap('after_traffic_gen_init')
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         if not traffic_gen.start(target_pps):
-            print("FATAL: Traffic generator failed to start - CSI will not work")
-            print("Check WiFi connection and gateway availability")
+            print_log(
+                "ERROR",
+                "Traffic generator failed to start - CSI will not work; "
+                "check WiFi connection and gateway availability",
+            )
             import machine
             time.sleep(5)
             machine.reset()  # Reboot and retry
 
-        print(
-            f'Traffic generator started ({traffic_gen.get_mode()}, target={target_pps} CSI pps)'
+        print_log(
+            "INFO",
+            "Traffic generator started ({}, target={} CSI pps)".format(
+                traffic_gen.get_mode(),
+                target_pps,
+            ),
         )
         collect_and_print_heap('after_traffic_gen_start')
 
@@ -512,7 +546,7 @@ def main(wlan=None):
         for tg_attempt in range(max_tg_retries):
             time.sleep(2)  # Wait for traffic to start generating CSI packets
 
-            print('Waiting for CSI packets...')
+            print_log("INFO", "Waiting for CSI packets...")
             csi_received = 0
             frame_result = None
             for _ in range(100):  # Max 100 attempts (~5 seconds)
@@ -528,19 +562,29 @@ def main(wlan=None):
                 break  # Success
 
             if tg_attempt < max_tg_retries - 1:
-                print(f'WARNING: Only {csi_received} CSI packets - restarting TG (attempt {tg_attempt + 2}/{max_tg_retries})')
+                print_log(
+                    "WARN",
+                    "Only {} CSI packets - restarting TG (attempt {}/{})".format(
+                        csi_received,
+                        tg_attempt + 2,
+                        max_tg_retries,
+                    ),
+                )
                 traffic_gen.stop()
                 time.sleep(1)
                 traffic_gen.start(target_pps)
             else:
-                print(f'FATAL: No CSI packets after {max_tg_retries} attempts - cannot operate without traffic')
-                print('Please check WiFi connection and retry')
+                print_log(
+                    "ERROR",
+                    "No CSI packets after {} attempts - cannot operate without traffic; "
+                    "check WiFi connection and retry".format(max_tg_retries),
+                )
                 import sys
                 sys.exit(1)
         collect_and_print_heap('after_csi_flow_check')
 
     else:
-        print('Waiting for external CSI packets...')
+        print_log("INFO", "Waiting for external CSI packets...")
         csi_timestamps = []
         frame_result = None
         for _ in range(100):
@@ -563,7 +607,13 @@ def main(wlan=None):
     set_minimum_valid = getattr(detector, "set_minimum_valid_samples", None)
     if callable(set_minimum_valid):
         set_minimum_valid(minimum_valid_slots(detector_window_packets))
-    print(f'Detector window: {detector_window_packets} samples for {getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)} ms')
+    print_log(
+        "INFO",
+        "Detector window: {} samples for {} ms".format(
+            detector_window_packets,
+            getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000),
+        ),
+    )
     collect_and_print_heap('after_detector_init')
 
     # Detector allocation can fragment the original ESP32 heap enough that the
@@ -612,7 +662,10 @@ def main(wlan=None):
 
     # Force garbage collection before main loop
     gc.collect()
-    print(f'Free memory before main loop: {gc.mem_free()} bytes')
+    print_log(
+        "INFO",
+        "Free memory before main loop: {} bytes".format(gc.mem_free()),
+    )
 
     # Main CSI processing loop with bounded Direct HTTP publishing.
     processed_packet_count = 0
@@ -650,7 +703,6 @@ def main(wlan=None):
         wifi_csi_dropped,
         wifi_rssi_dbm,
     )
-    from src.console_output import format_detection_publish_line
     diagnostics_sampler = RuntimeDiagnosticsSampler()
     performance_diagnostics = RuntimePerformanceDiagnostics()
     cumulative_diagnostics = {}
@@ -766,7 +818,7 @@ def main(wlan=None):
                         if detector.get_threshold() != previous_threshold:
                             direct_api.refresh_config()
                     else:
-                        print('[WARN] Direct recalibration did not find a stable threshold')
+                        print_log("WARN", "Direct recalibration did not find a stable threshold")
                     last_heartbeat_time = completed_time
                     last_diagnostic_time = completed_time
                     last_csi_frame_time = completed_time
@@ -865,13 +917,14 @@ def main(wlan=None):
                     filtered_count += 1
                     format_drop_streak += 1
                     if filtered_count % 100 == 1:
-                        print(
-                            "[WARN] Filtered {} packets before detection "
+                        print_log(
+                            "WARN",
+                            "Filtered {} packets before detection "
                             "(reason={}, len={})".format(
                                 filtered_count,
                                 assessment["reason_code"],
                                 assessment["raw_len"],
-                            )
+                            ),
                         )
                     del frame
                     if measure_loop:
@@ -908,7 +961,12 @@ def main(wlan=None):
                 if not frame_timestamp_filter.accept(frame):
                     out_of_order_count += 1
                     if out_of_order_count % 100 == 1:
-                        print(f"[WARN] Filtered {out_of_order_count} duplicate or out-of-order CSI frames")
+                        print_log(
+                            "WARN",
+                            "Filtered {} duplicate or out-of-order CSI frames".format(
+                                out_of_order_count
+                            ),
+                        )
                     del frame
                     if measure_loop:
                         latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
@@ -927,17 +985,20 @@ def main(wlan=None):
                 )
                 format_drop_streak = 0
                 if should_reset_detector:
-                    print("[WARN] CSI format stream changed after incompatible packets, resetting detection buffer")
+                    print_log(
+                        "WARN",
+                        "CSI format stream changed after incompatible packets, resetting detection buffer",
+                    )
                     detector.reset()
                     runtime_policy.reset()
                     frame_timestamp_filter.reset()
                 last_normalization_id = assessment["normalization_id"]
 
                 if remap_tag in (NORMALIZATION_DOUBLE_HT20, NORMALIZATION_DOUBLE_HT57_TO_64) and not collapse_logged:
-                    print("[INFO] CSI double-length collapse active: 256->128 and/or 228->114")
+                    print_log("INFO", "CSI double-length collapse active: 256->128 and/or 228->114")
                     collapse_logged = True
                 if remap_tag in (NORMALIZATION_HT57_TO_64, NORMALIZATION_DOUBLE_HT57_TO_64) and not remap_logged:
-                    print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
+                    print_log("INFO", "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                     remap_logged = True
                 packet_channel = frame[1]
 
@@ -946,7 +1007,13 @@ def main(wlan=None):
                 processed_packet_count += 1
 
                 if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
-                    print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
+                    print_log(
+                        "WARN",
+                        "WiFi channel changed: {} -> {}, resetting detection buffer".format(
+                            g_state.current_channel,
+                            packet_channel,
+                        ),
+                    )
                     detector.reset()
                     runtime_policy.reset()
                     temporal_sampler.clear_history()
@@ -1028,7 +1095,7 @@ def main(wlan=None):
                     force_reconnect = csi_recovery_attempts > 0
                     station_reconnect = force_reconnect or not wlan.isconnected()
                     action = 'reconnecting WiFi' if station_reconnect else 'rearming CSI'
-                    print(f'[WARN] CSI link stalled; {action}')
+                    print_log("WARN", "CSI link stalled; {}".format(action))
                     if station_reconnect:
                         if traffic_enabled:
                             traffic_gen.stop()
@@ -1042,10 +1109,11 @@ def main(wlan=None):
                     if station_reconnect:
                         profile_changed = refresh_csi_capture_context(wlan)
                         if profile_changed:
-                            print(
-                                '[INFO] CSI capture profile changed to {}'.format(
+                            print_log(
+                                "INFO",
+                                "CSI capture profile changed to {}".format(
                                     g_state.csi_capture_profile
-                                )
+                                ),
                             )
                         use_lltf = g_state.csi_capture_profile == 'lltf20'
                         lltf_detector_buffer = (
@@ -1072,7 +1140,7 @@ def main(wlan=None):
                     csi_recovery_attempts += 1
                     if station_reconnect:
                         direct_api.start()
-                        print('[INFO] WiFi, CSI, and Direct link recovered')
+                        print_log("INFO", "WiFi, CSI, and Direct link recovered")
                     # Arm the next stall deadline only after every blocking
                     # recovery step has completed.
                     last_csi_frame_time = time.ticks_ms()
@@ -1095,10 +1163,10 @@ def main(wlan=None):
                 time.sleep_us(100)
 
     except KeyboardInterrupt:
-        print('\n\nStopping...')
+        print_log("INFO", "Stopping...")
 
     finally:
-        print('Cleaning up...')
+        print_log("INFO", "Cleaning up...")
         direct_api.stop()
         if traffic_gen.is_running():
             traffic_gen.stop()
