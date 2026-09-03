@@ -2,8 +2,7 @@
 #
 # ESPectre - Stage local website firmware
 #
-# Merge locally built C3, S3, and C5 factory images into the release web
-# flasher catalog.
+# Merge all locally built factory images into the release web flasher catalog.
 #
 # Usage:
 #   ./generate_firmware_manifest.sh
@@ -30,7 +29,4 @@ exec "${PYTHON}" "${REPO_ROOT}/.github/scripts/stage_web_firmware.py" \
     --version "${VERSION}" \
     --output-dir "${REPO_ROOT}/docs/web/artifacts/firmware/release" \
     --url-prefix /artifacts/firmware/release \
-    --chip c3 \
-    --chip s3 \
-    --chip c5 \
     "$@"

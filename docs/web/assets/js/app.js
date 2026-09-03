@@ -325,7 +325,7 @@
             if (routeAtStart === 'tool-flash') {
                 if (browserSupport.flash) {
                     loadBrowserDependency(
-                        '/vendor/esp-web-tools-10.4.0/install-button.js',
+                        '/vendor/esp-web-tools-10.4.0-espectre.1/install-button.js',
                         'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
                         { module: true }
                     ).catch((error) => {

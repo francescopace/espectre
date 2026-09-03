@@ -338,7 +338,7 @@ def verify(args: argparse.Namespace) -> None:
         "assets/js/espectre-direct.js",
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",
-        "vendor/esp-web-tools-10.4.0/install-button.js",
+        "vendor/esp-web-tools-10.4.0-espectre.1/install-button.js",
         "artifacts/sdk/api/api-index.json",
     ):
         require_file(path)

@@ -611,6 +611,17 @@ def test_resolve_esphome_config_supports_chip_and_explicit_path() -> None:
     assert targets.resolve_esphome_config(None, str(relative)) == common.REPO_ROOT / relative
 
 
+def test_esphome_build_roots_are_config_specific() -> None:
+    roots = {
+        esphome.esphome_build_root(config_path)
+        for config_path in targets.ESPHOME_CONFIGS.values()
+    }
+
+    assert len(roots) == len(targets.ESPHOME_CONFIGS)
+    for config_path in targets.ESPHOME_CONFIGS.values():
+        assert esphome.esphome_build_root(config_path).name == config_path.stem
+
+
 def test_resolve_target_helpers_reject_invalid_inputs() -> None:
     with pytest.raises(ValueError):
         targets.resolve_esphome_config(None, None)
@@ -882,18 +893,23 @@ def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> No
 def test_run_esphome_command_build_runs_esphome_clean_when_requested(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], str]] = []
 
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
-    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check, **_kwargs: calls.append(cmd))
+    monkeypatch.setattr(
+        esphome.subprocess,
+        "run",
+        lambda cmd, check, env, **_kwargs: calls.append((cmd, env["ESPHOME_BUILD_PATH"])),
+    )
 
     esphome.run_esphome_command(
         argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=True, clean_all=False)
     )
 
+    build_root = str(tmp_path / ".esphome" / "build" / "firmware")
     assert calls == [
-        [*esphome.ESPHOME_COMMAND_PREFIX, "clean", str(config_path)],
-        [*esphome.ESPHOME_COMMAND_PREFIX, "compile", str(config_path)],
+        ([*esphome.ESPHOME_COMMAND_PREFIX, "clean", str(config_path)], build_root),
+        ([*esphome.ESPHOME_COMMAND_PREFIX, "compile", str(config_path)], build_root),
     ]
 
 
@@ -930,7 +946,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     config_path.write_text("esphome:", encoding="utf-8")
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
 
-    def _raise_not_found(_cmd, check):
+    def _raise_not_found(_cmd, check, **_kwargs):
         raise FileNotFoundError()
 
     monkeypatch.setattr(esphome.subprocess, "run", _raise_not_found)
@@ -939,7 +955,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
             argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
-    def _raise_called(_cmd, check):
+    def _raise_called(_cmd, check, **_kwargs):
         raise subprocess.CalledProcessError(7, ["esphome"])
 
     monkeypatch.setattr(esphome.subprocess, "run", _raise_called)

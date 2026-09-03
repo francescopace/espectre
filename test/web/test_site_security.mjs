@@ -110,7 +110,7 @@ describe('website security, asset, and analytics contracts', () => {
             assert.match(attrs, /\bdefer\b/, `expected defer on ${attrs.trim()}`);
         }
         assert.ok(index.indexOf('/assets/js/app.js') < index.indexOf('</head>'));
-        assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0\/install-button\.js/);
+        assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0-espectre\.1\/install-button\.js/);
         assert.match(app, /\/vendor\/qrcodejs-1\.0\.0\/qrcode\.min\.js/);
         assert.match(app, /sitePolicy\.isLoopbackHostname\(location\.hostname\)/);
     });

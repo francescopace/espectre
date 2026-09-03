@@ -549,8 +549,8 @@
             flash.detectedChip = normalized;
             renderConnection();
         };
-        const customizeNativeDeviceLink = () => {
-            if (document.getElementById('flash-frontend').value !== 'native' || !dialog.shadowRoot) return;
+        const customizeDeviceSettingsLink = () => {
+            if (!dialog.shadowRoot) return;
             dialog.shadowRoot.querySelectorAll('[slot="headline"]').forEach((headline) => {
                 const label = headline.textContent.trim();
                 if (!['Visit Device', 'Configure Device', 'Open device settings'].includes(label)) return;
@@ -572,7 +572,7 @@
         };
         const inspect = () => {
             observeRoot(dialog.shadowRoot);
-            customizeNativeDeviceLink();
+            customizeDeviceSettingsLink();
             const text = flashDialogText(dialog.shadowRoot);
             // The vendored ESP Web Tools version exposes completion before its
             // final Next screen. Text checks keep the listener resilient if
@@ -614,7 +614,11 @@
             inspect();
             return true;
         };
-        if (!attach()) [0, 50, 200].forEach((delay) => setTimeout(attach, delay));
+        if (!attach()) {
+            void customElements.whenDefined('ewt-install-dialog').then(() => {
+                if (dialog.isConnected) attach();
+            });
+        }
 
         const removalObserver = new MutationObserver(() => {
             if (dialog.isConnected) return;

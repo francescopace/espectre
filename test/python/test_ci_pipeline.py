@@ -529,6 +529,31 @@ def test_local_release_staging_uses_the_build_version(
     assert stager.resolve_local_release_tag("release", "snapshot", "override", existing) == "override"
 
 
+def test_local_staging_discovers_nested_esphome_builds(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.syspath_prepend(str(SCRIPTS_DIR))
+    stager = importlib.import_module("stage_web_firmware")
+    build_root = tmp_path / "build"
+    for chip in ("esp32", "esp32c3"):
+        artifact_dir = build_root / f"espectre-{chip}" / "espectre" / "build"
+        artifact_dir.mkdir(parents=True)
+        (artifact_dir / "firmware.factory.bin").write_bytes(chip.encode("utf-8"))
+        (artifact_dir / "project_description.json").write_text(
+            json.dumps({"target": chip}),
+            encoding="utf-8",
+        )
+    monkeypatch.setattr(stager, "ESPHOME_BUILD_ROOT", build_root)
+
+    images = stager.discover_esphome_images(None)
+
+    assert [(image.frontend, image.chip) for image in images] == [
+        ("esphome", "esp32"),
+        ("esphome", "esp32c3"),
+    ]
+
+
 def test_web_firmware_staging_validates_before_cleaning_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

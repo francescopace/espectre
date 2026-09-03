@@ -190,33 +190,41 @@ def stage_web_firmware(args: argparse.Namespace) -> Path:
     manifest_path = output_dir / f"firmware-manifest-{args.channel}.json"
 
     materialize_compliance_bundle(firmware_dir)
-    clean_output_dir(output_dir)
-
-    manifest = build_manifest(
-        argparse.Namespace(
-            firmware_dir=str(firmware_dir),
-            output=str(manifest_path),
-            channel=args.channel,
-            version=args.version,
-            release_tag=args.release_tag,
-            commit=args.commit,
-            url_prefix=args.url_prefix,
+    with tempfile.TemporaryDirectory(prefix="espectre-web-manifest-") as temp_dir:
+        staged_manifest_path = Path(temp_dir) / manifest_path.name
+        manifest = build_manifest(
+            argparse.Namespace(
+                firmware_dir=str(firmware_dir),
+                output=str(staged_manifest_path),
+                channel=args.channel,
+                version=args.version,
+                release_tag=args.release_tag,
+                commit=args.commit,
+                url_prefix=args.url_prefix,
+            )
         )
-    )
 
-    for frontend in manifest["frontends"].values():
-        frontend["artifacts"] = [
-            artifact for artifact in frontend["artifacts"] if artifact["build_type"] == "factory"
-        ]
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        for frontend in manifest["frontends"].values():
+            frontend["artifacts"] = [
+                artifact
+                for artifact in frontend["artifacts"]
+                if artifact["build_type"] == "factory"
+            ]
+        staged_manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
-    for filename in sorted(referenced_filenames(manifest)):
-        shutil.copy2(firmware_dir / filename, output_dir / filename)
-        firmware_stem = Path(filename).stem
-        for suffix in ("-sbom.spdx.json", "-THIRD_PARTY_NOTICES.txt", "-third-party-licenses.zip"):
-            companion = firmware_dir / f"{firmware_stem}{suffix}"
-            if companion.is_file():
-                shutil.copy2(companion, output_dir / companion.name)
+        clean_output_dir(output_dir)
+        for filename in sorted(referenced_filenames(manifest)):
+            shutil.copy2(firmware_dir / filename, output_dir / filename)
+            firmware_stem = Path(filename).stem
+            for suffix in (
+                "-sbom.spdx.json",
+                "-THIRD_PARTY_NOTICES.txt",
+                "-third-party-licenses.zip",
+            ):
+                companion = firmware_dir / f"{firmware_stem}{suffix}"
+                if companion.is_file():
+                    shutil.copy2(companion, output_dir / companion.name)
+        shutil.copy2(staged_manifest_path, manifest_path)
 
     return manifest_path
 
@@ -279,7 +287,7 @@ def discover_esphome_images(chips: Sequence[str] | None) -> list[LocalImage]:
         return []
     selected = set(chips) if chips else None
     newest: dict[str, LocalImage] = {}
-    for factory in ESPHOME_BUILD_ROOT.glob("*/build/firmware.factory.bin"):
+    for factory in ESPHOME_BUILD_ROOT.rglob("firmware.factory.bin"):
         description = project_description(factory.parent) or {}
         chip = description.get("target")
         if chip not in FRONTEND_CHIPS["esphome"]:
@@ -326,6 +334,19 @@ def existing_manifest(output_dir: Path, channel: str) -> dict | None:
         return read_json(path)
     except (OSError, ValueError, json.JSONDecodeError):
         return None
+
+
+def resolve_local_release_tag(
+    channel: str,
+    version: str,
+    requested: str | None,
+    manifest: dict | None,
+) -> str:
+    if requested:
+        return requested
+    if channel == "release":
+        return version
+    return (manifest or {}).get("release_tag") or "local"
 
 
 def merge_idf_factory(image: LocalImage, output: Path, *, verbose: bool) -> None:
@@ -429,7 +450,7 @@ def stage_from_local_builds(args: argparse.Namespace) -> int:
         REPO_ROOT / "docs" / "web" / "artifacts" / "firmware" / args.channel
     )
     manifest = existing_manifest(output_dir, args.channel)
-    release_tag = args.release_tag or (manifest or {}).get("release_tag") or "local"
+    release_tag = resolve_local_release_tag(args.channel, version, args.release_tag, manifest)
     commit = args.commit if args.commit is not None else (manifest or {}).get("commit")
     url_prefix = args.url_prefix or f"/artifacts/firmware/{args.channel}"
 

@@ -353,6 +353,11 @@ describe('website tool contracts', () => {
         assert.match(app, /if \(element\.shadowRoot\) text \+= ' ' \+ flashDialogText\(element\.shadowRoot\)/);
         assert.match(app, /const observedRoots = new WeakSet\(\)/);
         assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
+        assert.match(app, /customElements\.whenDefined\('ewt-install-dialog'\)[\s\S]*if \(dialog\.isConnected\) attach\(\)/);
+        const deviceLinkCustomization = app.match(
+            /const customizeDeviceSettingsLink = \(\) => \{[\s\S]*?\n        \};/
+        )?.[0] || '';
+        assert.doesNotMatch(deviceLinkCustomization, /flash-frontend|native/);
         assert.equal(
             routeManifest.routes.find((route) => route.name === 'tool-configure')?.staticPath,
             '/tools/device-settings/'

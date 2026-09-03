@@ -10,6 +10,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -40,13 +42,34 @@ ESPHOME_COMMAND_PREFIX = [
 ]
 
 
+def esphome_build_root(config_path: Path) -> Path:
+    """Return the config-specific root passed to ESPHome for local builds."""
+    return config_path.parent / ".esphome" / "build" / config_path.stem
+
+
+def esphome_command_environment(config_path: Path) -> dict[str, str]:
+    """Isolate each repository config while preserving the caller environment."""
+    environment = os.environ.copy()
+    environment["ESPHOME_BUILD_PATH"] = str(esphome_build_root(config_path))
+    return environment
+
+
 def resolve_esphome_build_artifact(config_path: Path) -> Path:
     """Return the application image produced for an ESPHome config."""
+    storage_path = config_path.parent / ".esphome" / "storage" / f"{config_path.name}.json"
+    try:
+        storage = json.loads(storage_path.read_text(encoding="utf-8"))
+        build_path = storage.get("build_path")
+        if isinstance(build_path, str) and build_path:
+            stored_artifact = Path(build_path) / "build" / "espectre.bin"
+            if stored_artifact.is_file():
+                return stored_artifact
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+
     candidates = [
         path
-        for path in (config_path.parent / ".esphome" / "build").glob(
-            "*/build/espectre.bin"
-        )
+        for path in (config_path.parent / ".esphome" / "build").rglob("build/espectre.bin")
         if path.is_file()
     ]
     if not candidates:
@@ -144,7 +167,11 @@ def run_esphome_command(args) -> None:
         print(f"{Fore.CYAN}Command: {' '.join(command)}{Style.RESET_ALL}")
     try:
         for command in commands:
-            subprocess.run(command, check=True)
+            subprocess.run(
+                command,
+                check=True,
+                env=esphome_command_environment(config_path),
+            )
     except FileNotFoundError:
         print(f"{Fore.RED}❌ esphome not found. Install it in the project environment first.{Style.RESET_ALL}")
         raise SystemExit(1)
