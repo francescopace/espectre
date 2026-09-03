@@ -39,13 +39,14 @@
     }
 
     function applyMqttPresetFieldLocks(_target, preset) {
-        const fields = { host: 'cfg-mqtt-host', port: 'cfg-mqtt-port' };
+        const fields = { scheme: 'cfg-mqtt-scheme', host: 'cfg-mqtt-host', port: 'cfg-mqtt-port' };
         const locked = new Set(preset.locked || []);
         Object.entries(fields).forEach(([name, id]) => {
             const input = document.getElementById(id);
             if (!input) return;
             const isLocked = locked.has(name);
-            input.readOnly = isLocked;
+            if (input instanceof HTMLSelectElement) input.disabled = isLocked;
+            else input.readOnly = isLocked;
             input.toggleAttribute('data-preset-locked', isLocked);
             input.title = isLocked ? 'Set by the selected broker preset' : '';
         });
@@ -58,9 +59,9 @@
             .replace(/:\d+$/, '');
     }
 
-    function configuredBrokerPreset(host, port) {
+    function configuredBrokerPreset(scheme, host, port) {
         const normalizedHost = browserBrokerHost(host).toLowerCase();
-        if (normalizedHost === 'homeassistant.local'
+        if (scheme === 'mqtt' && normalizedHost === 'homeassistant.local'
                 && Number(port) === Number(MQTT_PRESETS.home_assistant.configure.port)) {
             return 'home_assistant';
         }
@@ -81,6 +82,7 @@
         const resolvedName = MQTT_PRESETS[presetName] ? presetName : 'cloud_broker';
         const preset = MQTT_PRESETS[resolvedName];
         select.value = resolvedName;
+        document.getElementById('cfg-mqtt-scheme').value = preset.configure.scheme;
         document.getElementById('cfg-mqtt-host').value = preset.configure.host;
         document.getElementById('cfg-mqtt-host').placeholder = preset.configure.hostPlaceholder;
         document.getElementById('cfg-mqtt-port').value = preset.configure.port;
@@ -1073,21 +1075,18 @@
     }
 
     async function cfgSaveMqtt() {
-        const enteredHost = cfgValue('cfg-mqtt-host').trim();
-        const presetName = cfgValue('cfg-mqtt-preset');
-        const host = SECURE_CLOUD_MQTT_PRESETS.has(presetName)
-                && enteredHost && !/^mqtts?:\/\//i.test(enteredHost)
-            ? 'mqtts://' + enteredHost
-            : enteredHost;
+        const scheme = cfgValue('cfg-mqtt-scheme');
+        const host = cfgValue('cfg-mqtt-host').trim();
         const username = cfgValue('cfg-mqtt-user').trim();
         const password = cfgValue('cfg-mqtt-pass');
         const clearCredentials = document.getElementById('cfg-mqtt-credentials-clear').checked;
-        if (!host || !cfgValue('cfg-mqtt-port')) {
-            cfgValidationFailed('set_mqtt', 'MQTT needs a host and port.');
+        if (!scheme || !host || !cfgValue('cfg-mqtt-port')) {
+            cfgValidationFailed('set_mqtt', 'MQTT needs a scheme, host, and port.');
             return;
         }
-        if (!browserBrokerHost(host)) {
-            cfgValidationFailed('set_mqtt', 'Complete the MQTT broker address after mqtts://.');
+        if (!['mqtt', 'mqtts'].includes(scheme) || /[\s/?#@\[\]]/.test(host)
+                || (host.includes(':') && !/^[0-9a-f:.]+$/i.test(host))) {
+            cfgValidationFailed('set_mqtt', 'Enter a host or IP address without a scheme, port, path, or credentials.');
             return;
         }
         const port = Number(cfgValue('cfg-mqtt-port'));
@@ -1096,12 +1095,13 @@
             cfgValidationFailed('set_mqtt', 'Use a port from 1 to 65535 and a topic prefix without MQTT wildcards.');
             return;
         }
-        const mqttParams = { host, port, topic_prefix: topicPrefix };
+        const mqttParams = { scheme, host, port, topic_prefix: topicPrefix };
         if (username || clearCredentials) mqttParams.username = clearCredentials ? '' : username;
         if (password || clearCredentials) mqttParams.password = clearCredentials ? '' : password;
         const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
             'set_mqtt_config', mqttParams,
-            (snapshot) => snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
+            (snapshot) => snapshot.mqtt_scheme === scheme
+                && snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
         if (ok) {
             document.getElementById('cfg-mqtt-user').value = '';
             document.getElementById('cfg-mqtt-pass').value = '';

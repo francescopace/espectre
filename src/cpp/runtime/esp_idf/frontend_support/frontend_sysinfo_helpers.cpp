@@ -91,6 +91,7 @@ void append_sysinfo_mqtt_lines(std::vector<std::string> *lines,
                                const EspectreDeviceConfig &device_config,
                                bool mqtt_connected) {
   append_bool_line(lines, "mqtt_connected", mqtt_connected);
+  append_kv_line(lines, "mqtt_scheme", device_config.mqtt_scheme.c_str());
   append_kv_line(lines, "mqtt_host", device_config.mqtt_host.c_str());
   append_u32_line(lines, "mqtt_port", static_cast<unsigned>(device_config.mqtt_port));
   append_kv_line(lines, "mqtt_username", device_config.mqtt_username.c_str());

@@ -24,6 +24,7 @@ EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefau
   EspectreDeviceConfig config;
   config.device_id = defaults.runtime_device_id != 0U ? defaults.runtime_device_id : derive_runtime_device_id();
   config.device_label = defaults.device_label != nullptr ? defaults.device_label : ESPECTRE_DEFAULT_DEVICE_LABEL;
+  config.mqtt_scheme = defaults.mqtt_scheme != nullptr ? defaults.mqtt_scheme : "";
   config.mqtt_host = defaults.mqtt_host != nullptr ? defaults.mqtt_host : "";
   config.mqtt_port = defaults.mqtt_port;
   config.mqtt_username = defaults.mqtt_username != nullptr ? defaults.mqtt_username : "";

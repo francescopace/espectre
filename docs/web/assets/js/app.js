@@ -33,43 +33,42 @@
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
             configure: Object.freeze({
-                host: 'homeassistant.local', port: '1883', hostPlaceholder: 'homeassistant.local'
+                scheme: 'mqtt', host: 'homeassistant.local', port: '1883',
+                hostPlaceholder: 'homeassistant.local', locked: Object.freeze(['scheme'])
             })
         }),
         lan_broker: Object.freeze({
             configure: Object.freeze({
-                host: '', port: '1883', hostPlaceholder: 'broker.local or 192.168.1.20'
+                scheme: 'mqtt', host: '', port: '1883',
+                hostPlaceholder: 'broker.local or 192.168.1.20', locked: Object.freeze(['scheme'])
             })
         }),
         emqx_cloud: Object.freeze({
             configure: Object.freeze({
-                host: 'deployment-id.ala.region.emqxsl.com', port: '8883',
+                scheme: 'mqtts', host: 'deployment-id.ala.region.emqxsl.com', port: '8883',
                 hostPlaceholder: 'deployment-id.ala.region.emqxsl.com',
-                locked: Object.freeze(['port'])
+                locked: Object.freeze(['scheme', 'port'])
             })
         }),
         hivemq_cloud: Object.freeze({
             configure: Object.freeze({
-                host: 'cluster-id.s1.region.hivemq.cloud', port: '8883',
+                scheme: 'mqtts', host: 'cluster-id.s1.region.hivemq.cloud', port: '8883',
                 hostPlaceholder: 'cluster-id.s1.region.hivemq.cloud',
-                locked: Object.freeze(['port'])
+                locked: Object.freeze(['scheme', 'port'])
             })
         }),
         flespi: Object.freeze({
             configure: Object.freeze({
-                host: 'mqtt.flespi.io', port: '8883', hostPlaceholder: 'mqtt.flespi.io',
-                locked: Object.freeze(['host', 'port'])
+                scheme: 'mqtts', host: 'mqtt.flespi.io', port: '8883', hostPlaceholder: 'mqtt.flespi.io',
+                locked: Object.freeze(['scheme', 'host', 'port'])
             })
         }),
         cloud_broker: Object.freeze({
             configure: Object.freeze({
-                host: 'cluster.example.com', port: '', hostPlaceholder: 'cluster.example.com'
+                scheme: 'mqtts', host: 'cluster.example.com', port: '', hostPlaceholder: 'cluster.example.com'
             })
         })
     });
-    const SECURE_CLOUD_MQTT_PRESETS = new Set([
-        'emqx_cloud', 'hivemq_cloud', 'flespi', 'cloud_broker'
-    ]);
     const MQTT_FORM_DEFAULTS = {
         topicPrefix: 'espectre/v1/devices'
     };

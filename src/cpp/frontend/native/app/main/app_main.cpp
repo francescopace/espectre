@@ -223,6 +223,7 @@ espectre::RuntimeConfig make_runtime_config() {
 espectre::EspectreDeviceConfig make_device_config() {
   return espectre::load_frontend_device_config(espectre::FrontendDeviceConfigDefaults{
                                                             CONFIG_ESPECTRE_DEVICE_LABEL,
+                                                            CONFIG_ESPECTRE_MQTT_SCHEME,
                                                             CONFIG_ESPECTRE_MQTT_HOST,
                                                             CONFIG_ESPECTRE_MQTT_PORT,
                                                             CONFIG_ESPECTRE_MQTT_USERNAME,

@@ -10,9 +10,9 @@
 #include "mqtt_transport_esp_idf.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 
+#include "esp_crt_bundle.h"
 #include "espectre_log.h"
 
 namespace espectre {
@@ -20,54 +20,6 @@ namespace espectre {
 namespace {
 
 [[maybe_unused]] static const char *const TAG = "espectre.mqtt";
-
-bool has_uri_scheme(const std::string &value) {
-  return value.find("://") != std::string::npos;
-}
-
-bool uri_authority_has_port(const std::string &authority) {
-  if (authority.empty()) {
-    return false;
-  }
-  if (authority.front() == '[') {
-    const size_t close = authority.find(']');
-    return close != std::string::npos && close + 1 < authority.size() && authority[close + 1] == ':';
-  }
-  const size_t first_colon = authority.find(':');
-  const size_t last_colon = authority.rfind(':');
-  return first_colon != std::string::npos && first_colon == last_colon;
-}
-
-std::string append_port_to_uri(const std::string &uri, uint16_t port) {
-  const size_t scheme_pos = uri.find("://");
-  if (scheme_pos == std::string::npos) {
-    return uri;
-  }
-
-  const size_t authority_start = scheme_pos + 3U;
-  const size_t suffix_start = uri.find_first_of("/?#", authority_start);
-  const std::string authority = uri.substr(
-      authority_start, suffix_start == std::string::npos ? std::string::npos : suffix_start - authority_start);
-  if (authority.empty() || uri_authority_has_port(authority)) {
-    return uri;
-  }
-
-  char port_suffix[8];
-  std::snprintf(port_suffix, sizeof(port_suffix), ":%u", static_cast<unsigned>(port));
-  if (suffix_start == std::string::npos) {
-    return uri + port_suffix;
-  }
-  return uri.substr(0, suffix_start) + port_suffix + uri.substr(suffix_start);
-}
-
-std::string make_broker_uri(const EspectreDeviceConfig &config) {
-  if (has_uri_scheme(config.mqtt_host)) {
-    return append_port_to_uri(config.mqtt_host, config.mqtt_port);
-  }
-  char uri[192];
-  std::snprintf(uri, sizeof(uri), "mqtt://%s:%u", config.mqtt_host.c_str(), static_cast<unsigned>(config.mqtt_port));
-  return uri;
-}
 
 std::string make_topic_base(const EspectreDeviceConfig &config) {
   std::string topic = config.topic_prefix.empty() ? ESPECTRE_TOPIC_PREFIX : config.topic_prefix;
@@ -83,7 +35,7 @@ std::string make_topic_base(const EspectreDeviceConfig &config) {
 }  // namespace
 
 bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
-  if (config.mqtt_host.empty()) {
+  if (!validate_espectre_mqtt_config(config)) {
     return false;
   }
 
@@ -96,7 +48,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   diagnostics_ = {};
   connected_once_ = false;
 
-  broker_uri_ = make_broker_uri(config);
+  broker_host_ = config.mqtt_host;
   mqtt_username_ = config.mqtt_username;
   mqtt_password_ = config.mqtt_password;
   topic_base_ = make_topic_base(config);
@@ -105,7 +57,15 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   last_will_topic_ = topic_base_ + "status";
   last_will_payload_ = espectre_status_payload(config, false, 0);
   esp_mqtt_client_config_t mqtt_config{};
-  mqtt_config.broker.address.uri = broker_uri_.c_str();
+  mqtt_config.broker.address.hostname = broker_host_.c_str();
+  mqtt_config.broker.address.port = config.mqtt_port;
+  mqtt_config.broker.address.transport = config.mqtt_scheme == "mqtts"
+                                             ? MQTT_TRANSPORT_OVER_SSL
+                                             : MQTT_TRANSPORT_OVER_TCP;
+  if (config.mqtt_scheme == "mqtts") {
+    mqtt_config.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+    mqtt_config.broker.verification.skip_cert_common_name_check = false;
+  }
   if (!mqtt_username_.empty()) {
     mqtt_config.credentials.username = mqtt_username_.c_str();
   }
@@ -132,7 +92,11 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
     client_ = nullptr;
     return false;
   }
-  ESPECTRE_LOGI(TAG, "MQTT transport connecting to %s", broker_uri_.c_str());
+  ESPECTRE_LOGI(TAG,
+                "MQTT transport connecting with %s to %s:%u",
+                config.mqtt_scheme.c_str(),
+                broker_host_.c_str(),
+                static_cast<unsigned>(config.mqtt_port));
   return true;
 }
 

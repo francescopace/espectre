@@ -217,6 +217,137 @@ bool parse_mqtt_port_value(const std::string &value, uint16_t *port) {
   return parse_uint16_value(value, port) && port != nullptr && *port > 0U;
 }
 
+bool ipv4_literal_accepted(const std::string &value) {
+  size_t start = 0U;
+  unsigned octets = 0U;
+  while (start < value.size()) {
+    const size_t end = value.find('.', start);
+    const size_t length = (end == std::string::npos ? value.size() : end) - start;
+    if (length == 0U || length > 3U || ++octets > 4U) {
+      return false;
+    }
+    unsigned octet = 0U;
+    for (size_t index = start; index < start + length; ++index) {
+      const unsigned char character = static_cast<unsigned char>(value[index]);
+      if (!std::isdigit(character)) {
+        return false;
+      }
+      octet = octet * 10U + static_cast<unsigned>(character - '0');
+    }
+    if (octet > 255U) {
+      return false;
+    }
+    if (end == std::string::npos) {
+      start = value.size();
+    } else {
+      start = end + 1U;
+    }
+  }
+  return octets == 4U && !value.empty() && value.back() != '.';
+}
+
+bool ipv6_side_groups_accepted(const std::string &side, bool allow_ipv4, unsigned *groups) {
+  if (groups == nullptr) {
+    return false;
+  }
+  *groups = 0U;
+  if (side.empty()) {
+    return true;
+  }
+  size_t start = 0U;
+  while (start < side.size()) {
+    const size_t end = side.find(':', start);
+    const std::string group = side.substr(start, (end == std::string::npos ? side.size() : end) - start);
+    if (group.empty()) {
+      return false;
+    }
+    if (group.find('.') != std::string::npos) {
+      if (!allow_ipv4 || end != std::string::npos || !ipv4_literal_accepted(group)) {
+        return false;
+      }
+      *groups += 2U;
+    } else {
+      if (group.size() > 4U || !std::all_of(group.begin(), group.end(), [](unsigned char character) {
+            return std::isxdigit(character) != 0;
+          })) {
+        return false;
+      }
+      *groups += 1U;
+    }
+    if (*groups > 8U) {
+      return false;
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1U;
+  }
+  return !side.empty() && side.back() != ':';
+}
+
+bool ipv6_literal_accepted(const std::string &value) {
+  const size_t compression = value.find("::");
+  if (compression != std::string::npos && value.find("::", compression + 2U) != std::string::npos) {
+    return false;
+  }
+  unsigned left_groups = 0U;
+  unsigned right_groups = 0U;
+  if (compression == std::string::npos) {
+    return ipv6_side_groups_accepted(value, true, &left_groups) && left_groups == 8U;
+  }
+  const std::string left = value.substr(0U, compression);
+  const std::string right = value.substr(compression + 2U);
+  if (!ipv6_side_groups_accepted(left, false, &left_groups) ||
+      !ipv6_side_groups_accepted(right, true, &right_groups)) {
+    return false;
+  }
+  return left_groups + right_groups < 8U;
+}
+
+bool dns_hostname_accepted(const std::string &value) {
+  if (value.empty() || value.size() > 253U || value.front() == '.' || value.back() == '.') {
+    return false;
+  }
+  size_t label_start = 0U;
+  while (label_start < value.size()) {
+    const size_t label_end = value.find('.', label_start);
+    const size_t label_size = (label_end == std::string::npos ? value.size() : label_end) - label_start;
+    if (label_size == 0U || label_size > 63U || value[label_start] == '-' ||
+        value[label_start + label_size - 1U] == '-') {
+      return false;
+    }
+    for (size_t index = label_start; index < label_start + label_size; ++index) {
+      const unsigned char character = static_cast<unsigned char>(value[index]);
+      if (!std::isalnum(character) && character != '-') {
+        return false;
+      }
+    }
+    if (label_end == std::string::npos) {
+      break;
+    }
+    label_start = label_end + 1U;
+  }
+  return true;
+}
+
+bool mqtt_host_accepted(const std::string &value) {
+  if (value.empty() || value.size() > 253U || value.find_first_of("/?#@[]") != std::string::npos) {
+    return false;
+  }
+  if (std::any_of(value.begin(), value.end(), [](unsigned char character) {
+        return std::iscntrl(character) != 0 || std::isspace(character) != 0;
+      })) {
+    return false;
+  }
+  if (value.find(':') != std::string::npos) {
+    return ipv6_literal_accepted(value);
+  }
+  const bool numeric_address = std::all_of(value.begin(), value.end(), [](unsigned char character) {
+    return std::isdigit(character) != 0 || character == '.';
+  });
+  return numeric_address ? ipv4_literal_accepted(value) : dns_hostname_accepted(value);
+}
+
 bool single_line_string(const std::string &value, size_t max_size) {
   return value.size() <= max_size && value.find_first_of("\r\n\0", 0U, 3U) == std::string::npos;
 }
@@ -301,8 +432,8 @@ bool parse_command_fields(const std::string &command_id,
     if (parsed.command == "start_raw_stream") return false;
     if (parsed.command == "set_wifi_bssid") return name == "bssid" || name == "force";
     if (parsed.command == "set_mqtt_config") {
-      return name == "host" || name == "port" || name == "username" || name == "password" ||
-             name == "topic_prefix";
+      return name == "scheme" || name == "host" || name == "port" ||
+             name == "username" || name == "password" || name == "topic_prefix";
     }
     if (parsed.command == "ota_check" || parsed.command == "ota_start") {
       return name == "channel" || name == "manifest_url" || name == "image_url" || name == "version";
@@ -379,17 +510,24 @@ bool parse_command_fields(const std::string &command_id,
   } else if (parsed.command == "clear_wifi_config") {
     // No additional payload required.
   } else if (parsed.command == "set_mqtt_config") {
-    if (!string_field("host", &parsed.mqtt_host) || parsed.mqtt_host.empty() ||
-        !single_line_string(parsed.mqtt_host, 253U)) {
-      return reject("invalid MQTT host");
+    if (!string_field("scheme", &parsed.mqtt_scheme)) {
+      return reject("missing or invalid MQTT scheme");
     }
+    parsed.has_mqtt_scheme = true;
+    if (!string_field("host", &parsed.mqtt_host)) return reject("missing or invalid MQTT host");
     parsed.has_mqtt_host = true;
-    if (find_json_object_field(fields, "port") != nullptr) {
-      std::string port_token;
-      if (!number_field("port", &port_token) || !parse_mqtt_port_value(port_token, &parsed.mqtt_port)) {
-        return reject("invalid MQTT port (accepted: 1..65535)");
-      }
-      parsed.has_mqtt_port = true;
+    std::string port_token;
+    if (!number_field("port", &port_token) || !parse_mqtt_port_value(port_token, &parsed.mqtt_port)) {
+      return reject("missing or invalid MQTT port (accepted: 1..65535)");
+    }
+    parsed.has_mqtt_port = true;
+    EspectreDeviceConfig mqtt_config;
+    mqtt_config.mqtt_scheme = parsed.mqtt_scheme;
+    mqtt_config.mqtt_host = parsed.mqtt_host;
+    mqtt_config.mqtt_port = parsed.mqtt_port;
+    std::string mqtt_error;
+    if (!validate_espectre_mqtt_config(mqtt_config, &mqtt_error)) {
+      return reject(mqtt_error.c_str());
     }
     if (find_json_object_field(fields, "username") != nullptr) {
       if (!string_field("username", &parsed.mqtt_username) || !single_line_string(parsed.mqtt_username, 128U)) {
@@ -522,11 +660,44 @@ void clear_espectre_mqtt_config(EspectreDeviceConfig *config) {
   if (config == nullptr) {
     return;
   }
+  config->mqtt_scheme.clear();
   config->mqtt_host.clear();
-  config->mqtt_port = 1883;
+  config->mqtt_port = 0U;
   config->mqtt_username.clear();
   config->mqtt_password.clear();
   config->topic_prefix = ESPECTRE_TOPIC_PREFIX;
+}
+
+bool validate_espectre_mqtt_config(const EspectreDeviceConfig &config, std::string *error) {
+  const auto reject = [error](const char *message) {
+    if (error != nullptr) {
+      *error = message;
+    }
+    return false;
+  };
+  if (config.mqtt_scheme.empty()) {
+    return reject("missing MQTT scheme");
+  }
+  if (config.mqtt_scheme != "mqtt" && config.mqtt_scheme != "mqtts") {
+    return reject("invalid MQTT scheme (accepted: mqtt and mqtts)");
+  }
+  if (config.mqtt_host.empty()) {
+    return reject("missing MQTT host");
+  }
+  if (!mqtt_host_accepted(config.mqtt_host)) {
+    return reject("invalid MQTT host");
+  }
+  if (config.mqtt_port == 0U) {
+    return reject("missing MQTT port (accepted: 1..65535)");
+  }
+  if (error != nullptr) {
+    error->clear();
+  }
+  return true;
+}
+
+bool espectre_mqtt_configured(const EspectreDeviceConfig &config) {
+  return validate_espectre_mqtt_config(config, nullptr);
 }
 
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix) {
@@ -1097,11 +1268,18 @@ bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDevi
     return false;
   }
 
+  EspectreDeviceConfig parsed = *config;
+  bool has_scheme = false;
   bool has_host = false;
   bool has_port = false;
   for (const auto &pair : pairs) {
+    if (pair.first == "scheme") {
+      parsed.mqtt_scheme = pair.second;
+      has_scheme = true;
+      continue;
+    }
     if (pair.first == "host") {
-      config->mqtt_host = pair.second;
+      parsed.mqtt_host = pair.second;
       has_host = true;
       continue;
     }
@@ -1113,20 +1291,20 @@ bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDevi
         }
         return false;
       }
-      config->mqtt_port = port;
+      parsed.mqtt_port = port;
       has_port = true;
       continue;
     }
     if (pair.first == "username") {
-      config->mqtt_username = pair.second;
+      parsed.mqtt_username = pair.second;
       continue;
     }
     if (pair.first == "password") {
-      config->mqtt_password = pair.second;
+      parsed.mqtt_password = pair.second;
       continue;
     }
     if (pair.first == "topic_prefix") {
-      config->topic_prefix = pair.second.empty() ? ESPECTRE_TOPIC_PREFIX : pair.second;
+      parsed.topic_prefix = pair.second.empty() ? ESPECTRE_TOPIC_PREFIX : pair.second;
       continue;
     }
     if (error != nullptr) {
@@ -1135,18 +1313,28 @@ bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDevi
     return false;
   }
 
-  if (!has_host || config->mqtt_host.empty()) {
+  if (!has_scheme) {
     if (error != nullptr) {
-      *error = "missing mqtt host";
+      *error = "missing MQTT scheme";
+    }
+    return false;
+  }
+  if (!has_host) {
+    if (error != nullptr) {
+      *error = "missing MQTT host";
     }
     return false;
   }
   if (!has_port) {
     if (error != nullptr) {
-      *error = "missing mqtt port";
+      *error = "missing MQTT port";
     }
     return false;
   }
+  if (!validate_espectre_mqtt_config(parsed, error)) {
+    return false;
+  }
+  *config = std::move(parsed);
   return true;
 }
 

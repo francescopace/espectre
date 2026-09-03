@@ -30,6 +30,7 @@ constexpr const char *kPendingWifiBssidKey = "wifi_p_bssid";
 constexpr const char *kPendingWifiChannelKey = "wifi_p_chan";
 constexpr const char *kPendingWifiBandPolicyKey = "wifi_p_band";
 constexpr const char *kDeviceLabelKey = "device_label";
+constexpr const char *kMqttSchemeKey = "mqtt_scheme";
 constexpr const char *kMqttHostKey = "mqtt_host";
 constexpr const char *kMqttPortKey = "mqtt_port";
 constexpr const char *kMqttUserKey = "mqtt_user";
@@ -315,6 +316,9 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
   EspectreDeviceConfig loaded;
   err = read_string(handle, kDeviceLabelKey, &loaded.device_label);
   if (err == ESP_OK) {
+    err = read_string(handle, kMqttSchemeKey, &loaded.mqtt_scheme);
+  }
+  if (err == ESP_OK) {
     err = read_string(handle, kMqttHostKey, &loaded.mqtt_host);
   }
   if (err == ESP_OK) {
@@ -339,8 +343,9 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
     return err;
   }
 
-  const bool has_config = !loaded.device_label.empty() || !loaded.mqtt_host.empty() || !loaded.mqtt_username.empty() ||
-                          !loaded.mqtt_password.empty() || !loaded.topic_prefix.empty() || port_err == ESP_OK;
+  const bool has_config = !loaded.device_label.empty() || !loaded.mqtt_scheme.empty() || !loaded.mqtt_host.empty() ||
+                          !loaded.mqtt_username.empty() || !loaded.mqtt_password.empty() ||
+                          !loaded.topic_prefix.empty() || port_err == ESP_OK;
   if (!has_config) {
     if (has_saved_config != nullptr) {
       *has_saved_config = false;
@@ -362,6 +367,13 @@ esp_err_t load_stored_device_config(EspectreDeviceConfig *config, bool *has_save
 }
 
 esp_err_t save_stored_device_config(const EspectreDeviceConfig &config) {
+  const bool has_mqtt_settings = !config.mqtt_scheme.empty() || !config.mqtt_host.empty() ||
+                                 config.mqtt_port != 0U || !config.mqtt_username.empty() ||
+                                 !config.mqtt_password.empty();
+  if (has_mqtt_settings && !validate_espectre_mqtt_config(config)) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
   nvs_handle_t handle = 0;
   esp_err_t err = nvs_open(kNamespace, NVS_READWRITE, &handle);
   if (err != ESP_OK) {
@@ -369,6 +381,9 @@ esp_err_t save_stored_device_config(const EspectreDeviceConfig &config) {
   }
 
   err = write_string(handle, kDeviceLabelKey, config.device_label);
+  if (err == ESP_OK) {
+    err = write_string(handle, kMqttSchemeKey, config.mqtt_scheme);
+  }
   if (err == ESP_OK) {
     err = write_string(handle, kMqttHostKey, config.mqtt_host);
   }
@@ -402,6 +417,7 @@ esp_err_t clear_stored_device_config() {
   }
 
   const char *keys[] = {kDeviceLabelKey,
+                        kMqttSchemeKey,
                         kMqttHostKey,
                         kMqttPortKey,
                         kMqttUserKey,

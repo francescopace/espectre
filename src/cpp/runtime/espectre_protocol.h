@@ -157,9 +157,12 @@ struct EspectreDeviceConfig {
   uint64_t device_id{ESPECTRE_DEFAULT_DEVICE_ID};
   /** Human-readable name. Empty falls back to the formatted device id. */
   std::string device_label{ESPECTRE_DEFAULT_DEVICE_LABEL};
-  /** Broker hostname or IP. Empty disables MQTT: `IMqttTransport::setup()` fails. */
+  /** Broker transport scheme: `mqtt` or `mqtts`. Empty disables MQTT. */
+  std::string mqtt_scheme;
+  /** Broker DNS hostname, IPv4 address, or IPv6 address, without URI framing. */
   std::string mqtt_host;
-  uint16_t mqtt_port{1883};
+  /** Broker port. Zero means MQTT is not configured. */
+  uint16_t mqtt_port{0U};
   /** Broker credentials. Leave empty for anonymous brokers. */
   std::string mqtt_username;
   std::string mqtt_password;
@@ -269,11 +272,13 @@ struct EspectreCommand {
   /** Force reassociation even when `wifi_bssid` is already active. */
   bool wifi_bssid_force{false};
   bool has_wifi_bssid_force{false};
+  std::string mqtt_scheme;
   std::string mqtt_host;
   std::string mqtt_username;
   std::string mqtt_password;
   std::string mqtt_topic_prefix;
   uint16_t mqtt_port{0U};
+  bool has_mqtt_scheme{false};
   bool has_mqtt_host{false};
   bool has_mqtt_username{false};
   bool has_mqtt_password{false};
@@ -376,6 +381,19 @@ EspectreDeviceInfo normalize_protocol_device_info(const EspectreDeviceInfo &info
                                                   const char *default_chip = nullptr);
 /** Erase broker settings while preserving identity, for a config reset. */
 void clear_espectre_mqtt_config(EspectreDeviceConfig *config);
+/**
+ * Validate the complete MQTT endpoint in a device configuration.
+ *
+ * The endpoint requires an exact `mqtt` or `mqtts` scheme, a DNS hostname,
+ * IPv4 address, or IPv6 address without URI framing, and a non-zero port.
+ *
+ * @param config Device configuration carrying the MQTT endpoint.
+ * @param error Receives a human-readable reason on failure. May be `nullptr`.
+ * @return `true` only when the complete endpoint is valid.
+ */
+bool validate_espectre_mqtt_config(const EspectreDeviceConfig &config, std::string *error = nullptr);
+/** Return whether `config` contains a complete, valid MQTT endpoint. */
+bool espectre_mqtt_configured(const EspectreDeviceConfig &config);
 
 /** @} */
 
@@ -520,9 +538,9 @@ bool parse_espectre_config_command(const std::string &command, EspectreDeviceCon
 /**
  * Parse a `SET_MQTT_CONFIG:` command, carrying the broker settings.
  *
- * Fields are applied as they are read, so a command rejected part-way through
- * leaves `config` partially updated. Pass a copy and commit only on success.
- * `host` and `port` are required; the rest keep their previous values.
+ * The complete command is parsed and validated before `config` is changed, so
+ * rejection leaves the previous value intact. `scheme`, `host`, and `port` are
+ * required; the rest keep their previous values.
  */
 bool parse_espectre_mqtt_config_command(const std::string &command, EspectreDeviceConfig *config, std::string *error);
 

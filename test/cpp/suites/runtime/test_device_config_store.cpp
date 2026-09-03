@@ -224,6 +224,7 @@ void test_device_config_store_handles_missing_namespace_and_invalid_args(void) {
 void test_device_config_store_round_trips_current_fields(void) {
   EspectreDeviceConfig stored;
   stored.device_label = "Office Node";
+  stored.mqtt_scheme = "mqtts";
   stored.mqtt_host = "mqtt.local";
   stored.mqtt_port = 2883;
   stored.mqtt_username = "user";
@@ -238,6 +239,7 @@ void test_device_config_store_round_trips_current_fields(void) {
 
   TEST_ASSERT_TRUE(has_saved_config);
   TEST_ASSERT_EQUAL_STRING("Office Node", loaded.device_label.c_str());
+  TEST_ASSERT_EQUAL_STRING("mqtts", loaded.mqtt_scheme.c_str());
   TEST_ASSERT_EQUAL_STRING("mqtt.local", loaded.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(2883, loaded.mqtt_port);
   TEST_ASSERT_EQUAL_STRING("user", loaded.mqtt_username.c_str());
@@ -245,9 +247,9 @@ void test_device_config_store_round_trips_current_fields(void) {
   TEST_ASSERT_EQUAL_STRING("custom/topic", loaded.topic_prefix.c_str());
 }
 
-void test_device_config_store_applies_defaults_for_unsaved_fields(void) {
+void test_device_config_store_preserves_legacy_endpoint_without_enabling_it(void) {
   nvs_mock_put_str("mqtt_host", "broker.local");
-  nvs_mock_put_u16("mqtt_port", 0);
+  nvs_mock_put_u16("mqtt_port", 1883U);
 
   EspectreDeviceConfig loaded;
   bool has_saved_config = false;
@@ -255,9 +257,22 @@ void test_device_config_store_applies_defaults_for_unsaved_fields(void) {
 
   TEST_ASSERT_TRUE(has_saved_config);
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_LABEL, loaded.device_label.c_str());
+  TEST_ASSERT_TRUE(loaded.mqtt_scheme.empty());
   TEST_ASSERT_EQUAL_STRING("broker.local", loaded.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(1883, loaded.mqtt_port);
+  TEST_ASSERT_FALSE(espectre_mqtt_configured(loaded));
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_TOPIC_PREFIX, loaded.topic_prefix.c_str());
+}
+
+void test_device_config_store_rejects_partial_mqtt_endpoints(void) {
+  EspectreDeviceConfig partial;
+  partial.mqtt_host = "broker.local";
+  partial.mqtt_port = 1883U;
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_stored_device_config(partial));
+
+  EspectreDeviceConfig disabled;
+  disabled.device_label = "Direct only";
+  TEST_ASSERT_EQUAL(ESP_OK, save_stored_device_config(disabled));
 }
 
 void test_device_config_store_reports_absence_when_no_fields_are_saved(void) {
@@ -270,6 +285,7 @@ void test_device_config_store_reports_absence_when_no_fields_are_saved(void) {
 
 void test_device_config_store_clear_removes_all_current_keys(void) {
   nvs_mock_put_str("device_label", "Label");
+  nvs_mock_put_str("mqtt_scheme", "mqtt");
   nvs_mock_put_str("mqtt_host", "mqtt.local");
   nvs_mock_put_u16("mqtt_port", 1884);
   nvs_mock_put_str("mqtt_user", "user");
@@ -355,7 +371,8 @@ int process(void) {
   RUN_TEST(test_wifi_config_store_rejects_an_invalid_saved_band_policy);
   RUN_TEST(test_device_config_store_handles_missing_namespace_and_invalid_args);
   RUN_TEST(test_device_config_store_round_trips_current_fields);
-  RUN_TEST(test_device_config_store_applies_defaults_for_unsaved_fields);
+  RUN_TEST(test_device_config_store_preserves_legacy_endpoint_without_enabling_it);
+  RUN_TEST(test_device_config_store_rejects_partial_mqtt_endpoints);
   RUN_TEST(test_device_config_store_reports_absence_when_no_fields_are_saved);
   RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
   RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);

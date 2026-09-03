@@ -10,7 +10,9 @@ void test_native_frontend_mqtt_connect_publishes_current_ota_state(void) {
   MockOtaService ota;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt, &ota);
   EspectreDeviceInfo info;
@@ -37,7 +39,9 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   MockOtaService ota;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt, &ota);
   EspectreDeviceInfo info;
@@ -83,7 +87,9 @@ void test_native_frontend_ota_prepare_quiesces_transports_and_recovers_on_error(
   MockMqttTransport mqtt;
   MockOtaService ota;
   EspectreDeviceConfig config;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "HomeNet";
 

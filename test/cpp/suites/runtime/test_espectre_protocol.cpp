@@ -78,6 +78,7 @@ void test_effective_device_helpers_and_topic_generation_use_defaults(void) {
 
 void test_clear_mqtt_config_resets_runtime_defaults(void) {
   EspectreDeviceConfig config;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "broker.local";
   config.mqtt_port = 2883;
   config.mqtt_username = "user";
@@ -86,8 +87,9 @@ void test_clear_mqtt_config_resets_runtime_defaults(void) {
 
   clear_espectre_mqtt_config(&config);
 
+  TEST_ASSERT_TRUE(config.mqtt_scheme.empty());
   TEST_ASSERT_TRUE(config.mqtt_host.empty());
-  TEST_ASSERT_EQUAL(1883, config.mqtt_port);
+  TEST_ASSERT_EQUAL(0U, config.mqtt_port);
   TEST_ASSERT_TRUE(config.mqtt_username.empty());
   TEST_ASSERT_TRUE(config.mqtt_password.empty());
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_TOPIC_PREFIX, config.topic_prefix.c_str());
@@ -100,9 +102,10 @@ void test_parse_mqtt_batch_config_command_updates_all_fields(void) {
   std::string error;
 
   TEST_ASSERT_TRUE(parse_espectre_mqtt_config_command(
-      "SET_MQTT_CONFIG:host=broker.local&port=2883&username=user%20name&password=s3cr%25t&topic_prefix=lab%2Froot",
+      "SET_MQTT_CONFIG:scheme=mqtt&host=broker.local&port=2883&username=user%20name&password=s3cr%25t&topic_prefix=lab%2Froot",
       &config,
       &error));
+  TEST_ASSERT_EQUAL_STRING("mqtt", config.mqtt_scheme.c_str());
   TEST_ASSERT_EQUAL_STRING("broker.local", config.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(2883, config.mqtt_port);
   TEST_ASSERT_EQUAL_STRING("user name", config.mqtt_username.c_str());
@@ -110,21 +113,52 @@ void test_parse_mqtt_batch_config_command_updates_all_fields(void) {
   TEST_ASSERT_EQUAL_STRING("lab/root", config.topic_prefix.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command("SET_MQTT_CONFIG:host=broker.local", &config, &error));
-  TEST_ASSERT_EQUAL_STRING("missing mqtt port", error.c_str());
-  TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command("SET_MQTT_CONFIG:host=broker.local&port=0", &config, &error));
+  TEST_ASSERT_EQUAL_STRING("missing MQTT scheme", error.c_str());
+  TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command(
+      "SET_MQTT_CONFIG:scheme=mqtt&host=broker.local&port=0", &config, &error));
   TEST_ASSERT_EQUAL_STRING("mqtt port must be 1..65535", error.c_str());
 }
 
-void test_parse_mqtt_batch_config_command_accepts_host_with_scheme(void) {
+void test_mqtt_config_validation_rejects_uri_framing_and_preserves_the_previous_config(void) {
   EspectreDeviceConfig config;
+  config.mqtt_scheme = "mqtt";
+  config.mqtt_host = "previous.local";
+  config.mqtt_port = 1883U;
   std::string error;
 
-  TEST_ASSERT_TRUE(parse_espectre_mqtt_config_command(
-      "SET_MQTT_CONFIG:host=mqtts%3A%2F%2Fbroker.example.com&port=8883",
+  TEST_ASSERT_FALSE(parse_espectre_mqtt_config_command(
+      "SET_MQTT_CONFIG:scheme=mqtts&host=mqtts%3A%2F%2Fbroker.example.com&port=8883",
       &config,
       &error));
-  TEST_ASSERT_EQUAL_STRING("mqtts://broker.example.com", config.mqtt_host.c_str());
-  TEST_ASSERT_EQUAL(8883, config.mqtt_port);
+  TEST_ASSERT_EQUAL_STRING("invalid MQTT host", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("mqtt", config.mqtt_scheme.c_str());
+  TEST_ASSERT_EQUAL_STRING("previous.local", config.mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(1883U, config.mqtt_port);
+
+  const char *invalid_hosts[] = {
+      "user@broker.local", "broker.local/path", "broker.local?query", "broker.local#fragment",
+      "broker.local:1883", "999.1.1.1", "bad_host.local", "[2001:db8::1]", "192.0.2.1::"};
+  for (const char *host : invalid_hosts) {
+    EspectreDeviceConfig invalid;
+    invalid.mqtt_scheme = "mqtt";
+    invalid.mqtt_host = host;
+    invalid.mqtt_port = 1883U;
+    TEST_ASSERT_FALSE(validate_espectre_mqtt_config(invalid, &error));
+  }
+
+  const char *valid_hosts[] = {"homeassistant.local", "192.168.1.10", "2001:db8::1", "::1"};
+  for (const char *host : valid_hosts) {
+    EspectreDeviceConfig valid;
+    valid.mqtt_scheme = "mqtts";
+    valid.mqtt_host = host;
+    valid.mqtt_port = 8883U;
+    TEST_ASSERT_TRUE(validate_espectre_mqtt_config(valid, &error));
+    TEST_ASSERT_TRUE(espectre_mqtt_configured(valid));
+  }
+
+  config.mqtt_scheme = "ws";
+  TEST_ASSERT_FALSE(validate_espectre_mqtt_config(config, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid MQTT scheme (accepted: mqtt and mqtts)", error.c_str());
 }
 
 void test_status_telemetry_and_diagnostics_payloads_include_expected_fields(void) {
@@ -764,9 +798,11 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "mqtt-1",
       "set_mqtt_config",
-      "{\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}",
+      "{\"scheme\":\"mqtt\",\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}",
       &command,
       &error));
+  TEST_ASSERT_TRUE(command.has_mqtt_scheme);
+  TEST_ASSERT_EQUAL_STRING("mqtt", command.mqtt_scheme.c_str());
   TEST_ASSERT_EQUAL_STRING("homeassistant.local", command.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(1883U, command.mqtt_port);
   TEST_ASSERT_EQUAL_STRING("mqtt", command.mqtt_username.c_str());
@@ -793,7 +829,20 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   TEST_ASSERT_FALSE(parse_espectre_command_request(
       "clear-wifi-bad", "clear_wifi_config", "{\"ssid\":\"Lab\"}", &command, &error));
   TEST_ASSERT_FALSE(parse_espectre_command_request(
-      "mqtt-bad", "set_mqtt_config", "{\"host\":\"homeassistant.local\",\"port\":0}", &command, &error));
+      "mqtt-missing-scheme", "set_mqtt_config", "{\"host\":\"homeassistant.local\",\"port\":1883}",
+      &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "mqtt-missing-port", "set_mqtt_config", "{\"scheme\":\"mqtt\",\"host\":\"homeassistant.local\"}",
+      &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "mqtt-bad-scheme", "set_mqtt_config", "{\"scheme\":\"ws\",\"host\":\"broker.local\",\"port\":80}",
+      &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "mqtt-bad-host", "set_mqtt_config",
+      "{\"scheme\":\"mqtts\",\"host\":\"mqtts://broker.example.com\",\"port\":8883}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "mqtt-bad-port", "set_mqtt_config", "{\"scheme\":\"mqtt\",\"host\":\"homeassistant.local\",\"port\":0}",
+      &command, &error));
   TEST_ASSERT_TRUE(parse_espectre_command_request("clear-2", "clear_mqtt_config", "{}", &command, &error));
 }
 
@@ -854,6 +903,7 @@ int process(void) {
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);
+  RUN_TEST(test_mqtt_config_validation_rejects_uri_framing_and_preserves_the_previous_config);
   RUN_TEST(test_status_telemetry_and_diagnostics_payloads_include_expected_fields);
   RUN_TEST(test_diagnostics_payload_includes_enabled_runtime_sample);
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);

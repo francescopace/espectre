@@ -162,8 +162,15 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         if (clear) {
           clear_espectre_mqtt_config(&updated);
         } else {
+          if (!mqtt_command.has_mqtt_scheme || !mqtt_command.has_mqtt_host || !mqtt_command.has_mqtt_port) {
+            if (message != nullptr) {
+              *message = "MQTT scheme, host, and port are required";
+            }
+            return false;
+          }
+          updated.mqtt_scheme = mqtt_command.mqtt_scheme;
           updated.mqtt_host = mqtt_command.mqtt_host;
-          if (mqtt_command.has_mqtt_port) updated.mqtt_port = mqtt_command.mqtt_port;
+          updated.mqtt_port = mqtt_command.mqtt_port;
           if (mqtt_command.has_mqtt_username) {
             updated.mqtt_username = mqtt_command.mqtt_username;
           }
@@ -173,6 +180,9 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
           if (mqtt_command.has_mqtt_topic_prefix) {
             updated.topic_prefix =
                 mqtt_command.mqtt_topic_prefix.empty() ? ESPECTRE_TOPIC_PREFIX : mqtt_command.mqtt_topic_prefix;
+          }
+          if (!validate_espectre_mqtt_config(updated, message)) {
+            return false;
           }
         }
         if (this->owner_.device_config_change_callback_ &&

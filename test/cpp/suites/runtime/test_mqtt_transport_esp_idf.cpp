@@ -8,6 +8,7 @@
 
 #include <string>
 
+#include "esp_crt_bundle.h"
 #include "mqtt_client.h"
 #include "mqtt_transport_esp_idf.h"
 
@@ -18,6 +19,7 @@ namespace {
 EspectreDeviceConfig config() {
   EspectreDeviceConfig value;
   value.device_id = 1U;
+  value.mqtt_scheme = "mqtt";
   value.mqtt_host = "broker.local";
   value.mqtt_port = 1883U;
   return value;
@@ -34,10 +36,43 @@ void test_setup_bounds_the_esp_mqtt_outbox() {
   EspIdfMqttTransport transport;
   TEST_ASSERT_FALSE(transport.setup(EspectreDeviceConfig{}));
   TEST_ASSERT_TRUE(transport.setup(config()));
-  TEST_ASSERT_EQUAL_STRING("mqtt://broker.local:1883", g_mqtt_client_mock.broker_uri);
+  TEST_ASSERT_EQUAL_STRING("", g_mqtt_client_mock.broker_uri);
+  TEST_ASSERT_EQUAL_STRING("broker.local", g_mqtt_client_mock.broker_hostname);
+  TEST_ASSERT_EQUAL(1883U, g_mqtt_client_mock.broker_port);
+  TEST_ASSERT_EQUAL(MQTT_TRANSPORT_OVER_TCP, g_mqtt_client_mock.broker_transport);
+  TEST_ASSERT_TRUE(g_mqtt_client_mock.crt_bundle_attach == nullptr);
   TEST_ASSERT_EQUAL(8192U, g_mqtt_client_mock.outbox_limit);
   TEST_ASSERT_EQUAL(16U, transport.diagnostics().queue_capacity);
   TEST_ASSERT_EQUAL(8192U, transport.diagnostics().outbox_capacity_bytes);
+}
+
+void test_mqtts_uses_the_certificate_bundle_and_hostname_verification() {
+  mqtt_client_mock_reset();
+  EspIdfMqttTransport transport;
+  EspectreDeviceConfig secure = config();
+  secure.mqtt_scheme = "mqtts";
+  secure.mqtt_port = 8883U;
+  TEST_ASSERT_TRUE(transport.setup(secure));
+  TEST_ASSERT_EQUAL_STRING("broker.local", g_mqtt_client_mock.broker_hostname);
+  TEST_ASSERT_EQUAL(8883U, g_mqtt_client_mock.broker_port);
+  TEST_ASSERT_EQUAL(MQTT_TRANSPORT_OVER_SSL, g_mqtt_client_mock.broker_transport);
+  TEST_ASSERT_TRUE(g_mqtt_client_mock.crt_bundle_attach == esp_crt_bundle_attach);
+  TEST_ASSERT_FALSE(g_mqtt_client_mock.skip_cert_common_name_check);
+}
+
+void test_invalid_endpoint_is_rejected_before_client_initialization() {
+  mqtt_client_mock_reset();
+  EspIdfMqttTransport transport;
+  EspectreDeviceConfig invalid = config();
+  invalid.mqtt_scheme.clear();
+  TEST_ASSERT_FALSE(transport.setup(invalid));
+  invalid = config();
+  invalid.mqtt_host = "mqtt://broker.local";
+  TEST_ASSERT_FALSE(transport.setup(invalid));
+  invalid = config();
+  invalid.mqtt_port = 0U;
+  TEST_ASSERT_FALSE(transport.setup(invalid));
+  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.init_calls);
 }
 
 void test_publish_is_deferred_and_latest_snapshot_replaces_stale_data() {
@@ -152,6 +187,8 @@ void test_reconnects_are_observable() {
 int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_setup_bounds_the_esp_mqtt_outbox);
+  RUN_TEST(test_mqtts_uses_the_certificate_bundle_and_hostname_verification);
+  RUN_TEST(test_invalid_endpoint_is_rejected_before_client_initialization);
   RUN_TEST(test_publish_is_deferred_and_latest_snapshot_replaces_stale_data);
   RUN_TEST(test_command_results_overtake_replaceable_snapshots);
   RUN_TEST(test_replaceable_publishes_use_available_outbox_capacity);

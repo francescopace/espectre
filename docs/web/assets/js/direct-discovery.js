@@ -142,6 +142,7 @@
             wifi_apply_state: wifi.apply_state,
             wifi_apply_message: wifi.apply_message,
             mqtt_configured: mqtt.configured,
+            mqtt_scheme: mqtt.scheme,
             mqtt_host: mqtt.host,
             mqtt_port: mqtt.port,
             mqtt_topic_prefix: mqtt.topic_prefix,

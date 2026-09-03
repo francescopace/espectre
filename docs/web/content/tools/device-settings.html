@@ -85,22 +85,24 @@
           <span class="config-status js-mqtt-status" role="status" data-capability="supports_mqtt_config"><span class="dot dot-idle js-mqtt-status-dot" aria-hidden="true"></span><span class="js-mqtt-status-text">Checking…</span></span>
         </div>
         <div data-capability="supports_mqtt_config">
-        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system. Leave it empty if not need it.</p>
+        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system.</p>
         <div class="fields">
-          <div class="field-row mqtt-host-port-row">
+          <div class="field-row mqtt-endpoint-row">
+            <div class="field">
+              <label for="cfg-mqtt-preset">Provider</label>
+              <select id="cfg-mqtt-preset">
+                <option value="home_assistant" selected>Home Assistant</option>
+                <option value="lan_broker">Local broker</option>
+                <option value="emqx_cloud">EMQX Cloud</option>
+                <option value="hivemq_cloud">HiveMQ Cloud</option>
+                <option value="flespi">Flespi</option>
+                <option value="cloud_broker">Custom broker</option>
+              </select>
+            </div>
+            <div class="field"><label for="cfg-mqtt-scheme">Scheme</label><select id="cfg-mqtt-scheme"><option value="mqtt" selected>mqtt</option><option value="mqtts">mqtts</option></select></div>
             <div class="field">
               <label for="cfg-mqtt-host">Broker host</label>
-              <div class="broker-host-control">
-                <select id="cfg-mqtt-preset" aria-label="Broker preset" title="Broker preset">
-                  <option value="home_assistant" selected>Home Assistant</option>
-                  <option value="lan_broker">Local broker (LAN)</option>
-                  <option value="emqx_cloud">EMQX Cloud</option>
-                  <option value="hivemq_cloud">HiveMQ Cloud</option>
-                  <option value="flespi">Flespi</option>
-                  <option value="cloud_broker">Custom broker</option>
-                </select>
-                <input type="text" id="cfg-mqtt-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false">
-              </div>
+              <input type="text" id="cfg-mqtt-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false">
             </div>
             <div class="field"><label for="cfg-mqtt-port">Port</label><input type="number" id="cfg-mqtt-port" value="1883" placeholder="1883"></div>
           </div>

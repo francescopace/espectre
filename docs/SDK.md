@@ -163,6 +163,8 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `core/temporal_csi_sampler.h` | Production fixed-grid admission for a custom capture pipeline |
 | `core/detector_limits.h` | Detector dimensions and limits used by the supported classes |
 
+`EspectreDeviceConfig` represents an MQTT endpoint with separate `mqtt_scheme`, `mqtt_host`, and `mqtt_port` members. All three are required for MQTT to be configured; the default empty scheme and host with port `0` disable it. Use `validate_espectre_mqtt_config()` before persisting or applying an endpoint. The shipped ESP-IDF adapter accepts `mqtt` for explicit plaintext TCP and `mqtts` for TLS with the public certificate bundle and hostname verification. Host values are not URIs, and WebSocket transports are not part of this contract.
+
 Headers such as `core/filtered_turbulence_ring.h`, `core/filters.h`, `core/utils.h`, `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h`, and `core/threshold.h` ship because the detector definitions depend on them. They are implementation dependencies rather than independent extension points, do not appear in the generated API reference, and may change without a compatibility guarantee.
 
 ## Runtime contract

@@ -24,7 +24,7 @@ bool setup_frontend_mqtt_transport(IMqttTransport *transport,
   if (transport == nullptr) {
     return false;
   }
-  if (config.mqtt_host.empty()) {
+  if (!espectre_mqtt_configured(config)) {
     transport->shutdown();
     return false;
   }

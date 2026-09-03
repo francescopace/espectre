@@ -342,6 +342,8 @@ espectre/v1/devices/{device_id}/config
 
 `runtime` is the uniform cross-frontend configuration section. `device`, `wifi`, and `mqtt` are optional and are included only when both the frontend and requesting transport authorize them. When `wifi` is present, its canonical fields are `configured`, `connected`, read-only `ssid`, `bssid`, read-only active `band` (`2g`, `5g`, or empty when unknown), `channel`, and `rssi_dbm`; `apply_state` and `apply_message` are optional. Passwords, secrets, and band-selection policy are never returned. Runtime tuning changes publish one `config` state transition; a label change publishes `info`; sensing state publishes `status`; OTA state publishes `ota_status`; and recalibration publishes `status`, followed by `config` only when the resulting threshold changes.
 
+Native's local `mqtt` configuration contains `configured`, `scheme`, `host`, `port`, `username_configured`, and `topic_prefix`. `configured` is true only when `scheme`, `host`, and `port` form a valid endpoint. Static broker configuration is not duplicated in `diagnostics`, and broker credentials are never returned.
+
 ### Diagnostics
 
 Diagnostics are returned only as `data` in the correlated response to an explicit `diagnostics` query; there is no diagnostics event or MQTT topic. The following representative Native response includes the canonical runtime fields and its optional transport objects:
@@ -502,6 +504,23 @@ Set or clear the persisted user-facing label on frontends that advertise device 
   "device_label": "Living Room"
 }
 ```
+
+Configure Native MQTT over an explicitly selected transport:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-mqtt",
+  "command": "set_mqtt_config",
+  "scheme": "mqtt",
+  "host": "homeassistant.local",
+  "port": 1883
+}
+```
+
+`scheme`, `host`, and `port` are required. `scheme` accepts only lowercase `mqtt` and `mqtts`; `ws` and `wss` are not supported. `host` is a DNS hostname, IPv4 address, or unbracketed IPv6 address without a scheme, user information, port, path, query, or fragment. `port` is an integer from 1 through 65535. `mqtt` is an explicit plaintext choice intended for trusted local networks, including a typical Home Assistant broker. `mqtts` uses the ESP-IDF public certificate bundle and verifies the broker hostname. Optional `username`, `password`, and `topic_prefix` fields retain their previous values when omitted. `clear_mqtt_config` removes the endpoint and credentials.
+
+Stored configurations created before the required `scheme` field remain readable but are not considered configured and do not start MQTT. Direct HTTP remains available to replace them with an explicit endpoint; the firmware does not infer or migrate a scheme.
 
 Pin the station to one access point. Omit `force` or set it to `false` to avoid reassociation when the requested BSSID is already active:
 

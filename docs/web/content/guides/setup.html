@@ -68,10 +68,10 @@ python -m pip install -r requirements.txt</code></pre>
         <button type="button" role="tab" id="setup-matter-tab" aria-controls="setup-matter-panel" aria-selected="false" tabindex="-1">Matter</button>
       </div>
       <div class="code-tab-panel" id="setup-native-panel" role="tabpanel" aria-labelledby="setup-native-tab" data-frontend="native">
-        <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor follows its serial output:</p>
+        <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor resets the board once so it can capture the complete startup output:</p>
         <pre class="code"><code>./espectre native build --chip c3 --clean
 ./espectre native flash --chip c3
-./espectre monitor --chip c3 --frontend native</code></pre>
+./espectre monitor --chip c3 --frontend native --reset</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-esphome-panel" role="tabpanel" aria-labelledby="setup-esphome-tab" data-frontend="esphome" hidden>
         <p>ESPHome selects the maintained YAML for the target chip and manages its own build toolchain. Use the same chip when building, flashing, and monitoring:</p>
@@ -85,10 +85,10 @@ python -m pip install -r requirements.txt</code></pre>
 ./espectre esphome monitor --chip c3 --config path/to/espectre.yaml</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-matter-panel" role="tabpanel" aria-labelledby="setup-matter-tab" data-frontend="matter" hidden>
-        <p>Matter uses the shared ESP-IDF build environment. Flashing starts the application and prints the device-specific onboarding code from its first boot. Attach the serial monitor without resetting the board:</p>
+        <p>Matter uses the shared ESP-IDF build environment. Flashing starts the application and prints the device-specific onboarding code from its first boot. Reset once when attaching the serial monitor to capture the complete startup output again:</p>
         <pre class="code"><code>./espectre matter build --chip c3 --clean
 ./espectre matter flash --chip c3
-./espectre monitor --chip c3 --frontend matter</code></pre>
+./espectre monitor --chip c3 --frontend matter --reset</code></pre>
         <p>To retrieve the persisted onboarding code later, run <code>./espectre matter qr --chip c3</code>.</p>
       </div>
     </div>

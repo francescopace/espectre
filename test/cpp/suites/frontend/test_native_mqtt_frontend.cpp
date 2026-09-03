@@ -9,7 +9,9 @@ void test_native_frontend_mqtt_connect_enables_live_telemetry(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -27,7 +29,9 @@ void test_native_frontend_direct_reports_mqtt_connection_changes(void) {
   MockMqttTransport mqtt;
   MockDirectHttpService direct;
   EspectreDeviceConfig config;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   frontend.set_device_config(config);
@@ -59,7 +63,9 @@ void test_native_frontend_direct_clear_mqtt_disconnects_and_reports_status(void)
   MockMqttTransport mqtt;
   MockDirectHttpService direct;
   EspectreDeviceConfig config;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   frontend.set_device_config(config);
@@ -97,7 +103,9 @@ void test_native_frontend_live_telemetry_publishes_mqtt_telemetry(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -126,7 +134,9 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -147,7 +157,9 @@ void test_native_frontend_mqtt_rejects_unsupported_protocol_version(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -171,7 +183,9 @@ void test_native_frontend_mqtt_set_device_label_persists_and_republishes_info(vo
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
   config.device_label = "Living Room";
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   std::vector<EspectreDeviceConfig> persisted_configs;
 
   NativeFrontend frontend(&mqtt);
@@ -210,7 +224,9 @@ void test_native_frontend_mqtt_recalibrate_command_publishes_result(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -230,7 +246,9 @@ void test_native_frontend_mqtt_detector_command_updates_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -252,7 +270,9 @@ void test_native_frontend_mqtt_motion_hits_command_updates_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -275,7 +295,9 @@ void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -309,7 +331,9 @@ void test_native_frontend_mqtt_rejects_direct_local_commands_with_forbidden(void
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
   TEST_ASSERT_TRUE(frontend.setup());
@@ -329,7 +353,9 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
@@ -402,7 +428,9 @@ void test_native_frontend_serializes_telemetry_once_for_active_transports(void) 
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   frontend.set_device_config(config);
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "Lab";

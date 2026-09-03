@@ -11,7 +11,9 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
   config.device_label = "Kitchen Sensor";
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   RuntimeConfig runtime_config;
@@ -287,7 +289,9 @@ void test_native_frontend_ha_birth_message_republishes_discovery_and_state(void)
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   RuntimeConfig runtime_config;
@@ -354,7 +358,9 @@ void test_native_frontend_retries_the_complete_ha_snapshot_after_queue_backpress
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_runtime_config(RuntimeConfig{});
@@ -394,7 +400,9 @@ void test_native_frontend_ha_entities_follow_esphome_cadences(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -448,7 +456,9 @@ void test_native_frontend_ha_threshold_command_updates_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -470,7 +480,9 @@ void test_native_frontend_ha_motion_hits_commands_update_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -497,7 +509,9 @@ void test_native_frontend_ha_calibrate_command_triggers_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -542,7 +556,9 @@ void test_native_frontend_ha_calibrate_command_respects_manual_recalibration_cap
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -561,7 +577,9 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -595,7 +613,9 @@ void test_native_frontend_ha_detector_command_updates_canonical_config(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   RuntimeConfig runtime_config;
   runtime_config.runtime_detector_selection_enabled = true;
 
@@ -619,7 +639,9 @@ void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);
@@ -661,7 +683,9 @@ void test_native_frontend_motion_edge_publishes_ready_ha_motion(void) {
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
 
   NativeFrontend frontend(&mqtt);
   frontend.set_device_config(config);

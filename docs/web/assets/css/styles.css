@@ -1327,7 +1327,7 @@ espectre-direct-connect:not([hidden]) { display: contents; }
   font-size: 13.5px;
 }
 .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.field input[data-preset-locked] {
+.field :where(input, select)[data-preset-locked] {
   background: var(--surface2);
   color: var(--dim);
   cursor: not-allowed;
@@ -1343,7 +1343,7 @@ espectre-direct-connect:not([hidden]) { display: contents; }
 .field-help { display: block; color: var(--dim); font-size: 11px; line-height: 1.45; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .wifi-link-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.mqtt-host-port-row { grid-template-columns: minmax(0, 1fr) 96px; }
+.mqtt-endpoint-row { grid-template-columns: 152px 82px minmax(180px, 1fr) 72px; }
 .credential-clear-control {
   display: flex;
   align-items: flex-start;
@@ -1886,23 +1886,6 @@ body.modal-open { overflow: hidden; }
 .wifi-refresh-button.is-scanning svg {
   animation: espSpin .7s linear infinite;
   transform-origin: center;
-}
-.broker-host-control {
-  display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
-}
-.broker-host-control select {
-  min-width: 0;
-  border-radius: 9px 0 0 9px;
-}
-.broker-host-control input {
-  min-width: 0;
-  border-radius: 0 9px 9px 0;
-  margin-left: -1px;
-}
-.broker-host-control :where(select, input):focus {
-  position: relative;
-  z-index: 1;
 }
 .field-inline { flex-direction: row; align-items: center; gap: 10px; }
 .field-inline select { width: auto; }
@@ -3888,7 +3871,7 @@ ewt-install-dialog {
   .game-screen:fullscreen .game-screen-controls,
   .game-screen:-webkit-full-screen .game-screen-controls { left: 28px; }
   .device-connect-card .field-row { grid-template-columns: minmax(0, 1fr); }
-  .mqtt-host-port-row { grid-template-columns: minmax(0, 1fr); }
+  .mqtt-endpoint-row { grid-template-columns: minmax(0, 1fr); }
   .device-banner-actions { margin-left: 0; width: 100%; }
   [data-page="tool-configure"] .device-banner-actions button { width: 100%; }
   .ota-details-grid { grid-template-columns: 1fr; }

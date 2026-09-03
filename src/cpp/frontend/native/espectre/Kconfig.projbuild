@@ -69,10 +69,20 @@ menu "ESPectre Native Frontend"
         string "MQTT broker host"
         default ""
 
+    config ESPECTRE_MQTT_SCHEME
+        string "MQTT broker scheme"
+        default ""
+        help
+            Use mqtt for an explicitly plaintext connection, or mqtts for a
+            TLS connection with broker certificate and hostname verification.
+
     config ESPECTRE_MQTT_PORT
         int "MQTT broker port"
-        range 1 65535
-        default 1883
+        range 0 65535
+        default 0
+        help
+            Zero means MQTT is not configured. A configured endpoint requires
+            an explicit scheme, host, and port.
 
     config ESPECTRE_MQTT_USERNAME
         string "MQTT username"

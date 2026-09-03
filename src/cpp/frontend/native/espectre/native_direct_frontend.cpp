@@ -293,7 +293,7 @@ std::string NativeDirectFrontend::status_payload(bool online) const {
   out += ",\"wifi_connected\":";
   out += owner_.device_info_.network.ip_address.empty() ? "false" : "true";
   out += ",\"mqtt_configured\":";
-  out += owner_.device_config_.mqtt_host.empty() ? "false" : "true";
+  out += espectre_mqtt_configured(owner_.device_config_) ? "true" : "false";
   out += ",\"mqtt_connected\":";
   out += owner_.mqtt_frontend_->connected() ? "true" : "false";
   out += ",\"sensing_enabled\":";
@@ -360,7 +360,8 @@ std::string NativeDirectFrontend::config_payload(bool include_local) const {
   append_json_pair(&out, "apply_state", wifi_info_.apply_state.c_str());
   append_json_pair(&out, "apply_message", wifi_info_.apply_message.c_str());
   out += "},\"mqtt\":{\"configured\":";
-  out += owner_.device_config_.mqtt_host.empty() ? "false" : "true";
+  out += espectre_mqtt_configured(owner_.device_config_) ? "true" : "false";
+  append_json_pair(&out, "scheme", owner_.device_config_.mqtt_scheme.c_str());
   append_json_pair(&out, "host", owner_.device_config_.mqtt_host.c_str());
   out += ",\"port\":" + std::to_string(static_cast<unsigned>(owner_.device_config_.mqtt_port));
   out += ",\"username_configured\":";

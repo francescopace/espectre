@@ -4,6 +4,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "mqtt_client.h"
+#include "esp_crt_bundle.h"
 
 #include <algorithm>
 #include <cstring>
@@ -45,8 +46,23 @@ esp_mqtt_client_handle_t esp_mqtt_client_init(const esp_mqtt_client_config_t *co
                    config->broker.address.uri,
                    sizeof(g_mqtt_client_mock.broker_uri) - 1U);
     }
+    if (config->broker.address.hostname != nullptr) {
+      std::strncpy(g_mqtt_client_mock.broker_hostname,
+                   config->broker.address.hostname,
+                   sizeof(g_mqtt_client_mock.broker_hostname) - 1U);
+    }
+    g_mqtt_client_mock.broker_port = config->broker.address.port;
+    g_mqtt_client_mock.broker_transport = config->broker.address.transport;
+    g_mqtt_client_mock.crt_bundle_attach = config->broker.verification.crt_bundle_attach;
+    g_mqtt_client_mock.skip_cert_common_name_check =
+        config->broker.verification.skip_cert_common_name_check;
   }
   return g_mqtt_client_mock.init_result;
+}
+
+esp_err_t esp_crt_bundle_attach(void *conf) {
+  (void) conf;
+  return ESP_OK;
 }
 
 esp_err_t esp_mqtt_client_register_event(esp_mqtt_client_handle_t client,

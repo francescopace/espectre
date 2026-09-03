@@ -78,6 +78,10 @@ ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other support
 
 MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
 
+Device settings requires an explicit scheme, host, and port. Select `mqtt`, a bare local hostname such as `homeassistant.local`, and port `1883` for a typical trusted-LAN Home Assistant or Mosquitto broker. Select `mqtts` and the broker's TLS port, commonly `8883`, for a public-CA-secured broker; Native verifies both the certificate chain and broker hostname. Do not put `mqtt://`, `mqtts://`, credentials, a port, or a path in the host field. WebSocket MQTT and private certificate authorities are not supported in this configuration version.
+
+An older saved endpoint without an explicit scheme is retained for recovery but remains disconnected and reports `configured: false`. Open Device settings over Direct HTTP and save the endpoint again with the intended scheme. Native never guesses whether an existing broker should use plaintext or TLS.
+
 When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine: a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate, so broker backpressure cannot delay Direct sensing.
 
 The browser Monitor uses Direct HTTP and does not connect to MQTT. Device-to-broker MQTT configuration is independent of the browser connection.
@@ -136,7 +140,7 @@ Reflash the full factory image over USB when OTA cannot complete. Downgrades are
 
 ### MQTT clients do not receive data
 
-Confirm that the broker hostname resolves from the ESP32, that the credentials are valid, and that the intended broker client subscribes to the canonical topics. The browser Monitor uses Direct HTTP and should remain operational while broker issues are diagnosed.
+Confirm that the endpoint reports `configured: true`, that the broker hostname resolves from the ESP32, that the selected scheme and port match the broker listener, that the credentials are valid, and that the intended broker client subscribes to the canonical topics. For `mqtts`, the certificate must chain to the ESP-IDF public bundle and identify the configured host. The browser Monitor uses Direct HTTP and should remain operational while broker issues are diagnosed.
 
 ## Implementation Map
 

@@ -19,6 +19,14 @@ extern "C" {
 typedef void *esp_mqtt_client_handle_t;
 
 typedef enum {
+  MQTT_TRANSPORT_UNKNOWN = 0,
+  MQTT_TRANSPORT_OVER_TCP,
+  MQTT_TRANSPORT_OVER_SSL,
+  MQTT_TRANSPORT_OVER_WS,
+  MQTT_TRANSPORT_OVER_WSS,
+} esp_mqtt_transport_t;
+
+typedef enum {
   MQTT_EVENT_ANY = -1,
   MQTT_EVENT_ERROR,
   MQTT_EVENT_CONNECTED,
@@ -45,7 +53,14 @@ typedef struct {
   struct {
     struct {
       const char *uri;
+      const char *hostname;
+      uint32_t port;
+      esp_mqtt_transport_t transport;
     } address;
+    struct {
+      esp_err_t (*crt_bundle_attach)(void *conf);
+      bool skip_cert_common_name_check;
+    } verification;
   } broker;
   struct {
     const char *username;
@@ -82,6 +97,11 @@ typedef struct {
   int subscribe_calls;
   uint64_t outbox_limit;
   char broker_uri[256];
+  char broker_hostname[256];
+  uint32_t broker_port;
+  esp_mqtt_transport_t broker_transport;
+  esp_err_t (*crt_bundle_attach)(void *conf);
+  bool skip_cert_common_name_check;
   char enqueued_topics[32][256];
   char enqueued_payloads[32][4096];
   bool enqueued_retain[32];

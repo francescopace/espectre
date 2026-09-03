@@ -70,7 +70,7 @@ class EspIdfMqttTransport : public IMqttTransport {
   CommandCallback command_callback_{};
   ConnectionCallback connection_callback_{};
   MqttPayloadAssembler command_payload_assembler_{};
-  std::string broker_uri_{};
+  std::string broker_host_{};
   std::string mqtt_username_{};
   std::string mqtt_password_{};
   std::string topic_base_{};

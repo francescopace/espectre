@@ -825,9 +825,12 @@
             if (bssid) bssid.value = currentWifiBssid;
         }
         if (snapshot.mqtt_host) {
+            set('cfg-mqtt-scheme', snapshot.mqtt_scheme);
             set('cfg-mqtt-host', snapshot.mqtt_host);
             set('cfg-mqtt-port', snapshot.mqtt_port);
-            const mqttPreset = configuredBrokerPreset(snapshot.mqtt_host, snapshot.mqtt_port);
+            const mqttPreset = snapshot.mqtt_scheme
+                ? configuredBrokerPreset(snapshot.mqtt_scheme, snapshot.mqtt_host, snapshot.mqtt_port)
+                : 'cloud_broker';
             const mqttPresetSelect = document.getElementById('cfg-mqtt-preset');
             if (mqttPresetSelect) {
                 mqttPresetSelect.value = mqttPreset;
@@ -919,6 +922,7 @@
                 wifi_channel: '48',
                 csi_profile: 'vht20',
                 wifi_bssid: '',
+                mqtt_scheme: 'mqtt',
                 mqtt_host: 'homeassistant.local',
                 mqtt_port: '1883',
                 mqtt_username: 'mqtt',

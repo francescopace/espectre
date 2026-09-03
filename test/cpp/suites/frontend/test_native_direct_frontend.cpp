@@ -255,7 +255,8 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   const std::string mqtt_response = direct.emit_request(DirectRequest{
       "mqtt-1",
       "set_mqtt_config",
-      "{\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}"});
+      "{\"scheme\":\"mqtt\",\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}"});
+  TEST_ASSERT_EQUAL_STRING("mqtt", persisted.mqtt_scheme.c_str());
   TEST_ASSERT_EQUAL_STRING("homeassistant.local", persisted.mqtt_host.c_str());
   TEST_ASSERT_EQUAL(1883U, persisted.mqtt_port);
   TEST_ASSERT_EQUAL_STRING("mqtt", persisted.mqtt_username.c_str());
@@ -263,6 +264,14 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
   TEST_ASSERT_TRUE(mqtt_response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_response.find("secret") == std::string::npos);
+
+  const std::string invalid_mqtt_response = direct.emit_request(DirectRequest{
+      "mqtt-invalid", "set_mqtt_config",
+      "{\"scheme\":\"mqtts\",\"host\":\"mqtts://broker.example.com\",\"port\":8883}"});
+  TEST_ASSERT_TRUE(invalid_mqtt_response.find("\"accepted\":false") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("mqtt", persisted.mqtt_scheme.c_str());
+  TEST_ASSERT_EQUAL_STRING("homeassistant.local", persisted.mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
 }
 
 void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
@@ -298,6 +307,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
 
   EspectreDeviceConfig config;
   config.device_label = "Kitchen";
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "broker.local";
   config.mqtt_port = 2883U;
   config.mqtt_username = "private-user";
@@ -343,12 +353,14 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
       direct.emit_request(DirectRequest{"read-config", "config", "{}"});
   TEST_ASSERT_TRUE(visible_config.find("AA:BB:CC:DD:EE:FF") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("broker.local") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"scheme\":\"mqtt\"") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"apply_state\":\"rolled_back\"") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("last-known-good configuration restored") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"username_configured\":true") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("private-user") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("private-password") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"password\"") == std::string::npos);
+
   TEST_ASSERT_TRUE(visible_config.find("\"connected\":true") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"ssid\":\"Lab\"") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"band\":\"5g\"") != std::string::npos);
@@ -364,6 +376,9 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
 
   const std::string diagnostics =
       direct.emit_request(DirectRequest{"read-diag", "diagnostics", "{}"});
+  TEST_ASSERT_TRUE(diagnostics.find("\"mqtt\":{") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("broker.local") == std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"scheme\"") == std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"event_clients\":1") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"minimum_free_memory_kb\":") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"largest_free_memory_kb\":1") != std::string::npos);
@@ -417,7 +432,9 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
   MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.device_id = 0x112233445566ULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   EspectreDeviceInfo info;
   info.frontend = "native";
   info.firmware_version = "test";
@@ -487,7 +504,9 @@ void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan
   MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   frontend.set_device_config(config);
   EspectreDeviceInfo info;
@@ -532,6 +551,28 @@ void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan
       direct_http_service_mock::state.published_events[0].data_json.c_str());
 }
 
+void test_native_frontend_keeps_direct_available_for_a_legacy_mqtt_endpoint(void) {
+  MockMqttTransport mqtt;
+  MockDirectHttpService direct;
+  NativeFrontend frontend(&mqtt, nullptr, &direct);
+  EspectreDeviceConfig legacy;
+  legacy.mqtt_host = "broker.local";
+  legacy.mqtt_port = 1883U;
+  frontend.set_device_config(legacy);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+  TEST_ASSERT_EQUAL(0, mqtt_transport_mock::state.setup_calls);
+  const std::string status = direct.emit_request(DirectRequest{"legacy-status", "status", "{}"});
+  TEST_ASSERT_TRUE(status.find("\"mqtt_configured\":false") != std::string::npos);
+  const std::string visible_config = direct.emit_request(DirectRequest{"legacy-config", "config", "{}"});
+  TEST_ASSERT_TRUE(visible_config.find("\"scheme\":\"\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"host\":\"broker.local\"") != std::string::npos);
+}
 
 int main(int argc, char **argv) {
   (void) argc;
@@ -543,6 +584,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_shutdown);
   RUN_TEST(test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets);
   RUN_TEST(test_native_frontend_direct_exposes_portal_reads_without_secrets);
+  RUN_TEST(test_native_frontend_keeps_direct_available_for_a_legacy_mqtt_endpoint);
   RUN_TEST(test_native_frontend_direct_set_sensing_is_correlated);
   RUN_TEST(test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet);
   RUN_TEST(test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out);
