@@ -66,7 +66,7 @@ class IDirectHttpService {
     bool deferred{false};
     std::string response;
     /** Runs on the frontend task after the response send attempt completes. */
-    ResponseSentCallback response_sent_callback;
+    ResponseSentCallback response_sent_callback{};
   };
   using DeferredRequestHandler =
       std::function<DeferredRequestResult(uint64_t request_token, const DirectRequest &request)>;

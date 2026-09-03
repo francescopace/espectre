@@ -31,6 +31,7 @@ void esp_wifi_mock_reset(void) {
   g_esp_wifi_mock.current_ap_info.rssi = -55;
   g_esp_wifi_mock.current_ap_info.primary = 6;
   g_esp_wifi_mock.scan_start_result = ESP_OK;
+  g_esp_wifi_mock.scan_stop_result = ESP_OK;
   g_esp_wifi_mock.scan_get_ap_num_result = ESP_OK;
   g_esp_wifi_mock.scan_get_ap_records_result = ESP_OK;
   g_esp_wifi_mock.mac[0] = 0x7C;

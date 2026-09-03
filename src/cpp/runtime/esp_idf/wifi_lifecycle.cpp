@@ -13,6 +13,11 @@
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"
 
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
 #if defined(CONFIG_ESP_COEX_SW_COEXIST_ENABLE) && __has_include("esp_coexist.h")
 #include "esp_coexist.h"
 #define ESPECTRE_HAVE_ESP_COEXIST 1
@@ -23,6 +28,11 @@ namespace espectre {
 static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 
 namespace {
+
+std::atomic<uint32_t> wifi_driver_generation{0U};
+#ifdef ESP_PLATFORM
+constexpr uint32_t WIFI_DRIVER_POWER_CYCLE_SETTLE_MS = 250U;
+#endif
 
 enum class WiFiProtocolPolicyPath : uint8_t {
   ALREADY_PINNED,
@@ -334,6 +344,38 @@ esp_err_t WiFiLifecycleManager::apply_started_csi_policy(WifiBandPolicy band_pol
   return ESP_OK;
 }
 
+esp_err_t WiFiLifecycleManager::reinitialize_stopped_station_driver(wifi_storage_t storage) {
+  esp_err_t err = esp_wifi_deinit();
+  if (err != ESP_OK) {
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to deinitialize Wi-Fi driver: %s",
+                  esp_err_to_name(err));
+    return err;
+  }
+
+#ifdef ESP_PLATFORM
+  // esp_wifi_deinit() powers down the shared Wi-Fi PHY domain. Give the radio
+  // a real off interval so the CSI measurement block cannot retain its final
+  // sample when the driver is initialized again in the same application.
+  vTaskDelay(pdMS_TO_TICKS(WIFI_DRIVER_POWER_CYCLE_SETTLE_MS));
+#endif
+
+  wifi_init_config_t wifi_config = WIFI_INIT_CONFIG_DEFAULT();
+  err = esp_wifi_init(&wifi_config);
+  if (err == ESP_OK) err = esp_wifi_set_promiscuous(false);
+  if (err == ESP_OK) err = esp_wifi_set_storage(storage);
+  if (err == ESP_OK) err = esp_wifi_set_mode(WIFI_MODE_STA);
+  if (err != ESP_OK) {
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to rebuild Wi-Fi station driver: %s",
+                  esp_err_to_name(err));
+    return err;
+  }
+
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG,
+                "Wi-Fi station driver rebuilt with promiscuous mode disabled");
+  wifi_driver_generation.fetch_add(1U, std::memory_order_release);
+  return ESP_OK;
+}
+
 // Configure WiFi for optimal CSI capture
 esp_err_t WiFiLifecycleManager::init() {
   if (ready_) {
@@ -352,6 +394,10 @@ esp_err_t WiFiLifecycleManager::init() {
     started_policy_attempted_.store(true, std::memory_order_relaxed);
     started_policy_err_.store(late_err, std::memory_order_relaxed);
     started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
+    if (late_err == ESP_OK) {
+      started_policy_driver_generation_.store(
+          wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
+    }
   }
 
   // A policy that was attempted and failed is a real radio failure, not an
@@ -466,6 +512,10 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
     started_policy_attempted_.store(true, std::memory_order_relaxed);
     started_policy_err_.store(late_err, std::memory_order_relaxed);
     started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
+    if (late_err == ESP_OK) {
+      started_policy_driver_generation_.store(
+          wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
+    }
     if (late_err != ESP_OK) {
       unregister_handlers();
       return late_err;
@@ -503,6 +553,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
 }
 
 void WiFiLifecycleManager::unregister_handlers() {
+  cancel_csi_receive_path_refresh();
   if (started_instance_) {
     esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_START, started_instance_);
     started_instance_ = nullptr;
@@ -518,9 +569,12 @@ void WiFiLifecycleManager::unregister_handlers() {
   }
 
   pending_events_.clear();
+  csi_rx_refresh_callback_ = {};
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
   started_policy_attempted_.store(false, std::memory_order_relaxed);
+  started_policy_driver_generation_.store(
+      wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
   ready_ = false;
   active_ip_info_ = {};
   ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
@@ -529,6 +583,22 @@ void WiFiLifecycleManager::unregister_handlers() {
 esp_err_t WiFiLifecycleManager::process_pending_events() {
   PendingWifiEvent event;
   while (pending_events_.take(event)) {
+    if (event.type == PendingWifiEventType::CSI_RX_REFRESHED) {
+      if (event.refresh_generation !=
+          csi_rx_refresh_generation_.load(std::memory_order_acquire)) {
+        continue;
+      }
+      if (scan_done_instance_) {
+        esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
+        scan_done_instance_ = nullptr;
+      }
+      wifi_csi_rx_refresh_callback_t callback = std::move(csi_rx_refresh_callback_);
+      csi_rx_refresh_callback_ = {};
+      if (callback) {
+        callback(event.result);
+      }
+      continue;
+    }
     if (event.type == PendingWifiEventType::DISCONNECTED) {
       ready_ = false;
       active_ip_info_ = {};
@@ -557,6 +627,61 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     active_ip_info_ = event.ip_info;
   }
   return ESP_OK;
+}
+
+esp_err_t WiFiLifecycleManager::refresh_csi_receive_path(
+    wifi_csi_rx_refresh_callback_t callback) {
+  if (!callback) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (scan_done_instance_ != nullptr || csi_rx_refresh_callback_) {
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  const esp_err_t promiscuous_err = esp_wifi_set_promiscuous(false);
+  if (promiscuous_err != ESP_OK) {
+    return promiscuous_err;
+  }
+
+  csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
+  esp_err_t err = esp_event_handler_instance_register(
+      WIFI_EVENT,
+      WIFI_EVENT_SCAN_DONE,
+      &WiFiLifecycleManager::wifi_event_handler_,
+      this,
+      &scan_done_instance_);
+  if (err != ESP_OK) {
+    return err;
+  }
+
+  csi_rx_refresh_callback_ = std::move(callback);
+  err = esp_wifi_scan_start(nullptr, false);
+  if (err != ESP_OK) {
+    csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
+    esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
+    scan_done_instance_ = nullptr;
+    csi_rx_refresh_callback_ = {};
+  }
+  return err;
+}
+
+void WiFiLifecycleManager::cancel_csi_receive_path_refresh() {
+  if (scan_done_instance_ == nullptr && !csi_rx_refresh_callback_) {
+    return;
+  }
+
+  csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
+  csi_rx_refresh_callback_ = {};
+  const esp_err_t stop_err = esp_wifi_scan_stop();
+  if (stop_err != ESP_OK) {
+    ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG,
+                  "CSI receive-path refresh scan was already stopped: %s",
+                  esp_err_to_name(stop_err));
+  }
+  if (scan_done_instance_) {
+    esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
+    scan_done_instance_ = nullptr;
+  }
 }
 
 void WiFiLifecycleManager::log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy) {
@@ -617,18 +742,34 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
     return;
   }
   if (event_id == WIFI_EVENT_STA_START) {
-    if (!manager->started_policy_applied_.load(std::memory_order_relaxed)) {
+    const uint32_t current_driver_generation =
+        wifi_driver_generation.load(std::memory_order_acquire);
+    if (!manager->started_policy_applied_.load(std::memory_order_relaxed) ||
+        manager->started_policy_driver_generation_.load(std::memory_order_relaxed) !=
+            current_driver_generation) {
       const esp_err_t err = apply_started_csi_policy(manager->band_policy_);
       manager->started_policy_attempted_.store(true, std::memory_order_relaxed);
       manager->started_policy_err_.store(err, std::memory_order_relaxed);
       if (err == ESP_OK) {
         manager->started_policy_applied_.store(true, std::memory_order_relaxed);
+        manager->started_policy_driver_generation_.store(
+            current_driver_generation, std::memory_order_relaxed);
       }
     }
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
     if (!manager->pending_events_.post_overwrite_oldest(
             PendingWifiEvent{PendingWifiEventType::DISCONNECTED, {}})) {
       ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
+    }
+  } else if (event_id == WIFI_EVENT_SCAN_DONE) {
+    const auto *event = static_cast<const wifi_event_sta_scan_done_t *>(event_data);
+    const esp_err_t result = event != nullptr && event->status == 0U ? ESP_OK : ESP_FAIL;
+    if (!manager->pending_events_.post_overwrite_oldest(
+            PendingWifiEvent{PendingWifiEventType::CSI_RX_REFRESHED, {}, result,
+                             manager->csi_rx_refresh_generation_.load(
+                                 std::memory_order_acquire)})) {
+      ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG,
+                    "Wi-Fi event queue overflowed; CSI receive refresh discarded");
     }
   }
 }

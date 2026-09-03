@@ -42,9 +42,12 @@ DIRECT_SAMPLE_PHASE_OFFSET_SECONDS = 0.125
 DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS = 0.075
 
 # Avoid sampling in lockstep with Micro's one-second cached diagnostics refresh.
-# A half-second phase offset prevents adjacent 4 s/6 s snapshot deltas while
-# keeping the runtime gap tolerance unchanged.
+# A half-second phase offset prevents adjacent 4 s/6 s snapshot deltas.
 MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS = 4.5
+
+# Micro serves diagnostics from a snapshot refreshed on a one-second cadence.
+# Allow that quantization without weakening the C++ frontend cadence check.
+MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS = 1000
 
 DIRECT_STABLE_SAMPLE_COUNT = 5
 

@@ -17,6 +17,7 @@ extern "C" {
 
 typedef void *httpd_handle_t;
 typedef int httpd_method_t;
+typedef esp_err_t (*httpd_open_func_t)(httpd_handle_t server, int socket);
 
 #define HTTP_GET 0
 #define HTTP_POST 1
@@ -47,12 +48,15 @@ typedef struct {
   uint16_t recv_wait_timeout;
   uint16_t send_wait_timeout;
   int core_id;
+  httpd_open_func_t open_fn;
 } httpd_config_t;
 
 #ifdef __cplusplus
-#define HTTPD_DEFAULT_CONFIG() (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1})
+#define HTTPD_DEFAULT_CONFIG() \
+  (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, nullptr})
 #else
-#define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1})
+#define HTTPD_DEFAULT_CONFIG() \
+  ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, NULL})
 #endif
 
 typedef esp_err_t (*httpd_uri_func_t)(httpd_req_t *request);

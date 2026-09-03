@@ -401,7 +401,9 @@ bool ESpectreComponent::begin_wifi_bssid_pin_update_(const std::string &bssid,
     this->wifi_bssid_apply_started_ms_ = 0U;
     return false;
   }
-  this->runtime_.set_services_armed(false);
+  if (this->wifi_bssid_apply_resume_sensing_) {
+    this->runtime_.set_services_armed(false);
+  }
 
   std::string apply_message;
   if (!this->apply_esphome_wifi_bssid_pin_(bssid, &apply_message)) {
@@ -575,7 +577,9 @@ void ESpectreComponent::handle_wifi_bssid_association_(const std::string &associ
   this->wifi_bssid_apply_started_ms_ = millis();
   this->wifi_bssid_apply_resume_sensing_ = this->runtime_.services_armed();
   this->wifi_bssid_apply_transition_started_ = false;
-  this->runtime_.set_services_armed(false);
+  if (this->wifi_bssid_apply_resume_sensing_) {
+    this->runtime_.set_services_armed(false);
+  }
   if (!this->apply_esphome_wifi_bssid_pin_(this->wifi_bssid_pin_, &apply_message)) {
     this->fail_wifi_bssid_apply_(apply_message.c_str());
   } else {

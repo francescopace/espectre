@@ -134,7 +134,7 @@ def test_direct_evidence_rejects_a_frozen_device_timestamp():
 def test_direct_evidence_accepts_micro_diagnostics_cadence():
     samples = [
         {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
-        {"host_elapsed_seconds": 4.5, "timestamp_ms": 5_000, "uptime": 5},
+        {"host_elapsed_seconds": 4.5, "timestamp_ms": 6_008, "uptime": 6},
         {"host_elapsed_seconds": 9.0, "timestamp_ms": 10_000, "uptime": 10},
         {"host_elapsed_seconds": 13.5, "timestamp_ms": 14_000, "uptime": 14},
     ]
@@ -146,12 +146,34 @@ def test_direct_evidence_accepts_micro_diagnostics_cadence():
         require_telemetry=False,
         require_detection_timing=False,
         sample_interval_seconds=benchmark_settings.MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
+        status_gap_tolerance_ms=benchmark_settings.MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
     )
 
     assert metrics.status_expected_samples == 4
-    assert metrics.status_interval_max_ms == 5_000
+    assert metrics.status_interval_max_ms == 5_008
     assert metrics.status_gap_count == 0
     assert not any("diagnostics gap" in reason for reason in reasons)
+
+
+def test_direct_evidence_rejects_micro_diagnostics_refresh_gap():
+    samples = [
+        {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
+        {"host_elapsed_seconds": 4.5, "timestamp_ms": 7_000, "uptime": 7},
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=9,
+        require_telemetry=False,
+        require_detection_timing=False,
+        sample_interval_seconds=benchmark_settings.MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
+        status_gap_tolerance_ms=benchmark_settings.MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
+    )
+
+    assert metrics.status_interval_max_ms == 6_000
+    assert metrics.status_gap_count == 1
+    assert "Direct diagnostics gap reached 6.00s" in reasons
 
 
 def test_direct_evidence_accepts_heap_that_reaches_a_final_plateau():

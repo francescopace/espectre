@@ -99,6 +99,9 @@ bool EspIdfRuntime::setup() {
     return true;
   }
 
+  csi_receive_path_refresh_required_ = false;
+  csi_receive_path_refresh_in_progress_ = false;
+
   const RuntimeConfigError config_error = validate_runtime_config(config_);
   if (config_error != RuntimeConfigError::NONE) {
     notify_fault_(runtime_config_error_message(config_error));
@@ -199,7 +202,10 @@ void EspIdfRuntime::shutdown() {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     (void) stop_raw_collection(RawCsiStopReason::SHUTDOWN);
   }
+  set_services_armed(false);
   on_wifi_disconnected_();
+  csi_receive_path_refresh_required_ = false;
+  csi_receive_path_refresh_in_progress_ = false;
   wifi_lifecycle_.unregister_handlers();
   setup_complete_ = false;
 }
@@ -283,13 +289,16 @@ void EspIdfRuntime::set_services_armed(bool armed) {
 
   if (!services_armed_) {
     ESPECTRE_LOGI(RUNTIME_TAG, "CSI services disarmed");
+    invalidate_csi_receive_path_refresh_();
+    csi_receive_path_refresh_required_ =
+        csi_receive_path_refresh_required_ || csi_pipeline_.is_enabled();
     stop_sensing_services_();
     return;
   }
 
   if (wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
     ESPECTRE_LOGI(RUNTIME_TAG, "CSI services armed, starting capture");
-    start_sensing_services_(wifi_ip_info_);
+    maybe_resume_sensing_after_wifi_reconfigure_();
   } else {
     ESPECTRE_LOGI(RUNTIME_TAG, "CSI services armed, waiting for Wi-Fi IP");
   }
@@ -663,11 +672,11 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
     wifi_channel_ = 0U;
   }
   if (!services_armed_) {
-    ESPECTRE_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not armed");
+    ESPECTRE_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not ready to resume");
     return;
   }
 
-  start_sensing_services_(ip_info);
+  maybe_resume_sensing_after_wifi_reconfigure_();
 }
 
 void EspIdfRuntime::on_wifi_disconnected_() {
@@ -679,7 +688,66 @@ void EspIdfRuntime::on_wifi_disconnected_() {
     (void) stop_raw_collection(RawCsiStopReason::WIFI_LOST);
     return;
   }
+  invalidate_csi_receive_path_refresh_();
+  csi_receive_path_refresh_required_ =
+      csi_receive_path_refresh_required_ || csi_pipeline_.is_enabled();
   stop_sensing_services_();
+}
+
+void EspIdfRuntime::invalidate_csi_receive_path_refresh_() {
+  if (!csi_receive_path_refresh_in_progress_) {
+    return;
+  }
+
+  wifi_lifecycle_.cancel_csi_receive_path_refresh();
+  csi_receive_path_refresh_in_progress_ = false;
+  csi_receive_path_refresh_required_ = true;
+}
+
+void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
+  if (!services_armed_ || !wifi_ready_ ||
+      wifi_ip_info_.ip.addr == 0U || csi_receive_path_refresh_in_progress_) {
+    return;
+  }
+  if (!csi_receive_path_refresh_required_) {
+    start_sensing_services_(wifi_ip_info_);
+    return;
+  }
+
+  csi_receive_path_refresh_required_ = false;
+  csi_receive_path_refresh_in_progress_ = true;
+  const esp_err_t refresh_err = wifi_lifecycle_.refresh_csi_receive_path(
+      [this](esp_err_t result) { finish_csi_receive_path_refresh_(result); });
+  if (refresh_err == ESP_OK) {
+    ESPECTRE_LOGI(RUNTIME_TAG,
+                  "Starting post-reassociation Wi-Fi scan to refresh the CSI receive path");
+    return;
+  }
+
+  csi_receive_path_refresh_in_progress_ = false;
+  ESPECTRE_LOGW(RUNTIME_TAG,
+                "Could not start post-reassociation Wi-Fi scan: %s; resuming sensing",
+                esp_err_to_name(refresh_err));
+  start_sensing_services_(wifi_ip_info_);
+}
+
+void EspIdfRuntime::finish_csi_receive_path_refresh_(esp_err_t result) {
+  csi_receive_path_refresh_in_progress_ = false;
+  if (result == ESP_OK) {
+    ESPECTRE_LOGI(RUNTIME_TAG, "Post-reassociation Wi-Fi scan completed; resuming sensing");
+  } else {
+    csi_receive_path_refresh_required_ = true;
+    ESPECTRE_LOGW(RUNTIME_TAG,
+                  "Post-reassociation Wi-Fi scan failed: %s; retrying refresh",
+                  esp_err_to_name(result));
+    if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+      maybe_resume_sensing_after_wifi_reconfigure_();
+    }
+    return;
+  }
+  if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+    start_sensing_services_(wifi_ip_info_);
+  }
 }
 
 void EspIdfRuntime::refresh_wifi_association_from_csi_() {
@@ -703,6 +771,17 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
   refresh_csi_local_identity_(ip_info.ip.addr);
 
   if (!csi_pipeline_.is_enabled()) {
+    // Keep associated CSI capture strictly non-promiscuous, including after a
+    // station stop/start cycle has rebuilt the Wi-Fi control block.
+    const esp_err_t promiscuous_err = esp_wifi_set_promiscuous(false);
+    if (promiscuous_err != ESP_OK) {
+      char message[112];
+      std::snprintf(message, sizeof(message), "Failed to disable promiscuous mode before CSI: %s",
+                    esp_err_to_name(promiscuous_err));
+      notify_fault_(message);
+      return;
+    }
+
     const CsiCaptureProfile profile = select_csi_capture_profile(wifi_channel_);
     snapshot_.csi_capture_profile = profile;
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {

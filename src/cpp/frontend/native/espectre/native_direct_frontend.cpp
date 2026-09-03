@@ -193,26 +193,30 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false,
-                  frontend_command_parse_error_code(parse_error), parse_error.c_str())};
+                  frontend_command_parse_error_code(parse_error), parse_error.c_str()),
+              {}};
     }
     if (!owner_.provisioning_command_callback_) {
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false, "unavailable",
-                  "Wi-Fi configuration changes are unavailable")};
+                  "Wi-Fi configuration changes are unavailable"),
+              {}};
     }
     if (wifi_response_pending_ || wifi_info_.apply_state == "verifying" ||
         wifi_info_.apply_state == "rolling_back" || wifi_info_.scan_pending) {
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false, "unavailable",
-                  "Wi-Fi BSSID update already in progress")};
+                  "Wi-Fi BSSID update already in progress"),
+              {}};
     }
     if (request.command != "clear_wifi_config" && wifi_info_.ssid.empty()) {
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false, "unavailable",
-                  "provision Wi-Fi over Improv Serial before selecting a BSSID")};
+                  "provision Wi-Fi over Improv Serial before selecting a BSSID"),
+              {}};
     }
     const DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
     wifi_response_pending_ = true;
@@ -233,23 +237,26 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
     };
   }
   if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
-    return {false, handle_request_(request, connection_token)};
+    return {false, handle_request_(request, connection_token), {}};
   }
   EspectreCommand command;
   command.command_id = request.command_id;
   command.command = request.command;
   if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "unsupported",
-                                                   "peer discovery is unavailable")};
+                                                   "peer discovery is unavailable"),
+            {}};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "invalid_params",
-                                                   "discover_peers does not accept parameters")};
+                                                   "discover_peers does not accept parameters"),
+            {}};
   }
   if (peer_discovery_->active()) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "conflict",
-                                                   "a peer discovery request is already active")};
+                                                   "a peer discovery request is already active"),
+            {}};
   }
   const bool started = peer_discovery_->start([this, connection_token, request_id = request.command_id,
                                                command_name = request.command](PeerDiscoverySnapshot snapshot) {
@@ -266,9 +273,10 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
   });
   if (!started) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "unavailable",
-                                                   "peer discovery could not be started")};
+                                                   "peer discovery could not be started"),
+            {}};
   }
-  return {true, {}};
+  return {true, {}, {}};
 }
 
 std::string NativeDirectFrontend::capabilities_payload() const {

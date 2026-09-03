@@ -111,6 +111,7 @@ class WiFiCSIMock : public IWiFiCSI {
  public:
   esp_err_t set_csi_config(const wifi_csi_config_t* config) override {
     (void)config;
+    calls_.push_back('C');
     return config_error_;
   }
   esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
@@ -208,6 +209,10 @@ void test_csi_pipeline_enable(void) {
     TEST_ASSERT_EQUAL(ESP_OK, err);
     TEST_ASSERT_TRUE(manager.is_enabled());
     TEST_ASSERT_TRUE(g_wifi_mock.is_enabled());
+    TEST_ASSERT_EQUAL(3U, g_wifi_mock.calls().size());
+    TEST_ASSERT_EQUAL('C', g_wifi_mock.calls()[0]);
+    TEST_ASSERT_EQUAL('R', g_wifi_mock.calls()[1]);
+    TEST_ASSERT_EQUAL('E', g_wifi_mock.calls()[2]);
 }
 
 void test_csi_pipeline_enable_twice_returns_ok(void) {
@@ -261,7 +266,12 @@ void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
     TEST_ASSERT_EQUAL(1, live_telemetry_callback_count);
 
     TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    g_wifi_mock.clear_calls();
     TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
+    TEST_ASSERT_EQUAL(3U, g_wifi_mock.calls().size());
+    TEST_ASSERT_EQUAL('C', g_wifi_mock.calls()[0]);
+    TEST_ASSERT_EQUAL('R', g_wifi_mock.calls()[1]);
+    TEST_ASSERT_EQUAL('E', g_wifi_mock.calls()[2]);
     process_timed_packets_(manager, csi_info, arrival_us, 2U, 10000U);
 
     TEST_ASSERT_EQUAL(2, live_telemetry_callback_count);
@@ -972,13 +982,18 @@ void test_csi_pipeline_enable_config_error(void) {
     LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, &g_wifi_mock);
-    
+
+    TEST_ASSERT_EQUAL(ESP_OK, g_wifi_mock.set_csi_rx_cb(nullptr, nullptr));
+    g_wifi_mock.clear_calls();
     g_wifi_mock.set_config_error(ESP_ERR_INVALID_ARG);
     
     esp_err_t result = manager.enable(nullptr);
     
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, result);
     TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
+    TEST_ASSERT_EQUAL(1U, g_wifi_mock.calls().size());
+    TEST_ASSERT_EQUAL('C', g_wifi_mock.calls()[0]);
 }
 
 void test_csi_pipeline_enable_callback_error(void) {

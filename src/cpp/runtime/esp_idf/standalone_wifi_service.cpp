@@ -314,7 +314,8 @@ esp_err_t StandaloneWifiService::start() {
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
   wifi_retry_count_ = 0;
-  station_restart_pending_ = false;
+  station_reconfigure_pending_ = false;
+  station_disconnect_pending_ = false;
   const esp_err_t err = esp_wifi_start();
   wifi_started_ = err == ESP_OK;
   return err;
@@ -406,7 +407,13 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
     ESPECTRE_LOGE(TAG, "Cannot change the Wi-Fi band policy without restarting the Wi-Fi service");
     return ESP_ERR_INVALID_STATE;
   }
+  if (station_reconfigure_pending_) {
+    ESPECTRE_LOGW(TAG, "Wi-Fi station reconfigure is already pending");
+    return ESP_ERR_INVALID_STATE;
+  }
 
+  const bool station_connection_active =
+      wifi_connect_requested_ || cached_ip_info_.ip.addr != 0U;
   config_ = config;
   clear_cached_ip_info_();
   wifi_retry_count_ = 0;
@@ -417,16 +424,85 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   if (!wifi_started_) {
     return configure_station_();
   }
+  if (!station_connection_active) {
+    return apply_station_config_and_connect_();
+  }
 
-  station_restart_pending_ = true;
+  station_reconfigure_pending_ = true;
+  station_disconnect_pending_ = true;
+  const esp_err_t disconnect_err = esp_wifi_disconnect();
+  if (disconnect_err == ESP_OK) {
+    ESPECTRE_LOGI(TAG, "Wi-Fi driver reconfigure requested; waiting for clean disconnect");
+    return ESP_OK;
+  }
+
+  // The connection latch can remain set while association has already been
+  // lost. In that case there is no peer state to tear down, so continue with
+  // the driver stop instead of abandoning the requested reconfiguration.
+  ESPECTRE_LOGW(TAG, "esp_wifi_disconnect before driver reconfigure failed: %s; stopping directly",
+                esp_err_to_name(disconnect_err));
+  station_disconnect_pending_ = false;
+  return stop_wifi_for_driver_reconfigure_();
+}
+
+esp_err_t StandaloneWifiService::apply_station_config_and_connect_() {
+  station_reconfigure_pending_ = false;
+  const esp_err_t config_err = configure_station_();
+  if (config_err != ESP_OK) {
+    ESPECTRE_LOGE(TAG, "Wi-Fi station reconfigure failed: %s",
+                  esp_err_to_name(config_err));
+    return config_err;
+  }
+
+  if (!has_text(config_.ssid)) {
+    ESPECTRE_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
+    return ESP_OK;
+  }
+
+  wifi_connect_requested_ = true;
+  const esp_err_t connect_err = esp_wifi_connect();
+  if (connect_err != ESP_OK) {
+    wifi_connect_requested_ = false;
+    ESPECTRE_LOGE(TAG, "esp_wifi_connect after reconfigure failed: %s",
+                  esp_err_to_name(connect_err));
+    return connect_err;
+  }
+  ESPECTRE_LOGI(TAG, "Wi-Fi station config updated; reconnecting");
+  return ESP_OK;
+}
+
+esp_err_t StandaloneWifiService::stop_wifi_for_driver_reconfigure_() {
   const esp_err_t err = esp_wifi_stop();
   if (err != ESP_OK) {
-    station_restart_pending_ = false;
-    ESPECTRE_LOGE(TAG, "esp_wifi_stop before reconfigure failed: %s", esp_err_to_name(err));
+    station_reconfigure_pending_ = false;
+    ESPECTRE_LOGE(TAG, "esp_wifi_stop before driver reconfigure failed: %s", esp_err_to_name(err));
     return err;
   }
-  ESPECTRE_LOGI(TAG, "Wi-Fi station state machine restart requested");
+  ESPECTRE_LOGI(TAG, "Wi-Fi station disconnected; waiting for driver stop");
   return ESP_OK;
+}
+
+esp_err_t StandaloneWifiService::restart_wifi_driver_() {
+  esp_err_t err =
+      WiFiLifecycleManager::reinitialize_stopped_station_driver(WIFI_STORAGE_RAM);
+  if (err == ESP_OK) err = configure_station_();
+  if (err != ESP_OK) {
+    station_reconfigure_pending_ = false;
+    ESPECTRE_LOGE(TAG, "Wi-Fi driver reinitialization failed: %s", esp_err_to_name(err));
+    return err;
+  }
+
+  station_reconfigure_pending_ = false;
+  station_disconnect_pending_ = false;
+  wifi_connect_requested_ = false;
+  defer_connect_once_after_start_ = false;
+  const esp_err_t start_err = esp_wifi_start();
+  wifi_started_ = start_err == ESP_OK;
+  if (start_err != ESP_OK) {
+    ESPECTRE_LOGE(TAG, "esp_wifi_start after driver reconfigure failed: %s",
+                  esp_err_to_name(start_err));
+  }
+  return start_err;
 }
 
 void StandaloneWifiService::shutdown() {
@@ -449,7 +525,8 @@ void StandaloneWifiService::shutdown() {
     wifi_lifecycle_.unregister_handlers();
   }
   setup_complete_ = false;
-  station_restart_pending_ = false;
+  station_reconfigure_pending_ = false;
+  station_disconnect_pending_ = false;
   scan_pending_ = false;
   scan_callback_ = {};
   pending_events_.clear();
@@ -499,19 +576,8 @@ void StandaloneWifiService::handle_wifi_stopped_() {
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
   clear_cached_ip_info_();
-  if (!station_restart_pending_) {
-    return;
-  }
-
-  station_restart_pending_ = false;
-  const esp_err_t config_err = configure_station_();
-  if (config_err != ESP_OK) {
-    ESPECTRE_LOGE(TAG, "Wi-Fi station reconfigure failed after stop: %s", esp_err_to_name(config_err));
-  }
-  defer_connect_once_after_start_ = true;
-  const esp_err_t start_err = esp_wifi_start();
-  if (start_err != ESP_OK) {
-    ESPECTRE_LOGE(TAG, "esp_wifi_start after reconfigure failed: %s", esp_err_to_name(start_err));
+  if (station_reconfigure_pending_) {
+    (void)restart_wifi_driver_();
   }
 }
 
@@ -524,6 +590,13 @@ void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
   wifi_connect_requested_ = false;
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
+  if (station_reconfigure_pending_) {
+    if (station_disconnect_pending_) {
+      station_disconnect_pending_ = false;
+      (void)apply_station_config_and_connect_();
+    }
+    return;
+  }
   if (has_text(config_.ssid) && wifi_retry_count_ < config_.max_retry) {
     wifi_retry_count_++;
     wifi_connect_requested_ = true;

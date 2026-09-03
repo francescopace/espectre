@@ -926,6 +926,13 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
     }
     return false;
   }
+  if (payload.size() > ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE) {
+    if (error != nullptr) {
+      *error = "command payload exceeds the size limit";
+    }
+    *command = EspectreCommand{};
+    return false;
+  }
   std::vector<JsonObjectField> fields;
   std::string json_error;
   if (!parse_json_object_fields(payload, &fields, &json_error)) {

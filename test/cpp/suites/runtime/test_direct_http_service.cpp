@@ -85,8 +85,29 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.task_priority);
   TEST_ASSERT_EQUAL(5U, g_httpd_mock.last_config.recv_wait_timeout);
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.send_wait_timeout);
+  TEST_ASSERT_TRUE(g_httpd_mock.last_config.open_fn != nullptr);
+  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.last_config.open_fn(nullptr, -1));
   service.shutdown();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.stop_calls);
+}
+
+void test_destructor_does_not_dispatch_application_callbacks() {
+  httpd_mock_reset();
+  size_t client_count_callbacks = 0U;
+  size_t raw_stop_callbacks = 0U;
+  {
+    EspIdfDirectHttpService service;
+    TEST_ASSERT_TRUE(service.setup(
+        config(),
+        [](const auto &) { return std::string{"{}"}; },
+        [&client_count_callbacks](size_t) { ++client_count_callbacks; }));
+    RawCsiSessionConfig session{};
+    session.session_id[0] = 1U;
+    TEST_ASSERT_TRUE(service.start_raw_session(
+        session, [&raw_stop_callbacks](RawCsiStopReason) { ++raw_stop_callbacks; }));
+  }
+  TEST_ASSERT_EQUAL(0U, client_count_callbacks);
+  TEST_ASSERT_EQUAL(0U, raw_stop_callbacks);
 }
 
 void test_shutdown_releases_the_client_count_callback_before_reuse() {
@@ -373,7 +394,7 @@ void test_deferred_post_completes_only_once() {
       [&token, &request_id](uint64_t current, const DirectRequest &request) {
         token = current;
         request_id = request.command_id;
-        return IDirectHttpService::DeferredRequestResult{true, {}};
+        return IDirectHttpService::DeferredRequestResult{true, {}, {}};
       },
       {}));
   prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"peers\",\"command\":\"discover_peers\"}");
@@ -698,6 +719,7 @@ void test_raw_assigns_sequence_before_rejecting_an_invalid_offer() {
 int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_setup_registers_http_post_sse_raw_and_preflight);
+  RUN_TEST(test_destructor_does_not_dispatch_application_callbacks);
   RUN_TEST(test_shutdown_releases_the_client_count_callback_before_reuse);
   RUN_TEST(test_post_does_not_enqueue_after_shutdown_starts);
   RUN_TEST(test_sse_does_not_register_after_shutdown_starts);

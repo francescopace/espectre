@@ -14,6 +14,7 @@
 #include "esp_event.h"
 #include "esp_err.h"
 #include "esp_netif.h"
+#include "esp_wifi.h"
 #include <functional>
 
 #include "pending_queue.h"
@@ -24,6 +25,7 @@ namespace espectre {
 // Callback types
 using wifi_connected_callback_t = std::function<void(const esp_netif_ip_info_t &)>;
 using wifi_disconnected_callback_t = std::function<void()>;
+using wifi_csi_rx_refresh_callback_t = std::function<void(esp_err_t)>;
 
 /**
  * WiFi Lifecycle Manager
@@ -65,11 +67,32 @@ class WiFiLifecycleManager {
   esp_err_t process_pending_events();
 
   /**
+   * Run the asynchronous station scan required to refresh the CSI receive
+   * path after reassociation. Promiscuous mode is kept disabled throughout.
+   * The completion callback runs from process_pending_events().
+   */
+  esp_err_t refresh_csi_receive_path(wifi_csi_rx_refresh_callback_t callback);
+
+  /**
+   * Cancel an in-flight CSI receive-path refresh. Late scan completion events
+   * are invalidated and cannot invoke the canceled callback.
+   */
+  void cancel_csi_receive_path_refresh();
+
+  /**
    * Apply the short CSI radio policy that must run after WIFI_EVENT_STA_START
    * and before association. Safe to call more than once; later calls are
    * no-ops once protocol, bandwidth, and power-save already match.
    */
   static esp_err_t apply_started_csi_policy(WifiBandPolicy band_policy = WifiBandPolicy::BAND_2G);
+
+  /**
+   * Reinitialize an already-stopped station driver and restore the invariants
+   * required by every CSI frontend. The caller remains responsible for
+   * applying its station configuration and starting the driver.
+   */
+  static esp_err_t reinitialize_stopped_station_driver(
+      wifi_storage_t storage = WIFI_STORAGE_RAM);
 
  private:
   esp_err_t init();
@@ -85,20 +108,25 @@ class WiFiLifecycleManager {
   // Callbacks
   wifi_connected_callback_t connected_callback_;
   wifi_disconnected_callback_t disconnected_callback_;
+  wifi_csi_rx_refresh_callback_t csi_rx_refresh_callback_;
   
   // Event handler instances
   esp_event_handler_instance_t connected_instance_{nullptr};
   esp_event_handler_instance_t disconnected_instance_{nullptr};
   esp_event_handler_instance_t started_instance_{nullptr};
+  esp_event_handler_instance_t scan_done_instance_{nullptr};
 
   enum class PendingWifiEventType : uint8_t {
     CONNECTED,
     DISCONNECTED,
+    CSI_RX_REFRESHED,
   };
 
   struct PendingWifiEvent {
     PendingWifiEventType type{PendingWifiEventType::DISCONNECTED};
     esp_netif_ip_info_t ip_info{};
+    esp_err_t result{ESP_OK};
+    uint32_t refresh_generation{0U};
   };
 
   // Wi-Fi transitions are infrequent; this absorbs a short event-loop burst
@@ -106,6 +134,8 @@ class WiFiLifecycleManager {
   PendingQueue<PendingWifiEvent, 8U> pending_events_;
   std::atomic<esp_err_t> started_policy_err_{ESP_ERR_INVALID_STATE};
   std::atomic<bool> started_policy_applied_{false};
+  std::atomic<uint32_t> started_policy_driver_generation_{0U};
+  std::atomic<uint32_t> csi_rx_refresh_generation_{0U};
   // Distinguishes "STA_START never reached us" from "it did and the policy
   // failed". Only the first is recoverable at GOT_IP; the second is a real
   // radio failure that must propagate. The error code alone cannot tell them

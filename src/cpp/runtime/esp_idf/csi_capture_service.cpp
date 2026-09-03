@@ -105,6 +105,8 @@ esp_err_t CsiCaptureService::enable(CsiCaptureProfile profile) {
   reset_channel_tracking_();
   rx_timestamp_tracker_.reset();
 
+  // Follow Espressif's CSI initialization order: configure the measurement
+  // engine, register the receive callback, and then enable the hardware path.
   esp_err_t err = configure_platform_specific_();
   last_configure_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {

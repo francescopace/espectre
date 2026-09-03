@@ -22,7 +22,7 @@ inline constexpr uint16_t ESPECTRE_DIRECT_HTTP_PORT = 0xF47BU;  // 62587
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT = "/espectre/v1/request";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT = "/espectre/v1/events";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_TRANSPORT = "http";
-inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_SIZE = 4096U;
+inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_SIZE = ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE;
 inline constexpr size_t ESPECTRE_DIRECT_MAX_RESPONSE_SIZE = 8192U;
 /** @deprecated Use `ESPECTRE_COMMAND_ID_MAX_LENGTH`; Direct uses the canonical limit. */
 [[deprecated("use ESPECTRE_COMMAND_ID_MAX_LENGTH")]] inline constexpr size_t

@@ -398,15 +398,24 @@ void test_matter_frontend_quiesces_sensing_while_wifi_is_reconfigured(void) {
   TEST_ASSERT_TRUE(frontend.setup());
   TEST_ASSERT_TRUE(frontend.runtime_services_armed());
   TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+  const int initial_set_services_armed_calls =
+      frontend_runtime_shim::state.set_services_armed_calls;
 
   frontend.prepare_for_wifi_reconfigure();
   TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(initial_set_services_armed_calls + 1,
+                    frontend_runtime_shim::state.set_services_armed_calls);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
 
   frontend.resume_after_wifi_reconfigure();
   TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
   frontend.loop();
   TEST_ASSERT_TRUE(frontend.runtime_services_armed());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(initial_set_services_armed_calls + 2,
+                    frontend_runtime_shim::state.set_services_armed_calls);
 
   TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
   frontend.prepare_for_wifi_reconfigure();

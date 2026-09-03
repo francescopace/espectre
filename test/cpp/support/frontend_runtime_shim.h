@@ -65,6 +65,7 @@ struct State {
   int trigger_recalibration_calls{0};
   bool calibrating{false};
   bool services_armed{true};
+  int set_services_armed_calls{0};
   bool live_telemetry_enabled{true};
   int set_live_telemetry_enabled_calls{0};
   bool emit_threshold_on_next_loop{false};

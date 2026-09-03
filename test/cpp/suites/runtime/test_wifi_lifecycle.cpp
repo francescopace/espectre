@@ -29,6 +29,14 @@ struct StandaloneWifiServiceTestAccess {
   static void expire_deferred_connect_fallback(StandaloneWifiService &service) {
     service.deferred_connect_fallback_deadline_us_ = 0U;
   }
+
+  static bool station_reconfigure_pending(const StandaloneWifiService &service) {
+    return service.station_reconfigure_pending_;
+  }
+
+  static bool station_disconnect_pending(const StandaloneWifiService &service) {
+    return service.station_disconnect_pending_;
+  }
 };
 
 }  // namespace espectre
@@ -193,6 +201,75 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   manager.process_pending_events();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, disconnected_calls);
+}
+
+void test_wifi_lifecycle_refreshes_csi_receive_path_without_promiscuous_mode(void) {
+  WiFiLifecycleManager manager;
+  esp_err_t observed_result = ESP_FAIL;
+  int callback_count = 0;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK,
+      manager.refresh_csi_receive_path([&](esp_err_t result) {
+        observed_result = result;
+        callback_count++;
+      }));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_scan_block);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_scan_configured);
+  TEST_ASSERT_EQUAL(
+      ESP_ERR_INVALID_STATE,
+      manager.refresh_csi_receive_path([](esp_err_t) {}));
+
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_EQUAL(0, callback_count);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callback_count);
+  TEST_ASSERT_EQUAL(ESP_OK, observed_result);
+}
+
+void test_wifi_lifecycle_csi_receive_refresh_requires_promiscuous_disabled(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.set_promiscuous_result = ESP_FAIL;
+
+  TEST_ASSERT_EQUAL(
+      ESP_FAIL,
+      manager.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+}
+
+void test_wifi_lifecycle_cancel_invalidates_pending_csi_refresh_completion(void) {
+  WiFiLifecycleManager manager;
+  int canceled_callback_count = 0;
+  int completed_callback_count = 0;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK,
+      manager.refresh_csi_receive_path(
+          [&](esp_err_t) { canceled_callback_count++; }));
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+
+  manager.cancel_csi_receive_path_refresh();
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, canceled_callback_count);
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK,
+      manager.refresh_csi_receive_path(
+          [&](esp_err_t result) {
+            TEST_ASSERT_EQUAL(ESP_OK, result);
+            completed_callback_count++;
+          }));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, completed_callback_count);
 }
 
 void test_wifi_lifecycle_restores_an_already_connected_station(void) {
@@ -404,6 +481,33 @@ void test_standalone_wifi_service_applies_policy_and_connects_on_start(void) {
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
 }
 
+void test_wifi_lifecycle_reapplies_policy_after_shared_driver_reinitialize(void) {
+  WiFiLifecycleManager manager;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK,
+      WiFiLifecycleManager::reinitialize_stopped_station_driver(WIFI_STORAGE_RAM));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.deinit_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.init_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_storage_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_mode_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
+
+  // The mock driver does not reset radio fields during init, so model the
+  // post-init default explicitly and verify that the generation change makes
+  // the same manager apply its CSI policy again.
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_bandwidth_call_count);
+  manager.unregister_handlers();
+}
+
 void test_standalone_wifi_service_unmanaged_applies_policy_before_connect(void) {
   StandaloneWifiService service;
   StandaloneWifiConfig config;
@@ -572,31 +676,100 @@ void test_standalone_wifi_service_update_station_config_handles_setup_and_reconn
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
 
   TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  ip_event_got_ip_t got_ip_event{};
+  got_ip_event.ip_info.ip.addr = 0x3701A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip_event);
+  service.loop();
   StandaloneWifiConfig empty = config;
   empty.ssid = "";
   TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(empty));
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.stop_call_count);
+  TEST_ASSERT_TRUE(StandaloneWifiServiceTestAccess::station_reconfigure_pending(service));
+  TEST_ASSERT_TRUE(StandaloneWifiServiceTestAccess::station_disconnect_pending(service));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.stop_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.start_call_count);
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  wifi_event_sta_disconnected_t disconnect_event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_event);
   service.loop();
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.start_call_count);
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
-  service.loop();
+  TEST_ASSERT_FALSE(StandaloneWifiServiceTestAccess::station_reconfigure_pending(service));
+  TEST_ASSERT_FALSE(StandaloneWifiServiceTestAccess::station_disconnect_pending(service));
+  TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.stop_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.deinit_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.init_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_promiscuous_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
 
   TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(config));
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.stop_call_count);
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
-  service.loop();
-  TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.start_call_count);
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
-  service.loop();
-  TEST_ASSERT_TRUE(StandaloneWifiServiceTestAccess::deferred_connect_fallback_pending(service));
-  StandaloneWifiServiceTestAccess::expire_deferred_connect_fallback(service);
-  service.loop();
+  TEST_ASSERT_FALSE(StandaloneWifiServiceTestAccess::station_reconfigure_pending(service));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(4, g_esp_wifi_mock.set_config_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
-  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_sequences[3] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.stop_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.start_call_count);
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_ps_call_count);
+}
+
+void test_standalone_wifi_service_update_station_config_handles_idle_station(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+
+  StandaloneWifiConfig updated = config;
+  updated.ssid = "ProvisionedSSID";
+  updated.password = "secret";
+  TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(updated));
+  TEST_ASSERT_FALSE(StandaloneWifiServiceTestAccess::station_reconfigure_pending(service));
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_sequences[1] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.stop_call_count);
+}
+
+void test_standalone_wifi_service_leaves_csi_refresh_to_shared_runtime(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.password = "secret";
+  int connected_count = 0;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK,
+      service.setup(config, [&connected_count]() { connected_count++; }));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  ip_event_got_ip_t got_ip{};
+  got_ip.ip_info.ip.addr = 0x3701A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip);
+  service.loop();
+  TEST_ASSERT_EQUAL(1, connected_count);
+
+  StandaloneWifiConfig updated = config;
+  updated.bssid = "AA:BB:CC:DD:EE:FF";
+  updated.channel = 6U;
+  TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(updated));
+  wifi_event_sta_disconnected_t disconnected{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  service.loop();
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.stop_call_count);
+
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip);
+  service.loop();
+  TEST_ASSERT_EQUAL(2, connected_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
 }
 
 void test_standalone_wifi_service_update_station_config_rejects_invalid_bssid(void) {
@@ -714,6 +887,9 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
+  RUN_TEST(test_wifi_lifecycle_refreshes_csi_receive_path_without_promiscuous_mode);
+  RUN_TEST(test_wifi_lifecycle_csi_receive_refresh_requires_promiscuous_disabled);
+  RUN_TEST(test_wifi_lifecycle_cancel_invalidates_pending_csi_refresh_completion);
   RUN_TEST(test_wifi_lifecycle_restores_an_already_connected_station);
   RUN_TEST(test_wifi_lifecycle_waits_for_fresh_ip_after_late_policy_change);
   RUN_TEST(test_wifi_lifecycle_restarts_station_when_late_policy_getter_fails);
@@ -724,6 +900,7 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);
   RUN_TEST(test_standalone_wifi_service_configures_fast_scan_bssid_and_channel);
   RUN_TEST(test_standalone_wifi_service_applies_policy_and_connects_on_start);
+  RUN_TEST(test_wifi_lifecycle_reapplies_policy_after_shared_driver_reinitialize);
   RUN_TEST(test_standalone_wifi_service_unmanaged_applies_policy_before_connect);
   RUN_TEST(test_standalone_wifi_service_reconnects_after_sta_stop);
   RUN_TEST(test_standalone_wifi_service_runs_deferred_connect_fallback_once);
@@ -731,6 +908,8 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_service_get_info_reports_station_details);
   RUN_TEST(test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event);
   RUN_TEST(test_standalone_wifi_service_update_station_config_handles_setup_and_reconnect_paths);
+  RUN_TEST(test_standalone_wifi_service_update_station_config_handles_idle_station);
+  RUN_TEST(test_standalone_wifi_service_leaves_csi_refresh_to_shared_runtime);
   RUN_TEST(test_standalone_wifi_service_update_station_config_rejects_invalid_bssid);
   RUN_TEST(test_standalone_wifi_service_reports_asynchronous_scan_snapshot);
   RUN_TEST(test_standalone_wifi_service_apply_started_policy_and_reconnect_logic);

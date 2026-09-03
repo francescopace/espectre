@@ -85,6 +85,9 @@ class StandaloneWifiService {
   static void wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
   esp_err_t configure_station_();
+  esp_err_t apply_station_config_and_connect_();
+  esp_err_t stop_wifi_for_driver_reconfigure_();
+  esp_err_t restart_wifi_driver_();
   void handle_wifi_started_();
   void handle_wifi_stopped_();
   void handle_wifi_disconnected_(uint8_t reason);
@@ -106,7 +109,8 @@ class StandaloneWifiService {
   bool defer_connect_once_after_start_{false};
   bool deferred_connect_fallback_pending_{false};
   bool wifi_started_{false};
-  bool station_restart_pending_{false};
+  bool station_reconfigure_pending_{false};
+  bool station_disconnect_pending_{false};
   bool scan_pending_{false};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   int wifi_retry_count_{0};

@@ -520,6 +520,8 @@ void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
   TEST_ASSERT_EQUAL(ESP_OK, manager.start());
   emit_got_ip(&manager);
   const int stop_calls = g_esp_wifi_mock.stop_call_count;
+  const int disconnect_calls = g_esp_wifi_mock.disconnect_call_count;
+  const int set_config_calls = g_esp_wifi_mock.set_config_call_count;
   const int connect_calls = g_esp_wifi_mock.connect_call_count;
 
   TEST_ASSERT_TRUE(service.handle_command("CLEAR_WIFI", &message));
@@ -529,9 +531,13 @@ void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
   TEST_ASSERT_TRUE(service.config().password.empty());
   TEST_ASSERT_TRUE(service.config().bssid.empty());
   TEST_ASSERT_EQUAL_UINT8(0U, service.config().channel);
-  TEST_ASSERT_EQUAL(stop_calls + 1, g_esp_wifi_mock.stop_call_count);
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_STOP, nullptr);
+  TEST_ASSERT_EQUAL(stop_calls, g_esp_wifi_mock.stop_call_count);
+  TEST_ASSERT_EQUAL(disconnect_calls + 1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(set_config_calls, g_esp_wifi_mock.set_config_call_count);
+  wifi_event_sta_disconnected_t disconnect_event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_event);
   manager.loop();
+  TEST_ASSERT_EQUAL(set_config_calls + 1, g_esp_wifi_mock.set_config_call_count);
   TEST_ASSERT_EQUAL_STRING("", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
   TEST_ASSERT_EQUAL(connect_calls, g_esp_wifi_mock.connect_call_count);
 

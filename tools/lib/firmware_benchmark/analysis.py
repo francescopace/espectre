@@ -70,6 +70,7 @@ def analyze_direct_evidence(
     require_telemetry: bool,
     require_detection_timing: bool,
     sample_interval_seconds: float = DIRECT_SAMPLE_INTERVAL_SECONDS,
+    status_gap_tolerance_ms: int = RUNTIME_STATUS_GAP_TOLERANCE_MS,
     attempts: Sequence[dict[str, object]] = (),
 ) -> tuple[RuntimeMetrics, list[str]]:
     metrics = RuntimeMetrics()
@@ -112,7 +113,7 @@ def analyze_direct_evidence(
                     stale_timestamps += 1
         metrics.status_interval_mean_ms = statistics.fmean(gaps)
         metrics.status_interval_max_ms = int(max(gaps))
-        max_gap_ms = int(sample_interval_seconds * 1000) + RUNTIME_STATUS_GAP_TOLERANCE_MS
+        max_gap_ms = int(sample_interval_seconds * 1000) + status_gap_tolerance_ms
         metrics.status_gap_count = sum(gap > max_gap_ms for gap in gaps)
         if metrics.status_gap_count:
             reasons.append(f"Direct diagnostics gap reached {max(gaps) / 1000.0:.2f}s")

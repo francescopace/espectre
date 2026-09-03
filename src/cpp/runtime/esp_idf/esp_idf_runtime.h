@@ -68,6 +68,9 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void cancel_calibration_(bool notify_listener);
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
+  void invalidate_csi_receive_path_refresh_();
+  void maybe_resume_sensing_after_wifi_reconfigure_();
+  void finish_csi_receive_path_refresh_(esp_err_t result);
   void refresh_wifi_association_from_csi_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
   void stop_sensing_services_();
@@ -112,6 +115,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   esp_netif_ip_info_t wifi_ip_info_{};
   int8_t wifi_rssi_dbm_{INT8_MIN};
   uint8_t wifi_channel_{0U};
+  bool csi_receive_path_refresh_required_{false};
+  bool csi_receive_path_refresh_in_progress_{false};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
 };
 

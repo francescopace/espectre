@@ -284,12 +284,20 @@ typedef struct {
   esp_err_t get_promiscuous_result;
   bool promiscuous;
 
+  int set_csi_call_count;
+  bool csi_enabled;
+  int set_csi_rx_cb_call_count;
+  wifi_csi_cb_t csi_callback;
+  void *csi_callback_context;
+
   esp_err_t get_ps_result;
   wifi_ps_type_t ps_type;
   int set_ps_call_count;
   wifi_ps_type_t last_set_ps_type;
 
   int init_call_count;
+  esp_err_t deinit_result;
+  int deinit_call_count;
   int set_storage_call_count;
   int set_mode_call_count;
   esp_err_t start_results[4];
@@ -316,6 +324,8 @@ typedef struct {
   wifi_ap_record_t current_ap_info;
   esp_err_t scan_start_result;
   int scan_start_call_count;
+  esp_err_t scan_stop_result;
+  int scan_stop_call_count;
   bool last_scan_block;
   bool last_scan_configured;
   char last_scan_ssid[33];
@@ -357,6 +367,11 @@ static inline esp_err_t esp_wifi_init(const wifi_init_config_t *config) {
   (void)config;
   g_esp_wifi_mock.init_call_count++;
   return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_deinit(void) {
+  g_esp_wifi_mock.deinit_call_count++;
+  return g_esp_wifi_mock.deinit_result;
 }
 
 static inline esp_err_t esp_wifi_set_storage(wifi_storage_t storage) {
@@ -431,6 +446,11 @@ static inline esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *config, bo
   return g_esp_wifi_mock.scan_start_result;
 }
 
+static inline esp_err_t esp_wifi_scan_stop(void) {
+  g_esp_wifi_mock.scan_stop_call_count++;
+  return g_esp_wifi_mock.scan_stop_result;
+}
+
 static inline esp_err_t esp_wifi_scan_get_ap_num(uint16_t *number) {
   if (number != nullptr) {
     *number = g_esp_wifi_mock.scan_ap_count;
@@ -493,13 +513,15 @@ esp_wifi_set_csi_config(const wifi_csi_config_t *config) {
 }
 
 static inline esp_err_t esp_wifi_set_csi_rx_cb(wifi_csi_cb_t cb, void *ctx) {
-  (void)cb;
-  (void)ctx;
+  g_esp_wifi_mock.set_csi_rx_cb_call_count++;
+  g_esp_wifi_mock.csi_callback = cb;
+  g_esp_wifi_mock.csi_callback_context = ctx;
   return ESP_OK;
 }
 
 static inline esp_err_t esp_wifi_set_csi(bool en) {
-  (void)en;
+  g_esp_wifi_mock.set_csi_call_count++;
+  g_esp_wifi_mock.csi_enabled = en;
   return ESP_OK;
 }
 

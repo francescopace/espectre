@@ -20,6 +20,7 @@
 #include "runtime_config_utils.h"
 #include "runtime_diagnostics.h"
 #include "runtime_time.h"
+#include "wifi_lifecycle.h"
 
 #if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
 #include "esp_wifi.h"
@@ -293,13 +294,15 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
       return {false,
               espectre_command_result_payload(
                   device, command, false,
-                  frontend_command_parse_error_code(parse_error), parse_error.c_str())};
+                  frontend_command_parse_error_code(parse_error), parse_error.c_str()),
+              {}};
     }
     if (wifi_response_pending_) {
       return {false,
               espectre_command_result_payload(
                   device, command, false, "unavailable",
-                  "Wi-Fi BSSID update already in progress")};
+                  "Wi-Fi BSSID update already in progress"),
+              {}};
     }
     std::string preflight_message;
     if (config_.wifi_bssid_pin_preflight &&
@@ -309,7 +312,8 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
                   device, command, false, "unavailable",
                   preflight_message.empty()
                       ? "Wi-Fi BSSID update is unavailable"
-                      : preflight_message.c_str())};
+                      : preflight_message.c_str()),
+              {}};
     }
     const DirectWifiSnapshot wifi = wifi_snapshot_();
     wifi_response_pending_ = true;
@@ -327,7 +331,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
     };
   }
   if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
-    return {false, handle_request_(request)};
+    return {false, handle_request_(request), {}};
   }
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
@@ -336,16 +340,19 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
   command.command = request.command;
   if (!deferred_requests_enabled_ || config_.peer_discovery == nullptr) {
     return {false, espectre_command_result_payload(device, command, false, "unsupported",
-                                                   "peer discovery is unavailable")};
+                                                   "peer discovery is unavailable"),
+            {}};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     return {false, espectre_command_result_payload(device, command, false, "invalid_params",
-                                                   "discover_peers does not accept parameters")};
+                                                   "discover_peers does not accept parameters"),
+            {}};
   }
   if (config_.peer_discovery->active()) {
     return {false, espectre_command_result_payload(device, command, false, "conflict",
-                                                   "a peer discovery request is already active")};
+                                                   "a peer discovery request is already active"),
+            {}};
   }
   config_.peer_discovery->set_wifi_ready(read_direct_wifi_connected());
   const bool started = config_.peer_discovery->start(
@@ -364,9 +371,10 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
       });
   if (!started) {
     return {false, espectre_command_result_payload(device, command, false, "unavailable",
-                                                   "peer discovery could not be started")};
+                                                   "peer discovery could not be started"),
+            {}};
   }
-  return {true, {}};
+  return {true, {}, {}};
 }
 
 EspectreCapabilityProfile RuntimeDirectHttpBridge::capability_profile_() const {
@@ -504,55 +512,58 @@ bool apply_wifi_bssid_pin(const std::string &bssid,
     config.sta.bssid_set = true;
     config.sta.channel = 0U;
   }
-  const esp_err_t stop_err = esp_wifi_stop();
-  if (stop_err != ESP_OK) {
+  const esp_err_t disconnect_err = esp_wifi_disconnect();
+  if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
     if (message != nullptr) {
-      *message = std::string("Wi-Fi BSSID pin update failed while stopping the station: ") +
-                 esp_err_to_name(stop_err);
+      *message = std::string("Wi-Fi BSSID pin update failed while disconnecting the station: ") +
+                 esp_err_to_name(disconnect_err);
+    }
+    return false;
+  }
+  if (disconnect_err == ESP_OK && station_transition_started != nullptr) {
+    *station_transition_started = true;
+  }
+
+  const esp_err_t update_err = esp_wifi_set_config(WIFI_IF_STA, &config);
+  if (update_err != ESP_OK) {
+    const esp_err_t restore_err = esp_wifi_set_config(WIFI_IF_STA, &original_config);
+    const esp_err_t reconnect_err = restore_err == ESP_OK ? esp_wifi_connect() : restore_err;
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while setting the station config: ") +
+                 esp_err_to_name(update_err);
+      *message += reconnect_err == ESP_OK
+                      ? "; previous station association restarted"
+                      : std::string("; previous station association restart failed: ") +
+                            esp_err_to_name(reconnect_err);
+    }
+    return false;
+  }
+
+  const esp_err_t connect_err = esp_wifi_connect();
+  if (connect_err != ESP_OK) {
+    const esp_err_t rollback_config_err = esp_wifi_set_config(WIFI_IF_STA, &original_config);
+    const esp_err_t rollback_connect_err =
+        rollback_config_err == ESP_OK ? esp_wifi_connect() : rollback_config_err;
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while reconnecting the station: ") +
+                 esp_err_to_name(connect_err);
+      if (rollback_config_err != ESP_OK) {
+        *message += std::string("; previous station config restore failed: ") +
+                    esp_err_to_name(rollback_config_err);
+      } else if (rollback_connect_err != ESP_OK) {
+        *message += std::string("; previous station reconnect failed: ") +
+                    esp_err_to_name(rollback_connect_err);
+      } else {
+        *message += "; previous station association restarted";
+      }
     }
     return false;
   }
   if (station_transition_started != nullptr) *station_transition_started = true;
 
-  const esp_err_t update_err = esp_wifi_set_config(WIFI_IF_STA, &config);
-  if (update_err != ESP_OK) {
-    const esp_err_t restore_err = esp_wifi_set_config(WIFI_IF_STA, &original_config);
-    const esp_err_t restart_err = restore_err == ESP_OK ? esp_wifi_start() : restore_err;
-    if (message != nullptr) {
-      *message = std::string("Wi-Fi BSSID pin update failed while setting the station config: ") +
-                 esp_err_to_name(update_err);
-      *message += restart_err == ESP_OK
-                      ? "; previous station state machine restarted"
-                      : std::string("; previous station state machine restart failed: ") +
-                            esp_err_to_name(restart_err);
-    }
-    return false;
-  }
-
-  const esp_err_t start_err = esp_wifi_start();
-  if (start_err != ESP_OK) {
-    const esp_err_t rollback_config_err = esp_wifi_set_config(WIFI_IF_STA, &original_config);
-    const esp_err_t rollback_start_err =
-        rollback_config_err == ESP_OK ? esp_wifi_start() : rollback_config_err;
-    if (message != nullptr) {
-      *message = std::string("Wi-Fi BSSID pin update failed while restarting the station: ") +
-                 esp_err_to_name(start_err);
-      if (rollback_config_err != ESP_OK) {
-        *message += std::string("; previous station config restore failed: ") +
-                    esp_err_to_name(rollback_config_err);
-      } else if (rollback_start_err != ESP_OK) {
-        *message += std::string("; previous station restart failed: ") +
-                    esp_err_to_name(rollback_start_err);
-      } else {
-        *message += "; previous station state machine restarted";
-      }
-    }
-    return false;
-  }
-
   if (message != nullptr) {
-    *message = bssid.empty() ? "Wi-Fi BSSID pin cleared; station restart started"
-                             : "Wi-Fi BSSID pin updated; station restart started";
+    *message = bssid.empty() ? "Wi-Fi BSSID pin cleared; station reassociation started"
+                             : "Wi-Fi BSSID pin updated; station reassociation started";
   }
   return true;
 #else

@@ -533,6 +533,17 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"info\"}", nullptr, &error));
 }
 
+void test_parse_espectre_command_rejects_oversized_payload_before_json_parsing(void) {
+  EspectreCommand command;
+  command.command_id = "stale";
+  std::string error;
+  const std::string oversized(ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE + 1U, 'x');
+
+  TEST_ASSERT_FALSE(parse_espectre_command(oversized, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("command payload exceeds the size limit", error.c_str());
+  TEST_ASSERT_TRUE(command.command_id.empty());
+}
+
 void test_ota_status_payload_includes_expected_fields(void) {
   EspectreDeviceConfig config;
   config.device_id = 0x000000000000000AULL;
@@ -851,6 +862,7 @@ int process(void) {
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);
   RUN_TEST(test_parse_espectre_command_parses_info_and_threshold_commands);
   RUN_TEST(test_parse_espectre_command_rejects_missing_command_and_invalid_threshold);
+  RUN_TEST(test_parse_espectre_command_rejects_oversized_payload_before_json_parsing);
   RUN_TEST(test_ota_status_payload_includes_expected_fields);
   RUN_TEST(test_ota_channel_helpers);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);

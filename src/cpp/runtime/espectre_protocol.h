@@ -41,6 +41,8 @@ namespace espectre {
 
 /** Matter Basic Information NodeLabel limit, shared by all Direct frontends. */
 inline constexpr size_t ESPECTRE_DEVICE_LABEL_MAX_LENGTH = 32U;
+/** Maximum serialized command-request size accepted by every transport. */
+inline constexpr size_t ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE = 2048U;
 
 enum class EspectreDirectMethod : uint8_t {
   CAPABILITIES = 0,

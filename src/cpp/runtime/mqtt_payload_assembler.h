@@ -14,6 +14,8 @@
 #include <cstring>
 #include <string_view>
 
+#include "espectre_protocol.h"
+
 namespace espectre {
 
 class MqttPayloadAssembler {
@@ -24,7 +26,7 @@ class MqttPayloadAssembler {
     INVALID,
   };
 
-  static constexpr size_t MAX_PAYLOAD_SIZE = 2048U;
+  static constexpr size_t MAX_PAYLOAD_SIZE = ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE;
 
   Result append(const char *data, size_t data_len, size_t total_len, size_t offset) {
     if (data == nullptr || data_len == 0U || total_len == 0U || total_len > MAX_PAYLOAD_SIZE ||

@@ -43,6 +43,8 @@ void test_native_frontend_defers_wifi_reconfigure_resume_until_after_runtime_loo
   wifi.ssid = "Lab";
   frontend.set_wifi_provisioning_info(wifi);
   TEST_ASSERT_TRUE(frontend.setup());
+  const int initial_set_services_armed_calls =
+      frontend_runtime_shim::state.set_services_armed_calls;
 
   frontend.prepare_for_wifi_reconfigure();
   TEST_ASSERT_TRUE(frontend.wifi_reconfigure_quiesced_);
@@ -57,6 +59,8 @@ void test_native_frontend_defers_wifi_reconfigure_resume_until_after_runtime_loo
   TEST_ASSERT_FALSE(frontend.wifi_reconfigure_resume_pending_);
   TEST_ASSERT_FALSE(frontend.wifi_reconfigure_quiesced_);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(initial_set_services_armed_calls + 2,
+                    frontend_runtime_shim::state.set_services_armed_calls);
 }
 
 void test_native_frontend_allows_sensing_when_mqtt_is_missing(void) {

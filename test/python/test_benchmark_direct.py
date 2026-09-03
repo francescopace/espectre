@@ -17,6 +17,7 @@ from tools.lib.firmware_benchmark.models import (
     RuntimeMetrics,
 )
 from src.python.espectre_cli.device_transport import (
+    DirectEventStreamTransportError,
     DirectProtocolError,
     DirectRequestError,
 )
@@ -746,6 +747,66 @@ def test_direct_capture_waits_for_closed_scored_stream(monkeypatch):
     assert client.started_at == pytest.approx(0.0)
     assert client.stopped_at == pytest.approx(0.0)
     assert FakeClock.now == pytest.approx(0.1)
+
+
+def test_radio_reassociation_does_not_score_expected_sse_disconnect(capsys):
+    class FakeClient:
+        def __init__(self):
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            if self.close_calls == 1:
+                raise DirectEventStreamTransportError(
+                    "Direct event stream failed: connection reset"
+                )
+
+    client = FakeClient()
+
+    bench._close_direct_client_after_radio_reassociation(client)
+
+    assert client.close_calls == 2
+    assert "during Wi-Fi reassociation as expected" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Direct event stream sent invalid JSON",
+        "timed out closing the Direct event stream",
+    ],
+)
+def test_radio_reassociation_does_not_hide_sse_protocol_error(message):
+    class FakeClient:
+        def __init__(self):
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            raise DirectProtocolError(message)
+
+    client = FakeClient()
+
+    with pytest.raises(DirectProtocolError, match=message):
+        bench._close_direct_client_after_radio_reassociation(client)
+
+    assert client.close_calls == 1
+
+
+def test_direct_capture_does_not_hide_scored_sse_transport_loss():
+    class FakeClient:
+        events = []
+
+        def start_events(self):
+            return None
+
+        def stop_events(self):
+            raise DirectEventStreamTransportError(
+                "Direct event stream closed unexpectedly"
+            )
+
+    with pytest.raises(DirectEventStreamTransportError):
+        bench.capture_direct_window(FakeClient(), duration_seconds=0)
 
 
 def test_direct_capture_can_leave_event_collection_closed():

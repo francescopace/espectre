@@ -14,6 +14,7 @@ from src.python.espectre_cli.device_transport import (
     DIRECT_MAX_REQUEST_FRAME_SIZE,
     DIRECT_MAX_RESPONSE_FRAME_SIZE,
     DirectClient,
+    DirectEventStreamTransportError,
     DirectProtocolError,
     ImprovCommand,
     ImprovFrameParser,
@@ -78,6 +79,18 @@ class _ClosingEventResponse(_FakeEventResponse):
     def readline(self, _size: int = -1) -> bytes:
         self.closed.wait(1.0)
         raise AttributeError("response stream was closed")
+
+
+class _GatedEventResponse(_FakeEventResponse):
+    def __init__(self, lines: list[bytes]):
+        super().__init__(lines)
+        self.readable = threading.Event()
+
+    def readline(self, _size: int = -1) -> bytes:
+        self.readable.wait(1.0)
+        if self.lines:
+            return self.lines.pop(0)
+        return b""
 
 def _improv_rpc_response(command: ImprovCommand, values: list[str]) -> bytes:
     encoded = [value.encode() for value in values]
@@ -317,6 +330,37 @@ def test_direct_client_collects_canonical_sse_events():
     assert len(client.events) == 1
     assert client.events[0].name == "telemetry"
     assert client.events[0].data == payload
+
+
+def test_direct_client_types_unexpected_sse_eof_as_transport_loss():
+    response = _GatedEventResponse([])
+    client = DirectClient(
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=lambda *_args, **_kwargs: response,
+    )
+
+    client.start_events()
+    response.readable.set()
+    assert response.closed.wait(1.0)
+    with pytest.raises(DirectEventStreamTransportError):
+        client.stop_events()
+
+
+def test_direct_client_keeps_invalid_sse_json_as_protocol_error():
+    response = _GatedEventResponse(
+        [b"event: telemetry\n", b"data: {invalid\n", b"\n"]
+    )
+    client = DirectClient(
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=lambda *_args, **_kwargs: response,
+    )
+
+    client.start_events()
+    response.readable.set()
+    assert response.closed.wait(1.0)
+    with pytest.raises(DirectProtocolError) as raised:
+        client.stop_events()
+    assert not isinstance(raised.value, DirectEventStreamTransportError)
 
 def test_direct_client_ignores_http_client_close_race():
     response = _ClosingEventResponse([])

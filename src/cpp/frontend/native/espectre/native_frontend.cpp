@@ -77,7 +77,7 @@ void NativeFrontend::set_device_config_change_callback(DeviceConfigChangeCallbac
 size_t NativeFrontend::direct_client_count() const { return direct_frontend_->client_count(); }
 
 void NativeFrontend::prepare_for_wifi_reconfigure() {
-  if (wifi_reconfigure_quiesced_) {
+  if (wifi_reconfigure_quiesced_ || !runtime_.services_armed()) {
     return;
   }
   wifi_reconfigure_quiesced_ = true;
@@ -90,7 +90,7 @@ void NativeFrontend::resume_after_wifi_reconfigure() {
     return;
   }
   // The Wi-Fi service and runtime receive the same transition through
-  // separate queues, so the runtime queue must drain before CSI is rearmed.
+  // separate queues, so the runtime queue must drain before sensing resumes.
   wifi_reconfigure_resume_pending_ = true;
 }
 

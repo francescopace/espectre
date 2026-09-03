@@ -114,6 +114,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   static esp_err_t events_handler_(httpd_req_t *request);
   static esp_err_t raw_handler_(httpd_req_t *request);
   static esp_err_t options_handler_(httpd_req_t *request);
+  static esp_err_t open_session_(httpd_handle_t server, int socket);
   static void worker_entry_(void *context);
   static void raw_worker_entry_(void *context);
 
@@ -144,6 +145,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool service_raw_stream_();
   void service_raw_timeouts_();
   void dispatch_pending_callbacks_();
+  void shutdown_(bool dispatch_callbacks);
   void worker_loop_();
   bool pop_raw_sample_(RawSampleSlot *sample);
   void reset_raw_session_locked_();

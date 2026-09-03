@@ -23,6 +23,7 @@ from src.python.espectre_cli.device_transport import (
     DIRECT_PATH,
     DirectClient,
     DirectEvent,
+    DirectEventStreamTransportError,
     DirectProtocolError,
     DirectRequestError,
     direct_endpoint_from_device_url,
@@ -77,6 +78,7 @@ from tools.lib.firmware_benchmark.settings import (
     DIRECT_STABLE_SAMPLE_COUNT,
     MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
     MICRO_DIRECT_PREPARE_ATTEMPTS,
+    MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
     REPO_ROOT,
     STATUS_STABLE_WAIT_SECONDS,
     WIFI_CONNECT_WAIT_SECONDS,
@@ -414,6 +416,21 @@ def _exception_is_timeout(error: Exception | None) -> bool:
         current = current.__cause__ or current.__context__
     return False
 
+def _close_direct_client_after_radio_reassociation(client: DirectClient) -> None:
+    """Close a pre-reassociation client without scoring its expected SSE loss."""
+    try:
+        client.close()
+    except DirectEventStreamTransportError as exc:
+        # Wi-Fi reassociation and its recovery scan can close an already-open
+        # SSE socket before the host asks the client to stop it. DirectClient
+        # surfaces that stored stream error from close(); call close() again to
+        # release the request connection after stop_events() has consumed it.
+        print(
+            f"Direct SSE disconnected during Wi-Fi reassociation as expected: {exc}",
+            flush=True,
+        )
+        client.close()
+
 def _wait_for_direct_event_stream_closed(
     client: DirectClient,
     *,
@@ -427,7 +444,7 @@ def _wait_for_direct_event_stream_closed(
         if isinstance(direct_http, dict) and _integer(direct_http.get("event_clients")) == 0:
             return
         time.sleep(0.05)
-    raise RuntimeError("Direct event stream did not close before the scored window")
+    raise RuntimeError("Direct event stream did not close after the scored window")
 
 def capture_direct_window(
     client: DirectClient,
@@ -1316,7 +1333,7 @@ def run_direct_frontend_cases(
             )
             bssid_evidence["reassociation_exercised"] = transition_expected
             if transition_expected:
-                client.close()
+                _close_direct_client_after_radio_reassociation(client)
                 client = _reconnect_direct_after_radio_pin(
                     endpoint,
                     frontend=frontend,
@@ -1575,6 +1592,7 @@ def run_micro_case(
                 require_telemetry=True,
                 require_detection_timing=True,
                 sample_interval_seconds=MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
+                status_gap_tolerance_ms=MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
                 attempts=result.direct_attempts,
             )
             result.runtime_metrics.verified_detector = case.detector

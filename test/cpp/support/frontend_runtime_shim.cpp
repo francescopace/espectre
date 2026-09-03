@@ -71,7 +71,10 @@ const RuntimeDiagnosticsSample *EspIdfRuntime::get_diagnostics_sample() const {
   return &frontend_runtime_shim::state.diagnostics_sample;
 }
 
-void EspIdfRuntime::set_services_armed(bool armed) { frontend_runtime_shim::state.services_armed = armed; }
+void EspIdfRuntime::set_services_armed(bool armed) {
+  frontend_runtime_shim::state.services_armed = armed;
+  frontend_runtime_shim::state.set_services_armed_calls++;
+}
 
 void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
   frontend_runtime_shim::state.live_telemetry_enabled = enabled;

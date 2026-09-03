@@ -61,6 +61,10 @@ class DirectProtocolError(RuntimeError):
     """Raised when the Direct peer violates the canonical message contract."""
 
 
+class DirectEventStreamTransportError(DirectProtocolError):
+    """Raised when the Direct SSE stream is lost at the transport boundary."""
+
+
 class DirectRequestError(RuntimeError):
     """Raised when firmware returns a correlated Direct error response."""
 
@@ -512,7 +516,9 @@ class DirectClient:
                 raw_line = response.readline(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
                 if not raw_line:
                     if not self._events_stop.is_set():
-                        raise DirectProtocolError("Direct event stream closed unexpectedly")
+                        raise DirectEventStreamTransportError(
+                            "Direct event stream closed unexpectedly"
+                        )
                     break
                 if len(raw_line) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
                     raise DirectProtocolError("Direct event stream line exceeds the size limit")
@@ -553,11 +559,20 @@ class DirectClient:
             DirectProtocolError,
         ) as exc:
             if not self._events_stop.is_set():
-                self._events_error = (
-                    exc
-                    if isinstance(exc, DirectProtocolError)
-                    else DirectProtocolError(f"Direct event stream failed: {exc}")
-                )
+                if isinstance(exc, DirectProtocolError):
+                    self._events_error = exc
+                elif isinstance(exc, HTTPError):
+                    self._events_error = DirectProtocolError(
+                        f"Direct event stream HTTP {exc.code}: {exc.reason}"
+                    )
+                elif isinstance(exc, (TimeoutError, URLError, OSError)):
+                    self._events_error = DirectEventStreamTransportError(
+                        f"Direct event stream failed: {exc}"
+                    )
+                else:
+                    self._events_error = DirectProtocolError(
+                        f"Direct event stream failed: {exc}"
+                    )
                 self._events_ready.set()
         finally:
             if response is not None:

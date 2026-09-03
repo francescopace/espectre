@@ -28,6 +28,7 @@
 
 #include "protocol_json.h"
 #include "espectre_protocol.h"
+#include "sta_socket_helpers.h"
 #include "task_scheduling_config.h"
 
 namespace espectre {
@@ -141,7 +142,7 @@ EspIdfDirectHttpService::EspIdfDirectHttpService() {
 }
 
 EspIdfDirectHttpService::~EspIdfDirectHttpService() {
-  shutdown();
+  shutdown_(false);
   if (mutex_ != nullptr) {
     vSemaphoreDelete(mutex_);
     mutex_ = nullptr;
@@ -190,6 +191,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   // not closed immediately before the next request arrives.
   http_config.recv_wait_timeout = 5U;
   http_config.send_wait_timeout = 1U;
+  http_config.open_fn = &open_session_;
   if (httpd_start(&server_, &http_config) != ESP_OK) {
     server_ = nullptr;
     ESPECTRE_LOGE(TAG, "Failed to start Direct HTTP on port %u", static_cast<unsigned>(config_.port));
@@ -360,7 +362,9 @@ void EspIdfDirectHttpService::loop() {
   dispatch_pending_callbacks_();
 }
 
-void EspIdfDirectHttpService::shutdown() {
+void EspIdfDirectHttpService::shutdown() { shutdown_(true); }
+
+void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
   stopping_.store(true, std::memory_order_release);
   (void) stop_raw_session(RawCsiStopReason::SHUTDOWN);
 #if defined(ESP_PLATFORM)
@@ -404,7 +408,7 @@ void EspIdfDirectHttpService::shutdown() {
     for (PendingRequest &pending : deferred_) requests.push_back(pending.request);
     for (CompletedResponse &completed : completed_) {
       requests.push_back(completed.request.request);
-      if (completed.response_sent_callback) {
+      if (dispatch_callbacks && completed.response_sent_callback) {
         response_completions_.push_back(
             ResponseCompletion{std::move(completed.response_sent_callback), false});
       }
@@ -429,8 +433,17 @@ void EspIdfDirectHttpService::shutdown() {
   if (server != nullptr) (void) httpd_stop(server);
   request_handler_ = {};
   deferred_request_handler_ = {};
-  notify_client_count_(0U);
-  dispatch_pending_callbacks_();
+  if (dispatch_callbacks) {
+    notify_client_count_(0U);
+    dispatch_pending_callbacks_();
+  } else {
+    pending_client_count_event_.clear();
+    if (lock_()) {
+      pending_raw_stopped_callback_ = {};
+      response_completions_.clear();
+      unlock_();
+    }
+  }
   client_count_callback_ = {};
 }
 
@@ -613,6 +626,10 @@ esp_err_t EspIdfDirectHttpService::raw_handler_(httpd_req_t *request) {
 esp_err_t EspIdfDirectHttpService::options_handler_(httpd_req_t *request) {
   if (request == nullptr || request->user_ctx == nullptr) return ESP_ERR_INVALID_ARG;
   return static_cast<EspIdfDirectHttpService *>(request->user_ctx)->handle_options_(request);
+}
+
+esp_err_t EspIdfDirectHttpService::open_session_(httpd_handle_t, int socket) {
+  return bind_socket_to_sta_interface(socket, TAG, "Direct HTTP") ? ESP_OK : ESP_FAIL;
 }
 
 void EspIdfDirectHttpService::worker_entry_(void *context) {
