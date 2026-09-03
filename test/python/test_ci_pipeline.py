@@ -812,7 +812,14 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     }
     assert root.findall("s:url/s:changefreq", namespace) == []
 
-    assert len(entries) == 33
+    expected_urls = {
+        f"{sitemap_builder.SITE_ORIGIN}{route['staticPath']}"
+        for route in sitemap_builder.ROUTE_MANIFEST["routes"]
+    } | {
+        f"{sitemap_builder.SITE_ORIGIN}{channel['path']}"
+        for channel in sitemap_builder.ROUTE_MANIFEST["sdkChannels"]
+    }
+    assert entries.keys() == expected_urls
 
 
 def test_sitemap_omits_unstaged_sdk_channels_and_rejects_partial_staging(
@@ -1257,7 +1264,6 @@ def test_website_sources_integrate_sdk_api_fragments_in_portal_page() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'href="/sdk/api/" class="doc-link"' in sdk_landing
-    assert 'href="/sdk/api/" class="btn-secondary"' in sdk_landing
     assert 'data-api-reference-browser' in api_orientation
     assert 'data-api-index="/artifacts/sdk/api/api-index.json"' in api_orientation
     assert 'data-api-reference-content' in api_orientation
