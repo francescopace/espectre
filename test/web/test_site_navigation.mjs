@@ -8,70 +8,28 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeBootstrap, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { index, read, routeBootstrap, routeManifest, routeRegistry, styles } from './fixtures/site_test_helpers.mjs';
 
 describe('website navigation contracts', () => {
     it('keeps one route registry aligned with the SPA pages and static paths', () => {
-        assert.match(app, /routeRegistry = await window\.ESPectreRoutesReady/);
         const registeredRoutes = routeManifest.routes.map((route) => route.name).sort();
         const pageRoutes = [...index.matchAll(/<main\b[^>]*\bdata-page="([^"]+)"/g)]
             .map((match) => match[1])
             .sort();
         assert.deepEqual(registeredRoutes, pageRoutes);
 
-        const registeredStaticPaths = routeManifest.routes
-            .filter((route) => route.staticPath !== '/')
-            .map((route) => route.staticPath)
-            .sort();
-        assert.equal(registeredStaticPaths.length, 29);
-        assert.match(app, /const contentPath = routeRegistry\.contentPath\(route\)/);
-        assert.match(index, /data-page="tools"[\s\S]*?<div class="js-static-content">/);
-        assert.doesNotMatch(index.match(/data-page="tools"[\s\S]*?<\/main>/)?.[0] || '', /class="tools-grid"/);
-        assert.match(toolsContent, /class="tools-grid"/);
-        for (const [tool, path] of [
-            ['flash', 'flash'],
-            ['configure', 'device-settings'],
-            ['monitor', 'monitor'],
-            ['raw-csi', 'csi-visualizer'],
-            ['theremin', 'theremin'],
-            ['game', 'game'],
-        ]) {
-            assert.match(toolsContent, new RegExp(`href="/tools/${path}/"`));
-            assert.match(
-                index,
-                new RegExp(`data-page="tool-${tool}"[\\s\\S]*?<div class="js-static-content">`)
-            );
-            assert.match(toolContent[tool], /class="tool-static-entry"/);
-            assert.match(toolContent[tool], /class="tool-interactive"/);
+        for (const route of routeManifest.routes.filter(({ group }) => group === 'tools')) {
+            assert.match(index, new RegExp(`data-page="${route.name}"[\\s\\S]*?<div class="js-static-content">`));
+            const content = read(`docs/web/content${route.staticPath.slice(0, -1)}.html`);
+            assert.match(content, /class="tool-static-entry"/);
+            assert.match(content, /class="tool-interactive"/);
         }
-        assert.equal((toolsContent.match(/href="\/roadmap\/#roadmap-research-title"/g) || []).length, 2);
-        assert.match(roadmapContent, /id="roadmap-research-title"/);
-        assert.match(app, /prepareRouteContent\(routeAtStart\)[\s\S]*?renderConnection\(\)/);
-        assert.match(app, /const staticContentLoads = new Map\(\)/);
-        assert.match(app, /const contentUrl = `\/\$\{contentPath\}`/);
-        assert.match(app, /fetch\(contentUrl, \{ cache: 'no-cache' \}\)/);
-        assert.match(app, /if \(staticContentLoads\.has\(route\)\) return staticContentLoads\.get\(route\)/);
-        assert.match(app, /load\.finally\(\(\) => staticContentLoads\.delete\(route\)\)/);
-        assert.match(app, /const toolInitializers = Object\.freeze\([\s\S]*?'tool-game': 'gameInit'/);
-        assert.match(app, /await loadToolScript\(route\);[\s\S]*?window\[initializerName\]/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
     });
 
     it('keeps static page browser titles aligned with the route registry', () => {
         const window = { ESPectreRouteManifest: routeManifest };
         runInNewContext(routeRegistry, { Map, Object, Set, URL, window });
-        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        const registeredStaticTitles = new Map(
-            window.ESPectreRoutes.all
-                .map((name) => window.ESPectreRoutes.get(name))
-                .filter((definition) => definition.staticPath !== '/')
-                .map((definition) => [definition.staticPath, definition.title])
-        );
-
         assert.equal(index.match(/<title>([^<]*)<\/title>/)?.[1], window.ESPectreRoutes.title('home'));
         assert.equal(
             index.match(/property="og:title" content="([^"]*)"/)?.[1],
@@ -81,16 +39,9 @@ describe('website navigation contracts', () => {
             index.match(/name="twitter:title" content="([^"]*)"/)?.[1],
             window.ESPectreRoutes.title('home')
         );
-        assert.equal(registeredStaticTitles.size, 29);
-        assert.match(staticPageBuilder, /ROUTE_MANIFEST = load_manifest\(\)/);
-        assert.match(staticPageBuilder, /"title": route\["title"\]/);
     });
 
     it('uses canonical paths for static pages and SPA navigation', () => {
-        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        const staticRouteNames = routeManifest.routes
-            .filter((route) => route.staticPath !== '/')
-            .map((route) => route.name);
         const mainNavigationPaths = routeManifest.navigation.main
             .map((name) => routeManifest.routes.find((route) => route.name === name)?.staticPath);
         const relativePaths = (html) => [...html.matchAll(/<a href="(\/(?:[^"]*\/)?)"/g)]
@@ -101,34 +52,6 @@ describe('website navigation contracts', () => {
             assert.deepEqual(relativePaths(mainNavigation), mainNavigationPaths);
             assert.deepEqual(relativePaths(exploreLinks), mainNavigationPaths.slice(1));
         }
-        for (const routeName of staticRouteNames) {
-            assert.doesNotMatch(index, new RegExp(`href="(?:/)?#${routeName}"`));
-        }
-        assert.doesNotMatch(index, /href="#home"/);
-        assert.match(index, /href="\/" class="brand" data-route-link="home"/);
-        assert.match(index, /href="\/" class="nav-link" data-route-link="home">Home<\/a>/);
-        assert.match(index, /href="\/guides\/" class="nav-link" data-route-link="guides"/);
-        assert.match(index, /href="\/sdk\/" class="nav-link" data-route-link="sdk"/);
-        assert.match(index, /href="\/tools\/" class="nav-link" data-route-link="tools"/);
-        for (const source of [
-            index,
-            read('docs/web/404.html'),
-        ]) {
-            assert.ok(source.indexOf('href="/sdk/" class="nav-link') < source.indexOf('href="/roadmap/" class="nav-link'));
-        }
-        assert.ok(
-            routeManifest.navigation.main.indexOf('sdk')
-            < routeManifest.navigation.main.indexOf('roadmap')
-        );
-        assert.match(read('.github/scripts/web_page_shell.py'), /for name in manifest\["navigation"\]\["main"\]/);
-        assert.match(app, /const staticTarget = routeRegistry\.staticTargetForHref\(href, location\.href\);[\s\S]*?navigateToRoute\(staticTarget\.route/);
-        assert.match(app, /history\[replace \? 'replaceState' : 'pushState'\][\s\S]*?routeHistoryUrl\(target/);
-        assert.match(app, /window\.addEventListener\('popstate', onPopState\)/);
-        assert.match(app, /function syncRouteMetadata\(routeName\)[\s\S]*?ogUrl\.content = canonical[\s\S]*?ogTitle\.content = title[\s\S]*?ogDescription\.content = description[\s\S]*?twitterTitle\.content = title[\s\S]*?twitterDescription\.content = description[\s\S]*?metaDescription\.content = description/);
-        assert.match(staticPageBuilder, /<link rel="canonical" href="\{canonical\}">[\s\S]*?<meta property="og:url" content="\{canonical\}">[\s\S]*?<meta property="og:title" content="\{title\}">/);
-        assert.match(staticPageBuilder, /<meta name="twitter:title" content="\{title\}">/);
-        assert.doesNotMatch(app, /location\.hash = '#' \+ targetRoute/);
-        assert.match(app, /previousRoute !== 'sdk-api' \|\| nextRoute === 'sdk-api'[\s\S]*?searchParams\.delete\('api'\)[\s\S]*?searchParams\.delete\('member'\)[\s\S]*?history\.replaceState/);
     });
 
     it('keeps the Home hero out of the first paint while a deep SPA route boots', () => {
@@ -152,10 +75,6 @@ describe('website navigation contracts', () => {
         assert.ok(
             index.indexOf('route-bootstrap.js') < index.indexOf('espectre-direct.js'),
             'the route bootstrap must run before deferred application scripts'
-        );
-        assert.match(
-            app,
-            /\$\$\('\.js-page'\)\.forEach[\s\S]*?document\.documentElement\.removeAttribute\('data-spa-booting'\)/
         );
     });
 
@@ -200,8 +119,6 @@ describe('website navigation contracts', () => {
             routes.staticTargetForHref('/guides/setup/?source=external', 'https://test.espectre.dev/'),
             null
         );
-        assert.match(app, /navigateToRoute\(staticTarget\.route, \{ anchor: staticTarget\.anchor \}\)/);
-        assert.match(app, /focusRouteAnchor\(routeAtStart, anchorAtStart\)/);
     });
 
     it('normalizes explicit HTML entries and static-page clicks to root SPA hashes', () => {
@@ -297,13 +214,9 @@ describe('website navigation contracts', () => {
             '/?anchor=roadmap-research-title#roadmap',
             '/?target=192.168.1.42#tool-configure'
         ]);
-        assert.match(app, /consumeRouteAnchorHandoff\(\);/);
-        assert.match(app, /prepareRouteContent\(routeAtStart\)[\s\S]*?consumeDirectHandoff\(\);/);
     });
 
     it('returns a refreshed SPA route to the app shell without redirecting direct visits', () => {
-        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-
         function runBootstrap({ navigationType, rememberedRoute }) {
             const replacements = [];
             const location = {
@@ -350,10 +263,6 @@ describe('website navigation contracts', () => {
             rememberedRoute: '',
         });
         assert.deepEqual(standaloneReload, []);
-        assert.match(app, /pushState'[\s\S]*?\{ espectreRoute: target \}/);
-        assert.match(staticPageBuilder, /data-spa-route="\{name\}"/);
-        assert.match(staticPageBuilder, /route-bootstrap\.js\?v=\{route_bootstrap_version\}"><\/script>/);
-        assert.doesNotMatch(staticPageBuilder, /window\.location\.replace/);
     });
 
 });

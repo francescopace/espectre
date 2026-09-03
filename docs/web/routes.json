@@ -26,6 +26,8 @@
     "sdk-architecture": "documentation",
     "sdk-detectors": "documentation",
     "sdk-api": "documentation",
+    "sdk-http-api": "documentation",
+    "sdk-mqtt-api": "documentation",
     "sdk-examples": "documentation",
     "media": "media",
     "roadmap": "documentation",
@@ -207,10 +209,26 @@
     {
       "name": "sdk-api",
       "group": "sdk",
-      "pathLabel": "API",
-      "title": "API | ESPectre",
-      "description": "Find the main ESPectre SDK types, understand the runtime lifecycle, and browse the generated API reference in the shared portal.",
+      "pathLabel": "C++ API",
+      "title": "C++ API | ESPectre",
+      "description": "Browse the C++ types and methods that define the ESPectre SDK runtime lifecycle.",
       "staticPath": "/sdk/api/"
+    },
+    {
+      "name": "sdk-http-api",
+      "group": "sdk",
+      "pathLabel": "HTTP API",
+      "title": "HTTP API | ESPectre",
+      "description": "Read and configure an ESPectre device over Direct HTTP, follow live events, and collect raw CSI.",
+      "staticPath": "/sdk/http-api/"
+    },
+    {
+      "name": "sdk-mqtt-api",
+      "group": "sdk",
+      "pathLabel": "MQTT API",
+      "title": "MQTT API | ESPectre",
+      "description": "Subscribe to ESPectre state and motion topics, track availability, and send commands over MQTT.",
+      "staticPath": "/sdk/mqtt-api/"
     },
     {
       "name": "sdk-examples",

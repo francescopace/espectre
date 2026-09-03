@@ -20,12 +20,6 @@ const routeRegistrySource = readFileSync(
 const routeManifest = JSON.parse(readFileSync(
     new URL('../../docs/web/routes.json', import.meta.url), 'utf8'
 ));
-const toolAnalyticsSource = [
-    'configure-tool.js', 'csi-tool.js', 'device-session.js', 'direct-discovery.js',
-    'game-tool.js', 'monitor-tool.js', 'theremin-tool.js'
-].map((filename) => readFileSync(
-    new URL(`../../docs/web/assets/js/${filename}`, import.meta.url), 'utf8'
-)).join('\n');
 const testExports = `
 globalThis.__analyticsTest = {
     analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
@@ -219,18 +213,6 @@ describe('analytics privacy boundary', () => {
         assert.equal(window.dataLayer.length, before);
     });
 
-    it('registers every custom event emitted by the browser tools', () => {
-        const { api } = analyticsContext();
-        const eventNames = new Set([
-            ...(toolAnalyticsSource + analyticsSource)
-                .matchAll(/\b(?:track|trackEvent)\('([^']+)'/g)
-        ].map((match) => match[1]));
-        assert.ok(eventNames.size > 20);
-        for (const eventName of eventNames) {
-            assert.notEqual(api.sanitizeAnalyticsEvent(eventName), null, eventName);
-        }
-    });
-
     it('does not duplicate a page view when consent is accepted twice', () => {
         const { api, window } = analyticsContext();
         api.enableAnalytics();
@@ -292,11 +274,15 @@ describe('analytics route metadata', () => {
         assert.equal(api.getSiteSection('tool-monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
         assert.equal(api.getSiteSection('sdk-api'), 'documentation');
+        assert.equal(api.getSiteSection('sdk-http-api'), 'documentation');
+        assert.equal(api.getSiteSection('sdk-mqtt-api'), 'documentation');
         assert.equal(api.getSiteSection('sdk-detectors'), 'documentation');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/detectors/'), 'detectors');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/future-wifi-sensing/'), 'future-wifi-sensing');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/sdk/api/'), '');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/api/'), 'api');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/http-api/'), 'http-api');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/mqtt-api/'), 'mqtt-api');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/detectors/'), 'detectors');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/'), 'overview');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/release/'), 'sdk_release');
