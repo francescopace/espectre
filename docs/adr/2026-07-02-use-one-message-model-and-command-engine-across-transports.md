@@ -1,10 +1,12 @@
 # ADR: use one message model and command engine across transports
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-02
 - Recorded: 2026-07-09 (retrospective)
 - Updated: 2026-08-30
 - Implementation: Complete for protocol `1.0`; cross-language parity covers the message model, DNS-SD versions, and the Micro capability profile, while C++ separately verifies Direct/MQTT mapping
+
+The single application model and shared command engine remain accepted. The earlier query and mutation names are superseded by the resource and consolidated-operation catalog in [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md).
 
 ## Context
 
@@ -20,7 +22,7 @@ Transport framing and delivery policy remain independent. MQTT owns topics, QoS,
 
 All C++ frontends use one `FrontendCommandEngine`. Each adapter supplies framing, origin, and access policy, then executes the canonical command serially on the frontend task. MicroPython maintains an equivalent registry and dispatcher because it cannot share the C++ implementation. Host parity gates compare canonical schemas and serialized public messages, not only normalized command names.
 
-The engine owns operation names, parameter validation, access classes, stable result codes, capability filtering, and logical change sets. Canonical queries are `capabilities`, `info`, `status`, `config`, `diagnostics`, and `ota_status`. Mutations use `set_sensing` and the canonical tuning, device, network, OTA, and discovery actions documented in `ESPECTRE_PROTOCOL.md`. The unreleased `commands`, `stats`, `start_sensing`, and `stop_sensing` names have no aliases.
+The engine owns operation names, parameter validation, access classes, stable result codes, capability filtering, and logical change sets. Canonical queries are `capabilities`, `info`, `status`, `config`, `diagnostics`, and `ota_status`. Mutations use `set_sensing` and the canonical tuning, device, network, OTA, and discovery actions documented in `API.md`. The unreleased `commands`, `stats`, `start_sensing`, and `stop_sensing` names have no aliases.
 
 A query returns only to its requesting transport. An accepted mutation emits one logical change per affected state family and fans that state out to active transports. Diagnostics and command results are correlated responses rather than events. MQTT and each Direct client keep separate outbound queues, coalescing, and backpressure; no command queue, worker, or application task is added.
 
@@ -74,6 +76,6 @@ Rejected for now. Independent registries plus executable parity preserve local i
 
 ## Related
 
-- [`../ESPECTRE_PROTOCOL.md`](../ESPECTRE_PROTOCOL.md)
+- [`../API.md`](../API.md)
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
 - [`2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md`](2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md)

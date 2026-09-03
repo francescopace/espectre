@@ -35,7 +35,7 @@ struct MqttTransportDiagnostics {
  * (`mqtt_transport_esp_idf.h`) is the shipped implementation over `esp-mqtt`,
  * and `test/cpp/support/mqtt_transport_mock.h` is the host double.
  *
- * Topic layout and payload schemas live in `docs/ESPECTRE_PROTOCOL.md`, and
+ * Topic layout and payload schemas live in `docs/API.md`, and
  * `espectre_protocol.h` builds the payloads, so an implementation only has to
  * move bytes.
  *
@@ -90,7 +90,7 @@ class IMqttTransport {
    * Publish under this device's protocol topic prefix.
    *
    * The prefix comes from the `EspectreDeviceConfig` passed to `setup()`, so
-   * callers pass only the trailing segment, for example `"/telemetry"`.
+   * callers pass only the trailing segment, for example `"motion"`.
    */
   virtual bool publish_suffix(const char *suffix, const std::string &payload, bool retain) = 0;
   /**

@@ -201,7 +201,7 @@ describe('analytics privacy boundary', () => {
         );
 
         api.trackEvent('configure_change', {
-            action: 'set_mqtt',
+            action: 'update_mqtt',
             result: 'failure',
             error_type: 'password=user@example.com'
         });

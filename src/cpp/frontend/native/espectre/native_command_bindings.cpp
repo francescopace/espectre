@@ -21,8 +21,7 @@
 namespace espectre {
 
 FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &command, FrontendCommandOrigin origin,
-                                                     bool allow_local_config, uint64_t connection_token,
-                                                     std::string authorization) {
+                                                     bool allow_local_config, uint64_t connection_token) {
   if (owner_.runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION &&
       !frontend_command_allowed_during_raw_collection(command.command)) {
     FrontendCommandResult busy;
@@ -34,31 +33,36 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
   }
   const FrontendCommandCapabilities capabilities = capability_profile(allow_local_config);
   FrontendCommandResult result = engine_.execute(
-      command, FrontendCommandContext{origin, connection_token, std::move(authorization)}, owner_.ota_service_,
+      command, FrontendCommandContext{origin, connection_token}, owner_.ota_service_,
       owner_.device_info_.firmware_version.c_str(), capabilities,
       [this, allow_local_config, capabilities](const EspectreCommand &read) {
         if (read.command == "capabilities") {
           return espectre_capabilities_payload(this->owner_.device_config_, this->owner_.mqtt_protocol_device_info_(),
                                                capabilities);
         }
-        if (read.command == "info") {
-          return espectre_info_payload(this->owner_.device_config_, this->owner_.mqtt_protocol_device_info_());
+        if (read.command == "device") {
+          return this->owner_.direct_frontend_->device_payload();
         }
-        if (read.command == "status") {
-          return this->owner_.direct_frontend_->status_payload(!this->owner_.device_info_.network.ip_address.empty());
+        if (read.command == "health") {
+          return this->owner_.direct_frontend_->health_payload(!this->owner_.device_info_.network.ip_address.empty());
         }
-        if (read.command == "config") {
-          return this->owner_.direct_frontend_->config_payload(allow_local_config);
+        if (read.command == "sensing") {
+          return this->owner_.direct_frontend_->sensing_payload();
+        }
+        if (read.command == "wifi" && allow_local_config) {
+          return this->owner_.direct_frontend_->wifi_payload();
+        }
+        if (read.command == "mqtt" && allow_local_config) {
+          return this->owner_.direct_frontend_->mqtt_payload();
         }
         if (read.command == "wifi_access_points" && allow_local_config) {
           return this->owner_.direct_frontend_->wifi_access_points_payload();
         }
-        if (read.command == "diagnostics") {
+        if (read.command == "read_diagnostics") {
           return std::string{"{}"};
         }
-        if (read.command == "ota_status" && this->owner_.ota_service_ != nullptr) {
-          return espectre_ota_status_payload(this->owner_.device_config_, this->owner_.current_ota_status_(),
-                                             this->owner_.now_ms_());
+        if (read.command == "ota" && this->owner_.ota_service_ != nullptr) {
+          return this->owner_.direct_frontend_->ota_payload();
         }
         return std::string{};
       },
@@ -122,14 +126,14 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         return accepted;
       },
       [this](const EspectreCommand &wifi_command, std::string *message) {
-        if (wifi_command.command == "scan_wifi_access_points") {
+        if (wifi_command.command == "scan_wifi") {
           if (!this->owner_.wifi_scan_callback_) {
             if (message != nullptr) *message = "Wi-Fi scanning is unavailable";
             return false;
           }
           return this->owner_.wifi_scan_callback_(message);
         }
-        if (wifi_command.command == "clear_wifi_config") {
+        if (wifi_command.command == "clear_wifi_credentials") {
           if (!this->owner_.provisioning_command_callback_) {
             if (message != nullptr) {
               *message = "Wi-Fi configuration removal is unavailable";
@@ -213,21 +217,27 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         return this->owner_.direct_frontend_->handle_raw_stream_command(raw_command, context, code, message, data_json);
       });
 
-  if (result.accepted && result.command.command == "diagnostics") {
+  if (result.accepted && result.command.command == "read_diagnostics") {
     result.data_json = owner_.direct_frontend_->diagnostics_payload();
   }
   if (result.accepted) {
-    if (command.command != "start_raw_stream" &&
-        (static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::HEALTH)) != 0U) {
       owner_.publish_runtime_status_state_();
     }
-    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::CONFIG)) != 0U) {
-      owner_.publish_runtime_config_state_();
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::SENSING)) != 0U) {
+      const std::string payload = owner_.direct_frontend_->sensing_payload();
+      owner_.mqtt_frontend_->publish_message("sensing", payload, true);
+      owner_.direct_frontend_->publish_event("sensing", payload);
     }
-    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::INFO)) != 0U) {
-      const std::string payload = espectre_info_payload(owner_.device_config_, owner_.mqtt_protocol_device_info_());
-      owner_.mqtt_frontend_->publish_message("info", payload, true);
-      owner_.direct_frontend_->publish_event("info", payload);
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::WIFI)) != 0U) {
+      const std::string payload = owner_.direct_frontend_->wifi_payload();
+      owner_.mqtt_frontend_->publish_message("wifi", owner_.direct_frontend_->wifi_payload(true), true);
+      owner_.direct_frontend_->publish_event("wifi", payload);
+    }
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::DEVICE)) != 0U) {
+      const std::string payload = espectre_device_payload(owner_.device_config_, owner_.mqtt_protocol_device_info_());
+      owner_.mqtt_frontend_->publish_message("device", payload, true);
+      owner_.direct_frontend_->publish_event("device", payload);
     }
   }
   return result;

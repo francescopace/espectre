@@ -41,6 +41,7 @@ struct State {
   bool raw_start_result{true};
   RawCsiSessionConfig raw_config{};
   RawCsiSessionDiagnostics raw_diagnostics{};
+  IDirectHttpService::RawSessionRequestedCallback raw_session_requested_callback;
   IDirectHttpService::RawSessionStoppedCallback raw_stopped_callback;
   size_t raw_offer_calls{0U};
 };
@@ -66,6 +67,7 @@ class MockDirectHttpService : public IDirectHttpService {
                      const std::string &data_json,
                      bool replaceable_telemetry) override;
   DirectHttpServiceDiagnostics diagnostics() const override;
+  void set_raw_session_requested_callback(RawSessionRequestedCallback callback) override;
   bool start_raw_session(const RawCsiSessionConfig &config,
                          RawSessionStoppedCallback stopped_callback) override;
   bool stop_raw_session(RawCsiStopReason reason) override;
@@ -76,6 +78,7 @@ class MockDirectHttpService : public IDirectHttpService {
   DeferredRequestResult emit_deferred_request(uint64_t connection_token,
                                               const DirectRequest &request);
   void emit_client_count(size_t client_count);
+  bool emit_raw_session_request(std::string *message = nullptr);
 };
 
 }  // namespace direct_http_service_mock

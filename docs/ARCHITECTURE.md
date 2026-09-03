@@ -83,7 +83,7 @@ The CSI callback classifies packet provenance against the configured traffic mod
 
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
-Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization; `runtime/esp_idf/peer_discovery_service_esp_idf` owns the asynchronous DNS-SD browse; and `runtime/esp_idf/mdns_bootstrap_responder` owns the shared IPv4 bootstrap response through the existing Espressif responder. Frontend shutdown and Wi-Fi reconfiguration release pending discovery work without retaining a peer inventory. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the advertisement, bootstrap wire behavior, request and result schemas, limits, and compatibility rules.
+Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization; `runtime/esp_idf/peer_discovery_service_esp_idf` owns the asynchronous DNS-SD browse; and `runtime/esp_idf/mdns_bootstrap_responder` owns the shared IPv4 bootstrap response through the existing Espressif responder. Frontend shutdown and Wi-Fi reconfiguration release pending discovery work without retaining a peer inventory. [`DISCOVERY.md`](DISCOVERY.md#dns-sd-and-mdns) owns the advertisement, bootstrap wire behavior, request and result schemas, limits, and compatibility rules.
 
 ### `src/cpp/frontend/`
 
@@ -114,7 +114,7 @@ For the ESPHome workflow, see [`README.md` (esphome)](../src/cpp/frontend/esphom
 For the native workflow and protocol surface, see:
 
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
-- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md)
+- [`API.md`](API.md)
 
 ### Matter
 
@@ -163,11 +163,11 @@ C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate run
 
 `runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct HTTP, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
-The public field names, units, optionality, and transport objects are part of the additive [`diagnostics` contract](ESPECTRE_PROTOCOL.md#diagnostics). Architecture owns how the samples are collected and cached, not their wire schema.
+The public field names, units, optionality, and transport objects are part of the additive [`diagnostics` contract](API.md#diagnostics). Architecture owns how the samples are collected and cached, not their wire schema.
 
 ## ESPectre Protocol In The Architecture
 
-ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) owns discovery wire contracts, message families, Direct HTTP and MQTT mappings, payloads, commands, public limits, and version semantics.
+ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`API.md`](API.md) owns discovery wire contracts, message families, Direct HTTP and MQTT mappings, payloads, commands, public limits, and version semantics.
 
 For every maintained C++ frontend, protocol adapters sit at the boundary between the frontend and shared runtime layers.
 

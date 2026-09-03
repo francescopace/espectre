@@ -18,7 +18,7 @@ export function peer(overrides = {}) {
         dns_sd_schema_version: 1,
         protocol_version: '1.0',
         transport: 'http',
-        path: '/espectre/v1/request',
+        path: '/espectre/v1',
         events: '/espectre/v1/events',
         firmware: '4.0.0-dev',
         chip: 'esp32c3',

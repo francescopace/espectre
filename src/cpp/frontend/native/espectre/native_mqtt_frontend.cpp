@@ -35,8 +35,6 @@ void NativeMqttFrontend::setup() {
   home_assistant_.set_online(false);
   if (was_connected) {
     owner_.update_live_telemetry_enabled_();
-    owner_.direct_frontend_->publish_event(
-        "status", owner_.direct_frontend_->status_payload(!owner_.device_info_.network.ip_address.empty()));
   }
   (void)setup_frontend_mqtt_transport(
       transport_, owner_.device_config_, [this](const std::string &payload) { this->handle_command_(payload); },
@@ -53,9 +51,6 @@ void NativeMqttFrontend::setup() {
           this->home_assistant_.setup();
           this->home_assistant_.schedule_discovery();
         }
-        this->owner_.direct_frontend_->publish_event(
-            "status",
-            this->owner_.direct_frontend_->status_payload(!this->owner_.device_info_.network.ip_address.empty()));
       },
       TAG);
 }
@@ -111,25 +106,27 @@ void NativeMqttFrontend::publish_capabilities() {
 
 void NativeMqttFrontend::publish_info() {
   const EspectreDeviceInfo info = owner_.mqtt_protocol_device_info_();
-  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "info",
-                                      espectre_info_payload(owner_.device_config_, info), true);
+  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "device",
+                                      espectre_device_payload(owner_.device_config_, info), true);
 }
 
 void NativeMqttFrontend::publish_status(bool online) {
-  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "status",
-                                      owner_.direct_frontend_->status_payload(online), true);
+  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "health",
+                                      owner_.direct_frontend_->health_payload(online), true);
 }
 
 void NativeMqttFrontend::publish_telemetry(const RuntimeSnapshot &snapshot, uint32_t now_ms) {
   const char *frontend = owner_.device_info_.frontend.empty() ? "native" : owner_.device_info_.frontend.c_str();
   (void)publish_frontend_mqtt_message(
-      transport_, owner_.device_config_, "telemetry",
-      espectre_telemetry_payload(owner_.device_config_, snapshot, now_ms, now_ms / 1000U, frontend), false);
+      transport_, owner_.device_config_, "motion",
+      espectre_motion_payload(owner_.device_config_, snapshot, now_ms, now_ms / 1000U, frontend), false);
 }
 
 void NativeMqttFrontend::publish_config() {
-  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "config",
-                                      owner_.direct_frontend_->config_payload(false), true);
+  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "sensing",
+                                      owner_.direct_frontend_->sensing_payload(), true);
+  (void)publish_frontend_mqtt_message(transport_, owner_.device_config_, "wifi",
+                                      owner_.direct_frontend_->wifi_payload(true), true);
 }
 
 void NativeMqttFrontend::publish_ota_status(const EspectreOtaStatus &status) {

@@ -21,7 +21,7 @@ class NativeCommandBindings {
   explicit NativeCommandBindings(NativeFrontend &owner) : owner_(owner) {}
 
   FrontendCommandResult execute(const EspectreCommand &command, FrontendCommandOrigin origin, bool allow_local_config,
-                                uint64_t connection_token = 0U, std::string authorization = {});
+                                uint64_t connection_token = 0U);
   EspectreCapabilityProfile capability_profile(bool allow_local_config) const;
 
  private:

@@ -109,9 +109,8 @@ def test_cpp_and_python_protocol_catalogs_match():
     repo_root = Path(__file__).resolve().parents[2]
     build_dir = repo_root / "test" / "cpp" / "build"
     probe = build_dir / "suites" / "espectre_capabilities_probe"
-    if not probe.exists():
-        subprocess.run(["cmake", "-S", str(repo_root / "test" / "cpp"), "-B", str(build_dir)], check=True)
-        subprocess.run(["cmake", "--build", str(build_dir), "--target", "espectre_capabilities_probe"], check=True)
+    subprocess.run(["cmake", "-S", str(repo_root / "test" / "cpp"), "-B", str(build_dir)], check=True)
+    subprocess.run(["cmake", "--build", str(build_dir), "--target", "espectre_capabilities_probe"], check=True)
 
     cpp_catalog = json.loads(subprocess.run(
         [str(probe), "micro"],
@@ -128,16 +127,18 @@ def test_cpp_and_python_protocol_catalogs_match():
 
 def test_micro_capabilities_are_bounded_and_include_recalibration():
     payload = protocol.build_capabilities_payload("0123456789abcdef")
-    commands = {command["name"] for command in payload["commands"]}
+    commands = {command["name"] for command in payload["operations"]}
 
-    assert commands == {
-        "capabilities", "info", "status", "config", "diagnostics", "recalibrate"
+    assert commands == {"read_diagnostics", "recalibrate"}
+    recalibrate = next(command for command in payload["operations"] if command["name"] == "recalibrate")
+    assert recalibrate == {
+        "name": "recalibrate",
+        "method": "POST",
+        "path": "/espectre/v1/sensing/calibrations",
     }
-    recalibrate = next(command for command in payload["commands"] if command["name"] == "recalibrate")
-    assert recalibrate == {"name": "recalibrate"}
-    assert payload["events"] == ["telemetry"]
-    assert payload["config_sections"] == ["runtime", "device", "wifi"]
-    assert payload["features"] == {"raw_csi": False}
+    assert payload["events"] == ["motion"]
+    assert payload["resources"] == ["health", "device", "capabilities", "sensing", "wifi", "diagnostics"]
+    assert payload["features"] == {"csi": False}
 
 
 def test_micro_diagnostics_payload_keeps_only_canonical_fields():
@@ -209,7 +210,7 @@ def test_native_direct_enforces_bounded_secure_sse_profile():
     assert '{"firmware", firmware_version}' in source
 
 
-def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
+def test_direct_facade_starts_and_publishes_canonical_motion(monkeypatch):
     native = MagicMock()
     native.start.side_effect = [OSError(errno.EBUSY), None]
     native.firmware_version.return_value = "2.8.0-356-gfa155f8"
@@ -217,7 +218,7 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     native.diagnostics.side_effect = lambda target: target.update(
         accepted_connections=3,
         rejected_connections=2,
-        dropped_telemetry_events=4,
+        dropped_motion_events=4,
         send_failures=1,
     )
     monkeypatch.setitem(sys.modules, "espectre_native_direct", native)
@@ -270,60 +271,61 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     facade.refresh_status(facade.started_ms + 1250)
     native.update_status.assert_called_once()
     native.update_diagnostics.assert_not_called()
+    native.update_config.assert_not_called()
+    detector.is_ready.return_value = False
+    facade.refresh_status(facade.started_ms + 1500)
+    native.update_config.assert_called_once()
     facade.refresh_diagnostics(
         facade.started_ms + 5000,
         {"csi_admitted_pps": 98.0},
     )
     native.update_diagnostics.assert_called_once()
     facade.refresh_config()
-    native.update_config.assert_called_once()
+    assert native.update_config.call_count == 2
     native.take_recalibration_request.return_value = True
     assert facade.take_recalibration_request() is True
     facade.complete_recalibration()
     native.complete_recalibration.assert_called_once_with()
     native.publish.assert_not_called()
     native.has_event_client.return_value = False
-    facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
+    facade.publish_motion(0.75, 1, 0.25, facade.started_ms + 1000)
     native.publish.assert_not_called()
     native.has_event_client.return_value = True
-    facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
+    facade.publish_motion(0.75, 1, 0.25, facade.started_ms + 1000)
 
     start_args = native.start.call_args.kwargs
     capabilities = start_args["capabilities"]
     info = start_args["info"]
-    assert {entry["name"] for entry in capabilities["commands"]} == {
-        "capabilities", "info", "status", "config", "diagnostics", "recalibrate"
+    assert {entry["name"] for entry in capabilities["operations"]} == {
+        "read_diagnostics", "recalibrate"
     }
     assert start_args["hostname"] == "espectre-3cf79180d3a0aca4"
-    assert start_args["instance"] == info["device_name"]
+    assert start_args["instance"] == info["name"]
     assert start_args["protocol_version"] == protocol.PROTOCOL_VERSION
     assert start_args["dns_sd_schema_version"] == protocol.DNS_SD_TXT_SCHEMA_VERSION
     assert start_args["firmware_version"] == "2.8.0-356-gfa155f8"
-    assert info["device_name"].startswith("ESPectre C3 ")
-    assert info["device_label"] == ""
-    assert info["firmware_version"] == "2.8.0-356-gfa155f8"
+    assert info["name"].startswith("ESPectre C3 ")
+    assert info["label"] == ""
+    assert info["firmware"] == "2.8.0-356-gfa155f8"
     assert info["chip"] == "esp32c3"
     assert info["csi_profile"] == "ht20"
-    assert info["csi_traffic_mode"] == "internal"
-    assert info["traffic_mode"] == "dns"
-    assert facade._config()["wifi"]["band"] == "2g"
+    assert facade._config()["csi_traffic_mode"] == "internal"
+    assert facade._config()["traffic_generator_mode"] == "dns"
+    assert facade._wifi()["band"] == "2g"
     wlan_values["channel"] = 36
-    assert facade._config()["wifi"]["band"] == "5g"
+    assert facade._wifi()["band"] == "5g"
     wlan_values["channel"] = 0
-    assert facade._config()["wifi"]["band"] == ""
+    assert facade._wifi()["band"] == ""
     traffic.is_running.return_value = False
-    assert facade._info()["csi_traffic_mode"] == "external"
-    event_name, telemetry = native.publish.call_args.args
-    assert event_name == "telemetry"
-    assert telemetry["frontend"] == "micro"
-    assert telemetry["detector"] == "lightweight"
-    assert telemetry["motion_state"] == "motion"
+    assert facade._config()["csi_traffic_mode"] == "external"
+    event_name, motion = native.publish.call_args.args
+    assert event_name == "motion"
+    assert motion == {"timestamp_ms": facade.started_ms + 1000, "state": "motion", "score": 0.75}
     diagnostics = initial_diagnostics
-    assert diagnostics["protocol_version"] == protocol.PROTOCOL_VERSION
     assert diagnostics["uptime"] == 1
     assert diagnostics["direct_http"]["accepted_connections"] == 3
     assert diagnostics["direct_http"]["rejected_connections"] == 2
-    assert diagnostics["direct_http"]["dropped_telemetry_events"] == 4
+    assert diagnostics["direct_http"]["dropped_motion_events"] == 4
     assert diagnostics["direct_http"]["send_failures"] == 1
     native.diagnostics.assert_called()
 

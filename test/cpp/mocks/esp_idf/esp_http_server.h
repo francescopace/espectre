@@ -18,10 +18,14 @@ extern "C" {
 typedef void *httpd_handle_t;
 typedef int httpd_method_t;
 typedef esp_err_t (*httpd_open_func_t)(httpd_handle_t server, int socket);
+typedef bool (*httpd_uri_match_func_t)(const char *template_uri, const char *uri, size_t match_upto);
 
 #define HTTP_GET 0
 #define HTTP_POST 1
 #define HTTP_OPTIONS 2
+#define HTTP_PUT 3
+#define HTTP_DELETE 4
+#define HTTP_PATCH 5
 #define HTTPD_400_BAD_REQUEST "400 Bad Request"
 #define HTTPD_401_UNAUTHORIZED "401 Unauthorized"
 #define HTTPD_403_FORBIDDEN "403 Forbidden"
@@ -33,6 +37,8 @@ typedef esp_err_t (*httpd_open_func_t)(httpd_handle_t server, int socket);
 typedef struct httpd_req {
   void *user_ctx;
   int fd;
+  httpd_method_t method;
+  const char *uri;
   size_t content_len;
   size_t receive_offset;
   bool async_copy;
@@ -49,14 +55,15 @@ typedef struct {
   uint16_t send_wait_timeout;
   int core_id;
   httpd_open_func_t open_fn;
+  httpd_uri_match_func_t uri_match_fn;
 } httpd_config_t;
 
 #ifdef __cplusplus
 #define HTTPD_DEFAULT_CONFIG() \
-  (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, nullptr})
+  (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, nullptr, nullptr})
 #else
 #define HTTPD_DEFAULT_CONFIG() \
-  ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, NULL})
+  ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1, NULL, NULL})
 #endif
 
 typedef esp_err_t (*httpd_uri_func_t)(httpd_req_t *request);
@@ -103,7 +110,7 @@ typedef struct {
   size_t sent_lengths[64];
   int sent_fds[64];
   httpd_uri_t registered_uri;
-  httpd_uri_t registered_uris[8];
+  httpd_uri_t registered_uris[16];
   httpd_config_t last_config;
 } httpd_mock_state_t;
 
@@ -129,6 +136,7 @@ esp_err_t httpd_resp_send_chunk(httpd_req_t *request, const char *payload, size_
 esp_err_t httpd_req_async_handler_begin(httpd_req_t *request, httpd_req_t **out);
 esp_err_t httpd_req_async_handler_complete(httpd_req_t *request);
 int httpd_req_to_sockfd(httpd_req_t *request);
+bool httpd_uri_match_wildcard(const char *template_uri, const char *uri, size_t match_upto);
 
 #ifdef __cplusplus
 }

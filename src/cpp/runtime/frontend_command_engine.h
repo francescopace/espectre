@@ -58,10 +58,12 @@ using FrontendCommandCapabilities = EspectreCapabilityProfile;
 
 enum class FrontendCommandChange : uint8_t {
   NONE = 0U,
-  STATUS = 1U << 0U,
-  INFO = 1U << 1U,
-  CONFIG = 1U << 2U,
-  OTA_STATUS = 1U << 3U,
+  HEALTH = 1U << 0U,
+  DEVICE = 1U << 1U,
+  SENSING = 1U << 2U,
+  WIFI = 1U << 3U,
+  MQTT = 1U << 4U,
+  OTA = 1U << 5U,
 };
 
 inline FrontendCommandChange operator|(FrontendCommandChange lhs, FrontendCommandChange rhs) {
@@ -79,8 +81,6 @@ struct FrontendCommandContext {
   FrontendCommandOrigin origin{FrontendCommandOrigin::DIRECT};
   /** Opaque request identity used only to complete deferred Direct responses. */
   uint64_t connection_token{0U};
-  /** Normalized bearer token supplied by the Direct HTTP transport. */
-  std::string authorization;
 };
 
 struct FrontendCommandResult {

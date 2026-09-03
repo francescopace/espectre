@@ -168,5 +168,5 @@ Trade-offs and limits:
 - [`../SETUP.md`](../SETUP.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)
 - [`../CLI.md`](../CLI.md)
-- [`../ESPECTRE_PROTOCOL.md`](../ESPECTRE_PROTOCOL.md)
+- [`../API.md`](../API.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)

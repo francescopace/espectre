@@ -25,7 +25,8 @@
 #include "py/runtime.h"
 #include "sdkconfig.h"
 
-#define DIRECT_REQUEST_PATH "/espectre/v1/request"
+#define DIRECT_BASE_PATH "/espectre/v1"
+#define DIRECT_RESOURCE_PATH "/espectre/v1/*"
 #define DIRECT_EVENTS_PATH "/espectre/v1/events"
 #define DIRECT_MAX_REQUEST_BYTES (512)
 #define DIRECT_MAX_EVENT_BYTES (4096)
@@ -54,6 +55,7 @@ typedef struct {
   char status[DIRECT_MAX_STATUS_BYTES + 1];
   char status_staging[DIRECT_MAX_STATUS_BYTES + 1];
   char *config;
+  char *wifi;
   char diagnostics[DIRECT_DIAGNOSTICS_BUFFER_COUNT][DIRECT_MAX_DIAGNOSTICS_BYTES + 1];
   uint8_t diagnostics_active;
   uint8_t diagnostics_readers[DIRECT_DIAGNOSTICS_BUFFER_COUNT];
@@ -75,7 +77,7 @@ typedef struct {
   volatile uint32_t malformed_requests;
   volatile uint32_t oversized_requests;
   volatile uint32_t rate_limited_requests;
-  volatile uint32_t dropped_telemetry_events;
+  volatile uint32_t dropped_motion_events;
   volatile uint32_t send_failures;
 } native_direct_state_t;
 
@@ -126,7 +128,7 @@ static void direct_reset_counters(void) {
   __atomic_store_n(&direct_state.malformed_requests, 0U, __ATOMIC_RELAXED);
   __atomic_store_n(&direct_state.oversized_requests, 0U, __ATOMIC_RELAXED);
   __atomic_store_n(&direct_state.rate_limited_requests, 0U, __ATOMIC_RELAXED);
-  __atomic_store_n(&direct_state.dropped_telemetry_events, 0U, __ATOMIC_RELAXED);
+  __atomic_store_n(&direct_state.dropped_motion_events, 0U, __ATOMIC_RELAXED);
   __atomic_store_n(&direct_state.send_failures, 0U, __ATOMIC_RELAXED);
   direct_state.heartbeat_work_pending = false;
   direct_state.recalibration_pending = false;
@@ -498,23 +500,14 @@ static esp_err_t direct_send_result(
     const char *message,
     const char *snapshot,
     const char *http_status) {
-  const char *protocol_version = direct_state.protocol_version == NULL
-      ? ""
-      : direct_state.protocol_version;
-  const char *device_id = direct_state.device_id == NULL ? "" : direct_state.device_id;
-  const char *safe_command_id = command_id == NULL ? "" : command_id;
-  const char *safe_command = command == NULL ? "" : command;
+  (void) command_id;
+  (void) command;
   char prefix[512];
   int prefix_length = snprintf(
       prefix,
       sizeof(prefix),
-      "{\"protocol_version\":\"%s\",\"device_id\":\"%s\","
-      "\"command_id\":\"%s\",\"command\":\"%s\",\"accepted\":%s,"
+      "{\"accepted\":%s,"
       "\"code\":\"%s\",\"message\":\"%s\"%s",
-      protocol_version,
-      device_id,
-      safe_command_id,
-      safe_command,
       accepted ? "true" : "false",
       code,
       message,
@@ -550,12 +543,14 @@ static direct_command_snapshot_t direct_acquire_command_snapshot(const char *com
   const char *snapshot = NULL;
   if (strcmp(command, "capabilities") == 0) {
     snapshot = direct_state.capabilities;
-  } else if (strcmp(command, "info") == 0) {
+  } else if (strcmp(command, "device") == 0) {
     snapshot = direct_state.info;
-  } else if (strcmp(command, "status") == 0) {
+  } else if (strcmp(command, "health") == 0) {
     snapshot = direct_state.status;
-  } else if (strcmp(command, "config") == 0) {
+  } else if (strcmp(command, "sensing") == 0) {
     snapshot = direct_state.config;
+  } else if (strcmp(command, "wifi") == 0) {
+    snapshot = direct_state.wifi;
   } else if (strcmp(command, "diagnostics") == 0) {
     uint8_t index = direct_state.diagnostics_active;
     direct_state.diagnostics_readers[index] += 1U;
@@ -614,105 +609,44 @@ static esp_err_t direct_request_handler(httpd_req_t *request) {
     httpd_resp_set_status(request, "429 Too Many Requests");
     return httpd_resp_sendstr(request, "Direct request rate limit reached");
   }
-  if (request->content_len <= 0 || request->content_len > DIRECT_MAX_REQUEST_BYTES) {
-    direct_increment(
-        request->content_len > DIRECT_MAX_REQUEST_BYTES
-            ? &direct_state.oversized_requests
-            : &direct_state.malformed_requests);
-    return direct_send_result(
-        request, "", "", false, "invalid_params", "request body is invalid", NULL,
-        "400 Bad Request");
+  const char *command = NULL;
+  bool recalibrate = request->method == HTTP_POST &&
+      strcmp(request->uri, "/espectre/v1/sensing/calibrations") == 0;
+  if (request->method == HTTP_GET) {
+    if (strcmp(request->uri, "/espectre/v1/capabilities") == 0) command = "capabilities";
+    else if (strcmp(request->uri, "/espectre/v1/device") == 0) command = "device";
+    else if (strcmp(request->uri, "/espectre/v1/health") == 0) command = "health";
+    else if (strcmp(request->uri, "/espectre/v1/sensing") == 0) command = "sensing";
+    else if (strcmp(request->uri, "/espectre/v1/wifi") == 0) command = "wifi";
+    else if (strcmp(request->uri, "/espectre/v1/diagnostics") == 0) command = "diagnostics";
   }
-  char content_type[48];
-  if (
-      httpd_req_get_hdr_value_str(request, "Content-Type", content_type, sizeof(content_type)) != ESP_OK ||
-      strcmp(content_type, "application/json") != 0) {
-    direct_increment(&direct_state.malformed_requests);
-    return direct_send_result(
-        request, "", "", false, "invalid_params", "content type must be application/json", NULL,
-        "415 Unsupported Media Type");
-  }
-  char payload[DIRECT_MAX_REQUEST_BYTES + 1];
-  size_t received_total = 0;
-  while (received_total < (size_t) request->content_len) {
-    int received = httpd_req_recv(
-        request,
-        payload + received_total,
-        (size_t) request->content_len - received_total);
-    if (received <= 0) {
-      direct_increment(&direct_state.malformed_requests);
-      return ESP_FAIL;
-    }
-    received_total += (size_t) received;
-  }
-  payload[received_total] = '\0';
-
-  cJSON *root = cJSON_ParseWithLength(payload, received_total);
-  const cJSON *version = root == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(root, "protocol_version");
-  const cJSON *command_id = root == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(root, "command_id");
-  const cJSON *command = root == NULL ? NULL : cJSON_GetObjectItemCaseSensitive(root, "command");
-  bool identifiers_valid = cJSON_IsObject(root) && cJSON_IsString(command_id) &&
-      cJSON_IsString(command) &&
-      direct_identifier_valid(command_id->valuestring, DIRECT_MAX_COMMAND_ID_BYTES, false) &&
-      direct_identifier_valid(command->valuestring, DIRECT_MAX_COMMAND_BYTES, true);
-  if (!identifiers_valid) {
-    direct_increment(&direct_state.malformed_requests);
-    cJSON_Delete(root);
-    return direct_send_result(
-        request, "", "", false, "invalid_params", "request message is invalid", NULL,
-        "400 Bad Request");
-  }
-  if (
-      !cJSON_IsString(version) || direct_state.protocol_version == NULL ||
-      strcmp(version->valuestring, direct_state.protocol_version) != 0) {
-    esp_err_t result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, false, "unsupported_version",
-        "protocol_version is unsupported", NULL, "400 Bad Request");
-    cJSON_Delete(root);
-    return result;
-  }
-  if (cJSON_GetArraySize(root) != 3) {
-    direct_increment(&direct_state.malformed_requests);
-    esp_err_t result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, false, "invalid_params",
-        "command does not accept parameters", NULL, "400 Bad Request");
-    cJSON_Delete(root);
-    return result;
-  }
-
-  bool query = strcmp(command->valuestring, "capabilities") == 0 ||
-      strcmp(command->valuestring, "info") == 0 ||
-      strcmp(command->valuestring, "status") == 0 ||
-      strcmp(command->valuestring, "config") == 0 ||
-      strcmp(command->valuestring, "diagnostics") == 0;
-  bool recalibrate = strcmp(command->valuestring, "recalibrate") == 0;
+  bool query = command != NULL;
   direct_command_snapshot_t snapshot = query
-      ? direct_acquire_command_snapshot(command->valuestring)
+      ? direct_acquire_command_snapshot(command)
       : (direct_command_snapshot_t) {0};
   esp_err_t result;
   if (recalibrate && direct_queue_recalibration()) {
     result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, true, "ok",
-        "recalibration queued", NULL, "200 OK");
+        request, "", "recalibrate", true, "ok",
+        "recalibration queued", NULL, "202 Accepted");
   } else if (recalibrate) {
     result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, false, "busy",
-        "recalibration is already pending or active", NULL, "200 OK");
+        request, "", "recalibrate", false, "busy",
+        "recalibration is already pending or active", NULL, "409 Conflict");
   } else if (!query) {
     result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, false, "unsupported",
-        "command is not supported", NULL, "200 OK");
+        request, "", "", false, "unsupported",
+        "resource or method is not supported", NULL, "404 Not Found");
   } else if (snapshot.data == NULL) {
     result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, false, "unavailable",
+        request, "", command, false, "unavailable",
         "snapshot is unavailable", NULL, "503 Service Unavailable");
   } else {
-    result = direct_send_result(
-        request, command_id->valuestring, command->valuestring, true, "ok",
-        "query completed", snapshot.data, "200 OK");
+    httpd_resp_set_type(request, "application/json");
+    (void) httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    result = httpd_resp_sendstr(request, snapshot.data);
   }
   direct_release_command_snapshot(&snapshot);
-  cJSON_Delete(root);
   return result;
 }
 
@@ -937,6 +871,7 @@ static void direct_free_snapshots(void) {
   free(direct_state.capabilities);
   free(direct_state.info);
   free(direct_state.config);
+  free(direct_state.wifi);
   free(direct_state.device_id);
   free(direct_state.protocol_version);
   free(direct_state.dns_sd_schema_version);
@@ -945,6 +880,7 @@ static void direct_free_snapshots(void) {
   direct_state.status[0] = '\0';
   direct_state.status_staging[0] = '\0';
   direct_state.config = NULL;
+  direct_state.wifi = NULL;
   for (size_t index = 0; index < DIRECT_DIAGNOSTICS_BUFFER_COUNT; ++index) {
     direct_state.diagnostics[index][0] = '\0';
     direct_state.diagnostics_readers[index] = 0U;
@@ -1010,13 +946,18 @@ static void direct_stop_native(void) {
 }
 
 static bool direct_register_http_handlers(void) {
-  const httpd_uri_t request_handler = {
-      .uri = DIRECT_REQUEST_PATH,
+  const httpd_uri_t get_handler = {
+      .uri = DIRECT_RESOURCE_PATH,
+      .method = HTTP_GET,
+      .handler = direct_request_handler,
+  };
+  const httpd_uri_t post_handler = {
+      .uri = DIRECT_RESOURCE_PATH,
       .method = HTTP_POST,
       .handler = direct_request_handler,
   };
   const httpd_uri_t options_handler = {
-      .uri = DIRECT_REQUEST_PATH,
+      .uri = DIRECT_RESOURCE_PATH,
       .method = HTTP_OPTIONS,
       .handler = direct_options_handler,
   };
@@ -1030,10 +971,11 @@ static bool direct_register_http_handlers(void) {
       .method = HTTP_OPTIONS,
       .handler = direct_options_handler,
   };
-  return httpd_register_uri_handler(direct_state.server, &request_handler) == ESP_OK &&
-      httpd_register_uri_handler(direct_state.server, &options_handler) == ESP_OK &&
-      httpd_register_uri_handler(direct_state.server, &events_handler) == ESP_OK &&
-      httpd_register_uri_handler(direct_state.server, &events_options_handler) == ESP_OK;
+  return httpd_register_uri_handler(direct_state.server, &events_handler) == ESP_OK &&
+      httpd_register_uri_handler(direct_state.server, &events_options_handler) == ESP_OK &&
+      httpd_register_uri_handler(direct_state.server, &get_handler) == ESP_OK &&
+      httpd_register_uri_handler(direct_state.server, &post_handler) == ESP_OK &&
+      httpd_register_uri_handler(direct_state.server, &options_handler) == ESP_OK;
 }
 
 static esp_err_t direct_add_mdns_service(
@@ -1062,8 +1004,7 @@ static esp_err_t direct_add_mdns_service(
       {"name", instance},
       {"frontend", "micro"},
       {"transport", "http"},
-      {"path", DIRECT_REQUEST_PATH},
-      {"events", DIRECT_EVENTS_PATH},
+      {"path", DIRECT_BASE_PATH},
       {"firmware", firmware_version},
       {"chip", chip},
       {"capabilities", "monitor"},
@@ -1092,6 +1033,7 @@ static mp_obj_t native_direct_start(
     ARG_capabilities,
     ARG_info,
     ARG_config,
+    ARG_wifi,
     ARG_status,
     ARG_diagnostics,
   };
@@ -1107,6 +1049,7 @@ static mp_obj_t native_direct_start(
       {MP_QSTR_capabilities, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
       {MP_QSTR_info, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
       {MP_QSTR_config, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
+      {MP_QSTR_wifi, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
       {MP_QSTR_status, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
       {MP_QSTR_diagnostics, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
   };
@@ -1148,6 +1091,7 @@ static mp_obj_t native_direct_start(
           args[ARG_capabilities].u_obj) == NULL ||
       direct_replace_json_string(&direct_state.info, args[ARG_info].u_obj) == NULL ||
       direct_replace_json_string(&direct_state.config, args[ARG_config].u_obj) == NULL ||
+      direct_replace_json_string(&direct_state.wifi, args[ARG_wifi].u_obj) == NULL ||
       direct_replace_diagnostics_object(args[ARG_diagnostics].u_obj) !=
           DIRECT_DIAGNOSTICS_UPDATED ||
       !direct_replace_status_object(args[ARG_status].u_obj) ||
@@ -1177,6 +1121,8 @@ static mp_obj_t native_direct_start(
   server_config.server_port = (uint16_t) port;
   server_config.task_priority = CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY;
   server_config.max_open_sockets = 4;
+  server_config.max_uri_handlers = 5;
+  server_config.uri_match_fn = httpd_uri_match_wildcard;
   server_config.lru_purge_enable = true;
   server_config.enable_so_linger = true;
   server_config.linger_timeout = 0;
@@ -1243,6 +1189,14 @@ static mp_obj_t native_direct_update_config(mp_obj_t config_obj) {
   return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_update_config_obj, native_direct_update_config);
+
+static mp_obj_t native_direct_update_wifi(mp_obj_t wifi_obj) {
+  if (direct_replace_json_string(&direct_state.wifi, wifi_obj) == NULL) {
+    mp_raise_OSError(MP_ENOMEM);
+  }
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_update_wifi_obj, native_direct_update_wifi);
 
 static mp_obj_t native_direct_has_event_client(void) {
   if (direct_state.lock != NULL) {
@@ -1343,7 +1297,7 @@ static mp_obj_t native_direct_publish(mp_obj_t event_obj, mp_obj_t payload_obj) 
     xSemaphoreGive(direct_state.lock);
   }
   if (busy) {
-    direct_increment(&direct_state.dropped_telemetry_events);
+    direct_increment(&direct_state.dropped_motion_events);
     return mp_const_false;
   }
   if (unavailable) {
@@ -1454,8 +1408,8 @@ static mp_obj_t native_direct_diagnostics(mp_obj_t target) {
       direct_counter(&direct_state.rate_limited_requests));
   direct_store_uint(
       target,
-      MP_QSTR_dropped_telemetry_events,
-      direct_counter(&direct_state.dropped_telemetry_events));
+      MP_QSTR_dropped_motion_events,
+      direct_counter(&direct_state.dropped_motion_events));
   direct_store_uint(
       target,
       MP_QSTR_send_failures,
@@ -1476,6 +1430,7 @@ static const mp_rom_map_elem_t native_direct_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_update_status), MP_ROM_PTR(&native_direct_update_status_obj)},
     {MP_ROM_QSTR(MP_QSTR_update_diagnostics), MP_ROM_PTR(&native_direct_update_diagnostics_obj)},
     {MP_ROM_QSTR(MP_QSTR_update_config), MP_ROM_PTR(&native_direct_update_config_obj)},
+    {MP_ROM_QSTR(MP_QSTR_update_wifi), MP_ROM_PTR(&native_direct_update_wifi_obj)},
     {MP_ROM_QSTR(MP_QSTR_has_event_client), MP_ROM_PTR(&native_direct_has_event_client_obj)},
     {MP_ROM_QSTR(MP_QSTR_take_recalibration_request), MP_ROM_PTR(&native_direct_take_recalibration_request_obj)},
     {MP_ROM_QSTR(MP_QSTR_complete_recalibration), MP_ROM_PTR(&native_direct_complete_recalibration_obj)},

@@ -93,8 +93,7 @@ bool valid_candidate(const PeerDiscoveryCandidate &candidate) {
          candidate.txt_version == ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION &&
          candidate.protocol_version == ESPECTRE_PROTOCOL_VERSION &&
          candidate.transport == ESPECTRE_DIRECT_HTTP_TRANSPORT &&
-         candidate.path == ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT &&
-         candidate.events == ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT &&
+         candidate.path == ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT &&
          printable_text(candidate.firmware, kMaxFirmwareLength) && token(candidate.chip, kMaxChipLength) &&
          printable_text(candidate.capabilities, kMaxCapabilitiesLength) &&
          !capability_tokens(candidate.capabilities).empty() && candidate.port != 0U;
@@ -117,7 +116,6 @@ std::string device_json(const PeerDiscoveryCandidate &device) {
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION);
   append_json_pair(&out, "transport", device.transport.c_str());
   append_json_pair(&out, "path", device.path.c_str());
-  append_json_pair(&out, "events", device.events.c_str());
   append_json_pair(&out, "firmware", device.firmware.c_str());
   append_json_pair(&out, "chip", device.chip.c_str());
   out += ",\"port\":" + std::to_string(device.port) + ",\"capabilities\":[";

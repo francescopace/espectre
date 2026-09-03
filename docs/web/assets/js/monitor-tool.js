@@ -274,7 +274,19 @@
         if (conn.mode === 'direct' && directClient?.connected) {
             const { command, ...params } = fields;
             statusFn(pendingMessage);
-            return directClient.request(command, params, { timeoutMs });
+            if (command === 'read_diagnostics') {
+                return directClient.request('get', 'diagnostics', {}, { timeoutMs });
+            }
+            if (command === 'recalibrate') {
+                return directClient.request('post', 'sensing/calibrations', {}, { timeoutMs });
+            }
+            if (command === 'check_ota') {
+                return directClient.request('post', 'ota/checks', params, { timeoutMs });
+            }
+            if (command === 'start_ota') {
+                return directClient.request('post', 'ota/updates', params, { timeoutMs });
+            }
+            return directClient.request('patch', 'sensing', params, { timeoutMs });
         }
         const error = new Error('Connect to the device before changing its settings.');
         statusFn(error.message);
@@ -347,7 +359,7 @@
         if (direct && !directClient?.connected) return;
         try {
             if (direct) monitor.diagRequestPending = true;
-            const response = await monitorPublishCommand({ command: 'diagnostics' }, {
+            const response = await monitorPublishCommand({ command: 'read_diagnostics' }, {
                 pendingMessage: '',
                 statusFn: () => {}
             });
@@ -441,7 +453,7 @@
             const detector = document.getElementById('sense-detector').value;
             syncSensingControls();
             runSensingCommand(
-                { command: 'set_detector', detector },
+                { command: 'update_sensing', detector },
                 'Changing detection mode…',
                 'Detection mode updated.'
             );
@@ -454,7 +466,7 @@
                 return;
             }
             runSensingCommand(
-                { command: 'set_motion_hits', motion_on_hits: motionOnHits, motion_off_hits: motionOffHits },
+                { command: 'update_sensing', motion_on_hits: motionOnHits, motion_off_hits: motionOffHits },
                 'Saving advanced motion settings…',
                 'Advanced motion settings updated.'
             );
@@ -465,7 +477,7 @@
         document.getElementById('sense-csi-mode').addEventListener('change', () => {
             const csiTrafficMode = document.getElementById('sense-csi-mode').value;
             runSensingCommand(
-                { command: 'set_csi_traffic_mode', csi_traffic_mode: csiTrafficMode },
+                { command: 'update_sensing', csi_traffic_mode: csiTrafficMode },
                 'Changing the Wi-Fi traffic source…',
                 'Wi-Fi traffic source updated.'
             );
@@ -473,7 +485,7 @@
         document.getElementById('sense-generator-mode').addEventListener('change', () => {
             const trafficGeneratorMode = document.getElementById('sense-generator-mode').value;
             runSensingCommand(
-                { command: 'set_traffic_generator_mode', traffic_generator_mode: trafficGeneratorMode },
+                { command: 'update_sensing', traffic_generator_mode: trafficGeneratorMode },
                 'Changing the built-in traffic type…',
                 'Built-in traffic type updated.'
             );

@@ -78,12 +78,14 @@ def _resolve_direct_endpoint(args) -> str:
 
 def run_direct_request_command(args) -> int:
     try:
-        params = json.loads(args.params)
+        params = json.loads(args.data)
         if not isinstance(params, dict):
-            raise ValueError("--params must decode to a JSON object")
+            raise ValueError("--data must decode to a JSON object")
         endpoint = _resolve_direct_endpoint(args)
         with DirectClient(endpoint, origin=args.origin, timeout=args.timeout) as client:
-            result = client.request(args.method, params)
+            if args.http_method != "get" or args.resource.strip("/") != "capabilities":
+                client.negotiate()
+            result = client.request(args.http_method, args.resource, params)
     except (OSError, RuntimeError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         print(f"Direct request failed: {exc}")
         return 1

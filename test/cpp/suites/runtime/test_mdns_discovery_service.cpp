@@ -39,8 +39,7 @@ MdnsDiscoveryServiceConfig direct_config() {
       80U,
       {{"device_id", "0123456789abcdef"},
        {"transport", ESPECTRE_DIRECT_HTTP_TRANSPORT},
-       {"path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
-       {"events", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
+       {"path", ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT},
        {"protovers", "1.0"}},
   };
 }
@@ -61,13 +60,13 @@ void test_registers_identity_service_and_txt() {
   TEST_ASSERT_EQUAL_STRING("_espectre", g_mdns_mock.service_type);
   TEST_ASSERT_EQUAL_STRING("_tcp", g_mdns_mock.service_proto);
   TEST_ASSERT_EQUAL(80U, g_mdns_mock.service_port);
-  TEST_ASSERT_EQUAL(5U, g_mdns_mock.txt_count);
+  TEST_ASSERT_EQUAL(4U, g_mdns_mock.txt_count);
   TEST_ASSERT_EQUAL_STRING("device_id", g_mdns_mock.txt_keys[0]);
   TEST_ASSERT_EQUAL_STRING("0123456789abcdef", g_mdns_mock.txt_values[0]);
   TEST_ASSERT_EQUAL_STRING("transport", g_mdns_mock.txt_keys[1]);
   TEST_ASSERT_EQUAL_STRING("http", g_mdns_mock.txt_values[1]);
   TEST_ASSERT_EQUAL_STRING("path", g_mdns_mock.txt_keys[2]);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT, g_mdns_mock.txt_values[2]);
+  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT, g_mdns_mock.txt_values[2]);
   service.shutdown();
   TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.service_remove_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.free_call_count);
@@ -499,11 +498,10 @@ PeerDiscoveryCandidate peer(const char *device_id,
   candidate.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
-  candidate.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
-  candidate.events = ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
+  candidate.path = ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT;
   candidate.firmware = "3.0.0-rc1";
   candidate.chip = "esp32c3";
-  candidate.capabilities = "monitor,config,peer_discovery";
+  candidate.capabilities = "sensing,motion,devices,csi";
   candidate.port = 80U;
   candidate.ipv4_addresses = {address};
   return candidate;
@@ -515,18 +513,17 @@ uint32_t ipv4(uint8_t first, uint8_t second, uint8_t third, uint8_t fourth) {
 }
 
 struct PeerMdnsFixture {
-  mdns_txt_item_t txt[11] = {
+  mdns_txt_item_t txt[10] = {
       {"device_id", "2222222222222222"},
       {"name", "Office sensor"},
       {"frontend", "native"},
       {"txtvers", "1"},
       {"protovers", "1.0"},
       {"transport", "http"},
-      {"path", "/espectre/v1/request"},
-      {"events", "/espectre/v1/events"},
+      {"path", "/espectre/v1"},
       {"firmware", "3.0.0-rc1"},
       {"chip", "esp32c3"},
-      {"capabilities", "config,monitor,peer_discovery"},
+      {"capabilities", "sensing,motion,devices"},
   };
   mdns_ip_addr_t address{};
   mdns_result_t result{};
@@ -571,7 +568,7 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   TEST_ASSERT_TRUE(payload.find("\"protocol_version\":\"1.0\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("192.168.1.102") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("8.8.8.8") == std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("peer_discovery") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("devices") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"micro\"") != std::string::npos);
 }
 
@@ -594,7 +591,6 @@ void test_peer_results_reject_every_malformed_and_nonlocal_boundary() {
   reject([](auto &candidate) { candidate.protocol_version = "2"; });
   reject([](auto &candidate) { candidate.transport = "websocket"; });
   reject([](auto &candidate) { candidate.path = "/espectre/v1/ws"; });
-  reject([](auto &candidate) { candidate.events = "/events"; });
   reject([](auto &candidate) { candidate.firmware.assign(49U, 'x'); });
   reject([](auto &candidate) { candidate.chip = "esp32.c3"; });
   reject([](auto &candidate) { candidate.capabilities = "monitor,monitor"; });

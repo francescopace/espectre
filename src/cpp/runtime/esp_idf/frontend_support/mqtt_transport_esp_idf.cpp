@@ -54,8 +54,8 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   topic_base_ = make_topic_base(config);
   publish_topic_.reserve(topic_base_.size() + 24U);
   command_topic_ = topic_base_ + "commands/request";
-  last_will_topic_ = topic_base_ + "status";
-  last_will_payload_ = espectre_status_payload(config, false, 0);
+  last_will_topic_ = topic_base_ + "health";
+  last_will_payload_ = espectre_health_payload(config, false, 0);
   esp_mqtt_client_config_t mqtt_config{};
   mqtt_config.broker.address.hostname = broker_host_.c_str();
   mqtt_config.broker.address.port = config.mqtt_port;

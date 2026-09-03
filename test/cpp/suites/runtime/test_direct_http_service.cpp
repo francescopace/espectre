@@ -32,11 +32,36 @@ DirectHttpServiceConfig config() {
 }
 
 httpd_req_t request_for(size_t registered_index, int fd = 7) {
-  return httpd_req_t{g_httpd_mock.registered_uris[registered_index].user_ctx,
-                     fd,
-                     g_httpd_mock.incoming_length,
-                     0U,
-                     false};
+  httpd_req_t request{};
+  request.user_ctx = g_httpd_mock.registered_uris[0].user_ctx;
+  request.fd = fd;
+  request.method = registered_index == 0U ? HTTP_PATCH
+                   : registered_index == 3U ? HTTP_OPTIONS
+                                            : HTTP_GET;
+  request.uri = registered_index == 1U ? ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT
+                : registered_index == 2U ? ESPECTRE_RAW_CSI_ENDPOINT
+                                         : "/espectre/v1/sensing";
+  request.content_len = g_httpd_mock.incoming_length;
+  return request;
+}
+
+httpd_req_t request_for_route(httpd_method_t method, const char *uri, int fd = 7) {
+  httpd_req_t request{};
+  request.user_ctx = g_httpd_mock.registered_uris[0].user_ctx;
+  request.fd = fd;
+  request.method = method;
+  request.uri = uri;
+  request.content_len = g_httpd_mock.incoming_length;
+  return request;
+}
+
+esp_err_t dispatch_request(httpd_req_t *request) {
+  for (int index = 0; index < g_httpd_mock.register_calls; ++index) {
+    if (g_httpd_mock.registered_uris[index].method == request->method) {
+      return g_httpd_mock.registered_uris[index].handler(request);
+    }
+  }
+  return ESP_ERR_NOT_FOUND;
 }
 
 void prepare_json(const char *payload, const char *origin = "https://espectre.dev") {
@@ -58,6 +83,15 @@ std::string command_result(const DirectRequest &request, const std::string &data
   return espectre_command_result_payload(device, command, true, "ok", "completed", data_json);
 }
 
+void accept_raw_open(EspIdfDirectHttpService *service,
+                     RawCsiSessionConfig session,
+                     IDirectHttpService::RawSessionStoppedCallback stopped_callback = {}) {
+  service->set_raw_session_requested_callback(
+      [service, session, stopped_callback = std::move(stopped_callback)](std::string *) mutable {
+        return service->start_raw_session(session, std::move(stopped_callback));
+      });
+}
+
 void test_setup_registers_http_post_sse_raw_and_preflight() {
   httpd_mock_reset();
   EspIdfDirectHttpService service;
@@ -70,15 +104,16 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   TEST_ASSERT_TRUE(service.running());
   TEST_ASSERT_EQUAL(6, g_httpd_mock.register_calls);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT,
+  TEST_ASSERT_EQUAL_STRING("/espectre/v1/*",
                            g_httpd_mock.registered_uris[0].uri);
-  TEST_ASSERT_EQUAL(HTTP_POST, g_httpd_mock.registered_uris[0].method);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT,
+  TEST_ASSERT_EQUAL(HTTP_GET, g_httpd_mock.registered_uris[0].method);
+  TEST_ASSERT_EQUAL_STRING("/espectre/v1/*",
                            g_httpd_mock.registered_uris[1].uri);
-  TEST_ASSERT_EQUAL(HTTP_GET, g_httpd_mock.registered_uris[1].method);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_RAW_CSI_ENDPOINT, g_httpd_mock.registered_uris[2].uri);
-  TEST_ASSERT_EQUAL(HTTP_GET, g_httpd_mock.registered_uris[2].method);
-  TEST_ASSERT_EQUAL(HTTP_OPTIONS, g_httpd_mock.registered_uris[3].method);
+  TEST_ASSERT_EQUAL(HTTP_POST, g_httpd_mock.registered_uris[1].method);
+  TEST_ASSERT_EQUAL(HTTP_PUT, g_httpd_mock.registered_uris[2].method);
+  TEST_ASSERT_EQUAL(HTTP_DELETE, g_httpd_mock.registered_uris[3].method);
+  TEST_ASSERT_EQUAL(HTTP_PATCH, g_httpd_mock.registered_uris[4].method);
+  TEST_ASSERT_EQUAL(HTTP_OPTIONS, g_httpd_mock.registered_uris[5].method);
   TEST_ASSERT_EQUAL(7U, g_httpd_mock.last_config.max_open_sockets);
   TEST_ASSERT_EQUAL(8U, g_httpd_mock.last_config.max_uri_handlers);
   TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, g_httpd_mock.last_config.server_port);
@@ -148,7 +183,7 @@ void test_post_does_not_enqueue_after_shutdown_starts() {
   };
 
   httpd_req_t request = request_for(0U, 40);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&request));
   TEST_ASSERT_FALSE(service.running());
   TEST_ASSERT_EQUAL_STRING(HTTPD_503_SERVICE_UNAVAILABLE, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
@@ -167,7 +202,7 @@ void test_sse_does_not_register_after_shutdown_starts() {
   };
 
   httpd_req_t request = request_for(1U, 41);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[1].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&request));
   TEST_ASSERT_FALSE(service.running());
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
   TEST_ASSERT_EQUAL(0U, service.event_client_count());
@@ -185,48 +220,48 @@ void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
       },
       {}));
 
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"r1\",\"command\":\"capabilities\"}",
+  prepare_json("{\"enabled\":true}",
                "https://evil.example");
   httpd_req_t rejected = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&rejected));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&rejected));
   TEST_ASSERT_EQUAL_STRING(HTTPD_403_FORBIDDEN, g_httpd_mock.response_status);
 
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"r1\",\"command\":\"capabilities\"}");
+  prepare_json("{\"enabled\":true}");
   httpd_req_t request = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
   service.loop();
-  TEST_ASSERT_EQUAL_STRING("capabilities", method.c_str());
+  TEST_ASSERT_EQUAL_STRING("update_sensing", method.c_str());
   TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
-  TEST_ASSERT_TRUE(sent_payload(1).find("\"command_id\":\"r1\"") != std::string::npos);
+  TEST_ASSERT_TRUE(sent_payload(1).find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("application/json; charset=utf-8", g_httpd_mock.response_type);
   TEST_ASSERT_EQUAL_STRING("no-store", g_httpd_mock.cache_control);
   TEST_ASSERT_EQUAL_STRING("https://espectre.dev", g_httpd_mock.allow_origin);
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
 
-  prepare_json("{\"protocol_version\":\"2.0\",\"command_id\":\"version\",\"command\":\"info\"}");
+  prepare_json("{\"enabled\":false}");
   httpd_req_t semantic_rejection = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&semantic_rejection));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&semantic_rejection));
   service.loop();
-  TEST_ASSERT_EQUAL_STRING("info", method.c_str());
+  TEST_ASSERT_EQUAL_STRING("update_sensing", method.c_str());
   TEST_ASSERT_EQUAL(0U, service.diagnostics().malformed_requests);
 
   prepare_json("{}");
   httpd_mock_set_header("Content-Type", "text/plain");
   httpd_req_t wrong_type = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&wrong_type));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&wrong_type));
   TEST_ASSERT_EQUAL_STRING(HTTPD_415_UNSUPPORTED_MEDIA_TYPE, g_httpd_mock.response_status);
 
   prepare_json("not-json");
   httpd_req_t malformed = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&malformed));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&malformed));
   TEST_ASSERT_EQUAL_STRING(HTTPD_400_BAD_REQUEST, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().malformed_requests);
 
   prepare_json("{}");
   httpd_req_t oversized = request_for(0U);
   oversized.content_len = ESPECTRE_DIRECT_MAX_REQUEST_SIZE + 1U;
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&oversized));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&oversized));
   TEST_ASSERT_EQUAL_STRING(HTTPD_413_CONTENT_TOO_LARGE, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().oversized_requests);
 }
@@ -238,7 +273,7 @@ void test_options_returns_private_network_cors_headers() {
   httpd_mock_set_header("Origin", "https://test.espectre.dev");
   httpd_mock_set_header("Access-Control-Request-Private-Network", "true");
   httpd_req_t request = request_for(3U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[3].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   TEST_ASSERT_EQUAL_STRING("204 No Content", g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL_STRING("https://test.espectre.dev", g_httpd_mock.allow_origin);
   TEST_ASSERT_EQUAL_STRING("true", g_httpd_mock.allow_private_network);
@@ -256,22 +291,22 @@ void test_post_distinguishes_queue_saturation_from_mutation_rate_limit() {
         return command_result(request);
       }, {}));
 
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q1\",\"command\":\"capabilities\"}");
-  httpd_req_t queued = request_for(0U, 20);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&queued));
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q2\",\"command\":\"status\"}");
-  httpd_req_t full = request_for(0U, 21);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&full));
+  prepare_json("{}");
+  httpd_req_t queued = request_for_route(HTTP_GET, "/espectre/v1/health", 20);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&queued));
+  prepare_json("{}");
+  httpd_req_t full = request_for_route(HTTP_GET, "/espectre/v1/device", 21);
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&full));
   TEST_ASSERT_EQUAL_STRING(HTTPD_503_SERVICE_UNAVAILABLE, g_httpd_mock.response_status);
   service.loop();
 
   prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"m1\",\"command\":\"set_threshold\",\"threshold\":0.5}");
   httpd_req_t first_mutation = request_for(0U, 22);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&first_mutation));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&first_mutation));
   service.loop();
   prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"m2\",\"command\":\"recalibrate\"}");
   httpd_req_t limited = request_for(0U, 23);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&limited));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&limited));
   TEST_ASSERT_EQUAL_STRING(HTTPD_429_TOO_MANY_REQUESTS, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rate_limited_requests);
 }
@@ -285,26 +320,26 @@ void test_post_limits_total_request_rate_before_parsing() {
   TEST_ASSERT_TRUE(service.setup(
       limits, [](const DirectRequest &request) { return command_result(request); }, {}));
 
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q1\",\"command\":\"status\"}");
-  httpd_req_t first = request_for(0U, 30);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&first));
+  prepare_json("{}");
+  httpd_req_t first = request_for_route(HTTP_GET, "/espectre/v1/health", 30);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&first));
   service.loop();
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q2\",\"command\":\"diagnostics\"}");
-  httpd_req_t second = request_for(0U, 31);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&second));
+  prepare_json("{}");
+  httpd_req_t second = request_for_route(HTTP_GET, "/espectre/v1/diagnostics", 31);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&second));
   service.loop();
 
   prepare_json("not-json");
   httpd_req_t limited = request_for(0U, 32);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&limited));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&limited));
   TEST_ASSERT_EQUAL_STRING(HTTPD_429_TOO_MANY_REQUESTS, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rate_limited_requests);
   TEST_ASSERT_EQUAL(0U, service.diagnostics().malformed_requests);
 
   esp_timer_mock::advance(1000000U);
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q3\",\"command\":\"info\"}");
-  httpd_req_t next_window = request_for(0U, 33);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&next_window));
+  prepare_json("{}");
+  httpd_req_t next_window = request_for_route(HTTP_GET, "/espectre/v1/device", 33);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&next_window));
 }
 
 void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
@@ -316,7 +351,7 @@ void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
                                  [&reported_clients](size_t count) { reported_clients = count; }));
   httpd_mock_set_header("Origin", "https://espectre.dev");
   httpd_req_t first = request_for(1U, 11);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&first));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&first));
   TEST_ASSERT_EQUAL_STRING("text/event-stream; charset=utf-8", g_httpd_mock.response_type);
   TEST_ASSERT_EQUAL(1U, service.event_client_count());
   TEST_ASSERT_EQUAL(0U, reported_clients);
@@ -337,9 +372,9 @@ void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
   TEST_ASSERT_EQUAL_STRING(": ping\n\n", sent_payload(2).c_str());
 
   httpd_req_t second = request_for(1U, 12);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&second));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&second));
   httpd_req_t extra = request_for(1U, 13);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[1].handler(&extra));
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&extra));
   TEST_ASSERT_EQUAL_STRING(HTTPD_503_SERVICE_UNAVAILABLE, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rejected_connections);
 }
@@ -350,7 +385,7 @@ void test_sse_peer_close_is_not_a_send_failure() {
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   httpd_mock_set_header("Origin", "https://espectre.dev");
   httpd_req_t request = request_for(1U, 14);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   TEST_ASSERT_TRUE(service.publish_event("telemetry", "{\"movement\":0.1}", true));
 
   g_httpd_mock.send_result = ESP_FAIL;
@@ -369,7 +404,7 @@ void test_sse_retries_backpressure_before_disconnect() {
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   httpd_mock_set_header("Origin", "https://espectre.dev");
   httpd_req_t request = request_for(1U, 14);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
 
   g_httpd_mock.send_result = ESP_FAIL;
   for (size_t attempt = 0; attempt < 3U; ++attempt) {
@@ -397,12 +432,12 @@ void test_deferred_post_completes_only_once() {
         return IDirectHttpService::DeferredRequestResult{true, {}, {}};
       },
       {}));
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"peers\",\"command\":\"discover_peers\"}");
-  httpd_req_t request = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  prepare_json("{}");
+  httpd_req_t request = request_for_route(HTTP_GET, "/espectre/v1/devices");
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   service.loop();
   TEST_ASSERT_TRUE(token != 0U);
-  TEST_ASSERT_EQUAL_STRING("peers", request_id.c_str());
+  TEST_ASSERT_TRUE(request_id.empty());
   TEST_ASSERT_TRUE(service.complete_deferred_response(
       token, command_result(DirectRequest{request_id, "discover_peers", "{}"}, "{\"devices\":[]}")));
   TEST_ASSERT_FALSE(service.complete_deferred_response(
@@ -437,9 +472,9 @@ void test_response_completion_runs_after_send_and_reports_delivery(void) {
       },
       {}));
 
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"ack\",\"command\":\"set_wifi_bssid\",\"bssid\":\"AA:BB:CC:DD:EE:FF\"}");
-  httpd_req_t request = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  prepare_json("{\"bssid\":\"AA:BB:CC:DD:EE:FF\"}");
+  httpd_req_t request = request_for_route(HTTP_PUT, "/espectre/v1/wifi/bssid");
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   TEST_ASSERT_FALSE(callback_called);
   service.loop();
   TEST_ASSERT_TRUE(callback_called);
@@ -449,15 +484,15 @@ void test_response_completion_runs_after_send_and_reports_delivery(void) {
   callback_called = false;
   response_sent = true;
   g_httpd_mock.send_result = ESP_FAIL;
-  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"lost\",\"command\":\"clear_wifi_bssid\"}");
-  request = request_for(0U);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
+  prepare_json("{}");
+  request = request_for_route(HTTP_DELETE, "/espectre/v1/wifi/bssid");
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
   service.loop();
   TEST_ASSERT_TRUE(callback_called);
   TEST_ASSERT_FALSE(response_sent);
 }
 
-void test_raw_get_requires_bearer_and_emits_v2_frame() {
+void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
   EspIdfDirectHttpService service;
@@ -468,17 +503,12 @@ void test_raw_get_requires_bearer_and_emits_v2_frame() {
   for (size_t index = 0U; index < sizeof(session.session_id); ++index) {
     session.session_id[index] = static_cast<uint8_t>(index);
   }
-  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+  accept_raw_open(&service, session);
 
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_req_t missing = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[2].handler(&missing));
-  TEST_ASSERT_EQUAL_STRING(HTTPD_401_UNAUTHORIZED, g_httpd_mock.response_status);
-
-  httpd_mock_set_header("Authorization",
-                        "Bearer 000102030405060708090a0b0c0d0e0f");
   httpd_req_t raw_request = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
   TEST_ASSERT_TRUE(service.raw_diagnostics().binary_bound);
   TEST_ASSERT_EQUAL_STRING("application/octet-stream", g_httpd_mock.response_type);
 
@@ -496,12 +526,12 @@ void test_raw_get_requires_bearer_and_emits_v2_frame() {
   packet.channel_width = RawCsiChannelWidth::MHZ_20;
   TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
   service.loop();
-  TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
-  TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[1]);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[0]);
   TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
-                    g_httpd_mock.sent_lengths[1]);
+                    g_httpd_mock.sent_lengths[0]);
   const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefix *>(
-      g_httpd_mock.sent_payloads[1]);
+      g_httpd_mock.sent_payloads[0]);
   TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_RESPONSE_MAGIC, prefix->magic);
   TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_PROTOCOL_VERSION, prefix->version);
   TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, prefix->record_version);
@@ -509,7 +539,7 @@ void test_raw_get_requires_bearer_and_emits_v2_frame() {
   TEST_ASSERT_EQUAL(1U, prefix->stream_sequence);
   TEST_ASSERT_EQUAL(sizeof(RawCsiRecordHeaderV8) + sizeof(csi), prefix->record_len);
   const auto *header = reinterpret_cast<const RawCsiRecordHeaderV8 *>(
-      g_httpd_mock.sent_payloads[1] + sizeof(RawCsiHttpFramePrefix));
+      g_httpd_mock.sent_payloads[0] + sizeof(RawCsiHttpFramePrefix));
   TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, header->version);
   TEST_ASSERT_EQUAL(100000U, header->device_ticks_us);
   TEST_ASSERT_EQUAL(1U, header->fresh_record_total);
@@ -526,12 +556,12 @@ void test_raw_batches_up_to_four_records_without_pacing() {
   session.device_id = 0x112233445566ULL;
   session.chip = RawCsiChipType::C3;
   session.session_id[0] = 1U;
-  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+  accept_raw_open(&service, session);
 
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_mock_set_header("Authorization", "Bearer 01000000000000000000000000000000");
   httpd_req_t raw_request = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
 
   const int8_t csi[] = {1, -2, 3, -4};
   RawCsiPacketView packet{};
@@ -548,35 +578,29 @@ void test_raw_batches_up_to_four_records_without_pacing() {
   TEST_ASSERT_EQUAL(4U * frame_size, g_httpd_mock.sent_lengths[0]);
 }
 
-void test_raw_bind_revalidates_session_after_async_handler_creation() {
+void test_second_raw_get_is_rejected_while_the_first_open_is_pending() {
   httpd_mock_reset();
   EspIdfDirectHttpService service;
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   RawCsiSessionConfig session{};
   session.session_id[0] = 7U;
-  RawCsiStopReason stopped_reason = RawCsiStopReason::INTERNAL_ERROR;
-  TEST_ASSERT_TRUE(service.start_raw_session(
-      session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
+  accept_raw_open(&service, session);
 
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_mock_set_header("Authorization", "Bearer 07000000000000000000000000000000");
-  g_httpd_mock.async_begin_callback_context = &service;
-  g_httpd_mock.async_begin_callback = [](void *context) {
-    auto *direct = static_cast<EspIdfDirectHttpService *>(context);
-    (void) direct->stop_raw_session(RawCsiStopReason::REQUESTED);
-  };
-
-  httpd_req_t raw_request = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[2].handler(&raw_request));
-  TEST_ASSERT_EQUAL_STRING(HTTPD_403_FORBIDDEN, g_httpd_mock.response_status);
+  httpd_req_t first = request_for(2U, 9);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&first));
+  httpd_req_t second = request_for(2U, 10);
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&second));
+  TEST_ASSERT_EQUAL_STRING("409 Conflict", g_httpd_mock.response_status);
+  prepare_json("{\"enabled\":false}");
+  httpd_req_t mutation = request_for_route(HTTP_PATCH, "/espectre/v1/sensing", 11);
+  TEST_ASSERT_EQUAL(ESP_FAIL, dispatch_request(&mutation));
+  TEST_ASSERT_EQUAL_STRING("409 Conflict", g_httpd_mock.response_status);
   TEST_ASSERT_FALSE(service.raw_diagnostics().active);
   TEST_ASSERT_FALSE(service.raw_diagnostics().binary_bound);
-  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
-  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::INTERNAL_ERROR),
-                    static_cast<uint8_t>(stopped_reason));
   service.loop();
-  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::REQUESTED),
-                    static_cast<uint8_t>(stopped_reason));
+  TEST_ASSERT_TRUE(service.raw_diagnostics().active);
+  TEST_ASSERT_TRUE(service.raw_diagnostics().binary_bound);
 }
 
 void test_raw_ring_drops_new_record_and_accounts_every_offer() {
@@ -586,12 +610,12 @@ void test_raw_ring_drops_new_record_and_accounts_every_offer() {
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   RawCsiSessionConfig session{};
   session.session_id[0] = 2U;
-  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+  accept_raw_open(&service, session);
 
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_mock_set_header("Authorization", "Bearer 02000000000000000000000000000000");
   httpd_req_t raw_request = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
 
   const int8_t csi[] = {1, -2, 3, -4};
   RawCsiPacketView packet{};
@@ -619,7 +643,7 @@ void test_raw_ring_drops_new_record_and_accounts_every_offer() {
   TEST_ASSERT_EQUAL(18U, prefix->stream_sequence);
 }
 
-void test_raw_bind_timeout_restores_session_after_five_seconds() {
+void test_raw_session_has_no_bind_timeout() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
   EspIdfDirectHttpService service;
@@ -630,13 +654,10 @@ void test_raw_bind_timeout_restores_session_after_five_seconds() {
   TEST_ASSERT_TRUE(service.start_raw_session(
       session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
 
-  esp_timer_mock::advance(4999999U);
+  esp_timer_mock::advance(5000000U);
   service.loop();
   TEST_ASSERT_TRUE(service.raw_diagnostics().active);
-  esp_timer_mock::advance(1U);
-  service.loop();
-  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
-  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::BIND_TIMEOUT),
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::INTERNAL_ERROR),
                     static_cast<uint8_t>(stopped_reason));
 }
 
@@ -648,12 +669,12 @@ void test_raw_send_failure_accounts_batch_and_stops_slow_client() {
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   RawCsiSessionConfig session{};
   session.session_id[0] = 3U;
-  TEST_ASSERT_TRUE(service.start_raw_session(
-      session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
+  accept_raw_open(&service, session,
+                  [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; });
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_mock_set_header("Authorization", "Bearer 03000000000000000000000000000000");
   httpd_req_t raw_request = request_for(2U, 9);
-  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
 
   const int8_t csi[] = {1, -2, 3, -4};
   RawCsiPacketView packet{};
@@ -732,11 +753,11 @@ int main() {
   RUN_TEST(test_sse_retries_backpressure_before_disconnect);
   RUN_TEST(test_deferred_post_completes_only_once);
   RUN_TEST(test_response_completion_runs_after_send_and_reports_delivery);
-  RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);
+  RUN_TEST(test_raw_get_opens_automatic_session_and_emits_v2_frame);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
-  RUN_TEST(test_raw_bind_revalidates_session_after_async_handler_creation);
+  RUN_TEST(test_second_raw_get_is_rejected_while_the_first_open_is_pending);
   RUN_TEST(test_raw_ring_drops_new_record_and_accounts_every_offer);
-  RUN_TEST(test_raw_bind_timeout_restores_session_after_five_seconds);
+  RUN_TEST(test_raw_session_has_no_bind_timeout);
   RUN_TEST(test_raw_send_failure_accounts_batch_and_stops_slow_client);
   RUN_TEST(test_raw_stop_accounts_records_accepted_but_not_sent);
   RUN_TEST(test_raw_assigns_sequence_before_rejecting_an_invalid_offer);

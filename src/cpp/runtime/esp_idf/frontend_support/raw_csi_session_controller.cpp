@@ -34,16 +34,6 @@ RawCsiChipType raw_chip_type(const std::string &chip) {
   return RawCsiChipType::UNKNOWN;
 }
 
-std::string session_hex(const uint8_t *session_id) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  std::string value(ESPECTRE_RAW_CSI_SESSION_ID_BYTES * 2U, '0');
-  for (size_t index = 0U; index < ESPECTRE_RAW_CSI_SESSION_ID_BYTES; ++index) {
-    value[index * 2U] = kHex[session_id[index] >> 4U];
-    value[index * 2U + 1U] = kHex[session_id[index] & 0x0FU];
-  }
-  return value;
-}
-
 void fill_session_id(uint8_t *session_id, uint64_t seed) {
 #if defined(ESP_PLATFORM)
   esp_fill_random(session_id, ESPECTRE_RAW_CSI_SESSION_ID_BYTES);
@@ -64,12 +54,48 @@ void RawCsiSessionController::configure(IDirectHttpService *service,
                                         RuntimeFrontendController *runtime,
                                         uint64_t device_id,
                                         std::string chip,
-                                        StoppedCallback stopped_callback) {
+                                        StoppedCallback stopped_callback,
+                                        StartedCallback started_callback) {
   service_ = service;
   runtime_ = runtime;
   device_id_ = device_id;
   chip_ = std::move(chip);
   stopped_callback_ = std::move(stopped_callback);
+  started_callback_ = std::move(started_callback);
+  if (service_ != nullptr) {
+    service_->set_raw_session_requested_callback(
+        [this](std::string *message) { return this->begin(message); });
+  }
+}
+
+bool RawCsiSessionController::begin(std::string *message) {
+  if (service_ == nullptr || runtime_ == nullptr || device_id_ == 0U ||
+      !runtime_->capabilities().supports_raw_csi) {
+    if (message != nullptr) *message = "raw CSI collection is unavailable";
+    return false;
+  }
+  if (active_ || runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    if (message != nullptr) *message = "a CSI collection is already active";
+    return false;
+  }
+  RawCsiSessionConfig session;
+  session.device_id = device_id_;
+  session.chip = raw_chip_type(chip_);
+  fill_session_id(session.session_id, device_id_);
+  if (!service_->start_raw_session(
+          session, [this](RawCsiStopReason reason) { handle_stopped_(reason); })) {
+    if (message != nullptr) *message = "the CSI collector is busy";
+    return false;
+  }
+  if (!runtime_->start_raw_collection(&offer_packet_, this)) {
+    (void) service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+    if (message != nullptr) *message = "CSI capture could not be started";
+    return false;
+  }
+  active_ = true;
+  if (started_callback_) started_callback_();
+  if (message != nullptr) *message = "CSI collection started";
+  return true;
 }
 
 bool RawCsiSessionController::handle_command(const EspectreCommand &command,
@@ -83,68 +109,26 @@ bool RawCsiSessionController::handle_command(const EspectreCommand &command,
     if (message != nullptr) *message = "raw CSI collection is unavailable";
     return false;
   }
-  if (command.command == "stop_raw_stream") {
-    if (authorization_.empty() || context.authorization != authorization_) {
-      if (code != nullptr) *code = "not_raw_session_owner";
-      if (message != nullptr) *message = "the raw CSI bearer does not own this session";
-      return false;
-    }
-    const bool stopped = service_->stop_raw_session(RawCsiStopReason::REQUESTED);
-    if (code != nullptr) *code = stopped ? "ok" : "unavailable";
-    if (message != nullptr) {
-      *message = stopped ? "raw CSI collection stopped" : "raw CSI collection could not be stopped";
-    }
-    return stopped;
-  }
-  if (!authorization_.empty() ||
-      runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    if (code != nullptr) *code = "busy_raw_collection";
-    if (message != nullptr) *message = "a raw CSI session is already active";
-    return false;
-  }
-
-  RawCsiSessionConfig session;
-  session.device_id = device_id_;
-  session.chip = raw_chip_type(chip_);
-  fill_session_id(session.session_id, device_id_ ^ context.connection_token);
-  if (!service_->start_raw_session(
-          session, [this](RawCsiStopReason reason) { handle_stopped_(reason); })) {
-    if (code != nullptr) *code = "busy_raw_collection";
-    if (message != nullptr) *message = "the raw CSI collector is busy";
-    return false;
-  }
-  if (!runtime_->start_raw_collection(&offer_packet_, this)) {
-    (void) service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
-    if (code != nullptr) *code = "unavailable";
-    if (message != nullptr) *message = "raw CSI capture could not be started";
-    return false;
-  }
-
-  authorization_ = session_hex(session.session_id);
-  if (code != nullptr) *code = "ok";
-  if (message != nullptr) *message = "raw CSI collection started";
-  if (data_json != nullptr) {
-    *data_json = "{\"session_id\":\"" + authorization_ +
-                 "\",\"endpoint\":\"" + ESPECTRE_RAW_CSI_ENDPOINT +
-                 "\",\"transport\":\"http\",\"protocol_version\":" +
-                 std::to_string(static_cast<unsigned>(ESPECTRE_RAW_CSI_PROTOCOL_VERSION)) +
-                 ",\"record_version\":8,\"frame_prefix_bytes\":60}";
-  }
-  return true;
+  (void) command;
+  (void) context;
+  (void) data_json;
+  if (code != nullptr) *code = "unsupported";
+  if (message != nullptr) *message = "CSI collection is opened with GET /csi";
+  return false;
 }
 
 void RawCsiSessionController::ensure_runtime_consistency() {
-  if (!authorization_.empty() && runtime_ != nullptr && service_ != nullptr &&
+  if (active_ && runtime_ != nullptr && service_ != nullptr &&
       runtime_->operation_state() != RuntimeOperationState::RAW_COLLECTION) {
     (void) service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
   }
 }
 
 void RawCsiSessionController::shutdown(RawCsiStopReason reason) {
-  if (!authorization_.empty() && service_ != nullptr) {
+  if (active_ && service_ != nullptr) {
     (void) service_->stop_raw_session(reason);
   }
-  authorization_.clear();
+  active_ = false;
 }
 
 bool RawCsiSessionController::offer_packet_(void *context,
@@ -155,7 +139,7 @@ bool RawCsiSessionController::offer_packet_(void *context,
 }
 
 void RawCsiSessionController::handle_stopped_(RawCsiStopReason reason) {
-  authorization_.clear();
+  active_ = false;
   if (runtime_ != nullptr) (void) runtime_->stop_raw_collection(reason);
   if (stopped_callback_) stopped_callback_(reason);
 }

@@ -196,18 +196,17 @@ void test_espectre_component_raw_session_uses_shared_controller_and_recovers(voi
 
   const std::string capabilities = component.direct_bridge_.handle_request_(
       DirectRequest{"raw-capabilities", "capabilities", "{}"});
-  TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"start_raw_stream\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"csi\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"endpoint\":\"/espectre/v1/csi\"") != std::string::npos);
 
-  const std::string started = component.direct_bridge_.handle_request_(
-      DirectRequest{"raw-start", "start_raw_stream", "{}"});
-  TEST_ASSERT_TRUE(started.find("\"accepted\":true") != std::string::npos);
+  std::string message;
+  TEST_ASSERT_TRUE(component.direct_service_.raw_session_requested_callback_(&message));
   TEST_ASSERT_TRUE(component.direct_service_.raw_diagnostics().active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     component.runtime_.operation_state());
 
   const std::string busy = component.direct_bridge_.handle_request_(
-      DirectRequest{"raw-busy", "set_sensing", "{\"enabled\":false}"});
+      DirectRequest{"raw-busy", "update_sensing", "{\"enabled\":false}"});
   TEST_ASSERT_TRUE(busy.find("\"code\":\"busy_raw_collection\"") != std::string::npos);
   TEST_ASSERT_TRUE(component.runtime_.services_armed());
 
@@ -238,26 +237,24 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
                            component.peer_discovery_.local_candidate_.instance.c_str());
 
   const std::string default_info = component.direct_bridge_.handle_request_(
-      DirectRequest{"default-info", "info", "{}"});
-  TEST_ASSERT_TRUE(default_info.find("\"device_name\":\"" + generated_name + "\"") != std::string::npos);
-  TEST_ASSERT_TRUE(default_info.find("\"device_label\":\"\"") != std::string::npos);
+      DirectRequest{"default-info", "device", "{}"});
+  TEST_ASSERT_TRUE(default_info.find("\"name\":\"" + generated_name + "\"") != std::string::npos);
+  TEST_ASSERT_TRUE(default_info.find("\"label\":\"\"") != std::string::npos);
 
   const std::string capabilities = component.direct_bridge_.handle_request_(
       DirectRequest{"capabilities", "capabilities", "{}"});
-  TEST_ASSERT_TRUE(capabilities.find("\"config_sections\":[\"runtime\",\"device\",\"wifi\"]") !=
-                   std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_device_label\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_bssid\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"discover_peers\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") == std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_mqtt_config\"") == std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"ota_start\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"update_device\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"wifi\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"scan_wifi\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"clear_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"devices\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"clear_wifi_credentials\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"update_mqtt\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"start_ota\"") == std::string::npos);
 
   const std::string scan = component.direct_bridge_.handle_request_(
-      DirectRequest{"scan", "scan_wifi_access_points", "{}"});
+      DirectRequest{"scan", "scan_wifi", "{}"});
   const std::string pin = component.direct_bridge_.handle_request_(
       DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
   TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
@@ -268,7 +265,7 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
   complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
   const std::string credential_reset = component.direct_bridge_.handle_request_(
-      DirectRequest{"reset", "clear_wifi_config", "{}"});
+      DirectRequest{"reset", "clear_wifi_credentials", "{}"});
   TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
@@ -276,20 +273,20 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = component.direct_bridge_.handle_request_(
-      DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen ESPHome\"}"});
+      DirectRequest{"label", "update_device", "{\"label\":\"Kitchen ESPHome\"}"});
   TEST_ASSERT_TRUE(label.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.device_name_().c_str());
   TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.device_label_().c_str());
   TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.display_name_().c_str());
   const std::string info = component.direct_bridge_.handle_request_(
-      DirectRequest{"info", "info", "{}"});
+      DirectRequest{"", "device", "{}", "/espectre/v1/device", "GET"});
   const std::string config = component.direct_bridge_.handle_request_(
-      DirectRequest{"config", "config", "{}"});
-  TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
-  TEST_ASSERT_TRUE(config.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
+      DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(info.find("\"label\":\"Kitchen ESPHome\"") != std::string::npos);
+  TEST_ASSERT_TRUE(config.find("Kitchen ESPHome") == std::string::npos);
 
   const std::string cleared = component.direct_bridge_.handle_request_(
-      DirectRequest{"clear-label", "set_device_label", "{\"device_label\":\"\"}"});
+      DirectRequest{"clear-label", "update_device", "{\"label\":\"\"}"});
   TEST_ASSERT_TRUE(cleared.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(component.device_label_().empty());
   TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.display_name_().c_str());
@@ -538,7 +535,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   TEST_ASSERT_FALSE(traffic_rate.has_state());
   TEST_ASSERT_FALSE(channel.has_state());
   const std::string direct_diagnostics = component.direct_bridge_.handle_request_(
-      DirectRequest{"diagnostics", "diagnostics", "{}"});
+      DirectRequest{"diagnostics", "read_diagnostics", "{}"});
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"traffic_tx_pps\":100") != std::string::npos);
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_callback_pps\":96") != std::string::npos);
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_pending_frame_drops_total\":15") !=

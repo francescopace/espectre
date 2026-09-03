@@ -1,6 +1,6 @@
 # ESPectre Native Frontend
 
-Native is the standalone ESP-IDF firmware for browser-based local setup, sensing over Direct HTTP, optional MQTT integration, Home Assistant MQTT Discovery, and HTTPS OTA. The shared message model is documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+Native is the standalone ESP-IDF firmware for browser-based local setup, sensing over Direct HTTP, optional MQTT integration, Home Assistant MQTT Discovery, and HTTPS OTA. The shared message model is documented in [`API.md`](../../../../docs/API.md).
 
 ## Getting Started
 
@@ -30,24 +30,24 @@ The primary console transport follows the target's USB capability. UART and USB 
 
 ## Direct HTTP
 
-Native starts `POST http://<device>:62587/espectre/v1/request` and `GET http://<device>:62587/espectre/v1/events` after Wi-Fi obtains an address. The production portal and `https://test.espectre.dev` validation origins are allowed by default; optional loopback development origins are controlled by Kconfig and remain disabled in published firmware. Requests use JSON, and events use SSE read through streaming `fetch` so the browser can request local-network access explicitly.
+Native exposes resource requests below `http://<device>:62587/espectre/v1`, plus `GET /events` and `GET /csi`, after Wi-Fi obtains an address. The production portal and `https://test.espectre.dev` validation origins are allowed by default; optional loopback development origins are controlled by Kconfig and remain disabled in published firmware. Resource mutations use JSON, and events use SSE read through streaming `fetch` so the browser can request local-network access explicitly.
 
 Direct mode provides:
 
-- capability negotiation, device identity, status, configuration, diagnostics, and correlated command results
+- capability negotiation and separate device, health, sensing, Wi-Fi, MQTT, OTA, and diagnostics resources
 - Wi-Fi updates with optional BSSID and channel hints
 - device-label and optional MQTT add, change, or clear operations
-- sensing enable or pause through `set_sensing`, recalibration, detector selection, thresholds, hit counts, and traffic controls
-- processed movement, state, calibration, diagnostics, and lifecycle events
+- sensing enable or pause through `PATCH /sensing`, recalibration, detector selection, thresholds, hit counts, and traffic controls
+- per-evaluation motion plus resource and fault events
 - supported OTA status and control operations
 
 The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, total request rate, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox.
 
-The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
+The per-evaluation motion callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
-Native advertises the shared bearer-bound raw CSI HTTP surface. A raw session keeps the configured traffic source active and restores sensing when the session ends without changing persisted traffic configuration. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi) owns session authorization, framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
+Native advertises the shared automatic CSI HTTP surface. Opening `GET /csi` starts the exclusive collection, and closing the response restores sensing without changing persisted traffic configuration. [`API.md`](../../../../docs/API.md#csi-collection) owns framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
 
-The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. Run `./espectre devices --frontend native` to enumerate Native endpoints on an mDNS-visible LAN. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV, TXT, and peer-discovery contract; [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) owns browser permissions, supported connection identifiers, and recovery when discovery fails.
+The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. Run `./espectre devices --frontend native` to enumerate Native endpoints on an mDNS-visible LAN. [`DISCOVERY.md`](../../../../docs/DISCOVERY.md#dns-sd-and-mdns) owns the SRV, TXT, and peer-discovery contract; [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) owns browser permissions, supported connection identifiers, and recovery when discovery fails.
 
 ## Wi-Fi Provisioning and Recovery
 
@@ -107,7 +107,7 @@ Home Assistant discovery is enabled in the published defaults and can be disable
 | Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
 | CSI and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
 
-Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to standalone clients. See [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) for the exact topic and payload contract.
+Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to standalone clients. See [`API.md`](../../../../docs/API.md) for the exact topic and payload contract.
 
 ## Detection and Traffic
 
@@ -115,7 +115,7 @@ Native selects its build-time sensing defaults through the shared ESP-IDF `sdkco
 
 ## OTA
 
-Native uses the shared ESP-IDF HTTPS OTA service. Direct and MQTT can call `ota_status`, `ota_check`, and `ota_start` when their advertised capabilities include OTA.
+Native uses the shared ESP-IDF HTTPS OTA service. Direct exposes the `ota` resource plus `POST /ota/checks` and `POST /ota/updates`; MQTT uses `check_ota` and `start_ota` when its advertised capabilities include OTA.
 
 - `release`, `preview`, and `develop` select the corresponding publication channel.
 - Clients cannot override the manifest host, image URL, chip, or target version.

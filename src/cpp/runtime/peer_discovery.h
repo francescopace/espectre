@@ -18,7 +18,6 @@
 
 namespace espectre {
 
-inline constexpr const char *ESPECTRE_PEER_DISCOVERY_METHOD = "discover_peers";
 inline constexpr uint32_t ESPECTRE_PEER_DISCOVERY_TIMEOUT_MS = 3000U;
 inline constexpr size_t ESPECTRE_PEER_DISCOVERY_MAX_DEVICES = 8U;
 inline constexpr size_t ESPECTRE_PEER_DISCOVERY_MAX_ADDRESSES = 2U;
@@ -34,7 +33,6 @@ struct PeerDiscoveryCandidate {
   std::string protocol_version;
   std::string transport;
   std::string path;
-  std::string events;
   std::string firmware;
   std::string chip;
   std::string capabilities;

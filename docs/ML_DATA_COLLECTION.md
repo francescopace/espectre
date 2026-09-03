@@ -307,5 +307,5 @@ Before opening a PR:
 ## Next Steps
 
 - [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks
-- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi) for raw HTTP framing and session ownership
+- [`API.md`](API.md#csi-collection) for raw HTTP framing and session ownership
 - [`README.md` (tools)](../tools/README.md) for analysis helpers

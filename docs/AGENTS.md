@@ -13,7 +13,7 @@
 ## Topic Owners
 
 - Use `CLI.md`, `src/python/micro_espectre/README.md`, the relevant frontend README, and `./espectre --help` for CLI syntax and operator workflows.
-- Use `SETUP.md`, `ESPECTRE_PROTOCOL.md`, and `ARCHITECTURE.md` for shared configuration, protocol, and runtime architecture.
+- Use `SETUP.md`, `API.md`, `DISCOVERY.md`, and `ARCHITECTURE.md` for shared configuration, API, discovery, and runtime architecture.
 - Use `ALGORITHMS.md`, `FEATURES.md`, `ML_DATA_COLLECTION.md`, and `ML_TRAINING.md` for detector behavior, feature inventory, collection, and training workflows.
 - Use `performance/README.md`, `LITERATURE.md`, and `data/auto_generated/DATASET_QUALITY_CHECK.md` for benchmark status, external research, collection backlog, and dataset quality.
 - Use `ROADMAP.md` for product outcomes, gates, and sequencing; `adr/*.md` for durable decisions; and `review/*.md` only for dated review context.

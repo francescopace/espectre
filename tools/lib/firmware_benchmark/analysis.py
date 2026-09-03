@@ -15,7 +15,7 @@ from tools.lib.firmware_benchmark.settings import (
     HEAP_STABILITY_MAX_DECLINE_PERCENT,
     HEAP_STABILITY_WINDOW_SECONDS,
     MINIMUM_OCCUPANCY_PERCENT,
-    MIN_TELEMETRY_SAMPLES,
+    MIN_MOTION_SAMPLES,
     RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES,
     RUNTIME_STATUS_GAP_TOLERANCE_MS,
     STARTUP_GRACE_SECONDS,
@@ -67,7 +67,7 @@ def analyze_direct_evidence(
     events: Sequence[dict[str, object]],
     *,
     duration_seconds: int,
-    require_telemetry: bool,
+    require_motion: bool,
     require_detection_timing: bool,
     sample_interval_seconds: float = DIRECT_SAMPLE_INTERVAL_SECONDS,
     status_gap_tolerance_ms: int = RUNTIME_STATUS_GAP_TOLERANCE_MS,
@@ -90,8 +90,8 @@ def analyze_direct_evidence(
             f"({metrics.direct_request_censored} censored)"
         )
     metrics.status_expected_samples = max(1, math.ceil(duration_seconds / sample_interval_seconds))
-    metrics.telemetry_samples = sum(event.get("event") == "telemetry" for event in events)
-    metrics.telemetry_expected_samples = MIN_TELEMETRY_SAMPLES if require_telemetry else 0
+    metrics.motion_samples = sum(event.get("event") == "motion" for event in events)
+    metrics.motion_expected_samples = MIN_MOTION_SAMPLES if require_motion else 0
     timestamps = [value for sample in samples if (value := _integer(sample.get("timestamp_ms"))) is not None]
     uptimes = [value for sample in samples if (value := _integer(sample.get("uptime"))) is not None]
     if timestamps:
@@ -125,8 +125,8 @@ def analyze_direct_evidence(
         reasons.append(
             f"only {len(samples)}/{metrics.status_expected_samples} expected Direct diagnostics samples were received"
         )
-    if require_telemetry and metrics.telemetry_samples < MIN_TELEMETRY_SAMPLES:
-        reasons.append(f"only {metrics.telemetry_samples}/{MIN_TELEMETRY_SAMPLES} Direct telemetry events were received")
+    if require_motion and metrics.motion_samples < MIN_MOTION_SAMPLES:
+        reasons.append(f"only {metrics.motion_samples}/{MIN_MOTION_SAMPLES} Direct motion events were received")
     if any(right < left for left, right in zip(uptimes, uptimes[1:])):
         metrics.device_reboots = 1
         reasons.append("Direct uptime regressed during the scored window")
@@ -140,7 +140,7 @@ def analyze_direct_evidence(
         metrics.pps_stddev = statistics.pstdev(pps) if len(pps) > 1 else 0.0
         if metrics.pps_mean <= 0:
             reasons.append("Direct diagnostics reported no admitted CSI packets")
-    elif require_telemetry:
+    elif require_motion:
         reasons.append("Direct diagnostics did not report CSI packet rate")
 
     occupancy = [
@@ -157,7 +157,7 @@ def analyze_direct_evidence(
             missing_reason="Direct CSI occupancy was not reported",
             low_reason_prefix="Direct mean CSI occupancy",
         )
-    elif require_telemetry:
+    elif require_motion:
         reasons.append("Direct CSI occupancy was not reported")
 
     heap = [value for sample in samples if (value := _numeric(sample.get("free_memory_kb"))) is not None]

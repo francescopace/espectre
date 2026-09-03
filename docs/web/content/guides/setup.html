@@ -116,7 +116,7 @@ python -m pip install -r requirements.txt</code></pre>
           <p>Run the shell on your computer with the broker address. It selects a single device automatically or presents a menu when several devices are online. Use <code>help</code> to see the available commands, then adjust the motion threshold or start a new calibration:</p>
           <pre class="code"><code>./espectre mqtt --broker 192.168.1.20
 espectre&gt; help
-espectre&gt; set_threshold 0.35
+espectre&gt; update_sensing threshold=0.35
 espectre&gt; recalibrate</code></pre>
         </section>
         <p>For a reproducible integrator image, Native also supports build-time Wi-Fi and MQTT defaults through its ESP-IDF Kconfig surface. Keep generated <code>sdkconfig</code> files and credentials local; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/native/README.md" target="_blank" rel="noopener">Native reference</a> owns those options.</p>

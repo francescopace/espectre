@@ -68,7 +68,6 @@ std::vector<PeerDiscoveryCandidate> copy_candidates(mdns_result_t *results) {
     candidate.protocol_version = txt_value(result, "protovers", 8U);
     candidate.transport = txt_value(result, "transport", 8U);
     candidate.path = txt_value(result, "path", 64U);
-    candidate.events = txt_value(result, "events", 64U);
     candidate.firmware = txt_value(result, "firmware", 48U);
     candidate.chip = txt_value(result, "chip", 16U);
     candidate.capabilities = txt_value(result, "capabilities", 128U);

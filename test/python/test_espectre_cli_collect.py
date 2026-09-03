@@ -20,7 +20,7 @@ def discovered_device(
     frontend: str = "native",
     port: int = ESPECTRE_DIRECT_PORT,
     device_id: int = 0x1234,
-    capabilities: tuple[str, ...] = ("config", "monitor", "raw_csi"),
+    capabilities: tuple[str, ...] = ("sensing", "motion", "csi"),
 ) -> DiscoveredDevice:
     authority = "192.168.1.23" if port == 80 else f"192.168.1.23:{port}"
     return DiscoveredDevice(
@@ -34,7 +34,7 @@ def discovered_device(
         ip_address="192.168.1.23",
         port=port,
         transport="http",
-        endpoint=f"http://{authority}/espectre/v1/request",
+        endpoint=f"http://{authority}/espectre/v1",
         protocol="1",
         events_endpoint=f"http://{authority}/espectre/v1/events",
         capabilities=capabilities,
@@ -126,18 +126,18 @@ def test_collect_explicit_esphome_target_uses_shared_direct_port(monkeypatch) ->
 
     host._resolve_collect_target_via_discovery(args)
 
-    assert args.direct_endpoint == f"http://espectre.local:{ESPECTRE_DIRECT_PORT}/espectre/v1/request"
+    assert args.direct_endpoint == f"http://espectre.local:{ESPECTRE_DIRECT_PORT}/espectre/v1"
     assert args.traffic_target == "192.168.1.23"
     assert args.expected_discovery_device_id is None
 
 
 def test_collect_explicit_endpoint_preserves_nondefault_direct_port(monkeypatch) -> None:
     monkeypatch.setattr(host.socket, "gethostbyname", lambda _host: "192.168.1.23")
-    args = collect_args(target="http://espectre.local:61443/espectre/v1/request")
+    args = collect_args(target="http://espectre.local:61443/espectre/v1")
 
     host._resolve_collect_target_via_discovery(args)
 
-    assert args.direct_endpoint == "http://espectre.local:61443/espectre/v1/request"
+    assert args.direct_endpoint == "http://espectre.local:61443/espectre/v1"
     assert args.traffic_target == "192.168.1.23"
 
 
@@ -156,7 +156,7 @@ def test_collect_bare_hostname_uses_discovered_esphome_port(monkeypatch) -> None
 
 def test_collect_discovers_only_raw_capable_direct_devices(monkeypatch) -> None:
     raw = discovered_device(frontend="matter", device_id=0x1234)
-    no_raw = discovered_device(frontend="native", device_id=0x5678, capabilities=("config", "monitor"))
+    no_raw = discovered_device(frontend="native", device_id=0x5678, capabilities=("sensing", "motion"))
     monkeypatch.setattr(host, "discover_devices", lambda **_kwargs: [no_raw, raw])
     args = collect_args(target=None)
 
@@ -193,22 +193,20 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
         def __exit__(self, *_args):
             calls.append(("close", None))
 
-        def request(self, method, params=None):
-            calls.append((method, params))
-            if method == "capabilities":
+        def request(self, verb, resource, data=None):
+            calls.append((verb, resource, data))
+            if resource == "capabilities":
                 return {
-                    "raw_csi": {
+                    "csi": {
                         "protocol_version": 1,
                         "traffic_udp_port": 6123,
                         "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
                 }
-            if method == "config":
+            if resource == "sensing":
                 return {
-                    "runtime": {
-                        "csi_traffic_mode": "external",
-                        "csi_traffic_udp_port": 6123,
-                    }
+                    "csi_traffic_mode": "external",
+                    "csi_traffic_udp_port": 6123,
                 }
             return {}
 
@@ -225,7 +223,7 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
             self.kwargs = kwargs
 
     args = SimpleNamespace(
-        direct_endpoint="http://192.168.1.23/espectre/v1/request",
+        direct_endpoint="http://192.168.1.23/espectre/v1",
         traffic_target="192.168.1.23",
         source_ip="192.168.1.8",
         pps=400,
@@ -236,9 +234,9 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
 
     assert calls == [
         ("open", args.direct_endpoint),
-        ("capabilities", None),
-        ("set_csi_traffic_mode", {"csi_traffic_mode": "external"}),
-        ("config", None),
+        ("get", "capabilities", None),
+        ("patch", "sensing", {"csi_traffic_mode": "external"}),
+        ("get", "sensing", None),
         ("close", None),
     ]
     assert receiver.endpoint == args.direct_endpoint
@@ -258,20 +256,21 @@ def test_prepare_raw_collection_rejects_unconfirmed_persistent_mode() -> None:
         def __exit__(self, *_args):
             pass
 
-        def request(self, method, _params=None):
-            if method == "capabilities":
+        def request(self, verb, resource, _data=None):
+            assert verb in {"get", "patch"}
+            if resource == "capabilities":
                 return {
-                    "raw_csi": {
+                    "csi": {
                         "protocol_version": 1,
                         "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
                 }
-            if method == "config":
-                return {"runtime": {"csi_traffic_mode": "internal"}}
+            if resource == "sensing" and verb == "get":
+                return {"csi_traffic_mode": "internal"}
             return {}
 
     args = SimpleNamespace(
-        direct_endpoint="http://192.168.1.23/espectre/v1/request",
+        direct_endpoint="http://192.168.1.23/espectre/v1",
         traffic_target="192.168.1.23",
         source_ip=None,
         pps=100,
@@ -291,12 +290,12 @@ def test_prepare_raw_collection_rejects_incompatible_protocol_version() -> None:
         def __exit__(self, *_args):
             pass
 
-        def request(self, method, _params=None):
-            assert method == "capabilities"
-            return {"raw_csi": {"protocol_version": 2}}
+        def request(self, verb, resource, _data=None):
+            assert (verb, resource) == ("get", "capabilities")
+            return {"csi": {"protocol_version": 2}}
 
     args = SimpleNamespace(
-        direct_endpoint="http://192.168.1.23/espectre/v1/request",
+        direct_endpoint="http://192.168.1.23/espectre/v1",
         traffic_target="192.168.1.23",
         source_ip=None,
         pps=100,
@@ -320,12 +319,12 @@ def test_prepare_raw_collection_rejects_noncanonical_marker(raw_capability) -> N
         def __exit__(self, *_args):
             pass
 
-        def request(self, method, _params=None):
-            assert method == "capabilities"
-            return {"raw_csi": raw_capability}
+        def request(self, verb, resource, _data=None):
+            assert (verb, resource) == ("get", "capabilities")
+            return {"csi": raw_capability}
 
     args = SimpleNamespace(
-        direct_endpoint="http://192.168.1.23/espectre/v1/request",
+        direct_endpoint="http://192.168.1.23/espectre/v1",
         traffic_target="192.168.1.23",
         source_ip=None,
         pps=100,

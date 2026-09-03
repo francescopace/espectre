@@ -17,7 +17,7 @@ try:
         build_diagnostics_payload,
         build_info_payload,
         build_status_payload,
-        build_telemetry_payload,
+        build_motion_payload,
         derive_runtime_device_id,
     )
 except ImportError:
@@ -29,7 +29,7 @@ except ImportError:
         build_diagnostics_payload,
         build_info_payload,
         build_status_payload,
-        build_telemetry_payload,
+        build_motion_payload,
         derive_runtime_device_id,
     )
 
@@ -70,6 +70,7 @@ class DirectApi:
         self._uptime_last_ms = self.started_ms
         self._uptime_ms = 0
         self.started = False
+        self._last_sensing_signature = None
         self._status_payload = build_status_payload(
             self.device_id,
             True,
@@ -94,11 +95,11 @@ class DirectApi:
             "malformed_requests": 0,
             "oversized_requests": 0,
             "rate_limited_requests": 0,
-            "dropped_telemetry_events": 0,
+            "dropped_motion_events": 0,
             "send_failures": 0,
         }
         self._diagnostics_payload["direct_http"] = self._direct_http_diagnostics
-        self._telemetry_payload = build_telemetry_payload(
+        self._telemetry_payload = build_motion_payload(
             self.device_id,
             "micro",
             self.started_ms,
@@ -139,12 +140,35 @@ class DirectApi:
             now_ms = time.ticks_ms()
         payload = self._status_payload
         payload["timestamp_ms"] = now_ms
-        payload["ready_to_publish"] = self.detector.is_ready()
-        payload["calibrating"] = bool(self.global_state.calibration_mode)
-        payload["wifi_connected"] = self.wlan.isconnected()
+        payload["uptime_s"] = self._uptime_seconds(now_ms)
         return payload
 
     def _config(self):
+        return {
+            "enabled": True,
+            "ready": self.detector.is_ready(),
+            "calibrating": bool(self.global_state.calibration_mode),
+            "mode": "sensing",
+            "derived_events_paused": False,
+            "threshold": self.detector.get_threshold(),
+            "detector": "lightweight",
+            "motion_on_hits": self.runtime_policy.motion_on_hits,
+            "motion_off_hits": self.runtime_policy.motion_off_hits,
+            "csi_traffic_mode": "internal" if self.traffic_generator.is_running() else "external",
+            "traffic_generator_mode": self.traffic_generator.get_mode(),
+            "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
+        }
+
+    def _sensing_signature(self):
+        return (
+            bool(self.detector.is_ready()),
+            bool(self.global_state.calibration_mode),
+            self.detector.get_threshold(),
+            bool(self.traffic_generator.is_running()),
+            self.traffic_generator.get_mode(),
+        )
+
+    def _wifi(self):
         try:
             ssid = self.wlan.config("ssid") or ""
         except Exception:
@@ -162,27 +186,13 @@ class DirectApi:
         except Exception:
             channel = self.global_state.current_channel
         return {
-            "protocol_version": PROTOCOL_VERSION,
-            "device_id": self.device_id,
-            "device": {"device_label": getattr(self.config, "DEVICE_LABEL", "")},
-            "wifi": {
-                "configured": bool(getattr(self.config, "WIFI_SSID", "")),
-                "connected": self.wlan.isconnected(),
-                "ssid": ssid,
-                "bssid": bssid,
-                "band": _wifi_band(channel),
-                "channel": channel,
-                "rssi_dbm": rssi_dbm,
-            },
-            "runtime": {
-                "threshold": self.detector.get_threshold(),
-                "detector": "lightweight",
-                "motion_on_hits": self.runtime_policy.motion_on_hits,
-                "motion_off_hits": self.runtime_policy.motion_off_hits,
-                "csi_traffic_mode": "internal" if self.traffic_generator.is_running() else "external",
-                "traffic_generator_mode": self.traffic_generator.get_mode(),
-                "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
-            },
+            "configured": bool(getattr(self.config, "WIFI_SSID", "")),
+            "connected": self.wlan.isconnected(),
+            "ssid": ssid,
+            "bssid": bssid,
+            "band": _wifi_band(channel),
+            "channel": channel,
+            "rssi_dbm": rssi_dbm,
         }
 
     def _diagnostics(self, now_ms=None, measurements=None):
@@ -205,18 +215,20 @@ class DirectApi:
             return
         capabilities = build_capabilities_payload(self.device_id)
         info = self._info()
+        sensing = self._config()
         arguments = dict(
             port=DIRECT_HTTP_PORT,
             hostname=self._device_hostname(),
-            instance=info["device_name"],
+            instance=info["name"],
             device_id=self.device_id,
             chip=str(info["chip"]),
-            firmware_version=info["firmware_version"],
+            firmware_version=info["firmware"],
             protocol_version=PROTOCOL_VERSION,
             dns_sd_schema_version=DNS_SD_TXT_SCHEMA_VERSION,
             capabilities=capabilities,
             info=info,
-            config=self._config(),
+            config=sensing,
+            wifi=self._wifi(),
             status=self._status(),
             diagnostics=self._diagnostics(),
         )
@@ -232,6 +244,7 @@ class DirectApi:
                 gc.collect()
                 time.sleep_ms(100)
         self.started = True
+        self._last_sensing_signature = self._sensing_signature()
 
     def refresh_status(self, now_ms=None):
         """Refresh the lightweight read-only status snapshot."""
@@ -240,6 +253,9 @@ class DirectApi:
         if now_ms is None:
             now_ms = time.ticks_ms()
         native_direct.update_status(self._status(now_ms))
+        native_direct.update_wifi(self._wifi())
+        if self._sensing_signature() != self._last_sensing_signature:
+            self.refresh_config()
 
     def refresh_diagnostics(self, now_ms=None, diagnostics=None):
         """Refresh the full read-only diagnostics snapshot."""
@@ -256,6 +272,7 @@ class DirectApi:
         """Refresh configuration after a successful runtime recalibration."""
         if self.started:
             native_direct.update_config(self._config())
+            self._last_sensing_signature = self._sensing_signature()
 
     def refresh_snapshots(self, now_ms=None, diagnostics=None):
         """Refresh status and diagnostics for compatibility with callers."""
@@ -273,19 +290,17 @@ class DirectApi:
         if self.started:
             native_direct.complete_recalibration()
 
-    def publish_telemetry(self, movement_score, motion_state, threshold, now_ms=None):
-        """Emit one canonical telemetry event after a detector evaluation."""
+    def publish_motion(self, movement_score, motion_state, threshold, now_ms=None):
+        """Emit one canonical motion event after a detector evaluation."""
         if not self.started or not native_direct.has_event_client():
             return
         if now_ms is None:
             now_ms = time.ticks_ms()
         payload = self._telemetry_payload
         payload["timestamp_ms"] = now_ms
-        payload["motion_state"] = "motion" if motion_state else "idle"
-        payload["movement_score"] = movement_score
-        payload["threshold"] = threshold
-        payload["health"]["uptime_s"] = self._uptime_seconds(now_ms)
-        native_direct.publish("telemetry", payload)
+        payload["state"] = "motion" if motion_state else "idle"
+        payload["score"] = movement_score
+        native_direct.publish("motion", payload)
 
     def stop(self):
         """Stop Direct HTTP and remove its DNS-SD service."""

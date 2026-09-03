@@ -42,7 +42,7 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
     matter_qr_read: ['result', 'error_type'],
     ota_update_attempt: ['channel', 'transport', 'input_mode', 'result', 'error_type'],
     ota_update_result: ['result', 'ota_state', 'duration_ms', 'channel', 'error_type'],
-    raw_csi_stream: [
+    csi_stream: [
         'tool_name', 'entry_point', 'transport', 'input_mode', 'result', 'latency_ms',
         'duration_seconds', 'error_type', 'reason'
     ],
@@ -68,7 +68,7 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
 const ANALYTICS_CATEGORY_VALUES = Object.freeze({
     action: new Set([
         'clear_mqtt', 'clear_wifi', 'clear_wifi_bssid', 'recalibrate', 'set_csi_traffic_mode',
-        'set_detector', 'set_device', 'set_motion_hits', 'set_mqtt', 'set_threshold',
+        'update_device', 'update_sensing', 'update_mqtt',
         'set_traffic_generator_mode', 'set_wifi_bssid'
     ]),
     capability: new Set(['web_serial']),
@@ -88,7 +88,7 @@ const ANALYTICS_CATEGORY_VALUES = Object.freeze({
         'reconnected', 'starting', 'unknown', 'up_to_date', 'update_available'
     ]),
     protocol_version: new Set(['1', '1.0', 'unknown']),
-    readiness: new Set(['info', 'raw_stream', 'telemetry']),
+    readiness: new Set(['csi', 'info', 'motion']),
     reason: new Set([
         'disconnect', 'local_network_denied', 'page_exit', 'reconnect_failed', 'replaced',
         'restart', 'route_change', 'stream_error', 'user', 'wifi_cleared'

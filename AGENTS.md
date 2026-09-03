@@ -25,13 +25,13 @@
 
 - Start from the implementation owner and its local README. Use the documentation map in `README.md` only when ownership is unclear.
 - Use `./espectre --help` for current CLI syntax and the canonical registry, schema, or generated artifact for machine-consumed contracts.
-- Treat large ledgers such as `docs/FEATURES.md`, `docs/LITERATURE.md`, and `docs/ESPECTRE_PROTOCOL.md` as targeted references: search for the relevant entry or heading instead of reading them in full.
+- Treat large ledgers such as `docs/FEATURES.md` and `docs/LITERATURE.md` as targeted references: search for the relevant entry or heading instead of reading them in full.
 - Verify current-state documentation against implementation, runtime schemas, and generated artifacts. Distinguish deployed, partial, and target behavior.
 
 ## Production Boundaries
 
 - Preserve **one message model, multiple transports**: MQTT, Direct HTTP, and future transports carry the same canonical JSON contract and application version; transport framing and delivery policy stay outside that model.
-- Treat `docs/ESPECTRE_PROTOCOL.md` and the canonical protocol registry or schema as the owners of messages, operations, discovery metadata, and version semantics. Do not create transport-specific envelopes, aliases, or constants.
+- Treat `docs/API.md`, `docs/DISCOVERY.md`, and the canonical protocol registry or schema as the owners of messages, operations, discovery metadata, and version semantics. Do not create transport-specific envelopes, aliases, or constants.
 - Require cross-transport parity for serialized messages, validation, and capability schemas; engine-level semantic parity alone is insufficient.
 - Enforce the dependency direction `Frontend -> Runtime -> Core`; lower layers must not include, query, or call higher layers.
 - Do not modify the CSI data format without updating both `C++` and Python implementations.

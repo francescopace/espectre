@@ -18,14 +18,12 @@ from urllib.parse import parse_qs, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from .device_discovery import ESPECTRE_DIRECT_PORT
-from micro_espectre.protocol import PROTOCOL_VERSION
-
-
 IMPROV_HEADER = b"IMPROV"
 IMPROV_VERSION = 1
 IMPROV_MAX_FRAME_SIZE = 265
-DIRECT_PATH = "/espectre/v1/request"
+DIRECT_PATH = "/espectre/v1"
 DIRECT_EVENTS_PATH = "/espectre/v1/events"
+DIRECT_PROTOCOL_VERSION = "1.0"
 DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
 DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
 DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
@@ -379,7 +377,7 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
 
 
 class DirectClient:
-    """Direct HTTP request and event client for the canonical message model."""
+    """Resource-oriented Direct HTTP and event client."""
 
     def __init__(
         self,
@@ -400,13 +398,12 @@ class DirectClient:
             or parsed.fragment
             or parsed.username is not None
         ):
-            raise ValueError("Direct endpoint must be an HTTP URL ending in /espectre/v1/request")
+            raise ValueError("Direct endpoint must be an HTTP URL ending in /espectre/v1")
         if minimum_request_interval_seconds < 0:
             raise ValueError("Direct request interval must not be negative")
         self.endpoint = endpoint
         self.origin = origin
         self.timeout = timeout
-        self._next_id = 1
         self.events: list[DirectEvent] = []
         self._urlopen = urlopen if urlopen_factory is None else urlopen_factory
         self._use_persistent_requests = persistent_requests and urlopen_factory is None
@@ -415,18 +412,30 @@ class DirectClient:
         self._minimum_request_interval_seconds = float(minimum_request_interval_seconds)
         self._last_request_started_at: float | None = None
         self._request_pacing_lock = threading.Lock()
-        self._authorization: str | None = None
         self._events_response: HttpResponse | None = None
         self._events_socket: socket.socket | None = None
         self._events_thread: threading.Thread | None = None
         self._events_stop = threading.Event()
         self._events_ready = threading.Event()
         self._events_error: Exception | None = None
+        self.capabilities: dict[str, object] | None = None
+
+    def negotiate(self) -> dict[str, object]:
+        """Read and validate the capability resource once for this client."""
+        capabilities = self.request("get", "capabilities")
+        if capabilities.get("protocol_version") != DIRECT_PROTOCOL_VERSION:
+            raise DirectProtocolError("Direct capabilities use an unsupported protocol version")
+        if not isinstance(capabilities.get("resources"), list) or not isinstance(
+            capabilities.get("operations"), list
+        ):
+            raise DirectProtocolError("Direct capabilities are missing resources or operations")
+        self.capabilities = capabilities
+        return capabilities
 
     def close(self) -> None:
         self.stop_events()
         self._close_request_connection()
-        self._authorization = None
+        self.capabilities = None
 
     def _close_request_connection(self) -> None:
         connection = self._request_connection
@@ -436,6 +445,8 @@ class DirectClient:
 
     def _persistent_request(
         self,
+        method: str,
+        path: str,
         encoded: bytes,
         headers: dict[str, str],
         *,
@@ -458,7 +469,7 @@ class DirectClient:
                         connection.timeout = timeout
                         if connection.sock is not None:
                             connection.sock.settimeout(timeout)
-                    connection.request("POST", parsed.path, body=encoded, headers=headers)
+                    connection.request(method, path, body=encoded or None, headers=headers)
                     response = connection.getresponse()
                     status = response.status
                     raw = response.read(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
@@ -532,8 +543,8 @@ class DirectClient:
                             data = json.loads("\n".join(data_lines))
                         except json.JSONDecodeError as exc:
                             raise DirectProtocolError("Direct event stream sent invalid JSON") from exc
-                        if not isinstance(data, dict) or data.get("protocol_version") != PROTOCOL_VERSION:
-                            raise DirectProtocolError("Direct event stream sent an incompatible protocol message")
+                        if not isinstance(data, dict):
+                            raise DirectProtocolError("Direct event stream payload must be an object")
                         self.events.append(
                             DirectEvent(event_name, data, time.monotonic() - started)
                         )
@@ -641,63 +652,59 @@ class DirectClient:
             envelope = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise DirectProtocolError("Direct endpoint sent invalid JSON") from exc
-        if (
-            not isinstance(envelope, dict)
-            or envelope.get("protocol_version") != PROTOCOL_VERSION
-        ):
-            raise DirectProtocolError("Direct endpoint sent an incompatible protocol message")
+        if not isinstance(envelope, dict):
+            raise DirectProtocolError("Direct endpoint response must be an object")
         return envelope
 
     def request(
         self,
         method: str,
-        params: dict[str, object] | None = None,
+        resource: str,
+        data: dict[str, object] | None = None,
         *,
         timeout: float | None = None,
     ) -> dict[str, object]:
         self._pace_request()
-        request_id = f"benchmark-{self._next_id}"
-        self._next_id += 1
-        arguments = params or {}
-        if any(key in arguments for key in ("protocol_version", "command_id", "command")):
-            raise ValueError("Direct command arguments contain a reserved protocol field")
-        message = json.dumps(
-            {
-                "protocol_version": PROTOCOL_VERSION,
-                "command_id": request_id,
-                "command": method,
-                **arguments,
-            },
-            separators=(",", ":"),
-        )
+        http_method = method.upper()
+        if http_method not in {"GET", "PATCH", "POST", "PUT", "DELETE"}:
+            raise ValueError("Direct method must be get, patch, post, put, or delete")
+        normalized_resource = resource.strip("/")
+        if not normalized_resource or ".." in normalized_resource.split("/"):
+            raise ValueError("Direct resource must be a non-empty relative path")
+        arguments = data or {}
+        message = "" if not arguments else json.dumps(arguments, separators=(",", ":"))
         if len(message.encode("utf-8")) > DIRECT_MAX_REQUEST_FRAME_SIZE:
             raise ValueError("Direct request exceeds the size limit")
         encoded = message.encode("utf-8")
+        parsed = urlsplit(self.endpoint)
+        path = f"{parsed.path}/{normalized_resource}"
         headers = {
             "Accept": "application/json",
             "Cache-Control": "no-store",
-            "Content-Type": "application/json",
             "Origin": self.origin,
         }
-        if method == "stop_raw_stream" and self._authorization is not None:
-            headers["Authorization"] = f"Bearer {self._authorization}"
+        if encoded:
+            headers["Content-Type"] = "application/json"
         if self._use_persistent_requests:
             headers["Connection"] = "keep-alive"
             try:
                 status, raw = self._persistent_request(
+                    http_method,
+                    path,
                     encoded,
                     headers,
                     timeout=self.timeout if timeout is None else timeout,
                 )
             except (OSError, TimeoutError, http.client.HTTPException) as exc:
                 raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
-            if status != 200:
+            if status not in {200, 202}:
                 detail = raw[:512].decode("utf-8", errors="replace").strip()
                 raise DirectProtocolError(f"Direct HTTP {status}: {detail or 'request failed'}")
             envelope = self._decode(raw)
-            return self._validate_response(envelope, request_id, method)
+            return self._validate_response(envelope, http_method)
 
-        request = Request(self.endpoint, data=encoded, headers=headers, method="POST")
+        endpoint = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+        request = Request(endpoint, data=encoded or None, headers=headers, method=http_method)
         response: HttpResponse | None = None
         try:
             response = self._urlopen(request, timeout=self.timeout if timeout is None else timeout)
@@ -711,21 +718,18 @@ class DirectClient:
         finally:
             if response is not None:
                 response.close()
-        if status != 200:
+        if status not in {200, 202}:
             raise DirectProtocolError(f"Direct HTTP returned status {status}")
         envelope = self._decode(raw)
-        return self._validate_response(envelope, request_id, method)
+        return self._validate_response(envelope, http_method)
 
     def _validate_response(
         self,
         envelope: dict[str, object],
-        request_id: str,
         method: str,
     ) -> dict[str, object]:
-        if envelope.get("command_id") != request_id:
-            raise DirectProtocolError("Direct endpoint sent an unknown response identifier")
-        if envelope.get("command") != method:
-            raise DirectProtocolError("Direct endpoint sent a result for another command")
+        if method == "GET":
+            return envelope
         accepted = envelope.get("accepted")
         if not isinstance(accepted, bool):
             raise DirectProtocolError("Direct response is missing its boolean result status")
@@ -734,14 +738,5 @@ class DirectClient:
         if not isinstance(code, str) or not isinstance(error_message, str):
             raise DirectProtocolError("Direct result code and message must be strings")
         if accepted:
-            data = envelope.get("data", {})
-            if not isinstance(data, dict):
-                raise DirectProtocolError("Direct query response data must be an object")
-            if method == "start_raw_stream":
-                session_id = data.get("session_id")
-                if isinstance(session_id, str) and len(session_id) == 32:
-                    self._authorization = session_id
-            elif method == "stop_raw_stream":
-                self._authorization = None
-            return data
+            return envelope
         raise DirectRequestError(code, error_message)

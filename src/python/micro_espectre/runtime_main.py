@@ -761,7 +761,6 @@ def main(wlan=None):
             status_due = time_delta >= HEARTBEAT_INTERVAL_MS
             if status_due and direct_api.take_recalibration_request():
                 recalibration_ok = False
-                previous_threshold = detector.get_threshold()
                 try:
                     g_state.calibration_mode = True
                     direct_api.refresh_status(current_time)
@@ -814,10 +813,7 @@ def main(wlan=None):
                         ),
                         completed_time,
                     )
-                    if recalibration_ok:
-                        if detector.get_threshold() != previous_threshold:
-                            direct_api.refresh_config()
-                    else:
+                    if not recalibration_ok:
                         print_log("WARN", "Direct recalibration did not find a stable threshold")
                     last_heartbeat_time = completed_time
                     last_diagnostic_time = completed_time
@@ -825,6 +821,7 @@ def main(wlan=None):
                 finally:
                     g_state.calibration_mode = False
                     try:
+                        direct_api.refresh_config()
                         direct_api.refresh_status(time.ticks_ms())
                     finally:
                         direct_api.complete_recalibration()
@@ -1068,7 +1065,7 @@ def main(wlan=None):
                     latest_motion_metric = metrics.get('motion_metric', 0.0)
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
-                    direct_api.publish_telemetry(
+                    direct_api.publish_motion(
                         latest_motion_metric,
                         latest_effective_state,
                         latest_threshold,

@@ -2,7 +2,7 @@
  * ESPectre Direct HTTP Client
  *
  * Dependency-free client for the versioned local HTTP API. It owns endpoint
- * validation, correlated POST requests, incremental SSE parsing, and device
+ * validation, resource requests, incremental SSE parsing, and device
  * events; UI policy remains with callers.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -17,7 +17,7 @@
     const DNS_SD_SCHEMA_VERSION = 1;
     // Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
     const DEFAULT_PORT = 62587;
-    const REQUEST_PATH = '/espectre/v1/request';
+    const REQUEST_PATH = '/espectre/v1';
     const EVENTS_PATH = '/espectre/v1/events';
     const RAW_PATH = '/espectre/v1/csi';
     const MAX_REQUEST_BYTES = 4096;
@@ -29,16 +29,6 @@
     const DISCOVERY_NONCE_BYTES = 12;
     const DISCOVERY_HOST_PREFIX = 'espectre-devices-';
     const EVENTS = Object.freeze(['open', 'close', 'event', 'protocol-error']);
-    const MUTATING_METHODS = Object.freeze(new Set([
-        'clear_mqtt_config', 'clear_wifi_bssid', 'clear_wifi_config', 'ota_start', 'recalibrate', 'scan_wifi_access_points',
-        'set_csi_traffic_mode', 'set_detector', 'set_device_label',
-        'set_motion_hits', 'set_mqtt_config', 'set_threshold',
-        'set_traffic_generator_mode', 'set_wifi_bssid', 'set_sensing',
-        'start_raw_stream', 'stop_raw_stream'
-    ]));
-    const RETRYABLE_READ_METHODS = Object.freeze(new Set([
-        'capabilities', 'info', 'status', 'config', 'diagnostics', 'ota_status', 'wifi_access_points'
-    ]));
 
     class ESPectreDirectError extends Error {
         constructor(message, code = 'client_error') {
@@ -63,7 +53,7 @@
         #rawDropTotal = 0n;
         #sendBackpressureTotal = 0n;
 
-        constructor(sessionId) {
+        constructor(sessionId = null) {
             if (typeof sessionId === 'string') {
                 if (!/^[0-9a-f]{32}$/.test(sessionId)) {
                     throw new ESPectreDirectError('Raw CSI session ID must be 32 lowercase hexadecimal characters.', 'invalid_raw_session');
@@ -74,6 +64,8 @@
                 }
             } else if (sessionId instanceof Uint8Array && sessionId.length === 16) {
                 this.#sessionBytes = sessionId.slice();
+            } else if (sessionId == null) {
+                this.#sessionBytes = null;
             } else {
                 throw new ESPectreDirectError('Raw CSI session ID is invalid.', 'invalid_raw_session');
             }
@@ -120,6 +112,7 @@
         #consumeFrame(frame) {
             const prefix = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
             const session = frame.subarray(8, 24);
+            if (this.#sessionBytes === null) this.#sessionBytes = session.slice();
             const sessionMatches = session.length === this.#sessionBytes.length
                 && session.every((value, index) => value === this.#sessionBytes[index]);
             const streamSequence = prefix.getBigUint64(24, true);
@@ -276,9 +269,6 @@
         if (!data || typeof data !== 'object' || Array.isArray(data)) {
             throw new ESPectreDirectError('Direct payload must be a JSON object.', 'invalid_envelope');
         }
-        if (data.protocol_version !== PROTOCOL_VERSION) {
-            throw new ESPectreDirectError(`Unsupported ESPectre protocol version ${String(data.protocol_version)}.`, 'unsupported_version');
-        }
         return data;
     }
 
@@ -355,7 +345,7 @@
                 && peer.dns_sd_schema_version === DNS_SD_SCHEMA_VERSION
                 && peer.protocol_version === PROTOCOL_VERSION
                 && peer.transport === 'http'
-                && peer.path === REQUEST_PATH && peer.events === EVENTS_PATH
+                && peer.path === REQUEST_PATH
                 && validText(peer.firmware, 48)
                 && validText(peer.chip, 16, { token: true })
                 && Number.isInteger(peer.port) && peer.port > 0 && peer.port <= 65535
@@ -395,21 +385,18 @@
 
         #endpoint;
         #listeners = new Map();
-        #sequence = 0;
         #compatible = false;
         #capabilities = null;
         #connected = false;
         #closing = false;
         #eventController = null;
         #requestControllers = new Set();
-        #rawSessionId = '';
 
         constructor(endpoint) { this.#endpoint = normalizeEndpoint(endpoint); }
 
         get endpoint() { return this.#endpoint; }
         get eventsEndpoint() { return endpointWithPath(this.#endpoint, EVENTS_PATH); }
         get rawEndpoint() { return endpointWithPath(this.#endpoint, RAW_PATH); }
-        get rawSessionId() { return this.#rawSessionId; }
         get connected() { return this.#connected; }
         get compatible() { return this.#compatible; }
         get capabilities() { return this.#capabilities; }
@@ -526,10 +513,11 @@
         }
 
         async handshake(options = {}) {
-            const result = await this.request('capabilities', {}, { ...options, allowBeforeHandshake: true });
+            const result = await this.request('get', 'capabilities', {}, { ...options, allowBeforeHandshake: true });
             if (!result || typeof result !== 'object' || Array.isArray(result)
-                || !Array.isArray(result.commands)
-                || result.commands.some((item) => !item || typeof item.name !== 'string'
+                || result.protocol_version !== PROTOCOL_VERSION
+                || !Array.isArray(result.operations)
+                || result.operations.some((item) => !item || typeof item.name !== 'string'
                     || !/^[A-Za-z0-9_.-]{1,64}$/.test(item.name))) {
                 throw new ESPectreDirectError('Device returned invalid capabilities.', 'invalid_capabilities');
             }
@@ -538,55 +526,44 @@
             return result;
         }
 
-        async request(method, params = {}, options = {}) {
+        async request(method, resource, data = {}, options = {}) {
             if (!this.connected) throw new ESPectreDirectError('Direct HTTP is not connected.', 'not_connected');
-            return this.#sendRequest(method, params, options);
+            return this.#sendRequest(method, resource, data, options);
         }
 
-        async #sendRequest(method, params = {}, {
+        async #sendRequest(method, resource, data = {}, {
             timeoutMs = DEFAULT_TIMEOUT_MS,
-            requestId,
             allowBeforeHandshake = false
         } = {}) {
-            if (typeof method !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(method)) {
-                throw new ESPectreDirectError('Direct method is invalid.', 'invalid_method');
+            const httpMethod = String(method).toUpperCase();
+            if (!['GET', 'PATCH', 'POST', 'PUT', 'DELETE'].includes(httpMethod)) {
+                throw new ESPectreDirectError('Direct HTTP method is invalid.', 'invalid_method');
             }
-            if (!params || typeof params !== 'object' || Array.isArray(params)) {
-                throw new ESPectreDirectError('Direct params must be an object.', 'invalid_params');
+            if (typeof resource !== 'string' || !/^[A-Za-z0-9/-]{1,96}$/.test(resource)) {
+                throw new ESPectreDirectError('Direct resource is invalid.', 'invalid_resource');
             }
-            if (!allowBeforeHandshake && MUTATING_METHODS.has(method) && !this.#compatible) {
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                throw new ESPectreDirectError('Direct data must be an object.', 'invalid_params');
+            }
+            if (!allowBeforeHandshake && httpMethod !== 'GET' && !this.#compatible) {
                 throw new ESPectreDirectError('Complete the Direct capability handshake before changing the device.', 'handshake_required');
             }
-            const id = requestId || `web-${Date.now().toString(36)}-${(++this.#sequence).toString(36)}`;
-            if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(id)) {
-                throw new ESPectreDirectError('Direct request id is invalid.', 'invalid_request_id');
-            }
-            if (['protocol_version', 'command_id', 'command'].some((name) => Object.hasOwn(params, name))) {
-                throw new ESPectreDirectError('Direct params contain a reserved protocol field.', 'invalid_params');
-            }
-            const payload = JSON.stringify({
-                protocol_version: PROTOCOL_VERSION,
-                command_id: id,
-                command: method,
-                ...params
-            });
-            if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_BYTES) {
+            const payload = Object.keys(data).length ? JSON.stringify(data) : null;
+            if (new TextEncoder().encode(payload || '').byteLength > MAX_REQUEST_BYTES) {
                 throw new ESPectreDirectError('Direct request exceeds the 4096-byte limit.', 'frame_too_large');
             }
-            const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-            if (method === 'stop_raw_stream' && this.#rawSessionId) {
-                headers.Authorization = `Bearer ${this.#rawSessionId}`;
-            }
+            const headers = { Accept: 'application/json' };
+            if (payload !== null) headers['Content-Type'] = 'application/json';
             let response;
             let text;
-            const attempts = RETRYABLE_READ_METHODS.has(method) ? 2 : 1;
+            const attempts = httpMethod === 'GET' ? 2 : 1;
             for (let attempt = 0; attempt < attempts; attempt += 1) {
                 const controller = new AbortController();
                 this.#requestControllers.add(controller);
                 const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
                 try {
-                    response = await localFetch(this.#endpoint, {
-                        method: 'POST',
+                    response = await localFetch(endpointWithPath(this.#endpoint, `${REQUEST_PATH}/${resource.replace(/^\/+/, '')}`), {
+                        method: httpMethod,
                         headers,
                         body: payload,
                         signal: controller.signal
@@ -598,7 +575,7 @@
                     const timedOut = controller.signal.aborted;
                     if (!timedOut && !this.#closing && attempt + 1 < attempts) continue;
                     throw new ESPectreDirectError(
-                        timedOut ? `Direct request ${method} timed out.` : `Direct HTTP request failed: ${error.message}`,
+                        timedOut ? `Direct request ${httpMethod} ${resource} timed out.` : `Direct HTTP request failed: ${error.message}`,
                         timedOut ? 'timeout' : 'connection_failed'
                     );
                 } finally {
@@ -611,8 +588,8 @@
                 throw new ESPectreDirectError(detail || `Direct HTTP returned ${response.status}.`, `http_${response.status}`);
             }
             const resultMessage = parseObject(text);
-            if (resultMessage.command_id !== id || resultMessage.command !== method
-                || typeof resultMessage.accepted !== 'boolean'
+            if (httpMethod === 'GET') return resultMessage;
+            if (typeof resultMessage.accepted !== 'boolean'
                 || typeof resultMessage.code !== 'string'
                 || typeof resultMessage.message !== 'string') {
                 throw new ESPectreDirectError('Direct command result is invalid.', 'invalid_envelope');
@@ -620,20 +597,11 @@
             if (!resultMessage.accepted) {
                 throw new ESPectreDirectError(resultMessage.message, resultMessage.code);
             }
-            const result = resultMessage.data ?? {};
-            if (!result || typeof result !== 'object' || Array.isArray(result)) {
-                throw new ESPectreDirectError('Direct response data must be an object.', 'invalid_envelope');
-            }
-            if (method === 'start_raw_stream' && /^[0-9a-f]{32}$/.test(result.session_id)) {
-                this.#rawSessionId = result.session_id;
-            } else if (method === 'stop_raw_stream') {
-                this.#rawSessionId = '';
-            }
-            return result;
+            return resultMessage;
         }
 
         async discoverPeersBootstrap(options = {}) {
-            return validatePeerDiscoveryResult(await this.#sendRequest('discover_peers', {}, {
+            return validatePeerDiscoveryResult(await this.#sendRequest('get', 'devices', {}, {
                 timeoutMs: PEER_DISCOVERY_TIMEOUT_MS,
                 allowBeforeHandshake: true,
                 ...options
@@ -645,7 +613,6 @@
             this.#connected = false;
             this.#compatible = false;
             this.#capabilities = null;
-            this.#rawSessionId = '';
             this.#eventController?.abort('client closed');
             this.#eventController = null;
             for (const controller of this.#requestControllers) controller.abort('client closed');

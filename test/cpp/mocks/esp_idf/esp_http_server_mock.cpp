@@ -195,6 +195,18 @@ esp_err_t httpd_req_async_handler_complete(httpd_req_t *request) {
 
 int httpd_req_to_sockfd(httpd_req_t *request) { return request != nullptr ? request->fd : -1; }
 
+bool httpd_uri_match_wildcard(const char *template_uri, const char *uri, size_t match_upto) {
+  if (template_uri == nullptr || uri == nullptr) return false;
+  const size_t template_length = std::strlen(template_uri);
+  if (template_length > 0U && template_uri[template_length - 1U] == '*') {
+    const size_t prefix_length = template_length - 1U;
+    return match_upto >= prefix_length &&
+           std::strncmp(template_uri, uri, prefix_length) == 0;
+  }
+  return template_length == match_upto &&
+         std::strncmp(template_uri, uri, match_upto) == 0;
+}
+
 namespace {
 struct HttpdMockInitializer {
   HttpdMockInitializer() { httpd_mock_reset(); }

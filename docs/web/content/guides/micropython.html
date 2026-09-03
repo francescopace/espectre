@@ -67,7 +67,7 @@ cp src/python/micro_espectre/config_local.py.example \
 
   <h2 id="micropython-profiles">Lightweight sensing</h2>
   <p>The deployed runtime contains only the Lightweight detector. It adapts its threshold from clean, ready quiet-room coverage during startup. High Accuracy sources and weights remain in the repository for research and parity validation, but <code>micro deploy</code> does not copy them to the device.</p>
-  <p>Micro-ESPectre exposes <code>capabilities</code>, <code>info</code>, <code>status</code>, <code>config</code>, and <code>diagnostics</code> through Direct HTTP and publishes telemetry to one SSE client. A one-second serial heartbeat reports sensing status and refreshes the cached status and diagnostics snapshots. It has no MQTT or Home Assistant adapter.</p>
+  <p>Micro-ESPectre exposes the <code>health</code>, <code>device</code>, <code>capabilities</code>, <code>sensing</code>, <code>wifi</code>, and <code>diagnostics</code> resources through Direct HTTP. Its <code>events</code> stream publishes resource updates, motion evaluations, and faults. A one-second serial heartbeat reports sensing status. It has no MQTT, CSI collection stream, device discovery resource, or Home Assistant adapter.</p>
 
   <h2 id="micropython-boundary">Current role and limits</h2>
   <p>Micro-ESPectre is ESPectre's maintained Python and MicroPython experimentation path. It is not yet presented as a stable embeddable SDK: the current distribution deploys the complete reference runtime, and its supported public library boundary has not been frozen.</p>

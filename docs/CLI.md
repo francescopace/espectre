@@ -160,7 +160,7 @@ Reset on open:
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists compatible firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists compatible firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`DISCOVERY.md`](DISCOVERY.md#dns-sd-and-mdns) defines the record-level contract.
 
 | Flag | Purpose |
 |------|---------|
@@ -195,16 +195,16 @@ The password is never accepted as a command-line value, printed, or included in 
 
 ### `direct`
 
-`direct` sends one correlated ESPectre protocol `1.0` request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. Add `--chip` to narrow frontend discovery before selection. When discovery returns multiple matching records, the CLI prompts for an explicit selection.
+`direct` sends one ESPectre resource request. Supply an HTTP verb and relative resource, then use `--endpoint` with an HTTP(S) device URL or `--frontend` to discover a device. Add `--chip` to narrow frontend discovery before selection. When discovery returns multiple matching records, the CLI prompts for an explicit selection.
 
 ```bash
-./espectre direct status --frontend native
-./espectre direct status --frontend matter --chip s3
-./espectre direct diagnostics --endpoint http://espectre-0123456789abcdef.local
-./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
+./espectre direct get health --frontend native
+./espectre direct get diagnostics --endpoint http://espectre-0123456789abcdef.local
+./espectre direct patch sensing --frontend esphome --data '{"detector":"high_accuracy"}'
+./espectre direct post sensing/calibrations --frontend matter --chip s3
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits the JSON request to 4,096 bytes, accepts a response up to 8,192 bytes, validates the canonical correlated result, and closes cleanly. The POST body and result use the same message shapes as MQTT `commands/request` and `commands/result`. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits mutation JSON to 4,096 bytes, accepts a response up to 8,192 bytes, validates direct resource snapshots or mutation results, and closes cleanly. It negotiates protocol `1.0` once through `capabilities`; messages do not repeat the version. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
 
 ### `collect`
 
@@ -240,7 +240,7 @@ The collector uses the same event-driven completion as `devices`: once a complet
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-Live collection negotiates raw HTTP, persistently sets `csi_traffic_mode` to `external`, verifies the resulting configuration, opens one bearer-bound binary response stream, and starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. The generator stops before the raw session, and the collector intentionally does not restore the previous traffic mode.
+Live collection negotiates CSI support, persistently sets `csi_traffic_mode` to `external`, verifies the resulting resource, starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`, and only then opens `GET /csi`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. Closing the response ends collection, then the generator stops. The collector intentionally does not restore the previous traffic mode.
 
 Example:
 
@@ -290,13 +290,13 @@ When `--device-id` is provided, the shell targets that device directly.
 When `--device-id` is not provided, the shell briefly subscribes to:
 
 ```text
-espectre/v1/devices/+/info
-espectre/v1/devices/+/status
+espectre/v1/devices/+/device
+espectre/v1/devices/+/health
 ```
 
 It then:
 
-1. collects device identities from retained `info` and `status` plus any live publishes during the scan
+1. collects device identities from retained `device` and `health` plus any live publishes during the scan
 2. shows an interactive selection list
 3. falls back to manual device-id entry if nothing is discovered
 
@@ -306,13 +306,14 @@ After selection, the shell publishes commands to `commands/request` and subscrib
 espectre/v1/devices/{device_id}/commands/request
 espectre/v1/devices/{device_id}/commands/result
 espectre/v1/devices/{device_id}/capabilities
-espectre/v1/devices/{device_id}/info
-espectre/v1/devices/{device_id}/status
-espectre/v1/devices/{device_id}/config
-espectre/v1/devices/{device_id}/ota_status
+espectre/v1/devices/{device_id}/device
+espectre/v1/devices/{device_id}/health
+espectre/v1/devices/{device_id}/sensing
+espectre/v1/devices/{device_id}/wifi
+espectre/v1/devices/{device_id}/ota
 ```
 
-After selection the shell consumes the retained `capabilities` schema to populate help and tab completion. Every query, mutation, and action returns through `commands/result`; query payloads are nested in `data`. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise they appear on the next line. Retained state topics are still dumped as YAML.
+After selection, the shell consumes retained `capabilities` to populate help and tab completion. Mutations and actions return through `commands/result`; `read_diagnostics` returns its snapshot in `data`. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise, they appear on the next line. Retained state topics are still dumped as YAML.
 
 This behavior belongs to the MQTT transport and applies to ESPectre devices that advertise the MQTT topic surface.
 
@@ -335,9 +336,9 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus short read aliases such as `i` and `d`. Help, tab completion, and argument discovery use the device `capabilities` schema. Unknown or unsupported commands are rejected by the device with a stable result code. Write values after the command name (`set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
+MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`). Help, tab completion, and argument discovery use the device `capabilities` resource. Unknown or unsupported commands are rejected by the device with a stable result code. Sensing changes use `update_sensing`, with named values such as `threshold=0.35`, `motion_on_hits=4`, and `motion_off_hits=3`.
 
-`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends omit unsupported OTA commands from `capabilities`.
+`check_ota` and `start_ota` accept an optional channel (`release`, `preview`, or `develop`), for example `check_ota channel=preview` or `start_ota channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends omit unsupported OTA commands from `capabilities`.
 
 Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
 

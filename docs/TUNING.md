@@ -138,7 +138,7 @@ Rules of thumb:
 - lower target: less traffic and lower temporal resolution; requires validation at the chosen cadence
 - higher target: more Wi-Fi and CPU cost without guaranteed occupancy or detector improvement; requires validation
 
-The collector, external UDP marker, raw HTTP framing, and persistence behavior belong to [CLI.md](CLI.md#collect), [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi), and [SETUP.md](SETUP.md#traffic-generation).
+The collector, external UDP marker, raw HTTP framing, and persistence behavior belong to [CLI.md](CLI.md#collect), [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), [API.md](API.md#csi-collection), and [SETUP.md](SETUP.md#traffic-generation).
 
 ## Detector Window
 
@@ -222,20 +222,20 @@ In the browser:
 From the repository CLI:
 
 ```bash
-./espectre direct scan_wifi_access_points  # start an access-point scan
-./espectre direct wifi_access_points        # list BSSID, channel, and RSSI
-./espectre direct set_wifi_bssid --params '{"bssid":"AA:BB:CC:DD:EE:FF"}'  # pin one AP
+./espectre direct post wifi/scans  # start an access-point scan
+./espectre direct get wifi/access-points  # list BSSID, channel, and RSSI
+./espectre direct put wifi/bssid --data '{"bssid":"AA:BB:CC:DD:EE:FF"}'  # pin one AP
 ```
 
-The scan is asynchronous, so wait a few seconds after `scan_wifi_access_points` before listing results. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct URL. The station reconnects after a pin or clear.
+The scan is asynchronous, so wait a few seconds after `POST /wifi/scans` before reading `GET /wifi/access-points`. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct base URL. The station reconnects after a pin or clear.
 
 To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Device settings or run:
 
 ```bash
-./espectre direct clear_wifi_bssid
+./espectre direct delete wifi/bssid
 ```
 
-Clear a stale pin after replacing or removing an access point. [CLI.md](CLI.md#direct) owns Direct syntax, and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) owns the methods.
+Clear a stale pin after replacing or removing an access point. [CLI.md](CLI.md#direct) owns Direct syntax, and [API.md](API.md) owns the methods.
 
 ### False Positives After A Wi-Fi Channel Change
 
@@ -268,5 +268,5 @@ The shared ESP-IDF runtime exposes periodic debug telemetry, but compiler mode, 
 - [`SETUP.md`](SETUP.md)
 - [`ALGORITHMS.md`](ALGORITHMS.md)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md)
+- [`API.md`](API.md)
 - the README of the selected frontend

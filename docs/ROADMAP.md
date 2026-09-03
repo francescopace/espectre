@@ -27,7 +27,7 @@
 - [ ] Complete the v3 corpus collection backlog, including replacement `empty` captures for the low-occupancy recordings removed from the catalog and missing original ESP32 label and environment coverage; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
 - [ ] Benchmark the C++ Direct raw CSI queue with fixed 512-, 256-, and 128-byte payload bounds, then retain or reduce its internal fixed-slot size without changing the published raw-record contract or advertised capabilities.
 - [ ] Authenticate Native OTA images independently of HTTPS: enable ESP-IDF signed-app verification during updates on every supported Native target, sign every channel artifact with release-managed keys, reject unsigned or invalid images, document key custody, rotation, and USB recovery, and validate upgrades, corrupt images, and rollback behavior. Record Secure Boot v2 and hardware anti-rollback as production provisioning requirements rather than silently enabling irreversible eFuse policy in general-purpose builds.
-- [ ] Protect MQTT configuration over Direct HTTP with per-device administrator pairing: bootstrap and rotate the credential over USB, present its recovery data as a QR code and manual code without browser persistence, establish authenticated and encrypted Security2 sessions for `set_mqtt_config` and `clear_mqtt_config`, reject plaintext and downgrade attempts, and validate the flash, heap, latency, and CSI impact on every supported Native target.
+- [ ] Protect MQTT configuration over Direct HTTP with per-device administrator pairing: bootstrap and rotate the credential over USB, present its recovery data as a QR code and manual code without browser persistence, establish authenticated and encrypted Security2 sessions for `PATCH /mqtt` and `DELETE /mqtt`, reject plaintext and downgrade attempts, and validate the flash, heap, latency, and CSI impact on every supported Native target.
 
 **Exit criteria**: every `rc1` release blocker is closed, required validation and release gates pass on the candidate commit, and firmware, SDK, web, and vendor artifacts are reproducible and aligned with the candidate documentation.
 
@@ -142,8 +142,6 @@ The portable sensing path remains the baseline, with ESP32-S3 as the first accel
 - A server-side Matter bridge or partner integration above the orchestration backend
 - Additional notification channels after email is stable
 
-The shared device contract remains owned by [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md); deployment profiles and system boundaries remain owned by [ARCHITECTURE.md](ARCHITECTURE.md).
-
 ## v5.0.0 - Future Hardware and IEEE 802.11bf
 
 **Product outcome**: add a standards-backed sensing backend on practical future hardware while preserving the protocol, frontend, tooling, and device-maker contracts established by v3 and v4.
@@ -184,7 +182,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [LITERATURE.md](LITERATURE.md) for external research
 - [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) and [ML_TRAINING.md](ML_TRAINING.md) for corpus and training workflows
 - [performance/](performance/) for current benchmark evidence
-- [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
+- [API.md](API.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
 Last update: **September 2, 2026**

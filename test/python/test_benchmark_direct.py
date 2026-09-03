@@ -122,11 +122,11 @@ def test_direct_retry_performs_a_capabilities_request(monkeypatch):
             self.persistent_requests = kwargs.get("persistent_requests", False)
             clients.append(self)
 
-        def request(self, method):
-            assert method == "capabilities"
+        def request(self, verb, resource):
+            assert (verb, resource) == ("get", "capabilities")
             if self.index == 0:
                 raise RuntimeError("not listening yet")
-            return {"commands": []}
+            return {"operations": []}
 
         def close(self):
             self.closed = True
@@ -136,11 +136,11 @@ def test_direct_retry_performs_a_capabilities_request(monkeypatch):
     monkeypatch.setattr(
         bench,
         "discover_direct_device",
-        lambda *_args, **_kwargs: SimpleNamespace(endpoint="http://192.0.2.11/espectre/v1/request"),
+        lambda *_args, **_kwargs: SimpleNamespace(endpoint="http://192.0.2.11/espectre/v1"),
     )
 
     connected = bench._connect_direct_with_retry(
-        "http://192.0.2.10/espectre/v1/request",
+        "http://192.0.2.10/espectre/v1",
         frontend="micro",
         timeout_seconds=1.0,
     )
@@ -159,9 +159,9 @@ def test_direct_retry_uses_timed_nonpersistent_client_when_requested(monkeypatch
         def __init__(self, endpoint, **_kwargs):
             self.endpoint = endpoint
 
-        def request(self, method):
-            assert method == "capabilities"
-            return {"commands": []}
+        def request(self, verb, resource):
+            assert (verb, resource) == ("get", "capabilities")
+            return {"operations": []}
 
         def close(self):
             pass
@@ -169,7 +169,7 @@ def test_direct_retry_uses_timed_nonpersistent_client_when_requested(monkeypatch
     monkeypatch.setattr(bench, "_TimedNonPersistentDirectClient", FakeTimedClient)
 
     client = bench._connect_direct_with_retry(
-        "http://192.0.2.10/espectre/v1/request",
+        "http://192.0.2.10/espectre/v1",
         frontend="native",
         timeout_seconds=1.0,
         timed_nonpersistent=True,
@@ -192,18 +192,7 @@ def test_direct_benchmark_allows_nonpersistent_probe_opt_in(monkeypatch):
     assert bench._timed_nonpersistent_direct_enabled() is True
 
 def test_timed_nonpersistent_direct_client_records_tcp_phases(monkeypatch):
-    body = json.dumps(
-        protocol.build_command_result(
-            "0123456789abcdef",
-            "benchmark-1",
-            "diagnostics",
-            True,
-            "ok",
-            "diagnostics returned",
-            {"uptime": 7},
-        ),
-        separators=(",", ":"),
-    ).encode()
+    body = json.dumps({"uptime": 7}, separators=(",", ":")).encode()
     wire_response = (
         f"HTTP/1.1 200 OK\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n"
     ).encode() + body
@@ -231,11 +220,12 @@ def test_timed_nonpersistent_direct_client_records_tcp_phases(monkeypatch):
     connection = FakeSocket()
     monkeypatch.setattr(bench.socket, "create_connection", lambda *_args, **_kwargs: connection)
     client = bench._TimedNonPersistentDirectClient(
-        "http://192.0.2.10/espectre/v1/request",
+        "http://192.0.2.10/espectre/v1",
         origin="https://test.espectre.dev",
     )
 
-    assert client.request("diagnostics") == {"uptime": 7}
+    assert client.request("get", "diagnostics") == {"uptime": 7}
+    assert b"GET /espectre/v1/diagnostics HTTP/1.1\r\n" in connection.sent
     assert b"Connection: close\r\n" in connection.sent
     assert connection.closed is True
     assert client.last_request_timing["host_failed_phase"] is None
@@ -250,8 +240,8 @@ def test_timed_nonpersistent_direct_client_records_tcp_phases(monkeypatch):
 
 def test_direct_discovery_ignores_matching_frontend_on_another_chip(monkeypatch):
     calls = 0
-    wrong = SimpleNamespace(chip="esp32", endpoint="http://192.0.2.10/espectre/v1/request")
-    expected = SimpleNamespace(chip="esp32-s3", endpoint="http://192.0.2.11/espectre/v1/request")
+    wrong = SimpleNamespace(chip="esp32", endpoint="http://192.0.2.10/espectre/v1")
+    expected = SimpleNamespace(chip="esp32-s3", endpoint="http://192.0.2.11/espectre/v1")
 
     def fake_discover_devices(**_kwargs):
         nonlocal calls
@@ -380,7 +370,7 @@ def test_runtime_monitor_keeps_benchmark_physical_port(
             1.0,
             json.dumps(
                 {
-                    "endpoint": "http://192.0.2.10:62587/espectre/v1/request",
+                    "endpoint": "http://192.0.2.10:62587/espectre/v1",
                     "port": "/dev/cu.runtime-alias",
                 }
             ),
@@ -564,13 +554,11 @@ def test_parse_json_object_from_output_uses_final_json_line():
 def test_default_runtime_baseline_requires_production_values():
     bench._verify_default_runtime_baseline(
         {
-            "config": {
-                "runtime": {
-                    "detector": "lightweight",
-                    "csi_traffic_mode": "internal",
-                    "traffic_generator_mode": "ping",
-                    "csi_target_pps": 100,
-                }
+            "sensing": {
+                "detector": "lightweight",
+                "csi_traffic_mode": "internal",
+                "traffic_generator_mode": "ping",
+                "csi_target_pps": 100,
             }
         }
     )
@@ -580,13 +568,11 @@ def test_default_runtime_baseline_rejects_nondefault_traffic():
     with pytest.raises(RuntimeError, match="production runtime defaults"):
         bench._verify_default_runtime_baseline(
             {
-                "config": {
-                    "runtime": {
-                        "detector": "lightweight",
-                        "csi_traffic_mode": "external",
-                        "traffic_generator_mode": "ping",
-                        "csi_target_pps": 100,
-                    }
+                "sensing": {
+                    "detector": "lightweight",
+                    "csi_traffic_mode": "external",
+                    "traffic_generator_mode": "ping",
+                    "csi_target_pps": 100,
                 }
             }
         )
@@ -608,7 +594,7 @@ def test_micro_direct_preparation_reconnects_after_transient_timeout(monkeypatch
     monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", lambda *_args, **_kwargs: None)
 
     client = bench.connect_and_prepare_micro_runtime(
-        "http://192.0.2.10/espectre/v1/request",
+        "http://192.0.2.10/espectre/v1",
         BenchmarkCase("micro", "lightweight"),
         chip="c3",
     )
@@ -633,32 +619,29 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
         "malformed_requests": 0,
         "oversized_requests": 0,
         "rate_limited_requests": 0,
-        "dropped_telemetry_events": 0,
+        "dropped_motion_events": 0,
         "send_failures": 0,
     }
     responses = {
         "capabilities": {
-            "commands": [
-                {"name": "diagnostics"},
+            "operations": [
+                {"name": "read_diagnostics"},
                 {"name": "recalibrate"},
             ]
         },
-        "info": {
+        "device": {
             "frontend": "micro",
             "chip": "esp32c3",
-            "detection": {"algorithm": "lightweight"},
         },
-        "status": {"sensing_enabled": True},
-        "config": {
-            "runtime": {
-                "detector": "lightweight",
-                "csi_traffic_mode": "internal",
-                "traffic_generator_mode": "dns",
-            }
+        "health": {"status": "ok", "online": True},
+        "sensing": {
+            "enabled": True,
+            "detector": "lightweight",
+            "csi_traffic_mode": "internal",
+            "traffic_generator_mode": "dns",
         },
+        "wifi": {"connected": True},
         "diagnostics": {
-            "protocol_version": "1.0",
-            "device_id": "0123456789abcdef",
             "timestamp_ms": 5_000,
             "uptime": 5,
             "direct_http": direct_http,
@@ -666,8 +649,9 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
     }
 
     class FakeClient:
-        def request(self, method):
-            return responses[method]
+        def request(self, verb, resource):
+            assert verb == "get"
+            return responses[resource]
 
     handshake = bench.prepare_micro_direct_runtime(
         FakeClient(),
@@ -690,8 +674,8 @@ def test_direct_capture_opens_and_closes_event_collection():
         def stop_events(self):
             self.stop_calls += 1
 
-        def request(self, method):
-            assert method == "diagnostics"
+        def request(self, verb, resource):
+            assert (verb, resource) == ("get", "diagnostics")
             return {"direct_http": {"event_clients": 0}}
 
     client = FakeClient()
@@ -730,8 +714,8 @@ def test_direct_capture_waits_for_closed_scored_stream(monkeypatch):
         def stop_events(self):
             self.stopped_at = FakeClock.now
 
-        def request(self, method):
-            assert method == "diagnostics"
+        def request(self, verb, resource):
+            assert (verb, resource) == ("get", "diagnostics")
             return {"direct_http": {"event_clients": next(self.event_clients)}}
 
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
@@ -868,10 +852,11 @@ def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch)
         def stop_events(self):
             pass
 
-        def request(self, command):
-            if command == "status":
-                return {"sensing_enabled": True}
-            assert command == "diagnostics"
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "health":
+                return {"status": "ok", "online": True}
+            assert resource == "diagnostics"
             return next(self.responses)
 
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
@@ -885,13 +870,13 @@ def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch)
 
     assert [sample["timestamp_ms"] for sample in samples] == [2_000]
     assert [attempt["method"] for attempt in attempts] == [
-        "status",
+        "health",
         "diagnostics",
-        "status",
+        "health",
         "diagnostics",
-        "status",
+        "health",
         "diagnostics",
-        "status",
+        "health",
         "diagnostics",
     ]
 
@@ -920,8 +905,9 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
         def stop_events(self):
             pass
 
-        def request(self, command):
-            if command == "status":
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "health":
                 self.last_request_timing = {
                     "host_total_ms": 10.0,
                     "host_failed_phase": None,
@@ -929,8 +915,8 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
                     "host_expected_response_bytes": 693,
                     "host_censored": False,
                 }
-                return {"sensing_enabled": True}
-            assert command == "diagnostics"
+                return {"status": "ok", "online": True}
+            assert resource == "diagnostics"
             self.diagnostics_calls += 1
             if self.diagnostics_calls == 2:
                 FakeClock.now += 0.5
@@ -993,10 +979,11 @@ def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, command):
-            if command == "status":
-                return {"sensing_enabled": True, "ready_to_publish": True}
-            assert command == "diagnostics"
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": True, "ready": True}
+            assert resource == "diagnostics"
             uptime = 28 + self.diagnostics_calls
             self.diagnostics_calls += 1
             return {
@@ -1034,10 +1021,11 @@ def test_direct_runtime_readiness_reserves_stable_samples_after_minimum_uptime(m
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, command):
-            if command == "status":
-                return {"sensing_enabled": True, "ready_to_publish": True}
-            assert command == "diagnostics"
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": True, "ready": True}
+            assert resource == "diagnostics"
             self.diagnostics_calls += 1
             return {
                 "timestamp_ms": self.diagnostics_calls * 1_000,
@@ -1074,10 +1062,11 @@ def test_direct_runtime_readiness_recovers_once_after_bssid_reboot(monkeypatch):
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, command):
-            if command == "status":
-                return {"sensing_enabled": True, "ready_to_publish": True}
-            assert command == "diagnostics"
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": True, "ready": True}
+            assert resource == "diagnostics"
             self.diagnostics_calls += 1
             uptime = self.diagnostics_calls
             return {
@@ -1117,10 +1106,11 @@ def test_direct_runtime_readiness_bounds_recovery_after_repeated_reboots(monkeyp
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, command):
-            if command == "status":
-                return {"sensing_enabled": True, "ready_to_publish": True}
-            assert command == "diagnostics"
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": True, "ready": True}
+            assert resource == "diagnostics"
             self.diagnostics_calls += 1
             uptime = ((self.diagnostics_calls - 1) % 3) + 1
             return {
@@ -1207,7 +1197,7 @@ def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
             return False
 
     class FakeClient:
-        def request(self, _method, _params=None):
+        def request(self, *_args, **_kwargs):
             return {}
 
         def close(self):
@@ -1287,15 +1277,13 @@ def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
 
 def test_native_radio_pin_accepts_committed_values_after_reboot():
     class FakeClient:
-        def request(self, method: str):
-            assert method == "config"
+        def request(self, verb: str, resource: str):
+            assert (verb, resource) == ("get", "wifi")
             return {
-                "wifi": {
-                    "configured": True,
-                    "apply_state": "idle",
-                    "bssid": "aa:bb:cc:dd:ee:ff",
-                    "channel": 6,
-                }
+                "configured": True,
+                "apply_state": "idle",
+                "bssid": "aa:bb:cc:dd:ee:ff",
+                "channel": 6,
             }
 
     bench._verify_direct_radio_pin(
@@ -1310,17 +1298,15 @@ def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
     requests = []
 
     class FakeClient:
-        def request(self, method, params=None):
-            requests.append((method, params))
-            if method == "config":
+        def request(self, verb, resource, data=None):
+            requests.append((verb, resource, data))
+            if resource == "wifi":
                 return {
-                    "wifi": {
-                        "configured": True,
-                        "bssid": "11:22:33:44:55:66",
-                        "channel": 1,
-                    }
+                    "configured": True,
+                    "bssid": "11:22:33:44:55:66",
+                    "channel": 1,
                 }
-            return {"current_bssid": "11:22:33:44:55:66"}
+            return {"accepted": True, "code": "ok", "message": "accepted", "data": {"current_bssid": "11:22:33:44:55:66"}}
 
     assert bench._apply_direct_radio_pin(
         FakeClient(),
@@ -1329,8 +1315,8 @@ def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
         skip_if_associated=True,
     ) == (True, "11:22:33:44:55:66")
     assert requests == [
-        ("config", None),
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
+        ("get", "wifi", None),
+        ("put", "wifi/bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
     ]
 
 def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
@@ -1339,14 +1325,12 @@ def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
     requests = []
 
     class FakeClient:
-        def request(self, method, params=None):
-            requests.append((method, params))
+        def request(self, verb, resource, data=None):
+            requests.append((verb, resource, data))
             return {
-                "wifi": {
-                    "configured": True,
-                    "bssid": "aa:bb:cc:dd:ee:ff",
-                    "channel": 6,
-                }
+                "configured": True,
+                "bssid": "aa:bb:cc:dd:ee:ff",
+                "channel": 6,
             }
 
     assert bench._apply_direct_radio_pin(
@@ -1355,7 +1339,7 @@ def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
         requested_channel=6,
         skip_if_associated=True,
     ) == (False, "aa:bb:cc:dd:ee:ff")
-    assert requests == [("config", None)]
+    assert requests == [("get", "wifi", None)]
 
 def test_direct_radio_pin_force_reassociates_even_when_already_associated(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
@@ -1363,9 +1347,9 @@ def test_direct_radio_pin_force_reassociates_even_when_already_associated(monkey
     requests = []
 
     class FakeClient:
-        def request(self, method, params=None):
-            requests.append((method, params))
-            return {"current_bssid": "aa:bb:cc:dd:ee:ff"}
+        def request(self, verb, resource, data=None):
+            requests.append((verb, resource, data))
+            return {"accepted": True, "code": "ok", "message": "accepted", "data": {"current_bssid": "aa:bb:cc:dd:ee:ff"}}
 
     assert bench._apply_direct_radio_pin(
         FakeClient(),
@@ -1375,15 +1359,17 @@ def test_direct_radio_pin_force_reassociates_even_when_already_associated(monkey
         force=True,
     ) == (True, "aa:bb:cc:dd:ee:ff")
     assert requests == [
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": True}),
+        ("put", "wifi/bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": True}),
     ]
 
 def test_direct_radio_pin_requires_the_acknowledgement_response(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
 
     class FakeClient:
-        def request(self, method, params=None):
-            assert method == "set_wifi_bssid"
+        def request(self, verb, resource, data=None):
+            assert (verb, resource, data) == (
+                "put", "wifi/bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}
+            )
             raise DirectProtocolError("Direct HTTP request failed: connection reset")
 
     with pytest.raises(DirectProtocolError, match="connection reset"):
@@ -1399,8 +1385,8 @@ def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
     sleeps = []
 
     class FakeClient:
-        def request(self, method, params=None):
-            requests.append((method, params))
+        def request(self, verb, resource, data=None):
+            requests.append((verb, resource, data))
             if len(requests) == 1:
                 raise DirectRequestError(
                     "unavailable",
@@ -1423,14 +1409,14 @@ def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
             skip_if_associated=False,
         )
     assert requests == [
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
-        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
+        ("put", "wifi/bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
+        ("put", "wifi/bssid", {"bssid": "AA:BB:CC:DD:EE:FF", "force": False}),
     ]
     assert sleeps == [0.5]
 
 
 def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):
-    endpoint = "http://192.0.2.10/espectre/v1/request"
+    endpoint = "http://192.0.2.10/espectre/v1"
     expected_client = object()
     calls = []
 
@@ -1531,7 +1517,7 @@ def test_run_micro_case_uses_production_cli_workflow(
         resolved = list(command)
         commands.append(resolved)
         output_lines = [
-            '{"endpoint":"http://192.0.2.10:62587/espectre/v1/request",'
+            '{"endpoint":"http://192.0.2.10:62587/espectre/v1",'
             '"event":"direct_ready","frontend":"micro"}\n'
         ]
         return process, output_lines, [], SimpleNamespace(), 0.0
@@ -1553,7 +1539,7 @@ def test_run_micro_case_uses_production_cli_workflow(
 
     def fake_capture(*_args, **kwargs):
         capture_calls.append(kwargs)
-        return ([{"uptime": 1}], [{"event": "telemetry"}], [])
+        return ([{"uptime": 1}], [{"event": "motion"}], [])
 
     monkeypatch.setattr(bench, "capture_direct_window", fake_capture)
     monkeypatch.setattr(bench, "analyze_direct_evidence", lambda *_args, **_kwargs: (RuntimeMetrics(), []))
@@ -1576,7 +1562,7 @@ def test_run_micro_case_uses_production_cli_workflow(
     assert result.transport_evidence["transport"] == "direct-http"
     assert connections == [
         (
-            "http://192.0.2.10:62587/espectre/v1/request",
+            "http://192.0.2.10:62587/espectre/v1",
             bench.WIFI_CONNECT_WAIT_SECONDS + bench.DIRECT_DISCOVERY_TIMEOUT_SECONDS,
         )
     ]

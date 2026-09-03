@@ -14,7 +14,7 @@ namespace espectre {
 /**
  * What a runtime actually offers its frontend.
  *
- * Every flag defaults to false on purpose: ESPECTRE_PROTOCOL.md makes this
+ * Every flag defaults to false on purpose: API.md makes this
  * block the contract clients read, so a capability has to be declared rather
  * than inherited from a permissive default. Previously only the stream runtime
  * declared anything and the sensing runtime shipped whatever the struct

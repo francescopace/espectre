@@ -99,30 +99,28 @@
     }
 
     function directCapabilitiesSnapshot(capabilities) {
-        const methods = new Set((capabilities.commands || []).map((item) => item?.name).filter(Boolean));
-        const sections = new Set(capabilities.config_sections || []);
+        const methods = new Set((capabilities.operations || []).map((item) => item?.name).filter(Boolean));
+        const sections = new Set(capabilities.resources || []);
         monitor.commands = methods;
         monitor.commandCatalogReady = true;
         return {
             supports_wifi_status: sections.has('wifi'),
             supports_wifi_bssid: methods.has('set_wifi_bssid')
-                && methods.has('clear_wifi_bssid')
-                && methods.has('scan_wifi_access_points') && methods.has('wifi_access_points'),
-            supports_wifi_clear: methods.has('clear_wifi_config'),
-            supports_mqtt_config: methods.has('set_mqtt_config'),
-            supports_device_config: methods.has('set_device_label'),
-            supports_runtime_threshold: methods.has('set_threshold'),
-            supports_runtime_motion_hits: methods.has('set_motion_hits'),
-            supports_runtime_detector: methods.has('set_detector'),
+                && methods.has('clear_wifi_bssid') && methods.has('scan_wifi'),
+            supports_wifi_clear: methods.has('clear_wifi_credentials'),
+            supports_mqtt_config: methods.has('update_mqtt'),
+            supports_device_config: methods.has('update_device'),
+            supports_runtime_threshold: methods.has('update_sensing'),
+            supports_runtime_motion_hits: methods.has('update_sensing'),
+            supports_runtime_detector: methods.has('update_sensing'),
             supports_manual_recalibration: methods.has('recalibrate'),
-            supports_traffic_control: methods.has('set_csi_traffic_mode')
-                && methods.has('set_traffic_generator_mode'),
-            supports_ota: methods.has('ota_status')
+            supports_traffic_control: methods.has('update_sensing'),
+            supports_ota: sections.has('ota')
         };
     }
 
     function directSupportsCommand(name) {
-        return Boolean(directClient?.capabilities?.commands?.some((item) => item?.name === name));
+        return Boolean(directClient?.capabilities?.operations?.some((item) => item?.name === name));
     }
 
     function applyDirectConfig(config) {
@@ -131,7 +129,8 @@
         const wifi = config.wifi || {};
         const mqtt = config.mqtt || {};
         applySysinfo({
-            device_label: config.device_label ?? device.device_label,
+            ...device,
+            device_label: device.label,
             wifi_configured: wifi.configured,
             wifi_connected: wifi.connected,
             wifi_ssid: wifi.ssid,
@@ -159,32 +158,31 @@
     }
 
     function ingestDirectEvent(name, data) {
-        if (name === 'telemetry') {
+        if (name === 'motion') {
             applySensingCadence(data);
             applyLiveTelemetry(
-                Number(data.movement_score ?? data.movement ?? 0),
-                Number(data.threshold ?? conn.threshold),
-                data.motion_state ?? data.motion
+                Number(data.score ?? 0),
+                Number(conn.threshold),
+                data.state
             );
-            monitorFeed(conn.movement, conn.threshold, data.motion_state ?? data.motion);
+            monitorFeed(conn.movement, conn.threshold, data.state);
             monitorResizeChart();
             return;
         }
-        if (name === 'info' || name === 'status' || name === 'capabilities') {
+        if (name === 'device' || name === 'health' || name === 'capabilities') {
             applySysinfo(data);
-            if (name === 'status') applyRuntimeStatus(data);
             return;
         }
-        if (name === 'config') {
-            applyDirectConfig(data);
+        if (name === 'sensing') {
+            applyDirectConfig({ runtime: data });
+            applyRuntimeStatus(data);
             return;
         }
-        if (name === 'diagnostics') {
-            markMonitorReady('diagnostics');
-            monitorStats(data);
+        if (name === 'wifi') {
+            applyDirectConfig({ wifi: data });
             return;
         }
-        if (name === 'ota_status') applyOtaStatus(data);
+        if (name === 'ota') applyOtaStatus(data);
         if (name === 'fault') toast(data.message || 'The device reported a runtime fault.');
     }
 
@@ -532,24 +530,27 @@
 
     async function refreshDirectDevice() {
         if (!directClient?.connected) return;
-        const supportsOta = directClient.capabilities?.commands?.some((item) => item.name === 'ota_status');
+        const supportsOta = directClient.capabilities?.resources?.includes('ota');
         // Keep local-network requests serial. Chrome may still be resolving its
         // Local Network Access grant when the Direct stream and handshake have
         // just completed, and rejects a concurrent fan-out before CORS runs.
-        const info = await directClient.request('info');
-        const status = await directClient.request('status');
-        const config = await directClient.request('config');
-        const diagnostics = activeToolName() === 'configure' && directSupportsCommand('diagnostics')
-            ? await directClient.request('diagnostics')
+        const info = await directClient.request('get', 'device');
+        const status = await directClient.request('get', 'health');
+        const sensing = await directClient.request('get', 'sensing');
+        const wifi = await directClient.request('get', 'wifi');
+        const mqtt = directClient.capabilities?.resources?.includes('mqtt')
+            ? await directClient.request('get', 'mqtt') : {};
+        const diagnostics = activeToolName() === 'configure' && directSupportsCommand('read_diagnostics')
+            ? await directClient.request('get', 'diagnostics')
             : null;
-        const otaStatus = supportsOta ? await directClient.request('ota_status') : null;
+        const otaStatus = supportsOta ? await directClient.request('get', 'ota') : null;
         applySysinfo({
             ...directCapabilitiesSnapshot(directClient.capabilities),
             ...info,
             ...status,
             ...(diagnostics || {})
         });
-        applyDirectConfig(config);
+        applyDirectConfig({ device: info, runtime: sensing, wifi, mqtt });
         if (otaStatus) applyOtaStatus(otaStatus);
     }
 
@@ -648,8 +649,8 @@
             syncDirectEndpointInputs(target.display);
             await refreshDirectDevice();
             if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live'
-                && directSupportsCommand('set_sensing')) {
-                await client.request('set_sensing', { enabled: true });
+                && directSupportsCommand('update_sensing')) {
+                await client.request('patch', 'sensing', { enabled: true });
             }
             setStatus('connected');
             setDirectConnectionHelp();

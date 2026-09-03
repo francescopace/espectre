@@ -1,8 +1,10 @@
 # ADR: adopt Improv Serial and Direct HTTP for local control
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-08-17
 - Updated: 2026-08-26
+
+The transport choice, port, CORS boundary, and discovery service remain accepted. The `/request` RPC and explicit bearer-bound CSI session are superseded by the resource API in [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md).
 
 ## Context
 
@@ -91,7 +93,7 @@ Rejected. Local setup and sensing must work without an account, external service
 
 ## Related
 
-- [`../ESPECTRE_PROTOCOL.md`](../ESPECTRE_PROTOCOL.md)
+- [`../API.md`](../API.md)
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
 - [`../SDK.md`](../SDK.md)
 - [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)

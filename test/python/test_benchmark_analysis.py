@@ -46,7 +46,7 @@ def test_direct_evidence_fails_when_transport_health_counters_increase(counter, 
         samples,
         [],
         duration_seconds=2,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -68,7 +68,7 @@ def test_direct_evidence_counts_censored_attempts_as_failures():
         [{"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1}],
         [],
         duration_seconds=1,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
         attempts=attempts,
     )
@@ -89,7 +89,7 @@ def test_direct_evidence_uses_device_time_when_host_clock_hides_a_gap():
         samples,
         [],
         duration_seconds=2,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -107,7 +107,7 @@ def test_direct_evidence_does_not_treat_host_latency_as_a_runtime_gap():
         samples,
         [],
         duration_seconds=2,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -125,7 +125,7 @@ def test_direct_evidence_rejects_a_frozen_device_timestamp():
         samples,
         [],
         duration_seconds=2,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -143,7 +143,7 @@ def test_direct_evidence_accepts_micro_diagnostics_cadence():
         samples,
         [],
         duration_seconds=18,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
         sample_interval_seconds=benchmark_settings.MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
         status_gap_tolerance_ms=benchmark_settings.MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
@@ -165,7 +165,7 @@ def test_direct_evidence_rejects_micro_diagnostics_refresh_gap():
         samples,
         [],
         duration_seconds=9,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
         sample_interval_seconds=benchmark_settings.MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
         status_gap_tolerance_ms=benchmark_settings.MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,
@@ -191,7 +191,7 @@ def test_direct_evidence_accepts_heap_that_reaches_a_final_plateau():
         samples,
         [],
         duration_seconds=60,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -216,7 +216,7 @@ def test_direct_evidence_rejects_heap_that_keeps_declining_in_final_window():
         samples,
         [],
         duration_seconds=60,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 
@@ -242,7 +242,7 @@ def test_direct_evidence_rejects_incomplete_heap_stability_windows(duration_seco
         samples,
         [],
         duration_seconds=duration_seconds,
-        require_telemetry=False,
+        require_motion=False,
         require_detection_timing=False,
     )
 

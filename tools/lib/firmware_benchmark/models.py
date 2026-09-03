@@ -83,8 +83,8 @@ class RuntimeMetrics:
     status_gap_count: int = 0
     serial_framing_anomalies: int = 0
     device_reboots: int = 0
-    telemetry_samples: int = 0
-    telemetry_expected_samples: int = 0
+    motion_samples: int = 0
+    motion_expected_samples: int = 0
     startup_state: str | None = None
     boot_marker_seen: bool = False
     device_ip: str | None = None
@@ -123,7 +123,7 @@ class RuntimeMetrics:
     packet_processing_max_us: int | None = None
     gc_pause_us_mean: float | None = None
     gc_pause_us_max: int | None = None
-    stream_telemetry_samples: int = 0
+    stream_motion_samples: int = 0
     stream_csi_ap_mean: float | None = None
     stream_udp_rx_mean: float | None = None
     stream_udp_tx_mean: float | None = None

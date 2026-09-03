@@ -59,8 +59,12 @@ class NativeDirectFrontend {
   bool raw_stream_available() const { return session_tokens_enabled_; }
   void publish_event(const char *event_name, const std::string &data_json, bool replaceable_telemetry = false);
   std::string capabilities_payload() const;
-  std::string status_payload(bool online) const;
-  std::string config_payload(bool include_local = true) const;
+  std::string device_payload() const;
+  std::string health_payload(bool online) const;
+  std::string sensing_payload() const;
+  std::string wifi_payload(bool mqtt_safe = false) const;
+  std::string mqtt_payload() const;
+  std::string ota_payload() const;
   std::string wifi_access_points_payload() const;
   std::string diagnostics_payload() const;
   bool handle_raw_stream_command(const EspectreCommand &command, const FrontendCommandContext &context,

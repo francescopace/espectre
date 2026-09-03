@@ -52,7 +52,7 @@ struct DirectHttpServiceDiagnostics {
   uint32_t malformed_requests{0U};
   uint32_t oversized_requests{0U};
   uint32_t rate_limited_requests{0U};
-  uint32_t dropped_telemetry_events{0U};
+  uint32_t dropped_motion_events{0U};
   uint32_t send_failures{0U};
   size_t queued_messages{0U};
 };
@@ -71,6 +71,7 @@ class IDirectHttpService {
   using DeferredRequestHandler =
       std::function<DeferredRequestResult(uint64_t request_token, const DirectRequest &request)>;
   using ClientCountCallback = std::function<void(size_t event_client_count)>;
+  using RawSessionRequestedCallback = std::function<bool(std::string *message)>;
   using RawSessionStoppedCallback = std::function<void(RawCsiStopReason reason)>;
 
   virtual ~IDirectHttpService() = default;
@@ -122,6 +123,11 @@ class IDirectHttpService {
                              const std::string &data_json,
                              bool replaceable_telemetry) = 0;
   virtual DirectHttpServiceDiagnostics diagnostics() const = 0;
+
+  /** Register the frontend-task callback that opens collection for GET /csi. */
+  virtual void set_raw_session_requested_callback(RawSessionRequestedCallback callback) {
+    (void) callback;
+  }
 
   /** Begin one owner-bound raw session on the service's binary endpoint. */
   virtual bool start_raw_session(const RawCsiSessionConfig &config,

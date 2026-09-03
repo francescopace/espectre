@@ -366,7 +366,7 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   FrontendHaMqttSettings settings{};
   settings.discovery_prefix = CONFIG_ESPECTRE_HA_DISCOVERY_PREFIX;
   settings.birth_topic = kHomeAssistantBirthTopic;
-  settings.availability_topic = espectre_topic(config, "status");
+  settings.availability_topic = espectre_topic(config, "health");
   settings.availability_template = kStatusAvailabilityTemplate;
   settings.motion_state_topic = ha_entity_base_topic(config, "motion/state");
   settings.movement_state_topic = ha_entity_base_topic(config, "movement/state");

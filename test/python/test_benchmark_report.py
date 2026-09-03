@@ -47,7 +47,7 @@ def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):
     result.transport_evidence = {
         "transport": "http",
         "origin": "https://test.espectre.dev",
-        "request_path": "/espectre/v1/request",
+        "request_path": "/espectre/v1",
         "events_path": "/espectre/v1/events",
     }
 

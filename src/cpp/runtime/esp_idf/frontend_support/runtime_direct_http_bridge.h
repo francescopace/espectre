@@ -74,7 +74,7 @@ class RuntimeDirectHttpBridge {
   bool running() const;
   size_t event_client_count() const;
   bool publish_event(const char *event_name, const std::string &data_json, bool replaceable_telemetry = false);
-  bool publish_telemetry(const RuntimeSnapshot &snapshot);
+  bool publish_motion(const RuntimeSnapshot &snapshot);
   bool publish_changes(FrontendCommandChange changes);
 
  private:
@@ -85,9 +85,10 @@ class RuntimeDirectHttpBridge {
   std::string device_label_() const;
   DirectWifiSnapshot wifi_snapshot_() const;
   std::string capabilities_payload_() const;
-  std::string info_payload_() const;
-  std::string status_payload_() const;
-  std::string config_payload_() const;
+  std::string device_payload_() const;
+  std::string health_payload_() const;
+  std::string sensing_payload_() const;
+  std::string wifi_payload_() const;
   std::string diagnostics_payload_() const;
   std::string wifi_access_points_payload_() const;
   bool handle_wifi_control_(const EspectreCommand &command, std::string *message);

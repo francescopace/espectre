@@ -11,7 +11,6 @@ DNS_SD_TXT_SCHEMA_VERSION = "1"
 def build_command_request(command_id, command, **params):
     """Build the canonical request message carried by every transport."""
     payload = {
-        "protocol_version": PROTOCOL_VERSION,
         "command_id": command_id,
         "command": command,
     }
@@ -22,8 +21,6 @@ def build_command_request(command_id, command, **params):
 def build_command_result(device_id, command_id, command, accepted, code, message, data=None):
     """Build the canonical correlated result or error message."""
     payload = {
-        "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
         "command_id": command_id,
         "command": command,
         "accepted": bool(accepted),
@@ -38,26 +35,24 @@ def build_command_result(device_id, command_id, command, accepted, code, message
 def build_fault_payload(device_id, message, timestamp_ms):
     """Build the canonical runtime fault event."""
     return {
-        "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
         "timestamp_ms": timestamp_ms,
         "message": message,
     }
 
 
 def build_status_payload(device_id, online, timestamp_ms, **state):
-    """Build the canonical status event, with optional frontend state."""
+    """Build the canonical health resource."""
+    del device_id, state
     payload = {
-        "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
+        "status": "ok" if online else "offline",
         "online": bool(online),
+        "uptime_s": max(0, int(timestamp_ms)) // 1000,
         "timestamp_ms": timestamp_ms,
     }
-    payload.update(state)
     return payload
 
 
-def build_telemetry_payload(
+def build_motion_payload(
     device_id,
     frontend,
     timestamp_ms,
@@ -67,17 +62,12 @@ def build_telemetry_payload(
     detector,
     uptime_s,
 ):
-    """Build the canonical sensing telemetry event."""
+    """Build one canonical motion event."""
+    del device_id, frontend, threshold, detector, uptime_s
     return {
-        "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
-        "frontend": frontend,
         "timestamp_ms": timestamp_ms,
-        "motion_state": motion_state,
-        "movement_score": movement_score,
-        "threshold": threshold,
-        "detector": detector,
-        "health": {"uptime_s": uptime_s},
+        "state": motion_state,
+        "score": movement_score,
     }
 
 
@@ -117,8 +107,6 @@ DIAGNOSTIC_FIELDS = (
 def build_diagnostics_payload(device_id, timestamp_ms, uptime_s, measurements=None):
     """Build a canonical diagnostics result from supported Micro measurements."""
     payload = {
-        "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
         "timestamp_ms": int(timestamp_ms),
         "uptime": max(0, int(uptime_s)),
     }
@@ -133,7 +121,7 @@ def build_protocol_catalog():
     """Return executable transport-neutral samples for the C++ parity check."""
     device_id = "0000000000000000"
     command_id = "contract-1"
-    command = "set_threshold"
+    command = "update_sensing"
     return {
         "protocol_version": PROTOCOL_VERSION,
         "dns_sd": {
@@ -149,9 +137,9 @@ def build_protocol_catalog():
                 device_id, command_id, command, False, "invalid_params", "threshold is invalid"
             ),
             "events": {
-                "names": ["telemetry", "status", "info", "config", "ota_status", "fault"],
-                "status": build_status_payload(device_id, True, 1000),
-                "telemetry": build_telemetry_payload(
+                "names": ["motion", "health", "device", "sensing", "ota", "fault"],
+                "health": build_status_payload(device_id, True, 1000),
+                "motion": build_motion_payload(
                     device_id, "micro", 1000, "motion", 0.25, 0.5, "lightweight", 1
                 ),
                 "fault": build_fault_payload(device_id, "runtime fault", 1000),
@@ -184,12 +172,16 @@ def derive_runtime_device_id(wlan):
 def command_registry():
     """Return the command names implemented by Micro."""
     return [
-        {"name": "capabilities"},
-        {"name": "info"},
-        {"name": "status"},
-        {"name": "config"},
-        {"name": "diagnostics"},
-        {"name": "recalibrate"},
+        {
+            "name": "read_diagnostics",
+            "method": "GET",
+            "path": "/espectre/v1/diagnostics",
+        },
+        {
+            "name": "recalibrate",
+            "method": "POST",
+            "path": "/espectre/v1/sensing/calibrations",
+        },
     ]
 
 
@@ -197,11 +189,10 @@ def build_capabilities_payload(device_id):
     """Build the exact Direct capability response exposed by Micro."""
     return {
         "protocol_version": PROTOCOL_VERSION,
-        "device_id": device_id,
-        "commands": command_registry(),
-        "events": ["telemetry"],
-        "config_sections": ["runtime", "device", "wifi"],
-        "features": {"raw_csi": False},
+        "operations": command_registry(),
+        "events": ["motion"],
+        "resources": ["health", "device", "capabilities", "sensing", "wifi", "diagnostics"],
+        "features": {"csi": False},
     }
 
 
@@ -270,20 +261,11 @@ def build_info_payload(
     csi_profile = select_csi_capture_profile(chip, channel_primary)
 
     return {
-        "protocol_version": PROTOCOL_VERSION,
         "device_id": device_id,
-        "device_name": _protocol_device_name(device_id, chip),
-        "device_label": getattr(config, "DEVICE_LABEL", ""),
+        "name": getattr(config, "DEVICE_LABEL", "") or _protocol_device_name(device_id, chip),
+        "label": getattr(config, "DEVICE_LABEL", ""),
         "frontend": "micro",
-        "firmware_version": firmware_version or "unknown",
+        "firmware": firmware_version or "unknown",
         "chip": chip,
         "csi_profile": csi_profile,
-        "network": {
-            "channel": {"primary": channel_primary},
-        },
-        "detection": {"algorithm": detector_algorithm},
-        "csi_traffic_mode": csi_traffic_mode,
-        "traffic_mode": traffic_mode,
-        "csi_target_pps": max(1, int(getattr(config, "CSI_TARGET_PPS", 100))),
-        "evaluation_interval_ms": max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
     }

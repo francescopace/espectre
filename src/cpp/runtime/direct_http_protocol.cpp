@@ -15,7 +15,9 @@
 
 namespace espectre {
 
-bool parse_direct_http_request(const std::string &payload,
+bool parse_direct_http_request(const std::string &http_method,
+                               const std::string &path,
+                               const std::string &payload,
                                DirectRequest *request,
                                std::string *error) {
   if (request == nullptr) {
@@ -32,16 +34,28 @@ bool parse_direct_http_request(const std::string &payload,
     *request = parsed;
     return false;
   };
-  if (payload.empty()) {
-    return reject("empty Direct request");
+  parsed.http_method = http_method;
+  parsed.path = path;
+  size_t route_count = 0U;
+  const EspectreApiRoute *routes = espectre_api_routes(&route_count);
+  for (size_t index = 0U; index < route_count; ++index) {
+    const EspectreApiRoute &route = routes[index];
+    if (route.kind != EspectreApiRouteKind::STREAM &&
+        http_method == route.http_method && path == route.path) {
+      parsed.command = route.command;
+      parsed.asynchronous = route.asynchronous;
+      break;
+    }
   }
+  if (parsed.command.empty()) return reject("unsupported Direct resource or method");
   if (payload.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
     return reject("Direct request exceeds the size limit");
   }
 
   std::vector<JsonObjectField> fields;
   std::string json_error;
-  if (!parse_json_object_fields(payload, &fields, &json_error)) {
+  const std::string normalized_payload = payload.empty() ? "{}" : payload;
+  if (!parse_json_object_fields(normalized_payload, &fields, &json_error)) {
     if (error != nullptr) {
       *error = json_error.empty() ? "invalid Direct JSON envelope" : json_error;
     }
@@ -49,20 +63,9 @@ bool parse_direct_http_request(const std::string &payload,
     return false;
   }
 
-  const JsonObjectField *id = find_json_object_field(fields, "command_id");
-  parsed.command_id = id != nullptr && id->type == JsonValueType::STRING ? id->value : "";
-  const JsonObjectField *method = find_json_object_field(fields, "command");
-  parsed.command = method != nullptr && method->type == JsonValueType::STRING ? method->value : "";
-  const JsonObjectField *version = find_json_object_field(fields, "protocol_version");
-  parsed.protocol_version =
-      version != nullptr && version->type == JsonValueType::STRING ? version->value : "";
-
   parsed.params = "{";
   bool first = true;
   for (const JsonObjectField &field : fields) {
-    if (field.name == "protocol_version" || field.name == "command_id" || field.name == "command") {
-      continue;
-    }
     if (!first) parsed.params += ',';
     append_json_string(&parsed.params, field.name.c_str());
     parsed.params += ':';
@@ -82,14 +85,14 @@ bool direct_http_request_to_command(const DirectRequest &request,
                                     EspectreCommand *command,
                                     std::string *error) {
   return parse_espectre_command_request(
-      request.command_id, request.command, request.params, command, error, request.protocol_version);
+      request.command_id, request.command, request.params, command, error, ESPECTRE_PROTOCOL_VERSION);
 }
 
 std::string espectre_transport_mapping_payload() {
   std::string out{"{"};
-  out += "\"direct\":{\"request\":{\"framing\":\"http_post\"";
-  append_json_pair(&out, "path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT);
-  append_json_pair(&out, "message", "request");
+  out += "\"direct\":{\"request\":{\"framing\":\"http_resource\"";
+  append_json_pair(&out, "path", ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT);
+  append_json_pair(&out, "message", "resource_or_operation");
   out += "},\"result\":{\"framing\":\"http_response_body\",\"message\":\"result\"},"
          "\"events\":{\"framing\":\"sse\"";
   append_json_pair(&out, "path", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT);

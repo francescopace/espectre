@@ -187,13 +187,17 @@ def _add_provision_parser(subparsers) -> None:
 def _add_direct_parser(subparsers) -> None:
     direct_parser = subparsers.add_parser(
         "direct",
-        help="Send one correlated request through Direct HTTP",
+        help="Read or mutate one Direct HTTP resource",
     )
-    direct_parser.add_argument("method", help="Direct method, such as status or diagnostics")
     direct_parser.add_argument(
-        "--params",
+        "http_method", choices=("get", "patch", "post", "put", "delete"),
+        help="HTTP method",
+    )
+    direct_parser.add_argument("resource", help="Resource path, such as health or sensing")
+    direct_parser.add_argument(
+        "--data",
         default="{}",
-        help="Method parameters as a JSON object (default: {})",
+        help="Request body as a JSON object (default: {})",
     )
     target = direct_parser.add_mutually_exclusive_group()
     target.add_argument("--endpoint", help="Device HTTP(S) Direct endpoint")
@@ -469,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('devices')}",
             f"  {cli_command('devices', '--frontend', 'native')}",
             f"  {cli_command('provision', '--ssid', 'MyNetwork')}",
-            f"  {cli_command('direct', 'status', '--frontend', 'native')}",
+            f"  {cli_command('direct', 'get', 'health', '--frontend', 'native')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--start-delay', '15', '--target', '192.168.1.50')}",

@@ -82,7 +82,7 @@ The runtime derives fixed slots from `csi_target_pps`, not from measured arrival
 
 Calibration and steady-state detection share one cadence. Both paths evaluate admitted packets on the same schedule.
 
-The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Live sensing, collector-derived sensing, replay, training, Python validation, and C++ integration replay all apply temporal admission before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi).
+The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Live sensing, collector-derived sensing, replay, training, Python validation, and C++ integration replay all apply temporal admission before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [API.md](API.md#csi-collection).
 
 Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. A live slot is closed by observing a packet in a later timestamp slot, not merely because wall-clock time passed, so a delayed but better candidate is not discarded. Wall-clock time is used only to reject processing-backlog staleness. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
 
@@ -234,7 +234,7 @@ Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out g
 
 ### Settled-Level Threshold Recovery
 
-The detector revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The shared runtime reports that control-plane change through `on_threshold_changed`; frontend and transport propagation are documented in [ARCHITECTURE.md](ARCHITECTURE.md#runtime-contract) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#home-assistant-mqtt-adapter-profile).
+The detector revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The shared runtime reports that control-plane change through `on_threshold_changed`; frontend and transport propagation are documented in [ARCHITECTURE.md](ARCHITECTURE.md#runtime-contract) and [API.md](API.md#mqtt).
 
 The recovery has these safeguards:
 

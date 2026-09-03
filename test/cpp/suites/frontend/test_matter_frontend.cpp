@@ -183,9 +183,9 @@ void test_matter_frontend_defers_live_telemetry_serialization_until_after_runtim
   TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.published_events.size());
   TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].replaceable_telemetry);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].data_json.find(
-                       "\"movement_score\":7.5") != std::string::npos);
+                       "\"score\":7.5") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].data_json.find(
-                       "\"threshold\":2.25") != std::string::npos);
+                       "\"threshold\"") == std::string::npos);
 }
 
 void test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot(void) {
@@ -225,10 +225,8 @@ void test_matter_frontend_runtime_fault_is_reported(void) {
   TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.published_events.size());
   const auto &event = direct_http_service_mock::state.published_events[0];
   TEST_ASSERT_EQUAL_STRING("fault", event.event_name.c_str());
-  TEST_ASSERT_TRUE(event.data_json.find("\"protocol_version\":\"1.0\"") !=
-                   std::string::npos);
-  TEST_ASSERT_TRUE(event.data_json.find("\"device_id\":\"0123456789abcdef\"") !=
-                   std::string::npos);
+  TEST_ASSERT_TRUE(event.data_json.find("\"protocol_version\"") == std::string::npos);
+  TEST_ASSERT_TRUE(event.data_json.find("\"device_id\"") == std::string::npos);
   TEST_ASSERT_TRUE(event.data_json.find("\"message\":\"wifi disconnected\"") !=
                    std::string::npos);
 }
@@ -255,14 +253,17 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
   TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, direct_http_service_mock::state.last_config.port);
 
-  const std::string info = direct.emit_request(DirectRequest{"info-1", "info", "{}"});
+  const std::string info = direct.emit_request(
+      DirectRequest{"", "device", "{}", "/espectre/v1/device", "GET"});
   TEST_ASSERT_TRUE(info.find("\"frontend\":\"matter\"") != std::string::npos);
   TEST_ASSERT_TRUE(info.find("\"device_id\":\"0123456789abcdef\"") != std::string::npos);
 
-  const std::string status = direct.emit_request(DirectRequest{"status-1", "status", "{}"});
-  TEST_ASSERT_TRUE(status.find("\"sensing_enabled\":true") != std::string::npos);
+  const std::string sensing = direct.emit_request(
+      DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(sensing.find("\"enabled\":true") != std::string::npos);
 
-  const std::string diagnostics = direct.emit_request(DirectRequest{"diagnostics-1", "diagnostics", "{}"});
+  const std::string diagnostics = direct.emit_request(
+      DirectRequest{"", "read_diagnostics", "{}", "/espectre/v1/diagnostics", "GET"});
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_tx_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"csi_callback_pps\":0") != std::string::npos);
@@ -280,12 +281,12 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 8.0f;
   frontend.on_periodic_update(make_ready_snapshot(false), 8U);
   const std::string sampled_diagnostics = direct.emit_request(
-      DirectRequest{"diagnostics-2", "diagnostics", "{}"});
+      DirectRequest{"", "read_diagnostics", "{}", "/espectre/v1/diagnostics", "GET"});
   TEST_ASSERT_TRUE(sampled_diagnostics.find("\"traffic_tx_pps\":0") == std::string::npos);
   TEST_ASSERT_TRUE(sampled_diagnostics.find("\"csi_callback_pps\":0") == std::string::npos);
 
   const std::string detector = direct.emit_request(
-      DirectRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});
+      DirectRequest{"detector-1", "update_sensing", "{\"detector\":\"high_accuracy\"}"});
   TEST_ASSERT_TRUE(detector.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::HIGH_ACCURACY),
@@ -302,15 +303,14 @@ void test_matter_frontend_raw_session_uses_shared_controller_and_recovers(void) 
   frontend.set_runtime_config(config);
   TEST_ASSERT_TRUE(frontend.setup());
 
-  const std::string started = direct.emit_request(
-      DirectRequest{"raw-start", "start_raw_stream", "{}"});
-  TEST_ASSERT_TRUE(started.find("\"accepted\":true") != std::string::npos);
+  std::string raw_message;
+  TEST_ASSERT_TRUE(direct.emit_raw_session_request(&raw_message));
   TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     frontend.runtime_.operation_state());
 
   const std::string busy = direct.emit_request(
-      DirectRequest{"raw-busy", "set_sensing", "{\"enabled\":false}"});
+      DirectRequest{"raw-busy", "update_sensing", "{\"enabled\":false}"});
   TEST_ASSERT_TRUE(busy.find("\"code\":\"busy_raw_collection\"") != std::string::npos);
   TEST_ASSERT_TRUE(frontend.runtime_.services_armed());
 
@@ -339,29 +339,28 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
       });
   TEST_ASSERT_TRUE(frontend.setup());
 
-  const std::string default_info = direct.emit_request(DirectRequest{"default-info", "info", "{}"});
-  TEST_ASSERT_TRUE(default_info.find("\"device_name\":\"ESPectre ESP32 abcdef\"") != std::string::npos);
-  TEST_ASSERT_TRUE(default_info.find("\"device_label\":\"\"") != std::string::npos);
+  const std::string default_info = direct.emit_request(
+      DirectRequest{"", "device", "{}", "/espectre/v1/device", "GET"});
+  TEST_ASSERT_TRUE(default_info.find("\"name\":\"ESPectre ESP32 abcdef\"") != std::string::npos);
+  TEST_ASSERT_TRUE(default_info.find("\"label\":\"\"") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("ESPectre ESP32 abcdef", frontend.peer_discovery_.local_candidate_.name.c_str());
   TEST_ASSERT_EQUAL_STRING("ESPectre 0123456789abcdef",
                            frontend.peer_discovery_.local_candidate_.instance.c_str());
 
   const std::string capabilities = direct.emit_request(
       DirectRequest{"capabilities", "capabilities", "{}"});
-  TEST_ASSERT_TRUE(capabilities.find("\"config_sections\":[\"runtime\",\"device\",\"wifi\"]") !=
-                   std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_device_label\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_bssid\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"discover_peers\"") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") == std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_mqtt_config\"") == std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"ota_start\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"update_device\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"wifi\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"scan_wifi\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"clear_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"devices\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"clear_wifi_credentials\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"update_mqtt\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"start_ota\"") == std::string::npos);
 
   const std::string scan = direct.emit_request(
-      DirectRequest{"scan", "scan_wifi_access_points", "{}"});
+      DirectRequest{"scan", "scan_wifi", "{}"});
   auto pin_request = direct.emit_deferred_request(
       77U, DirectRequest{"pin", "set_wifi_bssid",
                          "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"force\":true}"});
@@ -371,7 +370,7 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   const std::string unpin = direct.emit_request(
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
   const std::string credential_reset = direct.emit_request(
-      DirectRequest{"reset", "clear_wifi_config", "{}"});
+      DirectRequest{"reset", "clear_wifi_credentials", "{}"});
   TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(2, static_cast<int>(bssid_updates.size()));
@@ -382,13 +381,15 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = direct.emit_request(
-      DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen Matter\"}"});
+      DirectRequest{"label", "update_device", "{\"label\":\"Kitchen Matter\"}"});
   TEST_ASSERT_TRUE(label.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("Kitchen Matter", matter_bindings_mock::state.node_label.c_str());
-  const std::string info = direct.emit_request(DirectRequest{"info", "info", "{}"});
-  const std::string visible_config = direct.emit_request(DirectRequest{"config", "config", "{}"});
-  TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
-  TEST_ASSERT_TRUE(visible_config.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
+  const std::string info = direct.emit_request(
+      DirectRequest{"", "device", "{}", "/espectre/v1/device", "GET"});
+  const std::string visible_config = direct.emit_request(
+      DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(info.find("\"label\":\"Kitchen Matter\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("Kitchen Matter") == std::string::npos);
 }
 
 void test_matter_frontend_quiesces_sensing_while_wifi_is_reconfigured(void) {

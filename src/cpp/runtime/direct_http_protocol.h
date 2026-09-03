@@ -19,7 +19,7 @@ namespace espectre {
 
 /** ESPectre service port: low 16 bits of U+1F47B GHOST (0xF47B). */
 inline constexpr uint16_t ESPECTRE_DIRECT_HTTP_PORT = 0xF47BU;  // 62587
-inline constexpr const char *ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT = "/espectre/v1/request";
+inline constexpr const char *ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT = "/espectre/v1";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT = "/espectre/v1/events";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_TRANSPORT = "http";
 inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_SIZE = ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE;
@@ -36,13 +36,17 @@ struct DirectRequest {
   std::string command;
   /** Syntactically valid JSON object containing command parameters. */
   std::string params{"{}"};
-  /** Bearer token supplied by the HTTP transport; never parsed from JSON. */
-  std::string authorization;
-  /** Canonical message version supplied by the requester. */
-  std::string protocol_version{ESPECTRE_PROTOCOL_VERSION};
+  /** Request path, retained for resource-aware response handling. */
+  std::string path;
+  /** HTTP method selected by the transport route. */
+  std::string http_method;
+  /** Whether the accepted operation completes asynchronously. */
+  bool asynchronous{false};
 };
 
-bool parse_direct_http_request(const std::string &payload,
+bool parse_direct_http_request(const std::string &http_method,
+                               const std::string &path,
+                               const std::string &payload,
                                DirectRequest *request,
                                std::string *error = nullptr);
 bool direct_http_request_to_command(const DirectRequest &request,

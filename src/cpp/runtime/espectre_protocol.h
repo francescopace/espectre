@@ -23,7 +23,7 @@
  *
  * The protocol is the contract between a device and whatever consumes it:
  * MQTT topics, Direct HTTP messages, JSON payloads, and the OTA status model.
- * It is specified in `docs/ESPECTRE_PROTOCOL.md`; this header is the C++ view
+ * It is specified in `docs/API.md`; this header is the C++ view
  * of that specification.
  *
  * Use it whenever your integration should stay interoperable with the shipped
@@ -92,6 +92,33 @@ enum class EspectreEvent : uint8_t {
   COUNT,
 };
 
+enum class EspectreApiRouteKind : uint8_t {
+  RESOURCE = 0,
+  OPERATION,
+  STREAM,
+};
+
+/** One canonical HTTP/resource mapping used by routing and capability output. */
+struct EspectreApiRoute {
+  const char *http_method;
+  const char *path;
+  const char *name;
+  const char *command;
+  EspectreDirectMethod capability;
+  EspectreApiRouteKind kind;
+  bool asynchronous;
+};
+
+struct EspectreApiEventDescriptor {
+  const char *name;
+  EspectreEvent event;
+  EspectreDirectMethod capability;
+};
+
+/** Return the immutable v1 resource registry and its entry count. */
+const EspectreApiRoute *espectre_api_routes(size_t *count);
+const EspectreApiEventDescriptor *espectre_api_events(size_t *count);
+
 /** Exact Direct command, event, and readable-configuration surface advertised by a frontend. */
 struct EspectreCapabilityProfile {
   std::array<bool, static_cast<size_t>(EspectreDirectMethod::COUNT)> methods{};
@@ -123,7 +150,7 @@ struct EspectreCapabilityProfile {
 
 struct RuntimeDiagnosticsSample;
 
-/** Protocol version reported in payloads. Bumped on a wire-format change. */
+/** Protocol version reported by capabilities and discovery. */
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
 /** DNS-SD TXT record schema advertised as the RFC 6763 `txtvers` value. */
 inline constexpr const char *ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION = "1";
@@ -198,7 +225,7 @@ struct EspectreDeviceInfo {
   std::string csi_profile;
   bool supports_info{true};
   bool supports_diagnostics{false};
-  /** MQTT `set_device_label` is honored and persists the user-facing label. */
+  /** `update_device` is honored and persists the user-facing label. */
   bool supports_device_config{false};
   bool supports_runtime_threshold{false};
   bool supports_runtime_motion_hits{false};
@@ -247,12 +274,12 @@ struct EspectreDeviceInfo {
 struct EspectreCommand {
   /** Correlation id echoed in the result payload. May be empty. */
   std::string command_id;
-  /** Command verb, for example `"set_threshold"` or `"recalibrate"`. */
+  /** Command verb, for example `"update_sensing"` or `"recalibrate"`. */
   std::string command;
-  /** Requested sensing-service state for `set_sensing`. */
+  /** Requested sensing-service state for `update_sensing`. */
   bool sensing_enabled{false};
   bool has_sensing_enabled{false};
-  /** User-facing label requested by `set_device_label`; empty clears it. */
+  /** User-facing label requested by `update_device`; empty clears it. */
   std::string device_label;
   /** Whether the command carried a valid string-valued `device_label`. */
   bool has_device_label{false};
@@ -285,7 +312,7 @@ struct EspectreCommand {
   bool has_mqtt_topic_prefix{false};
   bool has_mqtt_port{false};
   /**
-   * OTA release channel for `ota_check` and `ota_start`: `"release"`, `"preview"`,
+   * OTA release channel for `check_ota` and `start_ota`: `"release"`, `"preview"`,
    * or `"develop"`. Empty with `has_ota_channel` false means the firmware default.
    */
   std::string ota_channel;
@@ -407,9 +434,9 @@ bool espectre_mqtt_configured(const EspectreDeviceConfig &config);
 /** Build a full topic from this device's prefix and a trailing segment. */
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix);
 /** Availability payload. Publish it retained so late subscribers see it. */
-std::string espectre_status_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms);
-/** Device description, supported controls, and optional CSI traffic settings. Publish retained on connect. */
-std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
+std::string espectre_health_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms);
+/** Stable device identity and build description. Publish retained on connect. */
+std::string espectre_device_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
 /**
  * Filtered command, event, feature, and configuration catalog.
  */
@@ -430,8 +457,8 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           bool supports_mqtt_config = false,
                                           bool supports_peer_discovery = false,
                                           bool supports_raw_csi = false);
-/** Motion state, metric, and threshold. The payload behind every motion update. */
-std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
+/** Current motion state and score. The payload behind every detector evaluation. */
+std::string espectre_motion_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
                                     uint32_t timestamp_ms,
                                     uint32_t uptime_s,

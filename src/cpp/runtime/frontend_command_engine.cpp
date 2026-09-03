@@ -17,9 +17,11 @@ const char *frontend_command_parse_error_code(const std::string &error) {
 }
 
 bool frontend_command_allowed_during_raw_collection(const std::string &command) {
-  return command == "capabilities" || command == "info" || command == "status" ||
-         command == "config" || command == "diagnostics" || command == "ota_status" ||
-         command == "wifi_access_points" || command == "stop_raw_stream";
+  return command == "capabilities" || command == "device" || command == "health" ||
+         command == "sensing" || command == "wifi" || command == "mqtt" ||
+         command == "read_diagnostics" || command == "ota" || command == "devices" ||
+         command == "wifi_access_points" || command == "update_device" ||
+         command == "update_mqtt" || command == "clear_mqtt";
 }
 
 DeviceConfigCommandResult handle_device_config_command(const std::string &command,
@@ -148,32 +150,29 @@ FrontendCommandResult FrontendCommandEngine::execute(
   };
 
   if (context.origin == FrontendCommandOrigin::MQTT &&
-      (command.command == "wifi_access_points" || command.command == "scan_wifi_access_points" ||
-       command.command == "set_wifi_bssid" || command.command == "clear_wifi_bssid" ||
-       command.command == "clear_wifi_config" ||
-       command.command == "set_mqtt_config" || command.command == "clear_mqtt_config" ||
-       command.command == "discover_peers" || command.command == "start_raw_stream" ||
-       command.command == "stop_raw_stream")) {
-    return reject("forbidden", "command is local to Direct HTTP");
+      command.command != "update_device" && command.command != "update_sensing" &&
+      command.command != "recalibrate" && command.command != "read_diagnostics" &&
+      command.command != "check_ota" && command.command != "start_ota") {
+    return reject("forbidden", "command is not available over MQTT");
   }
 
   if (command.command == "capabilities") {
     return supports(EspectreDirectMethod::CAPABILITIES) ? accept_read("capabilities returned")
                                                         : reject("unsupported", "unsupported command");
   }
-  if (command.command == "info") {
+  if (command.command == "device") {
     return supports(EspectreDirectMethod::INFO) ? accept_read("info returned")
                                                 : reject("unsupported", "unsupported command");
   }
-  if (command.command == "status") {
+  if (command.command == "health") {
     return supports(EspectreDirectMethod::STATUS) ? accept_read("status returned")
                                                   : reject("unsupported", "unsupported command");
   }
-  if (command.command == "config") {
+  if (command.command == "sensing" || command.command == "wifi" || command.command == "mqtt") {
     return supports(EspectreDirectMethod::CONFIG) ? accept_read("config returned")
                                                   : reject("unsupported", "unsupported command");
   }
-  if (command.command == "diagnostics") {
+  if (command.command == "read_diagnostics") {
     return supports(EspectreDirectMethod::DIAGNOSTICS) ? accept_read("diagnostics returned")
                                                        : reject("unsupported", "unsupported command");
   }
@@ -183,33 +182,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
                : reject("unsupported", "unsupported command");
   }
 
-  if (command.command == "start_raw_stream" || command.command == "stop_raw_stream") {
-    const EspectreDirectMethod method = command.command == "start_raw_stream"
-                                            ? EspectreDirectMethod::START_RAW_STREAM
-                                            : EspectreDirectMethod::STOP_RAW_STREAM;
-    if (!supports(method) || !raw_stream_callback ||
-        context.origin != FrontendCommandOrigin::DIRECT ||
-        (command.command == "stop_raw_stream" && context.authorization.empty())) {
-      return reject("unsupported", "raw CSI collection is unavailable");
-    }
-    result.accepted = raw_stream_callback(
-        command, context, &result.code, &result.message, &result.data_json);
-    if (result.code.empty()) {
-      result.code = result.accepted ? "ok" : "unavailable";
-    }
-    if (result.message.empty()) {
-      result.message = result.accepted
-                           ? (command.command == "start_raw_stream" ? "raw CSI collection started"
-                                                                    : "raw CSI collection stopped")
-                           : "raw CSI collection rejected";
-    }
-    if (result.accepted) {
-      result.changes = FrontendCommandChange::STATUS;
-    }
-    return result;
-  }
-
-  if (command.command == "set_device_label") {
+  if (command.command == "update_device") {
     if (!supports(EspectreDirectMethod::SET_DEVICE_LABEL) || !device_label_callback ||
         !command.has_device_label) {
       return !supports(EspectreDirectMethod::SET_DEVICE_LABEL) || !device_label_callback
@@ -219,7 +192,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
     result.accepted = device_label_callback(command.device_label, &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
     if (result.accepted) {
-      result.changes = FrontendCommandChange::INFO | FrontendCommandChange::CONFIG;
+      result.changes = FrontendCommandChange::DEVICE;
     }
     if (result.message.empty()) {
       result.message = result.accepted ? "device label updated" : "device label rejected";
@@ -227,25 +200,25 @@ FrontendCommandResult FrontendCommandEngine::execute(
     return result;
   }
 
-  if (command.command == "scan_wifi_access_points" || command.command == "set_wifi_bssid" ||
-      command.command == "clear_wifi_bssid" || command.command == "clear_wifi_config") {
+  if (command.command == "scan_wifi" || command.command == "set_wifi_bssid" ||
+      command.command == "clear_wifi_bssid" || command.command == "clear_wifi_credentials") {
     EspectreDirectMethod method = EspectreDirectMethod::SCAN_WIFI_ACCESS_POINTS;
     if (command.command == "set_wifi_bssid") method = EspectreDirectMethod::SET_WIFI_BSSID;
     if (command.command == "clear_wifi_bssid") method = EspectreDirectMethod::CLEAR_WIFI_BSSID;
-    if (command.command == "clear_wifi_config") method = EspectreDirectMethod::CLEAR_WIFI_CONFIG;
+    if (command.command == "clear_wifi_credentials") method = EspectreDirectMethod::CLEAR_WIFI_CONFIG;
     if (!supports(method) || !wifi_bssid_callback) {
       return reject("unsupported", "unsupported command");
     }
     result.accepted = wifi_bssid_callback(command, &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted && command.command != "scan_wifi_access_points") {
-      result.changes = FrontendCommandChange::CONFIG;
+    if (result.accepted && command.command != "scan_wifi") {
+      result.changes = FrontendCommandChange::WIFI;
     }
     if (result.message.empty()) {
       result.message = result.accepted
-                           ? (command.command == "scan_wifi_access_points"
+                           ? (command.command == "scan_wifi"
                                   ? "Wi-Fi access point scan started"
-                                  : command.command == "clear_wifi_config"
+                                  : command.command == "clear_wifi_credentials"
                                       ? "Wi-Fi configuration cleared"
                                       : command.command == "clear_wifi_bssid"
                                           ? "Wi-Fi BSSID pin cleared"
@@ -255,121 +228,74 @@ FrontendCommandResult FrontendCommandEngine::execute(
     return result;
   }
 
-  if (command.command == "set_mqtt_config" || command.command == "clear_mqtt_config") {
-    const EspectreDirectMethod method = command.command == "set_mqtt_config"
+  if (command.command == "update_mqtt" || command.command == "clear_mqtt") {
+    const EspectreDirectMethod method = command.command == "update_mqtt"
                                             ? EspectreDirectMethod::SET_MQTT_CONFIG
                                             : EspectreDirectMethod::CLEAR_MQTT_CONFIG;
     if (!supports(method) || !mqtt_config_callback) {
       return reject("unsupported", "unsupported command");
     }
-    result.accepted = mqtt_config_callback(command, command.command == "clear_mqtt_config", &result.message);
+    result.accepted = mqtt_config_callback(command, command.command == "clear_mqtt", &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
+    if (result.accepted) result.changes = FrontendCommandChange::MQTT;
     if (result.message.empty()) {
       result.message = result.accepted ? "MQTT configuration updated" : "MQTT configuration rejected";
     }
     return result;
   }
 
-  if (command.command == "set_sensing") {
-    if (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback) {
-      return reject("unsupported", "unsupported command");
-    }
-    if (!command.has_sensing_enabled) {
-      return reject("invalid_params", "invalid sensing state (accepted: boolean enabled)");
-    }
-    const bool enabled = command.sensing_enabled;
-    result.accepted = sensing_control_callback(enabled, &result.message);
-    result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::STATUS;
-    if (result.message.empty()) {
-      result.message = result.accepted ? (enabled ? "sensing started" : "sensing stopped")
-                                       : (enabled ? "sensing start rejected" : "sensing stop rejected");
-    }
-    return result;
-  }
-
-  if (command.command == "set_threshold") {
-    if (!supports(EspectreDirectMethod::SET_THRESHOLD) || !threshold_callback) {
-      return reject("unsupported", "unsupported command");
-    }
-    if (!command.has_threshold || !validate_runtime_threshold(command.threshold)) {
+  if (command.command == "update_sensing") {
+    if (command.has_threshold && (!supports(EspectreDirectMethod::SET_THRESHOLD) ||
+                                  !threshold_callback || !validate_runtime_threshold(command.threshold))) {
       return reject("invalid_params", "invalid threshold (accepted: 0.0-1.0)");
     }
-    result.accepted = threshold_callback(command.threshold, &result.message);
-    result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
-    if (result.message.empty()) {
-      result.message = result.accepted ? "threshold updated" : "threshold rejected";
+    if (command.has_motion_hits && (!supports(EspectreDirectMethod::SET_MOTION_HITS) || !motion_hits_callback)) {
+      return reject("unsupported", "motion hits update is unsupported");
     }
-    return result;
-  }
-
-  if (command.command == "set_motion_hits") {
-    if (!supports(EspectreDirectMethod::SET_MOTION_HITS) || !motion_hits_callback) {
-      return reject("unsupported", "unsupported command");
+    if (command.has_detector && (!supports(EspectreDirectMethod::SET_DETECTOR) || !detector_callback)) {
+      return reject("unsupported", "detector update is unsupported");
     }
-    if (!command.has_motion_hits || command.motion_on_hits < RUNTIME_MOTION_HITS_MIN ||
+    if (command.has_motion_hits && (command.motion_on_hits < RUNTIME_MOTION_HITS_MIN ||
         command.motion_on_hits > RUNTIME_MOTION_HITS_MAX || command.motion_off_hits < RUNTIME_MOTION_HITS_MIN ||
-        command.motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
+        command.motion_off_hits > RUNTIME_MOTION_HITS_MAX)) {
       return reject("invalid_params", "invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
     }
-    result.accepted = motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
+    if (command.has_csi_traffic_mode &&
+        (!supports(EspectreDirectMethod::SET_CSI_TRAFFIC_MODE) || !csi_traffic_mode_callback)) {
+      return reject("unsupported", "CSI traffic mode update is unsupported");
+    }
+    if (command.has_traffic_generator_mode &&
+        (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE) || !traffic_generator_mode_callback)) {
+      return reject("unsupported", "traffic generator update is unsupported");
+    }
+    if (command.has_sensing_enabled &&
+        (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback)) {
+      return reject("unsupported", "sensing state update is unsupported");
+    }
+    result.accepted = true;
+    if (command.has_detector) {
+      result.accepted = detector_callback(parse_detection_algorithm(command.detector.c_str()), &result.message);
+    }
+    if (result.accepted && command.has_threshold) {
+      result.accepted = threshold_callback(command.threshold, &result.message);
+    }
+    if (result.accepted && command.has_motion_hits) {
+      result.accepted = motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
+    }
+    if (result.accepted && command.has_csi_traffic_mode) {
+      result.accepted = csi_traffic_mode_callback(
+          parse_csi_traffic_mode(command.csi_traffic_mode.c_str()), &result.message);
+    }
+    if (result.accepted && command.has_traffic_generator_mode) {
+      result.accepted = traffic_generator_mode_callback(
+          parse_traffic_mode(command.traffic_generator_mode.c_str()), &result.message);
+    }
+    if (result.accepted && command.has_sensing_enabled) {
+      result.accepted = sensing_control_callback(command.sensing_enabled, &result.message);
+    }
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
-    if (result.message.empty()) {
-      result.message = result.accepted ? "motion hits updated" : "motion hits rejected";
-    }
-    return result;
-  }
-
-  if (command.command == "set_csi_traffic_mode") {
-    if (!supports(EspectreDirectMethod::SET_CSI_TRAFFIC_MODE) || !csi_traffic_mode_callback) {
-      return reject("unsupported", "unsupported command");
-    }
-    if (!command.has_csi_traffic_mode) {
-      return reject("invalid_params", "invalid csi traffic mode (accepted: internal and external)");
-    }
-    result.accepted = csi_traffic_mode_callback(parse_csi_traffic_mode(command.csi_traffic_mode.c_str()), &result.message);
-    result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
-    if (result.message.empty()) {
-      result.message = result.accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
-    }
-    return result;
-  }
-
-  if (command.command == "set_traffic_generator_mode") {
-    if (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE) || !traffic_generator_mode_callback) {
-      return reject("unsupported", "unsupported command");
-    }
-    if (!command.has_traffic_generator_mode) {
-      return reject("invalid_params",
-                    "invalid traffic generator mode (accepted: ping, dns, and dns_tcp)");
-    }
-    result.accepted =
-        traffic_generator_mode_callback(parse_traffic_mode(command.traffic_generator_mode.c_str()), &result.message);
-    result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
-    if (result.message.empty()) {
-      result.message = result.accepted ? "traffic generator mode updated" : "traffic generator mode rejected";
-    }
-    return result;
-  }
-
-  if (command.command == "set_detector") {
-    if (!supports(EspectreDirectMethod::SET_DETECTOR) || !detector_callback) {
-      return reject("unsupported", "unsupported command");
-    }
-    if (!command.has_detector) {
-      return reject("invalid_params", "invalid detector (accepted: lightweight and high_accuracy)");
-    }
-    result.accepted = detector_callback(parse_detection_algorithm(command.detector.c_str()), &result.message);
-    result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
-    if (result.message.empty()) {
-      result.message = result.accepted ? "detector updated" : "detector rejected";
-    }
+    if (result.accepted) result.changes = FrontendCommandChange::SENSING;
+    if (result.message.empty()) result.message = result.accepted ? "sensing updated" : "sensing update rejected";
     return result;
   }
 
@@ -379,17 +305,17 @@ FrontendCommandResult FrontendCommandEngine::execute(
     }
     result.accepted = recalibrate_callback(&result.message);
     result.code = result.accepted ? "ok" : "busy";
-    if (result.accepted) result.changes = FrontendCommandChange::STATUS;
+    if (result.accepted) result.changes = FrontendCommandChange::SENSING;
     if (result.message.empty()) {
       result.message = result.accepted ? "recalibration started" : "recalibration rejected";
     }
     return result;
   }
 
-  if (command.command == "ota_status" || command.command == "ota_check" || command.command == "ota_start") {
+  if (command.command == "ota" || command.command == "check_ota" || command.command == "start_ota") {
     EspectreDirectMethod method = EspectreDirectMethod::OTA_STATUS;
-    if (command.command == "ota_check") method = EspectreDirectMethod::OTA_CHECK;
-    if (command.command == "ota_start") method = EspectreDirectMethod::OTA_START;
+    if (command.command == "check_ota") method = EspectreDirectMethod::OTA_CHECK;
+    if (command.command == "start_ota") method = EspectreDirectMethod::OTA_START;
     if (!supports(method)) {
       return reject("unsupported", "unsupported command");
     }
@@ -398,19 +324,19 @@ FrontendCommandResult FrontendCommandEngine::execute(
     }
     const std::string normalized_current_version =
         (current_version == nullptr || current_version[0] == '\0') ? "unknown" : current_version;
-    if (command.command == "ota_status") {
+    if (command.command == "ota") {
       return accept_read("ota status returned");
     }
-    if (command.command == "ota_check") {
+    if (command.command == "check_ota") {
       result.accepted = ota_service->start_check(normalized_current_version, command.ota_channel);
       result.code = result.accepted ? "ok" : "busy";
-      if (result.accepted) result.changes = FrontendCommandChange::OTA_STATUS;
+      if (result.accepted) result.changes = FrontendCommandChange::OTA;
       result.message = result.accepted ? "ota check started" : "ota check rejected";
       return result;
     }
     result.accepted = ota_service->start_update(normalized_current_version, command.ota_channel);
     result.code = result.accepted ? "ok" : "busy";
-    if (result.accepted) result.changes = FrontendCommandChange::OTA_STATUS;
+    if (result.accepted) result.changes = FrontendCommandChange::OTA;
     result.message = result.accepted ? "ota update started" : "ota update rejected";
     return result;
   }

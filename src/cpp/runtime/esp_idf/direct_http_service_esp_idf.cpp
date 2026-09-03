@@ -36,15 +36,16 @@ namespace espectre {
 namespace {
 
 [[maybe_unused]] const char *const TAG = "espectre.http";
+constexpr char kApiWildcard[] = "/espectre/v1/*";
 constexpr size_t kHeaderBufferSize = 256U;
 constexpr uint64_t kMutationWindowUs = 60ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kEventHeartbeatUs = 10ULL * 1000ULL * 1000ULL;
-constexpr uint64_t kRawBindTimeoutUs = 5ULL * 1000ULL * 1000ULL;
 constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
 constexpr uint64_t kRequestWindowUs = 1000000U;
 constexpr const char *kHttp400 = "400 Bad Request";
-constexpr const char *kHttp401 = "401 Unauthorized";
 constexpr const char *kHttp403 = "403 Forbidden";
+constexpr const char *kHttp404 = "404 Not Found";
+constexpr const char *kHttp409 = "409 Conflict";
 constexpr const char *kHttp413 = "413 Content Too Large";
 constexpr const char *kHttp415 = "415 Unsupported Media Type";
 constexpr const char *kHttp429 = "429 Too Many Requests";
@@ -53,6 +54,17 @@ constexpr const char *kHttp503 = "503 Service Unavailable";
 constexpr TickType_t kWorkerShutdownPollTicks = pdMS_TO_TICKS(1U);
 constexpr uint32_t kWorkerShutdownTimeoutMs = 1500U;
 #endif
+
+const char *http_method_name(int method) {
+  switch (method) {
+    case HTTP_GET: return "GET";
+    case HTTP_POST: return "POST";
+    case HTTP_PUT: return "PUT";
+    case HTTP_DELETE: return "DELETE";
+    case HTTP_PATCH: return "PATCH";
+    default: return "";
+  }
+}
 
 const char *peer_disconnect_reason(int error) {
   switch (error) {
@@ -68,9 +80,10 @@ const char *peer_disconnect_reason(int error) {
 }
 
 bool read_only_method(const std::string &method) {
-  return method == "capabilities" || method == "info" || method == "status" ||
-         method == "config" || method == "diagnostics" || method == "ota_status" ||
-         method == "discover_peers";
+  return method == "capabilities" || method == "device" || method == "health" ||
+         method == "sensing" || method == "wifi" || method == "mqtt" ||
+         method == "read_diagnostics" || method == "ota" || method == "devices" ||
+         method == "wifi_access_points";
 }
 
 bool valid_loopback_port_suffix(const std::string &suffix) {
@@ -112,14 +125,11 @@ bool session_id_present(const uint8_t *session_id) {
   return false;
 }
 
-std::string session_id_hex(const uint8_t *session_id) {
-  static constexpr char kHex[] = "0123456789abcdef";
-  std::string out(ESPECTRE_RAW_CSI_SESSION_ID_BYTES * 2U, '0');
-  for (size_t index = 0U; index < ESPECTRE_RAW_CSI_SESSION_ID_BYTES; ++index) {
-    out[index * 2U] = kHex[(session_id[index] >> 4U) & 0x0fU];
-    out[index * 2U + 1U] = kHex[session_id[index] & 0x0fU];
-  }
-  return out;
+bool conflicts_with_csi_collection(const std::string &command) {
+  return command == "update_sensing" || command == "recalibrate" ||
+         command == "scan_wifi" || command == "set_wifi_bssid" ||
+         command == "clear_wifi_bssid" || command == "clear_wifi_credentials" ||
+         command == "check_ota" || command == "start_ota";
 }
 
 std::string sse_payload(const std::string &event_name, const std::string &data_json) {
@@ -185,6 +195,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   http_config.ctrl_port = static_cast<uint16_t>(http_config.ctrl_port + 1U);
   http_config.max_open_sockets = static_cast<uint16_t>(config_.max_event_clients + 5U);
   http_config.max_uri_handlers = 8U;
+  http_config.uri_match_fn = httpd_uri_match_wildcard;
   http_config.lru_purge_enable = false;
   // Direct clients commonly poll diagnostics once per second. Leave enough
   // margin for scheduling and Wi-Fi jitter so a healthy keep-alive session is
@@ -208,12 +219,12 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
     return httpd_register_uri_handler(server_, &descriptor) == ESP_OK;
   };
   const bool registered =
-      register_uri(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT, HTTP_POST, &request_uri_handler_) &&
-      register_uri(ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT, HTTP_GET, &events_handler_) &&
-      register_uri(ESPECTRE_RAW_CSI_ENDPOINT, HTTP_GET, &raw_handler_) &&
-      register_uri(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT, HTTP_OPTIONS, &options_handler_) &&
-      register_uri(ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT, HTTP_OPTIONS, &options_handler_) &&
-      register_uri(ESPECTRE_RAW_CSI_ENDPOINT, HTTP_OPTIONS, &options_handler_);
+      register_uri(kApiWildcard, HTTP_GET, &request_uri_handler_) &&
+      register_uri(kApiWildcard, HTTP_POST, &request_uri_handler_) &&
+      register_uri(kApiWildcard, HTTP_PUT, &request_uri_handler_) &&
+      register_uri(kApiWildcard, HTTP_DELETE, &request_uri_handler_) &&
+      register_uri(kApiWildcard, HTTP_PATCH, &request_uri_handler_) &&
+      register_uri(kApiWildcard, HTTP_OPTIONS, &options_handler_);
   if (!registered) {
     httpd_stop(server_);
     server_ = nullptr;
@@ -300,7 +311,6 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
 void EspIdfDirectHttpService::loop() {
   dispatch_pending_callbacks_();
   if (stopping_.load(std::memory_order_acquire)) return;
-  service_raw_timeouts_();
 
   PendingRequest pending;
   bool have_request = false;
@@ -413,6 +423,10 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
             ResponseCompletion{std::move(completed.response_sent_callback), false});
       }
     }
+    if (pending_raw_open_.request != nullptr) {
+      requests.push_back(pending_raw_open_.request);
+      pending_raw_open_ = {};
+    }
     event_clients_.clear();
     pending_event_connections_ = 0U;
     inbound_.clear();
@@ -433,6 +447,7 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
   if (server != nullptr) (void) httpd_stop(server);
   request_handler_ = {};
   deferred_request_handler_ = {};
+  raw_session_requested_callback_ = {};
   if (dispatch_callbacks) {
     notify_client_count_(0U);
     dispatch_pending_callbacks_();
@@ -494,6 +509,14 @@ DirectHttpServiceDiagnostics EspIdfDirectHttpService::diagnostics() const {
     unlock_();
   }
   return snapshot;
+}
+
+void EspIdfDirectHttpService::set_raw_session_requested_callback(
+    RawSessionRequestedCallback callback) {
+  if (lock_()) {
+    raw_session_requested_callback_ = std::move(callback);
+    unlock_();
+  }
 }
 
 bool EspIdfDirectHttpService::start_raw_session(
@@ -610,7 +633,14 @@ RawCsiSessionDiagnostics EspIdfDirectHttpService::raw_diagnostics() const {
 
 esp_err_t EspIdfDirectHttpService::request_uri_handler_(httpd_req_t *request) {
   if (request == nullptr || request->user_ctx == nullptr) return ESP_ERR_INVALID_ARG;
-  return static_cast<EspIdfDirectHttpService *>(request->user_ctx)->handle_request_(request);
+  auto *service = static_cast<EspIdfDirectHttpService *>(request->user_ctx);
+  if (std::strcmp(request->uri, ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT) == 0) {
+    return service->handle_events_(request);
+  }
+  if (std::strcmp(request->uri, ESPECTRE_RAW_CSI_ENDPOINT) == 0) {
+    return service->handle_raw_(request);
+  }
+  return service->handle_request_(request);
 }
 
 esp_err_t EspIdfDirectHttpService::events_handler_(httpd_req_t *request) {
@@ -687,12 +717,13 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   std::string content_type;
-  if (!read_header_(request, "Content-Type", &content_type) ||
-      content_type.compare(0U, std::strlen("application/json"), "application/json") != 0) {
+  if (request->content_len > 0U &&
+      (!read_header_(request, "Content-Type", &content_type) ||
+       content_type.compare(0U, std::strlen("application/json"), "application/json") != 0)) {
     (void) send_error_(request, kHttp415, "application/json required", origin);
     return ESP_FAIL;
   }
-  if (request->content_len == 0U || request->content_len > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
+  if (request->content_len > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
     if (lock_()) {
       diagnostics_.oversized_requests += request->content_len > ESPECTRE_DIRECT_MAX_REQUEST_SIZE ? 1U : 0U;
       unlock_();
@@ -715,15 +746,28 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
   }
   DirectRequest direct;
   std::string error;
-  if (!parse_direct_http_request(payload, &direct, &error)) {
+  if (!parse_direct_http_request(http_method_name(request->method), request->uri,
+                                 payload, &direct, &error)) {
     if (lock_()) {
       diagnostics_.malformed_requests += 1U;
       unlock_();
     }
-    (void) send_error_(request, kHttp400, error.c_str(), origin);
+    const char *status = error == "unsupported Direct resource or method" ? kHttp404 : kHttp400;
+    (void) send_error_(request, status, error.c_str(), origin);
     return ESP_FAIL;
   }
-  (void) read_bearer_(request, &direct.authorization);
+
+  bool csi_conflict = false;
+  if (conflicts_with_csi_collection(direct.command) && lock_()) {
+    csi_conflict = pending_raw_open_.request != nullptr ||
+                   raw_session_active_.load(std::memory_order_acquire);
+    unlock_();
+  }
+  if (csi_conflict) {
+    (void) send_error_(request, kHttp409,
+                       "mutation is unavailable during CSI collection", origin);
+    return ESP_FAIL;
+  }
 
   bool accepted = false;
   bool rate_limited = false;
@@ -864,23 +908,16 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
     (void) send_error_(request, kHttp503, "Direct service is stopping", origin);
     return ESP_FAIL;
   }
-  std::string bearer;
-  if (!read_bearer_(request, &bearer)) {
-    (void) send_error_(request, kHttp401, "raw CSI bearer required", origin);
-    return ESP_FAIL;
-  }
-  bool accepted = false;
-  uint64_t session_generation = 0U;
+  bool available = false;
   if (lock_()) {
-    accepted = !stopping_.load(std::memory_order_acquire) &&
-               raw_session_active_.load(std::memory_order_acquire) &&
-               !raw_session_.binary_bound &&
-               bearer == session_id_hex(raw_session_.config.session_id);
-    if (accepted) session_generation = raw_session_.generation;
+    available = !stopping_.load(std::memory_order_acquire) &&
+                pending_raw_open_.request == nullptr &&
+                !raw_session_active_.load(std::memory_order_acquire) &&
+                static_cast<bool>(raw_session_requested_callback_);
     unlock_();
   }
-  if (!accepted) {
-    (void) send_error_(request, kHttp403, "raw CSI session unavailable", origin);
+  if (!available) {
+    (void) send_error_(request, kHttp409, "CSI collection is already active or unavailable", origin);
     return ESP_FAIL;
   }
   (void) httpd_resp_set_type(request, "application/octet-stream");
@@ -894,45 +931,16 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
     (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
-  const bool session_still_available =
-      !stopping_.load(std::memory_order_acquire) &&
-      raw_session_active_.load(std::memory_order_acquire) &&
-      !raw_session_.binary_bound &&
-      raw_session_.generation == session_generation &&
-      bearer == session_id_hex(raw_session_.config.session_id);
-  if (!session_still_available) {
+  if (stopping_.load(std::memory_order_acquire) || pending_raw_open_.request != nullptr ||
+      raw_session_active_.load(std::memory_order_acquire)) {
     unlock_();
-    (void) send_error_(async_request,
-                       stopping_.load(std::memory_order_acquire) ? kHttp503 : kHttp403,
-                       stopping_.load(std::memory_order_acquire)
-                           ? "Direct service is stopping"
-                           : "raw CSI session unavailable", origin);
+    (void) send_error_(async_request, kHttp409, "CSI collection is already active", origin);
     (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
-  const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
-  raw_session_.request = async_request;
-  raw_session_.fd = httpd_req_to_sockfd(async_request);
-  raw_session_.binary_bound = true;
-  raw_session_.last_send_us = now_us;
-  raw_session_.origin = std::move(origin);
-  set_response_headers_(async_request, raw_session_.origin);
-  const int keepalive = 1;
-  (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
-#if defined(TCP_KEEPIDLE)
-  const int keepidle = 10;
-  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
-#endif
-#if defined(TCP_KEEPINTVL)
-  const int keepinterval = 5;
-  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval));
-#endif
-#if defined(TCP_KEEPCNT)
-  const int keepcount = 3;
-  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcount, sizeof(keepcount));
-#endif
+  pending_raw_open_.request = async_request;
+  pending_raw_open_.origin = std::move(origin);
   unlock_();
-  notify_raw_worker_();
   return ESP_OK;
 }
 
@@ -944,7 +952,7 @@ esp_err_t EspIdfDirectHttpService::handle_options_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   set_response_headers_(request, origin);
-  (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Methods", "GET, PATCH, POST, PUT, DELETE, OPTIONS");
   (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Headers", "Authorization, Content-Type");
   (void) httpd_resp_set_hdr(request, "Access-Control-Max-Age", "600");
   (void) httpd_resp_set_hdr(request, "Cache-Control", "no-store");
@@ -1004,24 +1012,6 @@ bool EspIdfDirectHttpService::read_header_(httpd_req_t *request,
   return true;
 }
 
-bool EspIdfDirectHttpService::read_bearer_(httpd_req_t *request, std::string *value) const {
-  std::string authorization;
-  if (!read_header_(request, "Authorization", &authorization)) return false;
-  static constexpr char kPrefix[] = "Bearer ";
-  if (authorization.compare(0U, sizeof(kPrefix) - 1U, kPrefix) != 0 ||
-      authorization.size() != sizeof(kPrefix) - 1U + ESPECTRE_RAW_CSI_SESSION_ID_BYTES * 2U) {
-    return false;
-  }
-  std::string token = authorization.substr(sizeof(kPrefix) - 1U);
-  for (char &character : token) {
-    const unsigned char value_char = static_cast<unsigned char>(character);
-    if (!std::isxdigit(value_char)) return false;
-    character = static_cast<char>(std::tolower(value_char));
-  }
-  *value = std::move(token);
-  return true;
-}
-
 bool EspIdfDirectHttpService::request_allowed_locked_(uint64_t now_us) {
   if (request_window_started_us_ == 0U ||
       now_us - request_window_started_us_ >= kRequestWindowUs) {
@@ -1058,7 +1048,7 @@ bool EspIdfDirectHttpService::enqueue_event_locked_(EventClient *client, Outboun
   }
   if (client->outbound.size() >= config_.outbound_queue_depth) {
     if (event.replaceable_telemetry) {
-      diagnostics_.dropped_telemetry_events += 1U;
+      diagnostics_.dropped_motion_events += 1U;
       return false;
     }
     const auto stale = std::find_if(client->outbound.begin(), client->outbound.end(),
@@ -1067,7 +1057,7 @@ bool EspIdfDirectHttpService::enqueue_event_locked_(EventClient *client, Outboun
                                     });
     if (stale == client->outbound.end()) return false;
     client->outbound.erase(stale);
-    diagnostics_.dropped_telemetry_events += 1U;
+    diagnostics_.dropped_motion_events += 1U;
   }
   client->outbound.push_back(std::move(event));
   return true;
@@ -1085,6 +1075,21 @@ bool EspIdfDirectHttpService::finish_request_(PendingRequest request, const std:
   if (request.request == nullptr) return false;
   set_response_headers_(request.request, request.origin);
   (void) httpd_resp_set_type(request.request, "application/json; charset=utf-8");
+  const bool rejected = response.find("\"accepted\":false") != std::string::npos;
+  const bool conflict = response.find("\"code\":\"busy\"") != std::string::npos ||
+                        response.find("\"code\":\"busy_raw_collection\"") != std::string::npos ||
+                        response.find("\"code\":\"conflict\"") != std::string::npos;
+  const bool unsupported = response.find("\"code\":\"unsupported\"") != std::string::npos;
+  const bool invalid = response.find("\"code\":\"invalid_params\"") != std::string::npos;
+  if (rejected && conflict) {
+    (void) httpd_resp_set_status(request.request, "409 Conflict");
+  } else if (rejected && unsupported) {
+    (void) httpd_resp_set_status(request.request, "404 Not Found");
+  } else if (rejected && invalid) {
+    (void) httpd_resp_set_status(request.request, "400 Bad Request");
+  } else if (request.direct.asynchronous) {
+    (void) httpd_resp_set_status(request.request, "202 Accepted");
+  }
   (void) httpd_resp_set_hdr(request.request, "Cache-Control", "no-store");
   const esp_err_t result = httpd_resp_send(request.request, response.data(), response.size());
   (void) httpd_req_async_handler_complete(request.request);
@@ -1276,19 +1281,50 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
   return true;
 }
 
-void EspIdfDirectHttpService::service_raw_timeouts_() {
-  bool bind_timeout = false;
-  const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
+void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
+  bool raw_open_pending = false;
+  RawSessionRequestedCallback raw_open_callback;
   if (lock_()) {
-    bind_timeout = raw_session_active_.load(std::memory_order_acquire) &&
-                   !raw_session_.binary_bound &&
-                   now_us - raw_session_.opened_at_us >= kRawBindTimeoutUs;
+    raw_open_pending = pending_raw_open_.request != nullptr;
+    raw_open_callback = raw_session_requested_callback_;
     unlock_();
   }
-  if (bind_timeout) (void) stop_raw_session(RawCsiStopReason::BIND_TIMEOUT);
-}
+  if (raw_open_pending) {
+    std::string message;
+    const bool started = raw_open_callback && raw_open_callback(&message);
+    PendingRawOpen pending;
+    if (lock_()) {
+      pending = std::move(pending_raw_open_);
+      pending_raw_open_ = {};
+      if (started && pending.request != nullptr &&
+          raw_session_active_.load(std::memory_order_acquire)) {
+        const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
+        raw_session_.request = pending.request;
+        raw_session_.fd = httpd_req_to_sockfd(pending.request);
+        raw_session_.binary_bound = true;
+        raw_session_.last_send_us = now_us;
+        raw_session_.origin = pending.origin;
+      }
+      unlock_();
+    }
+    if (!started || !raw_session_active_.load(std::memory_order_acquire)) {
+      if (pending.request != nullptr) {
+        (void) send_error_(pending.request, kHttp409,
+                           message.empty() ? "CSI collection is unavailable" : message.c_str(),
+                           pending.origin);
+        (void) httpd_req_async_handler_complete(pending.request);
+      }
+    } else if (pending.request != nullptr) {
+      set_response_headers_(pending.request, pending.origin);
+      (void) httpd_resp_set_type(pending.request, "application/octet-stream");
+      (void) httpd_resp_set_hdr(pending.request, "Cache-Control", "no-store");
+      const int fd = httpd_req_to_sockfd(pending.request);
+      const int keepalive = 1;
+      (void) setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+      notify_raw_worker_();
+    }
+  }
 
-void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
   size_t client_count = 0U;
   if (pending_client_count_event_.take(client_count) && client_count_callback_) {
     client_count_callback_(client_count);

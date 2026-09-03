@@ -214,11 +214,10 @@ espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id, const std::string &
       {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
       {"protovers", espectre::ESPECTRE_PROTOCOL_VERSION},
       {"transport", espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT},
-      {"path", espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
-      {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
+      {"path", espectre::ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT},
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
-      {"capabilities", "config,monitor,raw_csi"},
+      {"capabilities", "config,monitor,csi"},
   };
 }
 

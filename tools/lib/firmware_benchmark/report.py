@@ -32,7 +32,7 @@ from tools.lib.firmware_benchmark.settings import (
     HEAP_STABILITY_MAX_DECLINE_PERCENT,
     HEAP_STABILITY_WINDOW_SECONDS,
     MINIMUM_OCCUPANCY_PERCENT,
-    MIN_TELEMETRY_SAMPLES,
+    MIN_MOTION_SAMPLES,
     REPO_ROOT,
     benchmark_setting,
 )
@@ -587,13 +587,13 @@ def render_report(
                     f"{format_number(runtime.occupancy_max, '%')} max |"
                 )
 
-        if runtime.telemetry_samples > 0 or (
-            result.case.benchmark_mode == "runtime" and runtime.telemetry_expected_samples > 0
+        if runtime.motion_samples > 0 or (
+            result.case.benchmark_mode == "runtime" and runtime.motion_expected_samples > 0
         ):
-            telemetry_value = str(runtime.telemetry_samples)
-            if result.case.benchmark_mode == "runtime" and runtime.telemetry_expected_samples > 0:
-                telemetry_value = f"{runtime.telemetry_samples}/{runtime.telemetry_expected_samples} expected"
-            detail_rows.append(f"| Telemetry samples | {telemetry_value} |")
+            motion_value = str(runtime.motion_samples)
+            if result.case.benchmark_mode == "runtime" and runtime.motion_expected_samples > 0:
+                motion_value = f"{runtime.motion_samples}/{runtime.motion_expected_samples} expected"
+            detail_rows.append(f"| Motion samples | {motion_value} |")
         if runtime.heap_free_last is not None:
             detail_rows.append(f"| Last free heap | {format_bytes(runtime.heap_free_last)} |")
         if runtime.heap_free_post_gc_last is not None:
@@ -662,8 +662,8 @@ def render_report(
                 )
 
         if result.case.benchmark_mode == "stream":
-            if runtime.stream_telemetry_samples > 0:
-                detail_rows.append(f"| Stream telemetry samples | {runtime.stream_telemetry_samples} |")
+            if runtime.stream_motion_samples > 0:
+                detail_rows.append(f"| Stream motion samples | {runtime.stream_motion_samples} |")
             if runtime.stream_csi_ap_mean is not None:
                 detail_rows.append(f"| Stream CSI accepted | {format_number(runtime.stream_csi_ap_mean, ' pps')} |")
             if runtime.stream_udp_rx_mean is not None:
@@ -739,12 +739,12 @@ def render_report(
         pass_criteria.append("- Native remains MQTT-unconfigured")
     pass_criteria.extend(
         [
-            f"- sensing frontends receive at least {MIN_TELEMETRY_SAMPLES} canonical telemetry events through Direct SSE",
+            f"- sensing frontends receive at least {MIN_MOTION_SAMPLES} canonical motion events through Direct SSE",
             f"- free heap provides two complete consecutive {HEAP_STABILITY_WINDOW_SECONDS}-second "
             f"windows after startup grace, and the final-window median does not decline by more "
             f"than {HEAP_STABILITY_MAX_DECLINE_PERCENT:.0f}% from the preceding window",
             "- the device uptime does not restart during a scored runtime window",
-            "- Direct diagnostics cadence stays within the runtime gap tolerance, and production telemetry events remain live on sensing frontends",
+            "- Direct diagnostics cadence stays within the runtime gap tolerance, and production motion events remain live on sensing frontends",
         ]
     )
     expected_runtime_labels = runtime_case_labels(expected_cases)
@@ -1007,9 +1007,9 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.occupancy_min = int(match.group("min"))
             runtime.occupancy_max = int(match.group("max"))
             runtime.occupancy_samples = runtime.status_samples
-        if "Telemetry samples" in metric_rows:
-            runtime.telemetry_samples, runtime.telemetry_expected_samples = parse_report_count(
-                metric("Telemetry samples")
+        if "Motion samples" in metric_rows:
+            runtime.motion_samples, runtime.motion_expected_samples = parse_report_count(
+                metric("Motion samples")
             )
         if "Last free heap" in metric_rows:
             runtime.heap_free_last = parse_report_bytes(metric("Last free heap"))
@@ -1120,8 +1120,8 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
                 raise ValueError(f"invalid GC pause field: {metric('GC pause')!r}")
             runtime.gc_pause_us_mean = float(match.group("mean"))
             runtime.gc_pause_us_max = int(match.group("max"))
-        if "Stream telemetry samples" in metric_rows:
-            runtime.stream_telemetry_samples = int(metric("Stream telemetry samples"))
+        if "Stream motion samples" in metric_rows:
+            runtime.stream_motion_samples = int(metric("Stream motion samples"))
         if "Stream CSI accepted" in metric_rows:
             runtime.stream_csi_ap_mean = float(
                 str(parse_report_metric_value(metric("Stream CSI accepted").removesuffix(" pps")))

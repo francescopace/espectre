@@ -52,6 +52,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
                      const std::string &data_json,
                      bool replaceable_telemetry) override;
   DirectHttpServiceDiagnostics diagnostics() const override;
+  void set_raw_session_requested_callback(RawSessionRequestedCallback callback) override;
   bool start_raw_session(const RawCsiSessionConfig &config,
                          RawSessionStoppedCallback stopped_callback) override;
   bool stop_raw_session(RawCsiStopReason reason) override;
@@ -110,6 +111,11 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
     std::string origin;
   };
 
+  struct PendingRawOpen {
+    httpd_req_t *request{nullptr};
+    std::string origin;
+  };
+
   static esp_err_t request_uri_handler_(httpd_req_t *request);
   static esp_err_t events_handler_(httpd_req_t *request);
   static esp_err_t raw_handler_(httpd_req_t *request);
@@ -129,7 +135,6 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
                         const char *message,
                         const std::string &origin) const;
   bool read_header_(httpd_req_t *request, const char *name, std::string *value) const;
-  bool read_bearer_(httpd_req_t *request, std::string *value) const;
   bool request_allowed_locked_(uint64_t now_us);
   bool mutation_allowed_locked_(const std::string &method, uint64_t now_us);
   bool enqueue_event_locked_(EventClient *client, OutboundEvent event);
@@ -143,7 +148,6 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
   bool service_raw_stream_();
-  void service_raw_timeouts_();
   void dispatch_pending_callbacks_();
   void shutdown_(bool dispatch_callbacks);
   void worker_loop_();
@@ -196,6 +200,8 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   std::atomic<uint64_t> raw_offer_sequence_{0U};
   std::array<uint8_t, kRawBatchRecords * kRawEncodedFrameMaximumSize> raw_send_buffer_{};
   RawSessionState raw_session_{};
+  PendingRawOpen pending_raw_open_{};
+  RawSessionRequestedCallback raw_session_requested_callback_{};
   RawSessionStoppedCallback pending_raw_stopped_callback_{};
   RawCsiStopReason pending_raw_stop_reason_{RawCsiStopReason::INTERNAL_ERROR};
   std::atomic<uint64_t> raw_drop_total_{0U};

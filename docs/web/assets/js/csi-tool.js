@@ -67,7 +67,6 @@
         demoFresh: 0,
         state: 'idle',
         generation: 0,
-        startRequest: null,
         stopPromise: null,
         parser: null,
         analyticsStartedAt: 0,
@@ -133,7 +132,7 @@
         rawCsi.analyticsReady = false;
         rawCsi.analyticsReadyAt = 0;
         rawCsi.analyticsSuccessTracked = false;
-        track('raw_csi_stream', { ...rawCsiAnalyticsParams(), result: 'attempt' });
+        track('csi_stream', { ...rawCsiAnalyticsParams(), result: 'attempt' });
     }
 
     function rawCsiMarkReady() {
@@ -142,9 +141,9 @@
             rawCsi.analyticsReady = true;
             rawCsi.analyticsReadyAt = Date.now();
         }
-        markToolReady('raw_stream');
+        markToolReady('csi');
         if (!rawCsi.analyticsSuccessTracked) {
-            rawCsi.analyticsSuccessTracked = track('raw_csi_stream', {
+            rawCsi.analyticsSuccessTracked = track('csi_stream', {
                 ...rawCsiAnalyticsParams(),
                 result: 'success',
                 latency_ms: Math.max(0, rawCsi.analyticsReadyAt - rawCsi.analyticsStartedAt)
@@ -157,7 +156,7 @@
         const durationSeconds = Math.max(0, Math.round(
             (Date.now() - rawCsi.analyticsStartedAt) / 1000
         ));
-        track('raw_csi_stream', {
+        track('csi_stream', {
             ...rawCsiAnalyticsParams(),
             result,
             duration_seconds: durationSeconds,
@@ -196,8 +195,8 @@
             rawCsiStatus('Demo ready. Start the simulated signal stream when you are ready.');
             return true;
         }
-        const rawCapability = directClient?.capabilities?.raw_csi;
-        const available = directClient?.capabilities?.features?.raw_csi === true
+        const rawCapability = directClient?.capabilities?.csi;
+        const available = directClient?.capabilities?.features?.csi === true
             && rawCapability?.protocol_version === 1
             && rawCapability?.marker === '👻';
         rawCsiSetAvailable(available);
@@ -1241,7 +1240,6 @@
         rawCsiFinishTracking(rawCsi.analyticsReady ? 'stopped' : 'cancelled', null, reason);
         const stopGeneration = ++rawCsi.generation;
         const client = rawCsi.sessionClient;
-        const pendingStart = rawCsi.startRequest;
         clearInterval(rawCsi.demoTimer);
         rawCsi.demoTimer = null;
         rawCsi.demoFresh = 0;
@@ -1251,13 +1249,8 @@
         rawCsiSetState('stopping');
         rawCsi.parser = null;
         rawCsi.stopPromise = (async () => {
-            try { await pendingStart; } catch (_error) { /* a failed start has no device session to release */ }
-            if (client?.rawSessionId && client.connected) {
-                try { await client.request('stop_raw_stream', {}, { timeoutMs: 3000 }); } catch (_error) { /* abort also releases the device session */ }
-            }
             if (rawCsi.generation !== stopGeneration) return;
             rawCsi.sessionClient = null;
-            rawCsi.startRequest = null;
             rawCsi.stopPromise = null;
             rawCsiSetState('idle');
         })();
@@ -1273,27 +1266,20 @@
             rawCsiStartDemo(100);
             return;
         }
-        if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
+        if (!rawCsiDirectReady() || client.capabilities?.features?.csi !== true) return;
         rawCsiBeginTracking();
         rawCsiSetState('starting');
         rawCsi.sessionClient = client;
         rawCsiStatus('Starting the signal stream…');
         try {
-            const startRequest = client.request('start_raw_stream');
-            rawCsi.startRequest = startRequest;
-            const session = await startRequest;
-            if (rawCsi.startRequest === startRequest) rawCsi.startRequest = null;
             if (rawCsi.generation !== generation || rawCsi.state !== 'starting') return;
-            rawCsi.parser = new window.ESPectreRawCsiParser(session.session_id);
+            rawCsi.parser = new window.ESPectreRawCsiParser();
             rawCsiResetVisualization();
             const controller = new AbortController();
             rawCsi.controller = controller;
             const response = await fetch(client.rawEndpoint, {
                 method: 'GET',
-                headers: {
-                    Accept: 'application/octet-stream',
-                    Authorization: `Bearer ${session.session_id}`
-                },
+                headers: { Accept: 'application/octet-stream' },
                 cache: 'no-store',
                 signal: controller.signal,
                 targetAddressSpace: 'local'

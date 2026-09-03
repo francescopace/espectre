@@ -43,15 +43,11 @@ from .common import (
     Style,
 )
 from micro_espectre.branding import ASCII_BANNER
-from micro_espectre.protocol import PROTOCOL_VERSION
-
 _SHELL_ALIASES = {
-    "i": "info",
-    "s": "diagnostics",
-    "st": "set_threshold",
-    "os": "ota_status",
-    "oc": "ota_check",
-    "ou": "ota_start",
+    "s": "read_diagnostics",
+    "st": "update_sensing",
+    "oc": "check_ota",
+    "ou": "start_ota",
 }
 
 _LOCAL_UTILITIES = {
@@ -66,14 +62,27 @@ _LOCAL_UTILITIES = {
     "q": None,
 }
 
+_MQTT_COMMANDS = {
+    "update_device",
+    "update_sensing",
+    "recalibrate",
+    "read_diagnostics",
+    "check_ota",
+    "start_ota",
+}
+
 
 def _mqtt_commands_from_catalog(payload: Dict[str, Any]) -> list[str]:
     """Return command names from a canonical capabilities payload."""
-    raw = payload.get("commands")
+    raw = payload.get("operations")
     if isinstance(raw, list):
-        return [str(item["name"]) for item in raw if isinstance(item, dict) and item.get("name")]
+        return [
+            str(item["name"])
+            for item in raw
+            if isinstance(item, dict) and item.get("name") in _MQTT_COMMANDS
+        ]
     if isinstance(raw, dict):
-        return [str(name) for name in raw if name]
+        return [str(name) for name in raw if name in _MQTT_COMMANDS]
     return []
 
 
@@ -85,7 +94,7 @@ def _mqtt_completer_dict(commands: list[str]) -> Dict[str, Any]:
     """Build tab-completion entries from device commands plus local utilities."""
     completer: Dict[str, Any] = {}
     for name in commands:
-        completer[name] = dict(_OTA_CHANNELS) if name in {"ota_check", "ota_start"} else None
+        completer[name] = dict(_OTA_CHANNELS) if name in {"check_ota", "start_ota"} else None
     for alias, target in _SHELL_ALIASES.items():
         if target in completer:
             completer[alias] = completer[target]
@@ -113,10 +122,9 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
     """Build a protocol command payload from shell tokens.
 
     Named ``field=value`` tokens after the command are copied through. A single
-    positional after a ``set_*`` command is stored under the suffix
-    (``set_threshold 0.4`` -> ``threshold=0.4``). A single positional after ``ota_check`` or
-    ``ota_start`` is stored as ``channel``. The command name itself is never a
-    ``key=value`` token.
+    positional after ``update_sensing`` is stored as ``threshold``. A single
+    positional after an OTA command is stored as ``channel``. The command name
+    itself is never a ``key=value`` token.
     """
     fields: Dict[str, Any] = {"command": command}
     positionals: list[str] = []
@@ -126,16 +134,16 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
             fields[key] = _coerce_command_token(value)
         else:
             positionals.append(arg)
-    if len(positionals) == 1 and command.startswith("set_"):
-        fields[command[4:]] = _coerce_command_token(positionals[0])
+    if len(positionals) == 1 and command == "update_sensing":
+        fields["threshold"] = _coerce_command_token(positionals[0])
         positionals = []
-    if len(positionals) == 1 and command in {"ota_check", "ota_start"}:
+    if len(positionals) == 1 and command in {"check_ota", "start_ota"}:
         fields["channel"] = str(positionals[0])
         positionals = []
     if positionals:
         joined = " ".join(positionals)
         return None, f"unexpected argument: {joined}"
-    if command in {"ota_check", "ota_start"} and "channel" in fields:
+    if command in {"check_ota", "start_ota"} and "channel" in fields:
         channel = str(fields["channel"])
         if channel not in _OTA_CHANNEL_NAMES:
             return None, "invalid ota channel (accepted: release, preview, and develop)"
@@ -155,7 +163,7 @@ def _make_mqtt_client(username: str | None, password: str | None) -> mqtt.Client
 
 
 def _mqtt_topic_bindings(args: argparse.Namespace) -> tuple[str, str, list[str], str]:
-    """Return base, command, response topics, and info topic."""
+    """Return base, command, response topics, and device topic."""
     device_id = (args.device_id or "").strip()
     if not device_id:
         raise ValueError("MQTT device id is required for non-interactive commands")
@@ -165,7 +173,7 @@ def _mqtt_topic_bindings(args: argparse.Namespace) -> tuple[str, str, list[str],
         base_topic,
         f"{base_topic}/commands/request",
         [f"{base_topic}/commands/result"],
-        f"{base_topic}/info",
+        f"{base_topic}/device",
     )
 
 
@@ -228,7 +236,6 @@ def send_mqtt_command_and_wait(
     """Publish one MQTT command and wait for the matching response."""
     _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
     command = dict(cmd_data)
-    command.setdefault("protocol_version", PROTOCOL_VERSION)
     command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
     command["command_id"] = command_id
 
@@ -303,18 +310,17 @@ def send_mqtt_command_and_wait(
         client.disconnect()
 
 
-def request_mqtt_info_and_wait(
+def request_mqtt_diagnostics_and_wait(
     args: argparse.Namespace,
     *,
     timeout_s: float = 10.0,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """Request MQTT info and return the command result plus its correlated data."""
+    """Request MQTT diagnostics and return the correlated result and data."""
     _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
     command_id = f"cmd-{uuid.uuid4().hex[:12]}"
     command = {
-        "protocol_version": PROTOCOL_VERSION,
         "command_id": command_id,
-        "command": "info",
+        "command": "read_diagnostics",
     }
 
     client = _make_mqtt_client(args.username, args.password)
@@ -375,7 +381,7 @@ def request_mqtt_info_and_wait(
         result = command_holder["payload"]
         info = result.get("data")
         if not isinstance(info, dict):
-            raise RuntimeError(f"MQTT info response to {command_id} has no data object")
+            raise RuntimeError(f"MQTT diagnostics response to {command_id} has no data object")
         return result, info
     finally:
         client.loop_stop()
@@ -389,10 +395,7 @@ class EspectreMQTTShell:
     COMMAND_ACK_TIMEOUT_S = 10.0
     PROMPT_DISPLAY = "espectre> "
     _PAYLOAD_LABELS = {
-        "info": "info",
-        "diagnostics": "diagnostics",
-        "ota_status": "ota_status",
-        "capabilities": "capabilities",
+        "read_diagnostics": "diagnostics",
     }
 
     def __init__(self, args):
@@ -406,8 +409,8 @@ class EspectreMQTTShell:
 
         self.topic_cmd = ""
         self.topic_responses: list[str] = []
-        self.discovery_info_topic = f"{self.topic_prefix}/+/info"
-        self.discovery_status_topic = f"{self.topic_prefix}/+/status"
+        self.discovery_info_topic = f"{self.topic_prefix}/+/device"
+        self.discovery_status_topic = f"{self.topic_prefix}/+/health"
         self.discovered_devices: dict[str, dict[str, Any]] = {}
         self.discovery_active = self.device_id is None
         self._device_commands: list[str] = []
@@ -453,10 +456,11 @@ class EspectreMQTTShell:
         self.topic_responses = [
             f"{self.base_topic}/commands/result",
             f"{self.base_topic}/capabilities",
-            f"{self.base_topic}/info",
-            f"{self.base_topic}/status",
-            f"{self.base_topic}/config",
-            f"{self.base_topic}/ota_status",
+            f"{self.base_topic}/device",
+            f"{self.base_topic}/health",
+            f"{self.base_topic}/sensing",
+            f"{self.base_topic}/wifi",
+            f"{self.base_topic}/ota",
         ]
 
     def _subscribe_selected_device(self, client) -> None:
@@ -484,28 +488,8 @@ class EspectreMQTTShell:
             self._apply_device_commands(commands)
 
     def _request_command_catalog(self) -> None:
-        """Ask the selected device for its MQTT command catalog without dumping it."""
-        if not self.topic_cmd:
-            return
-        command_id = f"cmd-{uuid.uuid4().hex[:12]}"
-        with self._pending_lock:
-            self._quiet_command_ids.add(command_id)
-            self._suppress_catalog_payload = True
-        try:
-            self.client.publish(
-                self.topic_cmd,
-                json.dumps(
-                    {
-                        "protocol_version": PROTOCOL_VERSION,
-                        "command_id": command_id,
-                        "command": "capabilities",
-                    }
-                ),
-            )
-        except Exception:
-            with self._pending_lock:
-                self._quiet_command_ids.discard(command_id)
-                self._suppress_catalog_payload = False
+        """Capabilities are retained and arrive after subscription."""
+        return
 
     def _topic_label(self, topic: str) -> str:
         """Return the selected-device topic suffix used in received-message output."""
@@ -600,12 +584,12 @@ class EspectreMQTTShell:
         parts = remainder.split("/")
         if len(parts) < 2 or not parts[0]:
             return None
-        if parts[1] not in {"info", "status"}:
+        if parts[1] not in {"device", "health"}:
             return None
         return parts[0]
 
     def _record_discovered_device(self, topic: str, payload: bytes | str) -> None:
-        """Track devices seen through info/status broadcasts during discovery."""
+        """Track devices seen through device/health broadcasts during discovery."""
         device_id = self._extract_device_id_from_topic(topic)
         if not device_id:
             return
@@ -622,11 +606,11 @@ class EspectreMQTTShell:
             )
             if "device_id" in data and data["device_id"]:
                 device["device_id"] = data["device_id"]
-            if topic.endswith("/info"):
-                for key in ("device_name", "device_label", "frontend", "chip"):
+            if topic.endswith("/device"):
+                for key in ("name", "label", "frontend", "chip"):
                     if data.get(key):
                         device[key] = data[key]
-            elif topic.endswith("/status") and "online" in data:
+            elif topic.endswith("/health") and "online" in data:
                 device["online"] = bool(data["online"])
             if "timestamp_ms" in data:
                 device["timestamp_ms"] = data["timestamp_ms"]
@@ -639,7 +623,7 @@ class EspectreMQTTShell:
         print()
         print(f"{Fore.CYAN}Discovered MQTT devices:{Style.RESET_ALL}")
         for index, device in enumerate(devices, start=1):
-            label = device.get("device_label") or device.get("device_name") or "unnamed"
+            label = device.get("label") or device.get("name") or "unnamed"
             frontend = device.get("frontend", "unknown")
             online = "online" if device.get("online") else "offline/unknown"
             print(f"  {index}. {device['device_id']} | {label} | {frontend} | {online}")
@@ -772,7 +756,6 @@ class EspectreMQTTShell:
 
     def send_command(self, cmd_data: Dict[str, Any], *, timeout_s: float | None = None):
         command = dict(cmd_data)
-        command.setdefault("protocol_version", PROTOCOL_VERSION)
         command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
         command["command_id"] = command_id
         payload_label = self._PAYLOAD_LABELS.get(str(command.get("command") or ""))
@@ -899,7 +882,7 @@ class EspectreMQTTShell:
                 label = "|".join([name, *aliases])
                 lines.append(f"  <ansigreen>{label}</ansigreen>")
             lines.append("")
-            lines.append("Write values after the command name: <ansigreen>st 0.35</ansigreen>, <ansigreen>ota_check preview</ansigreen>, <ansigreen>set_detector lightweight</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
+            lines.append("Write values after the command name: <ansigreen>st 0.35</ansigreen>, <ansigreen>check_ota preview</ansigreen>, or <ansigreen>update_sensing detector=lightweight motion_on_hits=4 motion_off_hits=3</ansigreen>.")
         else:
             lines.append("")
             lines.append("Device command names appear after the device answers MQTT <ansigreen>commands</ansigreen>.")

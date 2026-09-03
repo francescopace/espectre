@@ -79,8 +79,7 @@ class NativeFrontend : public IRuntimeListener {
   friend class NativeMqttFrontend;
 
   FrontendCommandResult dispatch_command_(const EspectreCommand &command, FrontendCommandOrigin origin,
-                                          bool allow_local_config, uint64_t connection_token = 0U,
-                                          std::string authorization = {});
+                                          bool allow_local_config, uint64_t connection_token = 0U);
   EspectreCapabilityProfile command_capability_profile_(bool allow_local_config) const;
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);

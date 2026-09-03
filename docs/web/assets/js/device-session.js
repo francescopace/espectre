@@ -388,13 +388,13 @@
         if (!data || typeof data !== 'object') return;
         if (data.device_id) adoptDeviceId(data.device_id);
         if (data.frontend) conn.frontend = String(data.frontend);
-        if (data.device_name || data.name) conn.generatedName = data.device_name || data.name;
-        if (data.device_label !== undefined) conn.deviceLabel = data.device_label;
+        if (data.name) conn.generatedName = data.name;
+        if (data.label !== undefined) conn.deviceLabel = data.label;
         if (data.supports_device_config !== undefined) {
             conn.deviceConfigSupported = sysinfoBoolean(data.supports_device_config);
         }
-        if (data.device_label || data.device_name || data.name) {
-            conn.deviceName = data.device_label || data.device_name || data.name;
+        if (data.label || data.name) {
+            conn.deviceName = data.label || data.name;
         }
         if (data.chip) conn.chip = String(data.chip).toUpperCase();
         if (data.firmware_version || data.firmware || data.version) {
@@ -676,7 +676,7 @@
         }
         applyLocalThreshold(threshold);
         runSensingCommand(
-            { command: 'set_threshold', threshold },
+            { command: 'update_sensing', threshold },
             'Saving motion threshold…',
             'Motion threshold updated.',
             () => { conn.threshold = threshold; renderTelemetry(); }
@@ -711,7 +711,7 @@
     }
 
     function applyLiveTelemetry(movement, threshold, motionState) {
-        markToolReady('telemetry');
+        markToolReady('motion');
         conn.movement = movement;
         applyRemoteThreshold(threshold);
         conn.motion = motionState !== null && motionState !== undefined
@@ -731,8 +731,8 @@
         }
         if (conn.mode === 'direct' && directClient?.connected) {
             try {
-                if (directSupportsCommand('set_sensing')) {
-                    await directClient.request('set_sensing', { enabled: true });
+                if (directSupportsCommand('update_sensing')) {
+                    await directClient.request('patch', 'sensing', { enabled: true });
                 }
                 setDeviceView('live');
                 completeLiveConnectionNavigation();
@@ -885,11 +885,9 @@
             conn.movement = 0.04;
             conn.connectedAt = Date.now();
             setStatus('connected');
-            markToolReady('telemetry');
+            markToolReady('motion');
             monitor.commands = new Set([
-                'set_threshold', 'set_motion_hits', 'set_detector', 'recalibrate',
-                'set_csi_traffic_mode', 'set_traffic_generator_mode', 'diagnostics',
-                'set_device_label'
+                'update_sensing', 'recalibrate', 'read_diagnostics', 'update_device'
             ]);
             monitor.commandCatalogReady = true;
             demoSysinfoSnapshot = {

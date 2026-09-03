@@ -72,26 +72,19 @@ function pendingBody(chunks = []) {
     };
 }
 
-function responseEnvelope(request, result = {}) {
-    return JSON.stringify({
-        protocol_version: '1.0',
-        device_id: '0123456789abcdef',
-        command_id: request.command_id,
-        command: request.command,
-        accepted: true,
-        code: 'ok',
-        message: 'completed',
-        data: result
-    });
-}
-
 function installHttpFixture({ eventChunks = [], resultFor = () => ({}) } = {}) {
     const calls = [];
     globalThis.fetch = async (url, options) => {
         calls.push({ url, options });
-        if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody(eventChunks) };
-        const request = JSON.parse(options.body);
-        return { ok: true, status: 200, text: async () => responseEnvelope(request, resultFor(request)) };
+        if (url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody(eventChunks) };
+        const marker = '/espectre/v1/';
+        const resource = url.slice(url.indexOf(marker) + marker.length);
+        const data = options.body ? JSON.parse(options.body) : {};
+        const result = resultFor(options.method.toLowerCase(), resource, data);
+        const payload = options.method === 'GET'
+            ? result
+            : { accepted: true, code: 'ok', message: 'completed', ...result };
+        return { ok: true, status: options.method === 'GET' ? 200 : 202, text: async () => JSON.stringify(payload) };
     };
     return calls;
 }
@@ -111,10 +104,10 @@ afterEach(() => {
 describe('Direct HTTP endpoint policy', () => {
     it('normalizes private IPv4, .local, HTTPS, and local IPv6 endpoints', () => {
         assert.equal(Client.DEFAULT_PORT, DIRECT_PORT);
-        assert.equal(Client.normalizeEndpoint('192.168.1.42'), `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/request`);
-        assert.equal(Client.normalizeEndpoint('espectre-a1.local'), `http://espectre-a1.local:${DIRECT_PORT}/espectre/v1/request`);
-        assert.equal(Client.normalizeEndpoint('https://espectre-a1.local/espectre/v1/request'), `https://espectre-a1.local:${DIRECT_PORT}/espectre/v1/request`);
-        assert.equal(Client.normalizeEndpoint('http://[fd12:3456:789a::42]:61443/espectre/v1/request'), 'http://[fd12:3456:789a::42]:61443/espectre/v1/request');
+        assert.equal(Client.normalizeEndpoint('192.168.1.42'), `http://192.168.1.42:${DIRECT_PORT}/espectre/v1`);
+        assert.equal(Client.normalizeEndpoint('espectre-a1.local'), `http://espectre-a1.local:${DIRECT_PORT}/espectre/v1`);
+        assert.equal(Client.normalizeEndpoint('https://espectre-a1.local/espectre/v1'), `https://espectre-a1.local:${DIRECT_PORT}/espectre/v1`);
+        assert.equal(Client.normalizeEndpoint('http://[fd12:3456:789a::42]:61443/espectre/v1'), 'http://[fd12:3456:789a::42]:61443/espectre/v1');
     });
 
     it('rejects WebSocket, public, credentialed, queried, and unrelated endpoints', () => {
@@ -128,8 +121,8 @@ describe('Direct HTTP endpoint policy', () => {
     it('creates a distinct lowercase 96-bit bootstrap hostname from injected entropy', () => {
         let invocation = 0;
         const randomSource = { getRandomValues(bytes) { bytes.fill(invocation++); return bytes; } };
-        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-000000000000000000000000.local:${DIRECT_PORT}/espectre/v1/request`);
-        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-010101010101010101010101.local:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-000000000000000000000000.local:${DIRECT_PORT}/espectre/v1`);
+        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-010101010101010101010101.local:${DIRECT_PORT}/espectre/v1`);
         assert.throws(() => Client.createDiscoveryEndpoint(null), (error) => error.code === 'unsupported_crypto');
     });
 });
@@ -177,8 +170,11 @@ describe('Raw CSI HTTP parser', () => {
 });
 
 describe('Peer discovery schema v2', () => {
-    it('uses one bootstrap POST without opening SSE or querying capabilities', async () => {
-        const calls = installHttpFixture({ resultFor: () => peerDiscoveryScenarios.multiFrontend });
+    it('uses one bootstrap GET without opening SSE or querying capabilities', async () => {
+        const calls = installHttpFixture({ resultFor: (_method, resource) => {
+            assert.equal(resource, 'devices');
+            return peerDiscoveryScenarios.multiFrontend;
+        } });
         const client = new Client(Client.createDiscoveryEndpoint({
             getRandomValues(bytes) { bytes.fill(0xab); return bytes; }
         }));
@@ -186,17 +182,17 @@ describe('Peer discovery schema v2', () => {
         assert.equal(result.devices.length, 3);
         assert.equal(client.connected, false);
         assert.equal(calls.length, 1);
-        assert.equal(calls[0].options.method, 'POST');
-        assert.equal(JSON.parse(calls[0].options.body).command, 'discover_peers');
+        assert.equal(calls[0].options.method, 'GET');
+        assert.equal(calls[0].options.body, null);
         client.close();
     });
 
     it('accepts HTTP peers and constructs request endpoints', () => {
         const result = Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.multiFrontend);
         assert.equal(result.devices.length, 3);
-        assert.equal(result.devices[0].endpoints[0], `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(result.devices[0].endpoints[0], `http://192.168.1.42:${DIRECT_PORT}/espectre/v1`);
         const esphome = result.devices.find((device) => device.frontend === 'esphome');
-        assert.equal(esphome.endpoints[0], `http://192.168.1.44:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(esphome.endpoints[0], `http://192.168.1.44:${DIRECT_PORT}/espectre/v1`);
     });
 
     it('accepts partial results, and rejects hostile or old-schema peers', () => {
@@ -221,48 +217,48 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         assert.equal(fetchCalls, 0);
     });
 
-    it('opens SSE with private-network options and posts correlated JSON without caching', async () => {
-        const capabilities = { commands: [{ name: 'capabilities' }, { name: 'info' }], features: { raw_csi: false } };
+    it('opens SSE and reads resource snapshots without caching', async () => {
+        const capabilities = { protocol_version: '1.0', operations: [], resources: ['capabilities', 'device'], features: { csi: false } };
         const { client, calls } = await connectedClient({
-            resultFor: (request) => request.command === 'capabilities' ? capabilities : { firmware: '4.0.0' }
+            resultFor: (_method, resource) => resource === 'capabilities' ? capabilities : { firmware: '4.0.0' }
         });
         await client.handshake();
-        assert.deepEqual(await client.request('info'), { firmware: '4.0.0' });
+        assert.deepEqual(await client.request('get', 'device'), { firmware: '4.0.0' });
         assert.equal(calls[0].url, `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/events`);
         assert.equal(calls[0].options.targetAddressSpace, 'local');
         assert.equal(calls[0].options.cache, 'no-store');
-        assert.equal(calls[1].options.method, 'POST');
-        assert.equal(calls[1].options.headers['Content-Type'], 'application/json');
-        assert.equal(JSON.parse(calls[2].options.body).command, 'info');
+        assert.equal(calls[1].options.method, 'GET');
+        assert.equal(calls[1].options.body, null);
+        assert.equal(calls[2].url, `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/device`);
         client.close();
     });
 
     it('parses SSE events split across fetch chunks', async () => {
-        const envelope = JSON.stringify({ protocol_version: '1.0', device_id: '0123456789abcdef', movement_score: 0.42 });
+        const envelope = JSON.stringify({ timestamp_ms: 1000, state: 'motion', score: 0.42 });
         const midpoint = Math.floor(envelope.length / 2);
         installHttpFixture({
-            eventChunks: [`event: telemetry\ndata: ${envelope.slice(0, midpoint)}`, `${envelope.slice(midpoint)}\n\n`]
+            eventChunks: [`event: motion\ndata: ${envelope.slice(0, midpoint)}`, `${envelope.slice(midpoint)}\n\n`]
         });
         const client = new Client('192.168.1.42');
         const eventPromise = new Promise((resolve) => client.on('event', (name, data) => resolve({ name, data })));
         await client.connect();
         const event = await eventPromise;
-        assert.deepEqual(event, { name: 'telemetry', data: { protocol_version: '1.0', device_id: '0123456789abcdef', movement_score: 0.42 } });
+        assert.deepEqual(event, { name: 'motion', data: { timestamp_ms: 1000, state: 'motion', score: 0.42 } });
         client.close();
     });
 
     it('parses an SSE delimiter split between CR and LF chunks', async () => {
-        const envelope = JSON.stringify({ protocol_version: '1.0', device_id: '0123456789abcdef', sensing: true });
-        installHttpFixture({ eventChunks: [`event: status\r\ndata: ${envelope}\r`, '\n\r\n'] });
+        const envelope = JSON.stringify({ status: 'ok', online: true, uptime_s: 1, timestamp_ms: 1000 });
+        installHttpFixture({ eventChunks: [`event: health\r\ndata: ${envelope}\r`, '\n\r\n'] });
         const client = new Client('192.168.1.42');
         const eventPromise = new Promise((resolve) => client.on('event', (name, data) => resolve({ name, data })));
         await client.connect();
-        assert.deepEqual(await eventPromise, { name: 'status', data: { protocol_version: '1.0', device_id: '0123456789abcdef', sensing: true } });
+        assert.deepEqual(await eventPromise, { name: 'health', data: { status: 'ok', online: true, uptime_s: 1, timestamp_ms: 1000 } });
         client.close();
     });
 
     it('rejects an unterminated SSE event before its buffer grows without bound', async () => {
-        installHttpFixture({ eventChunks: [`event: telemetry\ndata: ${'x'.repeat(8192)}`] });
+        installHttpFixture({ eventChunks: [`event: motion\ndata: ${'x'.repeat(8192)}`] });
         const client = new Client('192.168.1.42');
         const errorPromise = new Promise((resolve) => client.on('protocol-error', resolve));
         await client.connect();
@@ -273,7 +269,7 @@ describe('Direct HTTP request and SSE lifecycle', () => {
 
     it('keeps the request timeout active while reading the response body', async () => {
         globalThis.fetch = async (_url, options) => {
-            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            if (_url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
             return {
                 ok: true,
                 status: 200,
@@ -294,42 +290,40 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         const client = new Client('192.168.1.42');
         await client.connect();
         await assert.rejects(
-            client.request('capabilities', {}, { allowBeforeHandshake: true, timeoutMs: 10 }),
+            client.request('get', 'capabilities', {}, { allowBeforeHandshake: true, timeoutMs: 10 }),
             (error) => error.code === 'timeout'
         );
         client.close();
     });
 
     it('retries a read-only request once after a transport failure', async () => {
-        let postCalls = 0;
-        const requestBodies = [];
-        globalThis.fetch = async (_url, options) => {
-            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
-            postCalls += 1;
-            requestBodies.push(options.body);
-            if (postCalls === 1) throw new TypeError('stale persistent connection');
-            const request = JSON.parse(options.body);
-            return { ok: true, status: 200, text: async () => responseEnvelope(request, { healthy: true }) };
+        let getCalls = 0;
+        const requestUrls = [];
+        globalThis.fetch = async (url, options) => {
+            if (url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
+            getCalls += 1;
+            requestUrls.push(url);
+            if (getCalls === 1) throw new TypeError('stale persistent connection');
+            return { ok: true, status: 200, text: async () => JSON.stringify({ healthy: true }) };
         };
         const client = new Client('192.168.1.42');
         await client.connect();
-        assert.deepEqual(await client.request('diagnostics'), { healthy: true });
-        assert.equal(postCalls, 2);
-        assert.equal(requestBodies[0], requestBodies[1]);
+        assert.deepEqual(await client.request('get', 'diagnostics'), { healthy: true });
+        assert.equal(getCalls, 2);
+        assert.equal(requestUrls[0], requestUrls[1]);
         client.close();
     });
 
     it('does not retry a mutating request after a transport failure', async () => {
         let mutationCalls = 0;
         globalThis.fetch = async (_url, options) => {
-            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
-            const request = JSON.parse(options.body);
-            if (request.command === 'capabilities') {
+            if (_url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
+            if (options.method === 'GET') {
                 return {
                     ok: true,
                     status: 200,
-                    text: async () => responseEnvelope(request, {
-                        commands: [{ name: 'capabilities' }, { name: 'set_sensing' }]
+                    text: async () => JSON.stringify({
+                        protocol_version: '1.0', operations: [{ name: 'update_sensing' }], resources: ['capabilities']
                     })
                 };
             }
@@ -339,14 +333,14 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         const client = new Client('192.168.1.42');
         await client.connect();
         await client.handshake();
-        await assert.rejects(client.request('set_sensing', { enabled: true }), (error) => error.code === 'connection_failed');
+        await assert.rejects(client.request('patch', 'sensing', { enabled: true }), (error) => error.code === 'connection_failed');
         assert.equal(mutationCalls, 1);
         client.close();
     });
 
     it('rejects an oversized response while streaming it', async () => {
         globalThis.fetch = async (_url, options) => {
-            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            if (_url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
             let read = false;
             return {
                 ok: true,
@@ -369,41 +363,38 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         const client = new Client('192.168.1.42');
         await client.connect();
         await assert.rejects(
-            client.request('capabilities', {}, { allowBeforeHandshake: true }),
+            client.request('get', 'capabilities', {}, { allowBeforeHandshake: true }),
             (error) => error.code === 'frame_too_large'
         );
         client.close();
     });
 
-    it('blocks mutations before handshake and sends the raw bearer when stopping', async () => {
-        const sessionId = '00112233445566778899aabbccddeeff';
+    it('blocks mutations before handshake and sends resource mutations after it', async () => {
         const { client, calls } = await connectedClient({
-            resultFor: (request) => {
-                if (request.command === 'capabilities') {
-                    return { commands: [{ name: 'capabilities' }, { name: 'start_raw_stream' }, { name: 'stop_raw_stream' }], features: { raw_csi: true } };
+            resultFor: (method, resource, data) => {
+                if (resource === 'capabilities') {
+                    return { protocol_version: '1.0', operations: [{ name: 'update_sensing' }], resources: ['capabilities', 'sensing'], features: { csi: true } };
                 }
-                if (request.command === 'start_raw_stream') return { session_id: sessionId };
-                return {};
+                assert.deepEqual({ method, resource, data }, { method: 'patch', resource: 'sensing', data: { enabled: true } });
+                return { data: { enabled: true } };
             }
         });
-        await assert.rejects(client.request('start_raw_stream'), (error) => error.code === 'handshake_required');
+        await assert.rejects(client.request('patch', 'sensing', { enabled: true }), (error) => error.code === 'handshake_required');
         await client.handshake();
-        await client.request('start_raw_stream');
-        assert.equal(client.rawSessionId, sessionId);
-        await client.request('stop_raw_stream');
-        assert.equal(calls.at(-1).options.headers.Authorization, `Bearer ${sessionId}`);
-        assert.equal(client.rawSessionId, '');
+        const result = await client.request('patch', 'sensing', { enabled: true });
+        assert.equal(result.accepted, true);
+        assert.equal(calls.at(-1).options.headers.Authorization, undefined);
         client.close();
     });
 
     it('reports HTTP rate limits explicitly', async () => {
         globalThis.fetch = async (_url, options) => {
-            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            if (_url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
             return { ok: false, status: 429, text: async () => 'rate limited' };
         };
         const client = new Client('192.168.1.42');
         await client.connect();
-        await assert.rejects(client.request('capabilities', {}, { allowBeforeHandshake: true }), (error) => error.code === 'http_429');
+        await assert.rejects(client.request('get', 'capabilities', {}, { allowBeforeHandshake: true }), (error) => error.code === 'http_429');
         client.close();
     });
 });

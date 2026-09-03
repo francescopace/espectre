@@ -83,7 +83,6 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
   runtime_ = runtime;
   config_ = config;
   config_changed_ = std::move(config_changed);
-  raw_session_controller_.configure(service_, runtime_, config_.device_id, config_.chip);
   refresh_peer_candidate_();
 
   DirectHttpServiceConfig service_config = DirectHttpServiceConfig::for_first_party_portals();
@@ -119,6 +118,10 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
     deferred_requests_enabled_ = false;
     return false;
   }
+  raw_session_controller_.configure(
+      service_, runtime_, config_.device_id, config_.chip,
+      [this](RawCsiStopReason) { (void) this->publish_event("sensing", this->sensing_payload_()); },
+      [this]() { (void) this->publish_event("sensing", this->sensing_payload_()); });
   return true;
 }
 
@@ -163,14 +166,14 @@ bool RuntimeDirectHttpBridge::publish_event(const char *event_name,
   return event_name != nullptr && running() && service_->publish_event(event_name, data_json, replaceable_telemetry);
 }
 
-bool RuntimeDirectHttpBridge::publish_telemetry(const RuntimeSnapshot &snapshot) {
+bool RuntimeDirectHttpBridge::publish_motion(const RuntimeSnapshot &snapshot) {
   if (event_client_count() == 0U) {
     return false;
   }
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
-  return publish_event("telemetry",
-                       espectre_telemetry_payload(device,
+  return publish_event("motion",
+                       espectre_motion_payload(device,
                                                   snapshot,
                                                   monotonic_now_ms(),
                                                   monotonic_now_ms() / 1000U,
@@ -184,15 +187,18 @@ bool RuntimeDirectHttpBridge::publish_changes(FrontendCommandChange changes) {
   }
   bool published = true;
   const uint8_t flags = static_cast<uint8_t>(changes);
-  if ((flags & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
-    published = publish_event("status", status_payload_()) && published;
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::HEALTH)) != 0U) {
+    published = publish_event("health", health_payload_()) && published;
   }
-  if ((flags & static_cast<uint8_t>(FrontendCommandChange::INFO)) != 0U) {
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::DEVICE)) != 0U) {
     refresh_peer_candidate_();
-    published = publish_event("info", info_payload_()) && published;
+    published = publish_event("device", device_payload_()) && published;
   }
-  if ((flags & static_cast<uint8_t>(FrontendCommandChange::CONFIG)) != 0U) {
-    published = publish_event("config", config_payload_()) && published;
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::SENSING)) != 0U) {
+    published = publish_event("sensing", sensing_payload_()) && published;
+  }
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::WIFI)) != 0U) {
+    published = publish_event("wifi", wifi_payload_()) && published;
   }
   return published;
 }
@@ -219,16 +225,17 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
   const FrontendCommandCapabilities capabilities = capability_profile_();
   FrontendCommandResult result = command_engine_.execute(
       command,
-      FrontendCommandContext{FrontendCommandOrigin::DIRECT, 0U, request.authorization},
+      FrontendCommandContext{FrontendCommandOrigin::DIRECT, 0U},
       nullptr,
       config_.firmware_version.c_str(),
       capabilities,
       [this](const EspectreCommand &read) {
         if (read.command == "capabilities") return capabilities_payload_();
-        if (read.command == "info") return info_payload_();
-        if (read.command == "status") return status_payload_();
-        if (read.command == "config") return config_payload_();
-        if (read.command == "diagnostics") return diagnostics_payload_();
+        if (read.command == "device") return device_payload_();
+        if (read.command == "health") return health_payload_();
+        if (read.command == "sensing") return sensing_payload_();
+        if (read.command == "wifi") return wifi_payload_();
+        if (read.command == "read_diagnostics") return diagnostics_payload_();
         if (read.command == "wifi_access_points") return wifi_access_points_payload_();
         return std::string{};
       },
@@ -271,6 +278,9 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
   if (result.changes != FrontendCommandChange::NONE) {
     (void) publish_changes(result.changes);
     notify_config_changed_();
+  }
+  if (request.http_method == "GET") {
+    return result.data_json;
   }
   return espectre_command_result_payload(device,
                                          result.command,
@@ -330,7 +340,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
         },
     };
   }
-  if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
+  if (request.command != "devices") {
     return {false, handle_request_(request), {}};
   }
   EspectreDeviceConfig device;
@@ -346,7 +356,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     return {false, espectre_command_result_payload(device, command, false, "invalid_params",
-                                                   "discover_peers does not accept parameters"),
+                                                   "devices does not accept parameters"),
             {}};
   }
   if (config_.peer_discovery->active()) {
@@ -365,9 +375,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
         response_command.command = command_name;
         (void) service_->complete_deferred_response(
             request_token,
-            espectre_command_result_payload(response_device, response_command, true, "ok",
-                                            "peer discovery completed",
-                                            peer_discovery_snapshot_json(snapshot)));
+            peer_discovery_snapshot_json(snapshot));
       });
   if (!started) {
     return {false, espectre_command_result_payload(device, command, false, "unavailable",
@@ -576,7 +584,7 @@ bool apply_wifi_bssid_pin(const std::string &bssid,
 
 bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &command,
                                                     std::string *message) {
-  if (command.command == "scan_wifi_access_points") {
+  if (command.command == "scan_wifi") {
 #if defined(ESP_PLATFORM)
     const std::string configured_ssid = wifi_snapshot_().ssid;
     if (configured_ssid.empty()) {
@@ -641,7 +649,7 @@ bool RuntimeDirectHttpBridge::handle_raw_stream_(const EspectreCommand &command,
   return raw_session_controller_.handle_command(command, context, code, message, data_json);
 }
 
-std::string RuntimeDirectHttpBridge::info_payload_() const {
+std::string RuntimeDirectHttpBridge::device_payload_() const {
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   device.device_label = device_label_();
@@ -653,32 +661,41 @@ std::string RuntimeDirectHttpBridge::info_payload_() const {
   info = normalize_protocol_device_info(info, &runtime_->snapshot(), false,
                                         config_.frontend.c_str(),
                                         config_.chip.c_str());
-  return espectre_info_payload(device, info);
+  return espectre_device_payload(device, info);
 }
 
-std::string RuntimeDirectHttpBridge::status_payload_() const {
-  const RuntimeSnapshot &snapshot = runtime_->snapshot();
+std::string RuntimeDirectHttpBridge::health_payload_() const {
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
-  std::string out = espectre_status_payload(device, true, monotonic_now_ms());
-  out.pop_back();
-  append_bool(&out, "sensing_enabled", runtime_->services_armed());
-  append_bool(&out, "ready_to_publish", snapshot.ready_to_publish);
+  return espectre_health_payload(device, true, monotonic_now_ms());
+}
+
+std::string RuntimeDirectHttpBridge::sensing_payload_() const {
+  const RuntimeConfig &config = runtime_->config();
+  std::string out{"{"};
+  const RuntimeSnapshot &snapshot = runtime_->snapshot();
+  const bool collecting = runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION;
+  append_bool(&out, "enabled", runtime_->services_armed(), true);
+  append_bool(&out, "ready", snapshot.ready_to_publish && !collecting);
   append_bool(&out, "calibrating", runtime_->is_calibrating());
-  append_bool(&out, "wifi_connected", wifi_snapshot_().connected);
+  append_json_pair(&out, "mode", collecting ? "csi_collection" : "sensing");
+  append_bool(&out, "derived_events_paused", collecting);
+  append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
+  append_float(&out, "threshold", snapshot.threshold);
+  append_uint(&out, "motion_on_hits", config.motion_on_hits);
+  append_uint(&out, "motion_off_hits", config.motion_off_hits);
+  append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
+  append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
+  append_uint(&out, "csi_target_pps", config.csi_target_pps);
+  append_uint(&out, "csi_traffic_udp_port", config.csi_traffic_udp_port);
+  append_json_pair(&out, "csi_traffic_multicast_group", config.csi_traffic_multicast_group.c_str());
   out += "}";
   return out;
 }
 
-std::string RuntimeDirectHttpBridge::config_payload_() const {
-  const RuntimeConfig &config = runtime_->config();
-  std::string out{"{"};
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", format_espectre_device_id(config_.device_id).c_str());
-  out += ",\"device\":{";
-  append_json_pair(&out, "device_label", device_label_().c_str(), true);
-  out += "},\"wifi\":{";
+std::string RuntimeDirectHttpBridge::wifi_payload_() const {
   const DirectWifiSnapshot wifi = wifi_snapshot_();
+  std::string out{"{"};
   append_bool(&out, "configured", wifi.configured, true);
   append_bool(&out, "connected", wifi.connected);
   append_json_pair(&out, "ssid", wifi.ssid.c_str());
@@ -687,17 +704,7 @@ std::string RuntimeDirectHttpBridge::config_payload_() const {
   append_uint(&out, "channel", wifi.channel);
   out += ",\"rssi_dbm\":";
   out += wifi.rssi_dbm == INT16_MIN ? "null" : std::to_string(wifi.rssi_dbm);
-  out += "},\"runtime\":{";
-  out += "\"threshold\":" + std::to_string(runtime_->snapshot().threshold);
-  append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
-  append_uint(&out, "motion_on_hits", config.motion_on_hits);
-  append_uint(&out, "motion_off_hits", config.motion_off_hits);
-  append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
-  append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
-  append_uint(&out, "csi_target_pps", config.csi_target_pps);
-  append_uint(&out, "csi_traffic_udp_port", config.csi_traffic_udp_port);
-  append_json_pair(&out, "csi_traffic_multicast_group", config.csi_traffic_multicast_group.c_str());
-  out += "}}";
+  out += "}";
   return out;
 }
 
@@ -705,9 +712,7 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   const RuntimeDiagnosticsSnapshot diagnostics = runtime_->diagnostics();
   const uint32_t now_ms = monotonic_now_ms();
   std::string out{"{"};
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", format_espectre_device_id(config_.device_id).c_str());
-  append_uint(&out, "timestamp_ms", now_ms);
+  append_uint(&out, "timestamp_ms", now_ms, true);
   append_uint(&out, "uptime", now_ms / 1000U);
   append_uint(&out, "traffic_packets_total", diagnostics.traffic_packets_total);
   append_uint(&out, "csi_callbacks_total", diagnostics.csi_callbacks_total);
@@ -776,7 +781,7 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
     append_uint(&out, "malformed_requests", direct.malformed_requests);
     append_uint(&out, "oversized_requests", direct.oversized_requests);
     append_uint(&out, "rate_limited_requests", direct.rate_limited_requests);
-    append_uint(&out, "dropped_telemetry_events", direct.dropped_telemetry_events);
+    append_uint(&out, "dropped_motion_events", direct.dropped_motion_events);
     append_uint(&out, "send_failures", direct.send_failures);
     out += "}";
     const RawCsiSessionDiagnostics raw = service_->raw_diagnostics();
@@ -808,11 +813,10 @@ void RuntimeDirectHttpBridge::refresh_peer_candidate_() {
   local.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   local.protocol_version = ESPECTRE_PROTOCOL_VERSION;
   local.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
-  local.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
-  local.events = ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
+  local.path = ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT;
   local.firmware = config_.firmware_version;
   local.chip = config_.chip;
-  local.capabilities = "config,monitor,raw_csi";
+  local.capabilities = "sensing,motion,devices,csi";
   local.port = config_.port;
   config_.peer_discovery->set_local_candidate(std::move(local));
 }

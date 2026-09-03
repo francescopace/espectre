@@ -74,6 +74,11 @@ bool MockDirectHttpService::publish_event(const std::string &event_name,
 
 DirectHttpServiceDiagnostics MockDirectHttpService::diagnostics() const { return state.diagnostics; }
 
+void MockDirectHttpService::set_raw_session_requested_callback(
+    RawSessionRequestedCallback callback) {
+  state.raw_session_requested_callback = std::move(callback);
+}
+
 bool MockDirectHttpService::start_raw_session(
     const RawCsiSessionConfig &config,
     RawSessionStoppedCallback stopped_callback) {
@@ -128,6 +133,10 @@ void MockDirectHttpService::emit_client_count(size_t client_count) {
   if (state.client_count_callback) {
     state.client_count_callback(client_count);
   }
+}
+
+bool MockDirectHttpService::emit_raw_session_request(std::string *message) {
+  return state.raw_session_requested_callback && state.raw_session_requested_callback(message);
 }
 
 }  // namespace direct_http_service_mock

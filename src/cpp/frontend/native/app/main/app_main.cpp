@@ -93,7 +93,7 @@ espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
 const char *native_capabilities() {
-  return "config,monitor,ota,peer_discovery,raw_csi";
+  return "config,monitor,ota,peer_discovery,csi";
 }
 
 std::string native_generated_name(const espectre::EspectreDeviceConfig &config) {
@@ -117,8 +117,7 @@ espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &c
       {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
       {"protovers", espectre::ESPECTRE_PROTOCOL_VERSION},
       {"transport", espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT},
-      {"path", espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
-      {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
+      {"path", espectre::ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT},
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
       {"capabilities", native_capabilities()},
@@ -139,8 +138,7 @@ espectre::PeerDiscoveryCandidate native_peer_candidate(
   candidate.txt_version = espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = espectre::ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT;
-  candidate.path = espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
-  candidate.events = espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
+  candidate.path = espectre::ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT;
   candidate.firmware = espectre::espectre_firmware_version();
   candidate.chip = CONFIG_IDF_TARGET;
   candidate.capabilities = native_capabilities();

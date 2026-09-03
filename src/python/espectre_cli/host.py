@@ -43,7 +43,7 @@ def _discover_collect_devices_or_exit(frontend: str | None = None) -> list[Disco
     except DeviceDiscoveryError as exc:
         print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
         raise SystemExit(1)
-    return [record for record in records if "raw_csi" in record.capabilities]
+    return [record for record in records if "csi" in record.capabilities]
 
 
 def _resolve_collect_target_via_discovery(args) -> None:
@@ -73,7 +73,7 @@ def _resolve_collect_target_via_discovery(args) -> None:
                 candidates = []
             raw_candidates = [
                 record for record in candidates
-                if "raw_csi" in record.capabilities and record.ip_address == resolved_ip
+                if "csi" in record.capabilities and record.ip_address == resolved_ip
             ]
             if len(raw_candidates) == 1:
                 discovered_match = raw_candidates[0]
@@ -86,7 +86,7 @@ def _resolve_collect_target_via_discovery(args) -> None:
             return
         port = parsed.port or ESPECTRE_DIRECT_PORT
         authority = parsed.hostname if port == 80 else f"{parsed.hostname}:{port}"
-        args.direct_endpoint = urlunsplit(("http", authority, "/espectre/v1/request", "", ""))
+        args.direct_endpoint = urlunsplit(("http", authority, "/espectre/v1", "", ""))
         args.traffic_target = resolved_ip
         args.expected_discovery_device_id = None
         args.target_frontend = frontend or "unknown"
@@ -153,15 +153,14 @@ def _prepare_raw_http_collection(args, direct_client_cls, receiver_cls, generato
     if requested_pps <= 0:
         raise ValueError(f"external traffic rate must be > 0 pps, got {requested_pps:g}")
     with direct_client_cls(direct_endpoint) as control:
-        capabilities = control.request("capabilities")
-        raw_capability = capabilities.get("raw_csi", {})
+        capabilities = control.request("get", "capabilities")
+        raw_capability = capabilities.get("csi", {})
         if not isinstance(raw_capability, dict) or raw_capability.get("protocol_version") != 1:
             raise RuntimeError("target does not advertise raw HTTP v1")
         if raw_capability.get("marker") != generator_cls.TRAFFIC_MARKER:
             raise RuntimeError("target does not advertise the canonical external traffic marker")
-        control.request("set_csi_traffic_mode", {"csi_traffic_mode": "external"})
-        device_config = control.request("config")
-    runtime_config = device_config.get("runtime", {}) if isinstance(device_config, dict) else {}
+        control.request("patch", "sensing", {"csi_traffic_mode": "external"})
+        runtime_config = control.request("get", "sensing")
     if not isinstance(runtime_config, dict) or runtime_config.get("csi_traffic_mode") != "external":
         raise RuntimeError("device did not persist external CSI traffic mode")
     traffic_port = int(raw_capability.get("traffic_udp_port", runtime_config.get("csi_traffic_udp_port", 5555)))
@@ -177,7 +176,7 @@ def _prepare_raw_http_collection(args, direct_client_cls, receiver_cls, generato
 
 
 def _start_raw_http_collection(receiver, traffic_generator) -> None:
-    """Create the raw session, start external traffic, and bind its HTTP stream."""
+    """Start external traffic before opening the automatic CSI stream."""
     try:
         receiver.start_session()
         traffic_generator.start()

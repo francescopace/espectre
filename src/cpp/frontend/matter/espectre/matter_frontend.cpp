@@ -156,8 +156,7 @@ void MatterFrontend::stop_direct_service_() {
 }
 
 void MatterFrontend::sync_device_label() {
-  (void) direct_bridge_.publish_changes(
-      FrontendCommandChange::INFO | FrontendCommandChange::CONFIG);
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::DEVICE);
 }
 
 void MatterFrontend::shutdown() {
@@ -187,10 +186,9 @@ void MatterFrontend::drain_pending_runtime_events_() {
   RuntimeSnapshot snapshot;
   while (runtime_events_.take_motion_state(snapshot)) {
     bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
-    (void) direct_bridge_.publish_telemetry(snapshot);
   }
   if (runtime_events_.take_live_telemetry(snapshot)) {
-    (void) direct_bridge_.publish_telemetry(snapshot);
+    (void) direct_bridge_.publish_motion(snapshot);
   }
 }
 
@@ -218,24 +216,22 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   (void) snapshot;
-  (void) direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::SENSING);
 }
 
 void MatterFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
   (void) snapshot;
-  (void) direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::SENSING);
 }
 
 void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
   (void) snapshot;
-  (void) direct_bridge_.publish_changes(FrontendCommandChange::STATUS);
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::SENSING);
 }
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   (void) snapshot;
-  FrontendCommandChange changes = FrontendCommandChange::STATUS;
-  if (success) changes = changes | FrontendCommandChange::CONFIG;
-  (void) direct_bridge_.publish_changes(changes);
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::SENSING);
   if (!success) {
     ESP_LOGW(TAG, "Calibration finished without a valid update");
   }

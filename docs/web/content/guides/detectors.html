@@ -84,9 +84,9 @@
         <h3 id="detectors-cli" class="subheading">Native MQTT shell</h3>
         <p>Connect to the broker and select the discovered device. The accepted profile is applied immediately and persists across reboots:</p>
         <pre class="code"><code>./espectre mqtt --broker 192.168.1.20
-espectre&gt; set_detector high_accuracy
+espectre&gt; update_sensing detector=high_accuracy
 espectre&gt; info</code></pre>
-        <p>Use <code>set_detector lightweight</code> to switch back.</p>
+        <p>Use <code>update_sensing detector=lightweight</code> to switch back.</p>
       </div>
       <div class="code-tab-panel" id="detectors-esphome-panel" role="tabpanel" aria-labelledby="detectors-esphome-tab" data-detector-interface="esphome" hidden>
         <p>Home Assistant exposes the persisted runtime detector selector. In YAML, <code>detection_algorithm</code> sets the initial profile when no saved selection exists:</p>

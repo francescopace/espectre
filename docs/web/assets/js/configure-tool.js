@@ -690,7 +690,7 @@
         const wifi = config.wifi || {};
         const mqtt = config.mqtt || {};
         return {
-            device_label: config.device_label ?? device.device_label ?? '',
+            device_label: device.label ?? '',
             wifi_ssid: wifi.ssid || '',
             wifi_band: wifi.band || '',
             wifi_bssid: wifi.bssid || '',
@@ -750,7 +750,14 @@
         }
         pending.attempts += 1;
         try {
-            const config = await directClient.request('config');
+            const [device, runtime, wifi, mqtt] = await Promise.all([
+                directClient.request('get', 'device'),
+                directClient.request('get', 'sensing'),
+                directClient.request('get', 'wifi'),
+                directClient.capabilities?.resources?.includes('mqtt')
+                    ? directClient.request('get', 'mqtt') : Promise.resolve({})
+            ]);
+            const config = { device, runtime, wifi, mqtt };
             if (pendingConfigVerification !== pending) return;
             applyDirectConfig(config);
             evaluateConfigVerification(directConfigSnapshot(config));
@@ -783,7 +790,7 @@
             observedDisconnect: waitForReconnect
                 && (conn.status === 'connecting' || !directClient?.connected || directReconnectAttempt > 0),
             requiresReconnect: typeof normalized.requiresReconnect === 'function'
-                ? normalized.requiresReconnect(acknowledgement)
+                ? normalized.requiresReconnect(acknowledgement?.data || acknowledgement)
                 : false,
             deadlineAt: timeoutMs > 0 ? Date.now() + timeoutMs : 0,
             timeoutMessage: normalized.timeoutMessage || ''
@@ -819,7 +826,7 @@
         }
     }
 
-    async function cfgApply(action, successMessage, method, params = {}, verification) {
+    async function cfgApply(action, successMessage, requestMethod, resource, params = {}, verification) {
         const resolvedSuccessMessage = (result = {}) => (
             typeof successMessage === 'function' ? successMessage(result) : successMessage
         );
@@ -833,10 +840,10 @@
             return false;
         }
         try {
-            const result = await directClient.request(method, params);
-            toast(resolvedSuccessMessage(result));
+            const result = await directClient.request(requestMethod, resource, params);
+            toast(resolvedSuccessMessage(result?.data || result));
             track('configure_change', { action, result: 'accepted' });
-            if (verification) beginConfigVerification(action, verification, result);
+            if (verification) beginConfigVerification(action, verification, result?.data || result);
             return true;
         } catch (error) {
             console.warn('Device setting update failed:', error);
@@ -903,15 +910,15 @@
             return;
         }
         const client = directClient;
-        if (!client?.connected || !monitor.commands.has('scan_wifi_access_points')) return;
+        if (!client?.connected || !monitor.commands.has('scan_wifi')) return;
         renderWifiAccessPoints({ scanning: true, message: 'Scanning for nearby access points…' });
         try {
-            await client.request('scan_wifi_access_points');
+            await client.request('post', 'wifi/scans');
             const deadline = Date.now() + WIFI_SCAN_TIMEOUT_MS;
             while (Date.now() < deadline) {
                 await new Promise((resolve) => setTimeout(resolve, WIFI_SCAN_POLL_INTERVAL_MS));
                 if (directClient !== client || !client.connected) return;
-                const snapshot = await client.request('wifi_access_points');
+                const snapshot = await client.request('get', 'wifi/access-points');
                 if (directClient !== client || !client.connected) return;
                 renderWifiAccessPoints(snapshot);
                 if (!snapshot.scanning) return;
@@ -930,7 +937,8 @@
 
     async function cfgSaveWifi() {
         const bssid = cfgValue('cfg-bssid').trim().toUpperCase();
-        const method = bssid ? 'set_wifi_bssid' : 'clear_wifi_bssid';
+        const action = bssid ? 'set_wifi_bssid' : 'clear_wifi_bssid';
+        const requestMethod = bssid ? 'put' : 'delete';
         const params = bssid ? { bssid, force: false } : {};
         const verification = {
             waitForReconnect: true,
@@ -980,7 +988,7 @@
             }
         };
         await cfgApply(
-            method,
+            action,
             (acknowledgement) => {
                 if (!bssid) return 'Automatic Wi-Fi selection saved. The device is reconnecting.';
                 const currentBssid = String(acknowledgement?.current_bssid || '').toUpperCase();
@@ -988,7 +996,7 @@
                     ? 'Wi-Fi preference saved. This access point is already active.'
                     : 'Wi-Fi preference saved. The device is reconnecting.';
             },
-            method, params, verification);
+            requestMethod, 'wifi/bssid', params, verification);
     }
 
     const CONFIG_CLEAR_DIALOGS = Object.freeze({
@@ -1053,7 +1061,7 @@
         let result = 'accepted';
         let message = 'Wi-Fi settings removed. Connect the device to Wi-Fi again over USB.';
         try {
-            await directClient.request('clear_wifi_config', {}, { timeoutMs: 3000 });
+            await directClient.request('delete', 'wifi/credentials', {}, { timeoutMs: 3000 });
         } catch (error) {
             if (error?.code !== 'timeout' && error?.code !== 'closed') {
                 console.warn('Wi-Fi reset failed:', error);
@@ -1081,25 +1089,25 @@
         const password = cfgValue('cfg-mqtt-pass');
         const clearCredentials = document.getElementById('cfg-mqtt-credentials-clear').checked;
         if (!scheme || !host || !cfgValue('cfg-mqtt-port')) {
-            cfgValidationFailed('set_mqtt', 'MQTT needs a scheme, host, and port.');
+            cfgValidationFailed('update_mqtt', 'MQTT needs a scheme, host, and port.');
             return;
         }
         if (!['mqtt', 'mqtts'].includes(scheme) || /[\s/?#@\[\]]/.test(host)
                 || (host.includes(':') && !/^[0-9a-f:.]+$/i.test(host))) {
-            cfgValidationFailed('set_mqtt', 'Enter a host or IP address without a scheme, port, path, or credentials.');
+            cfgValidationFailed('update_mqtt', 'Enter a host or IP address without a scheme, port, path, or credentials.');
             return;
         }
         const port = Number(cfgValue('cfg-mqtt-port'));
         const topicPrefix = cfgValue('cfg-topic-prefix').trim().replace(/\/+$/, '');
         if (!Number.isInteger(port) || port < 1 || port > 65535 || !topicPrefix || /[+#\0]/.test(topicPrefix)) {
-            cfgValidationFailed('set_mqtt', 'Use a port from 1 to 65535 and a topic prefix without MQTT wildcards.');
+            cfgValidationFailed('update_mqtt', 'Use a port from 1 to 65535 and a topic prefix without MQTT wildcards.');
             return;
         }
         const mqttParams = { scheme, host, port, topic_prefix: topicPrefix };
         if (username || clearCredentials) mqttParams.username = clearCredentials ? '' : username;
         if (password || clearCredentials) mqttParams.password = clearCredentials ? '' : password;
-        const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
-            'set_mqtt_config', mqttParams,
+        const ok = await cfgApply('update_mqtt', 'MQTT settings saved.',
+            'patch', 'mqtt', mqttParams,
             (snapshot) => snapshot.mqtt_scheme === scheme
                 && snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
         if (ok) {
@@ -1124,18 +1132,18 @@
         }
         if (!await openConfigClearDialog('mqtt', document.activeElement)) return;
         const ok = await cfgApply(
-            'clear_mqtt', 'MQTT settings cleared.', 'clear_mqtt_config', {},
+            'clear_mqtt', 'MQTT settings cleared.', 'delete', 'mqtt', {},
             (snapshot) => !snapshot.mqtt_host);
         if (ok) applyConfigureMqttDefaults();
     }
 
     async function cfgSaveDeviceLabel(label) {
         if (typeof label !== 'string' || /[\r\n\0]/.test(label) || utf8Length(label) > 32) {
-            cfgValidationFailed('set_device', 'Use a single-line device name that fits within the 32-byte limit. Shorten names with accented or non-Latin characters if needed.');
+            cfgValidationFailed('update_device', 'Use a single-line device name that fits within the 32-byte limit. Shorten names with accented or non-Latin characters if needed.');
             return false;
         }
-        return cfgApply('set_device', 'Device name saved.', 'set_device_label',
-            { device_label: label },
+        return cfgApply('update_device', 'Device name saved.', 'patch', 'device',
+            { label },
             (snapshot) => (snapshot.device_label || '') === label);
     }
 
@@ -1386,7 +1394,7 @@
         otaMessage = '';
         syncFirmwareUpdateNotice();
         if (!manual) otaCheckTransport = transport;
-        monitorPublishCommand(otaCommandFields('ota_check'), {
+        monitorPublishCommand(otaCommandFields('check_ota'), {
             pendingMessage: '',
             statusFn: () => {}
         }).catch((error) => {
@@ -1439,7 +1447,7 @@
         };
         track('ota_update_attempt', { ...analyticsParams, result: 'attempt' });
         try {
-            await monitorPublishCommand(otaCommandFields('ota_start'), {
+            await monitorPublishCommand(otaCommandFields('start_ota'), {
                 pendingMessage: 'Starting firmware update…',
                 statusFn: (message) => { if (description) description.textContent = message; }
             });

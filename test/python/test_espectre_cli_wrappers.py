@@ -148,7 +148,7 @@ def test_discovered_device_selection_filters_chip_before_ambiguity() -> None:
             ip_address=address,
             port=device_discovery.ESPECTRE_DIRECT_PORT,
             transport="direct-http",
-            endpoint=f"http://{address}:62587/espectre/v1/request",
+            endpoint=f"http://{address}:62587/espectre/v1",
             protocol="1.0",
         )
 
@@ -328,7 +328,7 @@ def test_micro_run_json_emits_direct_ready_event(monkeypatch, capsys) -> None:
     assert events == [
         {
             "chip": "s3",
-            "endpoint": "http://192.0.2.10:62587/espectre/v1/request",
+            "endpoint": "http://192.0.2.10:62587/espectre/v1",
             "event": "direct_ready",
             "frontend": "micro",
             "port": "/dev/cu.test",
@@ -502,7 +502,7 @@ def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> Non
     assert json.loads(capsys.readouterr().out) == {
         "chip": "s3",
         "device_info": ["ESPectre", "1.0", "s3", "Native"],
-        "endpoint": "http://192.0.2.5/espectre/v1/request",
+        "endpoint": "http://192.0.2.5/espectre/v1",
         "frontend": "native",
         "port": "/dev/cu.valid",
         "states": ["ready", "provisioned"],
@@ -1824,7 +1824,7 @@ def test_discovery_parsers_accept_chip_filters() -> None:
     parser = app.build_parser()
 
     devices = parser.parse_args(["devices", "--frontend", "matter", "--chip", "s3"])
-    direct = parser.parse_args(["direct", "status", "--frontend", "matter", "--chip", "s3"])
+    direct = parser.parse_args(["direct", "get", "health", "--frontend", "matter", "--chip", "s3"])
 
     assert devices.chip == "s3"
     assert direct.chip == "s3"
@@ -2452,11 +2452,11 @@ class _FakeMQTTClient:
                         "message": f"{command} returned" if command else "ok",
                         "data": {
                             "device_id": "0x0000000000000001",
-                            "commands": [
-                                {"name": "capabilities"},
-                                {"name": "info"},
-                                {"name": "diagnostics"},
-                                {"name": "set_threshold"},
+                            "operations": [
+                                {"name": "update_device"},
+                                {"name": "update_sensing"},
+                                {"name": "read_diagnostics"},
+                                {"name": "check_ota"},
                             ],
                         } if command == "capabilities" else {"device_id": "0x0000000000000001"},
                     }
@@ -2528,10 +2528,11 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     assert shell.topic_responses == [
         "espectre/v1/devices/0x0000000000000001/commands/result",
         "espectre/v1/devices/0x0000000000000001/capabilities",
-        "espectre/v1/devices/0x0000000000000001/info",
-        "espectre/v1/devices/0x0000000000000001/status",
-        "espectre/v1/devices/0x0000000000000001/config",
-        "espectre/v1/devices/0x0000000000000001/ota_status",
+        "espectre/v1/devices/0x0000000000000001/device",
+        "espectre/v1/devices/0x0000000000000001/health",
+        "espectre/v1/devices/0x0000000000000001/sensing",
+        "espectre/v1/devices/0x0000000000000001/wifi",
+        "espectre/v1/devices/0x0000000000000001/ota",
     ]
     assert client.username == "user"
     assert client.password == "pass"
@@ -2543,10 +2544,11 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     assert client.subscriptions == [
         "espectre/v1/devices/0x0000000000000001/commands/result",
         "espectre/v1/devices/0x0000000000000001/capabilities",
-        "espectre/v1/devices/0x0000000000000001/info",
-        "espectre/v1/devices/0x0000000000000001/status",
-        "espectre/v1/devices/0x0000000000000001/config",
-        "espectre/v1/devices/0x0000000000000001/ota_status",
+        "espectre/v1/devices/0x0000000000000001/device",
+        "espectre/v1/devices/0x0000000000000001/health",
+        "espectre/v1/devices/0x0000000000000001/sensing",
+        "espectre/v1/devices/0x0000000000000001/wifi",
+        "espectre/v1/devices/0x0000000000000001/ota",
     ]
     assert "Connected to: broker.local:1883" in captured
     assert "Failed to connect, return code 5" in captured
@@ -2561,10 +2563,10 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
         None,
         None,
         SimpleNamespace(
-            topic="espectre/v1/devices/0x00000000000000aa/info",
+            topic="espectre/v1/devices/0x00000000000000aa/device",
             payload=(
-                b'{"device_id":"0x00000000000000aa","device_name":"ESPectre C6 00aa",'
-                b'"device_label":"Lab","frontend":"micro"}'
+                b'{"device_id":"0x00000000000000aa","name":"ESPectre C6 00aa",'
+                b'"label":"Lab","frontend":"micro"}'
             ),
         ),
     )
@@ -2572,7 +2574,7 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
         None,
         None,
         SimpleNamespace(
-            topic="espectre/v1/devices/0x00000000000000aa/status",
+            topic="espectre/v1/devices/0x00000000000000aa/health",
             payload=b'{"device_id":"0x00000000000000aa","online":true}',
         ),
     )
@@ -2583,18 +2585,19 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
     assert shell.device_id == "0x00000000000000aa"
     assert shell.topic_cmd == "espectre/v1/devices/0x00000000000000aa/commands/request"
     assert client.subscriptions == [
-        "espectre/v1/devices/+/info",
-        "espectre/v1/devices/+/status",
+        "espectre/v1/devices/+/device",
+        "espectre/v1/devices/+/health",
         "espectre/v1/devices/0x00000000000000aa/commands/result",
         "espectre/v1/devices/0x00000000000000aa/capabilities",
-        "espectre/v1/devices/0x00000000000000aa/info",
-        "espectre/v1/devices/0x00000000000000aa/status",
-        "espectre/v1/devices/0x00000000000000aa/config",
-        "espectre/v1/devices/0x00000000000000aa/ota_status",
+        "espectre/v1/devices/0x00000000000000aa/device",
+        "espectre/v1/devices/0x00000000000000aa/health",
+        "espectre/v1/devices/0x00000000000000aa/sensing",
+        "espectre/v1/devices/0x00000000000000aa/wifi",
+        "espectre/v1/devices/0x00000000000000aa/ota",
     ]
     assert client.unsubscriptions == [
-        "espectre/v1/devices/+/info",
-        "espectre/v1/devices/+/status",
+        "espectre/v1/devices/+/device",
+        "espectre/v1/devices/+/health",
     ]
     assert "Discovered MQTT devices:" in captured
     assert "Selected device: 0x00000000000000aa" in captured
@@ -2614,13 +2617,13 @@ def test_mqtt_shell_guards_discovery_updates_and_snapshots(monkeypatch) -> None:
 
     shell.discovered_devices = GuardedDevices()
     shell._record_discovered_device(
-        "espectre/v1/devices/device-a/info",
-        b'{"device_id":"device-a","device_label":"Lab"}',
+        "espectre/v1/devices/device-a/device",
+        b'{"device_id":"device-a","label":"Lab"}',
     )
 
     devices = shell._print_discovered_devices()
 
-    assert devices == [{"device_id": "device-a", "device_label": "Lab"}]
+    assert devices == [{"device_id": "device-a", "label": "Lab"}]
 
 
 def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> None:
@@ -2634,7 +2637,7 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
         None,
         None,
         SimpleNamespace(
-            topic="espectre/v1/devices/0x0000000000000001/info",
+            topic="espectre/v1/devices/0x0000000000000001/device",
             payload=b'{"device_id":"0x0000000000000001","frontend":"native"}',
         ),
     )
@@ -2643,7 +2646,7 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
         None,
         SimpleNamespace(
             topic="espectre/v1/devices/0x0000000000000001/commands/result",
-            payload=b'{"command":"info","accepted":true,"message":"info published"}',
+            payload=b'{"command":"update_device","accepted":true,"message":"device updated"}',
         ),
     )
     shell.on_message(
@@ -2651,24 +2654,23 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
         None,
         SimpleNamespace(
             topic="espectre/v1/devices/0x0000000000000001/commands/result",
-            payload=b'{"command":"set_threshold","accepted":false,"message":"invalid threshold"}',
+            payload=b'{"command":"update_sensing","accepted":false,"message":"invalid threshold"}',
         ),
     )
     shell.on_message(None, None, SimpleNamespace(payload=b"not-json"))
-    shell.send_command({"command": "info"})
+    shell.send_command({"command": "update_device", "label": "Lab"})
     client.raise_publish = True
-    shell.send_command({"command": "diagnostics"})
+    shell.send_command({"command": "read_diagnostics"})
     client.raise_publish = False
 
     shell.process_input("")
-    shell.process_input("info")
-    shell.process_input("diagnostics")
-    shell.process_input("set_threshold 0.35")
-    shell.process_input("ota_status")
-    shell.process_input("ota_check")
-    shell.process_input("ota_start")
-    shell.process_input("ota_check unexpected")
-    shell.process_input("ota_start unexpected")
+    shell.process_input("update_device label=Lab")
+    shell.process_input("read_diagnostics")
+    shell.process_input("update_sensing 0.35")
+    shell.process_input("check_ota")
+    shell.process_input("start_ota")
+    shell.process_input("check_ota unexpected")
+    shell.process_input("start_ota unexpected")
     shell.process_input("clear")
     shell.process_input("help")
     shell.process_input("about")
@@ -2679,24 +2681,22 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     published = [json.loads(payload) for _, payload in client.published]
     assert client.published[0][0] == shell.topic_cmd
     assert [item["command"] for item in published] == [
-        "info",
-        "info",
-        "diagnostics",
-        "set_threshold",
-        "ota_status",
-        "ota_check",
-        "ota_start",
+        "update_device",
+        "update_device",
+        "read_diagnostics",
+        "update_sensing",
+        "check_ota",
+        "start_ota",
         "unknown",
     ]
     assert published[3]["threshold"] == 0.35
     assert cleared == ["clear"]
     assert rendered
     assert "Received:" in captured
-    assert "Received on info:" in captured
-    assert "✓ info" in captured
-    assert "✗ set_threshold: invalid threshold" in captured
+    assert "Received on device:" in captured
+    assert "✓ update_device" in captured
     assert "Received on commands/result:" not in captured
-    assert "info published" not in captured
+    assert "device updated" not in captured
     assert "Error parsing message" in captured
     assert "Error sending command" in captured
     assert "Unknown command: unknown" not in captured
@@ -2729,52 +2729,52 @@ def test_mqtt_shell_updates_pending_events_under_the_state_lock(monkeypatch) -> 
     shell._pending_result_event = result_event
     shell._pending_payload_event = payload_event
 
-    shell.send_command({"command": "set_threshold", "threshold": 0.5})
+    shell.send_command({"command": "update_sensing", "threshold": 0.5})
 
     assert result_event.clear_count == 2
     assert payload_event.clear_count == 2
 
 
-def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:
-    payload, error = mqtt_shell._mqtt_command_payload("set_threshold", ["0.35"])
+def test_mqtt_command_payload_parses_resource_updates_and_key_value_tokens() -> None:
+    payload, error = mqtt_shell._mqtt_command_payload("update_sensing", ["0.35"])
     assert error is None
-    assert payload == {"command": "set_threshold", "threshold": 0.35}
+    assert payload == {"command": "update_sensing", "threshold": 0.35}
 
-    payload, error = mqtt_shell._mqtt_command_payload("set_detector", ["lightweight"])
+    payload, error = mqtt_shell._mqtt_command_payload("update_sensing", ["detector=lightweight"])
     assert error is None
-    assert payload == {"command": "set_detector", "detector": "lightweight"}
+    assert payload == {"command": "update_sensing", "detector": "lightweight"}
 
     payload, error = mqtt_shell._mqtt_command_payload(
-        "set_motion_hits",
+        "update_sensing",
         ["motion_on_hits=4", "motion_off_hits=3"],
     )
     assert error is None
-    assert payload == {"command": "set_motion_hits", "motion_on_hits": 4, "motion_off_hits": 3}
+    assert payload == {"command": "update_sensing", "motion_on_hits": 4, "motion_off_hits": 3}
 
     payload, error = mqtt_shell._mqtt_command_payload("f", [])
     assert error is None
     assert payload == {"command": "f"}
 
-    payload, error = mqtt_shell._mqtt_command_payload("ota_check", ["unexpected"])
+    payload, error = mqtt_shell._mqtt_command_payload("check_ota", ["unexpected"])
     assert payload is None
     assert error == "invalid ota channel (accepted: release, preview, and develop)"
 
-    payload, error = mqtt_shell._mqtt_command_payload("ota_check", ["preview"])
+    payload, error = mqtt_shell._mqtt_command_payload("check_ota", ["preview"])
     assert error is None
-    assert payload == {"command": "ota_check", "channel": "preview"}
+    assert payload == {"command": "check_ota", "channel": "preview"}
 
-    payload, error = mqtt_shell._mqtt_command_payload("ota_start", ["channel=develop"])
+    payload, error = mqtt_shell._mqtt_command_payload("start_ota", ["channel=develop"])
     assert error is None
-    assert payload == {"command": "ota_start", "channel": "develop"}
+    assert payload == {"command": "start_ota", "channel": "develop"}
 
-    payload, error = mqtt_shell._mqtt_command_payload("ota_start", ["channel=latest"])
+    payload, error = mqtt_shell._mqtt_command_payload("start_ota", ["channel=latest"])
     assert payload is None
     assert error == "invalid ota channel (accepted: release, preview, and develop)"
 
 
 def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> None:
-    catalog = {"commands": [{"name": "info"}, {"name": "set_threshold"}]}
-    assert mqtt_shell._mqtt_commands_from_catalog(catalog) == ["info", "set_threshold"]
+    catalog = {"operations": [{"name": "update_device"}, {"name": "update_sensing"}]}
+    assert mqtt_shell._mqtt_commands_from_catalog(catalog) == ["update_device", "update_sensing"]
 
     shell, _client, rendered = _build_shell(monkeypatch)
     catalogs: list[dict[str, object]] = []
@@ -2783,18 +2783,18 @@ def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> 
         "from_nested_dict",
         lambda data: catalogs.append(dict(data)) or object(),
     )
-    shell._apply_catalog_payload({"commands": [{"name": "info"}, {"name": "set_threshold"}, {"name": "capabilities"}]})
-    assert shell._device_commands == ["info", "set_threshold", "capabilities"]
-    assert catalogs[-1]["info"] is None
-    assert catalogs[-1]["set_threshold"] is None
+    shell._apply_catalog_payload({"operations": [{"name": "update_device"}, {"name": "update_sensing"}, {"name": "scan_wifi"}]})
+    assert shell._device_commands == ["update_device", "update_sensing"]
+    assert catalogs[-1]["update_device"] is None
+    assert catalogs[-1]["update_sensing"] is None
     assert catalogs[-1]["st"] is None
     assert catalogs[-1]["help"] is None
-    assert "ota_status" not in catalogs[-1]
+    assert "scan_wifi" not in catalogs[-1]
 
     shell.show_help()
     help_arg = rendered[-1][0][0]
     help_html = getattr(help_arg, "value", str(help_arg))
-    assert "set_threshold" in help_html
+    assert "update_sensing" in help_html
     assert "Device commands" in help_html
     assert "st 0.35" in help_html
     assert "key=value" not in help_html
@@ -2807,7 +2807,7 @@ def test_mqtt_shell_annotates_typed_command_on_tty(monkeypatch) -> None:
     monkeypatch.setattr(mqtt_shell.sys.stdout, "write", lambda text: writes.append(text) or len(text))
     monkeypatch.setattr(mqtt_shell.sys.stdout, "flush", lambda: None)
 
-    shell.process_input("info")
+    shell.process_input("update_device label=Lab")
     output = "".join(writes)
     assert "\033[A" in output or "\x1b[A" in output
     assert "✓" in output
@@ -2837,7 +2837,7 @@ def test_mqtt_shell_completes_when_reject_omits_command_id(monkeypatch, capsys) 
 
 
 def test_mqtt_shell_start_handles_prompt_loop_and_shutdown(monkeypatch, capsys) -> None:
-    shell, client, _rendered = _build_shell(monkeypatch, responses=[KeyboardInterrupt(), "info", EOFError()])
+    shell, client, _rendered = _build_shell(monkeypatch, responses=[KeyboardInterrupt(), "update_device label=Lab", EOFError()])
 
     shell.start()
     captured = capsys.readouterr().out
@@ -2848,8 +2848,8 @@ def test_mqtt_shell_start_handles_prompt_loop_and_shutdown(monkeypatch, capsys) 
     assert client.disconnected == 1
     assert "Type 'help' for commands" in captured
     assert "Exiting..." in captured
-    assert len(client.published) == 2
-    assert [json.loads(payload)["command"] for _, payload in client.published] == ["capabilities", "info"]
+    assert len(client.published) == 1
+    assert [json.loads(payload)["command"] for _, payload in client.published] == ["update_device"]
 
 
 def test_send_mqtt_command_and_wait_waits_for_suback(monkeypatch) -> None:
@@ -2918,7 +2918,7 @@ def test_send_mqtt_command_and_wait_waits_for_suback(monkeypatch) -> None:
     assert response["accepted"] is True
 
 
-def test_request_mqtt_info_and_wait_waits_for_all_subacks(monkeypatch) -> None:
+def test_request_mqtt_diagnostics_and_wait_waits_for_all_subacks(monkeypatch) -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.on_connect = None
@@ -2963,11 +2963,11 @@ def test_request_mqtt_info_and_wait_waits_for_all_subacks(monkeypatch) -> None:
                     topic=f"{base}/commands/result",
                     payload=json.dumps({
                         "command_id": data["command_id"],
-                        "command": "info",
+                        "command": "read_diagnostics",
                         "accepted": True,
                         "code": "ok",
-                        "message": "info returned",
-                        "data": {"device_id": "0x1234"},
+                        "message": "diagnostics returned",
+                        "data": {"uptime": 42},
                     }).encode(),
                 ),
             )
@@ -2975,7 +2975,7 @@ def test_request_mqtt_info_and_wait_waits_for_all_subacks(monkeypatch) -> None:
 
     monkeypatch.setattr(mqtt_shell, "_make_mqtt_client", lambda *_args, **_kwargs: FakeClient())
 
-    command_response, info_response = mqtt_shell.request_mqtt_info_and_wait(
+    command_response, diagnostics_response = mqtt_shell.request_mqtt_diagnostics_and_wait(
         argparse.Namespace(
             broker="broker.local",
             port=1883,
@@ -2988,7 +2988,7 @@ def test_request_mqtt_info_and_wait_waits_for_all_subacks(monkeypatch) -> None:
     )
 
     assert command_response["accepted"] is True
-    assert info_response["device_id"] == "0x1234"
+    assert diagnostics_response["uptime"] == 42
 
 
 def test_send_mqtt_command_and_wait_reports_request_echo_on_timeout(monkeypatch) -> None:

@@ -30,6 +30,79 @@ namespace espectre {
 
 namespace {
 
+constexpr EspectreApiRoute kApiRoutes[] = {
+    {"GET", "/espectre/v1/health", "health", "health", EspectreDirectMethod::STATUS,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/device", "device", "device", EspectreDirectMethod::INFO,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/capabilities", "capabilities", "capabilities",
+     EspectreDirectMethod::CAPABILITIES, EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/sensing", "sensing", "sensing", EspectreDirectMethod::CONFIG,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/wifi", "wifi", "wifi", EspectreDirectMethod::CONFIG,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/wifi/access-points", "wifi/access-points", "wifi_access_points",
+     EspectreDirectMethod::WIFI_ACCESS_POINTS, EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/mqtt", "mqtt", "mqtt", EspectreDirectMethod::CONFIG,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/ota", "ota", "ota", EspectreDirectMethod::OTA_STATUS,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/diagnostics", "diagnostics", "read_diagnostics",
+     EspectreDirectMethod::DIAGNOSTICS, EspectreApiRouteKind::RESOURCE, false},
+    {"GET", "/espectre/v1/devices", "devices", "devices", EspectreDirectMethod::DISCOVER_PEERS,
+     EspectreApiRouteKind::RESOURCE, false},
+    {"PATCH", "/espectre/v1/device", "update_device", "update_device",
+     EspectreDirectMethod::SET_DEVICE_LABEL, EspectreApiRouteKind::OPERATION, false},
+    {"PATCH", "/espectre/v1/sensing", "update_sensing", "update_sensing",
+     EspectreDirectMethod::SET_SENSING, EspectreApiRouteKind::OPERATION, false},
+    {"PATCH", "/espectre/v1/mqtt", "update_mqtt", "update_mqtt",
+     EspectreDirectMethod::SET_MQTT_CONFIG, EspectreApiRouteKind::OPERATION, false},
+    {"POST", "/espectre/v1/sensing/calibrations", "recalibrate", "recalibrate",
+     EspectreDirectMethod::RECALIBRATE, EspectreApiRouteKind::OPERATION, true},
+    {"POST", "/espectre/v1/wifi/scans", "scan_wifi", "scan_wifi",
+     EspectreDirectMethod::SCAN_WIFI_ACCESS_POINTS, EspectreApiRouteKind::OPERATION, true},
+    {"POST", "/espectre/v1/ota/checks", "check_ota", "check_ota",
+     EspectreDirectMethod::OTA_CHECK, EspectreApiRouteKind::OPERATION, true},
+    {"POST", "/espectre/v1/ota/updates", "start_ota", "start_ota",
+     EspectreDirectMethod::OTA_START, EspectreApiRouteKind::OPERATION, true},
+    {"PUT", "/espectre/v1/wifi/bssid", "set_wifi_bssid", "set_wifi_bssid",
+     EspectreDirectMethod::SET_WIFI_BSSID, EspectreApiRouteKind::OPERATION, true},
+    {"DELETE", "/espectre/v1/wifi/bssid", "clear_wifi_bssid", "clear_wifi_bssid",
+     EspectreDirectMethod::CLEAR_WIFI_BSSID, EspectreApiRouteKind::OPERATION, true},
+    {"DELETE", "/espectre/v1/wifi/credentials", "clear_wifi_credentials", "clear_wifi_credentials",
+     EspectreDirectMethod::CLEAR_WIFI_CONFIG, EspectreApiRouteKind::OPERATION, true},
+    {"DELETE", "/espectre/v1/mqtt", "clear_mqtt", "clear_mqtt",
+     EspectreDirectMethod::CLEAR_MQTT_CONFIG, EspectreApiRouteKind::OPERATION, false},
+    {"GET", "/espectre/v1/events", "events", "", EspectreDirectMethod::STATUS,
+     EspectreApiRouteKind::STREAM, false},
+    {"GET", "/espectre/v1/csi", "csi", "", EspectreDirectMethod::START_RAW_STREAM,
+     EspectreApiRouteKind::STREAM, false},
+};
+
+constexpr EspectreApiEventDescriptor kApiEvents[] = {
+    {"motion", EspectreEvent::TELEMETRY, EspectreDirectMethod::STATUS},
+    {"health", EspectreEvent::STATUS, EspectreDirectMethod::STATUS},
+    {"device", EspectreEvent::INFO, EspectreDirectMethod::INFO},
+    {"sensing", EspectreEvent::CONFIG, EspectreDirectMethod::CONFIG},
+    {"wifi", EspectreEvent::CONFIG, EspectreDirectMethod::WIFI_ACCESS_POINTS},
+    {"ota", EspectreEvent::OTA_STATUS, EspectreDirectMethod::OTA_STATUS},
+    {"fault", EspectreEvent::FAULT, EspectreDirectMethod::STATUS},
+};
+
+}  // namespace
+
+const EspectreApiRoute *espectre_api_routes(size_t *count) {
+  if (count != nullptr) *count = sizeof(kApiRoutes) / sizeof(kApiRoutes[0]);
+  return kApiRoutes;
+}
+
+const EspectreApiEventDescriptor *espectre_api_events(size_t *count) {
+  if (count != nullptr) *count = sizeof(kApiEvents) / sizeof(kApiEvents[0]);
+  return kApiEvents;
+}
+
+namespace {
+
 const char *motion_state_name(MotionState state) {
   return state == MotionState::MOTION ? "motion" : "idle";
 }
@@ -69,20 +142,39 @@ bool command_id_accepted(const std::string &value) {
   });
 }
 
-void append_command_descriptor(std::string *out,
-                               bool *first,
-                               bool enabled,
-                               const char *name) {
-  if (out == nullptr || first == nullptr || !enabled || name == nullptr) {
+bool api_route_supported(const EspectreApiRoute &route,
+                         const EspectreCapabilityProfile &capabilities) {
+  if (std::strcmp(route.name, "wifi") == 0) {
+    return capabilities.has(EspectreConfigSection::WIFI);
+  }
+  if (std::strcmp(route.name, "mqtt") == 0) {
+    return capabilities.has(EspectreConfigSection::MQTT);
+  }
+  if (std::strcmp(route.name, "csi") == 0) {
+    return capabilities.supports(EspectreDirectMethod::START_RAW_STREAM) &&
+           capabilities.supports(EspectreDirectMethod::STOP_RAW_STREAM);
+  }
+  return capabilities.supports(route.capability);
+}
+
+void append_operation_descriptor(std::string *out,
+                                 bool *first,
+                                 const EspectreApiRoute &route,
+                                 const char *name = nullptr) {
+  if (out == nullptr || first == nullptr) {
     return;
   }
   if (!*first) {
     out->append(",");
   }
   *first = false;
-  out->append("{\"name\":\"");
-  out->append(name);
-  out->append("\"}");
+  out->append("{\"name\":");
+  append_json_string(out, name != nullptr ? name : route.name);
+  out->append(",\"method\":");
+  append_json_string(out, route.http_method);
+  out->append(",\"path\":");
+  append_json_string(out, route.path);
+  out->append("}");
 }
 
 void append_capability_commands(std::string *out,
@@ -91,36 +183,19 @@ void append_capability_commands(std::string *out,
     return;
   }
   bool first = true;
-  const auto add = [&](bool enabled, const char *name) {
-    append_command_descriptor(out, &first, enabled, name);
-  };
-  using Method = EspectreDirectMethod;
-  add(capabilities.supports(Method::CAPABILITIES), "capabilities");
-  add(capabilities.supports(Method::INFO), "info");
-  add(capabilities.supports(Method::STATUS), "status");
-  add(capabilities.supports(Method::CONFIG), "config");
-  add(capabilities.supports(Method::DIAGNOSTICS), "diagnostics");
-  add(capabilities.supports(Method::SET_SENSING), "set_sensing");
-  add(capabilities.supports(Method::SET_DEVICE_LABEL), "set_device_label");
-  add(capabilities.supports(Method::SET_THRESHOLD), "set_threshold");
-  add(capabilities.supports(Method::SET_MOTION_HITS), "set_motion_hits");
-  add(capabilities.supports(Method::SET_DETECTOR), "set_detector");
-  add(capabilities.supports(Method::RECALIBRATE), "recalibrate");
-  add(capabilities.supports(Method::START_RAW_STREAM), "start_raw_stream");
-  add(capabilities.supports(Method::STOP_RAW_STREAM), "stop_raw_stream");
-  add(capabilities.supports(Method::SET_CSI_TRAFFIC_MODE), "set_csi_traffic_mode");
-  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE), "set_traffic_generator_mode");
-  add(capabilities.supports(Method::WIFI_ACCESS_POINTS), "wifi_access_points");
-  add(capabilities.supports(Method::SCAN_WIFI_ACCESS_POINTS), "scan_wifi_access_points");
-  add(capabilities.supports(Method::SET_WIFI_BSSID), "set_wifi_bssid");
-  add(capabilities.supports(Method::CLEAR_WIFI_BSSID), "clear_wifi_bssid");
-  add(capabilities.supports(Method::CLEAR_WIFI_CONFIG), "clear_wifi_config");
-  add(capabilities.supports(Method::SET_MQTT_CONFIG), "set_mqtt_config");
-  add(capabilities.supports(Method::CLEAR_MQTT_CONFIG), "clear_mqtt_config");
-  add(capabilities.supports(Method::OTA_STATUS), "ota_status");
-  add(capabilities.supports(Method::OTA_CHECK), "ota_check");
-  add(capabilities.supports(Method::OTA_START), "ota_start");
-  add(capabilities.supports(Method::DISCOVER_PEERS), "discover_peers");
+  size_t route_count = 0U;
+  const EspectreApiRoute *routes = espectre_api_routes(&route_count);
+  for (size_t index = 0U; index < route_count; ++index) {
+    const EspectreApiRoute &route = routes[index];
+    const bool correlated_diagnostics =
+        route.kind == EspectreApiRouteKind::RESOURCE &&
+        std::strcmp(route.command, "read_diagnostics") == 0;
+    if ((route.kind == EspectreApiRouteKind::OPERATION || correlated_diagnostics) &&
+        api_route_supported(route, capabilities)) {
+      append_operation_descriptor(out, &first, route,
+                                  correlated_diagnostics ? route.command : nullptr);
+    }
+  }
 }
 
 bool parse_float_value(const std::string &value, float *out) {
@@ -421,21 +496,19 @@ bool parse_command_fields(const std::string &command_id,
     return reject("missing command");
   }
   const auto field_allowed = [&parsed](const std::string &name) {
-    if (name == "protocol_version" || name == "command_id" || name == "command") return true;
-    if (parsed.command == "set_sensing") return name == "enabled";
-    if (parsed.command == "set_device_label") return name == "device_label";
-    if (parsed.command == "set_threshold") return name == "threshold";
-    if (parsed.command == "set_motion_hits") return name == "motion_on_hits" || name == "motion_off_hits";
-    if (parsed.command == "set_detector") return name == "detector";
-    if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
-    if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
-    if (parsed.command == "start_raw_stream") return false;
+    if (name == "command_id" || name == "command") return true;
+    if (parsed.command == "update_sensing") {
+      return name == "enabled" || name == "threshold" || name == "motion_on_hits" ||
+             name == "motion_off_hits" || name == "detector" ||
+             name == "csi_traffic_mode" || name == "traffic_generator_mode";
+    }
+    if (parsed.command == "update_device") return name == "label";
     if (parsed.command == "set_wifi_bssid") return name == "bssid" || name == "force";
-    if (parsed.command == "set_mqtt_config") {
+    if (parsed.command == "update_mqtt") {
       return name == "scheme" || name == "host" || name == "port" ||
              name == "username" || name == "password" || name == "topic_prefix";
     }
-    if (parsed.command == "ota_check" || parsed.command == "ota_start") {
+    if (parsed.command == "check_ota" || parsed.command == "start_ota") {
       return name == "channel" || name == "manifest_url" || name == "image_url" || name == "version";
     }
     return false;
@@ -443,58 +516,69 @@ bool parse_command_fields(const std::string &command_id,
   for (const JsonObjectField &field : fields) {
     if (!field_allowed(field.name)) return reject("unknown command parameter");
   }
-  if (parsed.command == "set_sensing") {
-    if (!bool_field("enabled", &parsed.sensing_enabled)) {
-      return reject("invalid sensing state (accepted: boolean enabled)");
+  if (parsed.command == "update_sensing") {
+    if (find_json_object_field(fields, "enabled") != nullptr) {
+      if (!bool_field("enabled", &parsed.sensing_enabled)) {
+        return reject("invalid sensing state (accepted: boolean enabled)");
+      }
+      parsed.has_sensing_enabled = true;
     }
-    parsed.has_sensing_enabled = true;
-  } else if (parsed.command == "set_device_label") {
-    if (!string_field("device_label", &parsed.device_label) ||
+    if (find_json_object_field(fields, "threshold") != nullptr) {
+      std::string token;
+      if (!number_field("threshold", &token) || !parse_float_value(token, &parsed.threshold)) {
+        return reject("invalid threshold (accepted: 0.0-1.0)");
+      }
+      parsed.has_threshold = true;
+    }
+    const bool has_on = find_json_object_field(fields, "motion_on_hits") != nullptr;
+    const bool has_off = find_json_object_field(fields, "motion_off_hits") != nullptr;
+    if (has_on != has_off) return reject("motion_on_hits and motion_off_hits must be updated together");
+    if (has_on) {
+      std::string on_token;
+      std::string off_token;
+      if (!number_field("motion_on_hits", &on_token) || !number_field("motion_off_hits", &off_token) ||
+          !parse_uint8_value(on_token, &parsed.motion_on_hits) ||
+          !parse_uint8_value(off_token, &parsed.motion_off_hits)) {
+        return reject("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
+      }
+      parsed.has_motion_hits = true;
+    }
+    if (find_json_object_field(fields, "detector") != nullptr) {
+      if (!string_field("detector", &parsed.detector) ||
+          (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
+           parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME)) {
+        return reject("invalid detector (accepted: lightweight and high_accuracy)");
+      }
+      parsed.has_detector = true;
+    }
+    if (find_json_object_field(fields, "csi_traffic_mode") != nullptr) {
+      if (!string_field("csi_traffic_mode", &parsed.csi_traffic_mode) ||
+          (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
+           parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME)) {
+        return reject("invalid csi traffic mode (accepted: internal and external)");
+      }
+      parsed.has_csi_traffic_mode = true;
+    }
+    if (find_json_object_field(fields, "traffic_generator_mode") != nullptr) {
+      if (!string_field("traffic_generator_mode", &parsed.traffic_generator_mode) ||
+          (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
+           parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME &&
+           parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME)) {
+        return reject("invalid traffic generator mode (accepted: ping, dns, and dns_tcp)");
+      }
+      parsed.has_traffic_generator_mode = true;
+    }
+    if (!parsed.has_sensing_enabled && !parsed.has_threshold && !parsed.has_motion_hits &&
+        !parsed.has_detector && !parsed.has_csi_traffic_mode && !parsed.has_traffic_generator_mode) {
+      return reject("sensing update is empty");
+    }
+  } else if (parsed.command == "update_device") {
+    if (!string_field("label", &parsed.device_label) ||
         parsed.device_label.size() > ESPECTRE_DEVICE_LABEL_MAX_LENGTH ||
         parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
       return reject("invalid device label (accepted: a single-line string)");
     }
     parsed.has_device_label = true;
-  } else if (parsed.command == "set_threshold") {
-    std::string threshold_token;
-    if (!number_field("threshold", &threshold_token) || !parse_float_value(threshold_token, &parsed.threshold)) {
-      return reject("invalid threshold (accepted: 0.0-1.0)");
-    }
-    parsed.has_threshold = true;
-  } else if (parsed.command == "set_motion_hits") {
-    std::string motion_on_hits_token;
-    std::string motion_off_hits_token;
-    if (!number_field("motion_on_hits", &motion_on_hits_token) ||
-        !number_field("motion_off_hits", &motion_off_hits_token) ||
-        !parse_uint8_value(motion_on_hits_token, &parsed.motion_on_hits) ||
-        !parse_uint8_value(motion_off_hits_token, &parsed.motion_off_hits)) {
-      return reject("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
-    }
-    parsed.has_motion_hits = true;
-  } else if (parsed.command == "set_csi_traffic_mode") {
-    if (!string_field("csi_traffic_mode", &parsed.csi_traffic_mode) ||
-        (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
-         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME)) {
-      return reject("invalid csi traffic mode (accepted: internal and external)");
-    }
-    parsed.has_csi_traffic_mode = true;
-  } else if (parsed.command == "set_traffic_generator_mode") {
-    if (!string_field("traffic_generator_mode", &parsed.traffic_generator_mode) ||
-        (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
-         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME &&
-         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME)) {
-      return reject("invalid traffic generator mode (accepted: ping, dns, and dns_tcp)");
-    }
-    parsed.has_traffic_generator_mode = true;
-  } else if (parsed.command == "set_detector") {
-    if (!string_field("detector", &parsed.detector) ||
-        (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
-         parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME)) {
-      return reject("invalid detector (accepted: lightweight and high_accuracy)");
-    }
-    parsed.has_detector = true;
-  } else if (parsed.command == "start_raw_stream") {
-    // Raw transport forwards every classified CSI frame and accepts no rate.
   } else if (parsed.command == "set_wifi_bssid") {
     if (!string_field("bssid", &parsed.wifi_bssid) || parsed.wifi_bssid.empty() ||
         !bssid_string_accepted(parsed.wifi_bssid)) {
@@ -507,9 +591,9 @@ bool parse_command_fields(const std::string &command_id,
       }
       parsed.has_wifi_bssid_force = true;
     }
-  } else if (parsed.command == "clear_wifi_config") {
+  } else if (parsed.command == "clear_wifi_credentials") {
     // No additional payload required.
-  } else if (parsed.command == "set_mqtt_config") {
+  } else if (parsed.command == "update_mqtt") {
     if (!string_field("scheme", &parsed.mqtt_scheme)) {
       return reject("missing or invalid MQTT scheme");
     }
@@ -548,11 +632,12 @@ bool parse_command_fields(const std::string &command_id,
       }
       parsed.has_mqtt_topic_prefix = true;
     }
-  } else if (parsed.command == "clear_mqtt_config") {
+  } else if (parsed.command == "clear_mqtt") {
     // No additional payload required.
-  } else if (parsed.command == "recalibrate" || parsed.command == "stop_raw_stream") {
+  } else if (parsed.command == "recalibrate" || parsed.command == "scan_wifi" ||
+             parsed.command == "clear_wifi_bssid") {
     // No additional payload required.
-  } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
+  } else if (parsed.command == "check_ota" || parsed.command == "start_ota") {
     if (find_json_object_field(fields, "manifest_url") != nullptr ||
         find_json_object_field(fields, "image_url") != nullptr ||
         find_json_object_field(fields, "version") != nullptr) {
@@ -564,10 +649,12 @@ bool parse_command_fields(const std::string &command_id,
       }
       parsed.has_ota_channel = true;
     }
-  } else if (parsed.command == "ota_status" || parsed.command == "info" ||
-             parsed.command == "capabilities" || parsed.command == "status" ||
-             parsed.command == "config" || parsed.command == "diagnostics" ||
-             parsed.command == "discover_peers") {
+  } else if (parsed.command == "ota" || parsed.command == "device" ||
+             parsed.command == "capabilities" || parsed.command == "health" ||
+             parsed.command == "sensing" || parsed.command == "wifi" ||
+             parsed.command == "mqtt" ||
+             parsed.command == "devices" || parsed.command == "wifi_access_points" ||
+             parsed.command == "read_diagnostics") {
     // No additional payload required.
   } else {
     // The command engine owns registry filtering and returns the stable
@@ -712,65 +799,38 @@ std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffi
   return topic;
 }
 
-std::string espectre_status_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms) {
-  char line[160];
-  const std::string device_id = espectre_effective_device_id(config);
+std::string espectre_health_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms) {
+  (void) config;
+  char line[128];
   std::snprintf(line,
                 sizeof(line),
-                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"online\":%s,\"timestamp_ms\":%u}",
-                ESPECTRE_PROTOCOL_VERSION,
-                device_id.c_str(),
+                "{\"status\":\"%s\",\"online\":%s,\"uptime_s\":%u,\"timestamp_ms\":%u}",
+                online ? "ok" : "offline",
                 online ? "true" : "false",
+                static_cast<unsigned>(timestamp_ms / 1000U),
                 static_cast<unsigned>(timestamp_ms));
   return line;
 }
 
-std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
+std::string espectre_device_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
   const std::string device_id = espectre_effective_device_id(config);
   const std::string device_name = espectre_device_name(espectre_effective_device_id_u64(config),
                                                        info.chip.empty() ? nullptr : info.chip.c_str());
   const std::string device_label = espectre_effective_device_label(config);
   std::string out;
-  out.reserve(256U + device_id.size() + device_name.size() + device_label.size() +
+  out.reserve(192U + device_id.size() + device_name.size() + device_label.size() +
               info.frontend.size() + info.firmware_version.size() + info.chip.size() +
               info.detector.size() + info.csi_profile.size() +
               info.csi_traffic_mode.size() + info.traffic_mode.size());
   out = "{";
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", device_id.c_str());
-  append_json_pair(&out, "device_name", device_name.c_str());
-  append_json_pair(&out, "device_label", device_label.c_str());
+  append_json_pair(&out, "device_id", device_id.c_str(), true);
+  append_json_pair(&out, "name", device_label.empty() ? device_name.c_str() : device_label.c_str());
+  append_json_pair(&out, "label", device_label.c_str());
   append_json_pair(&out, "frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
-  append_json_pair(&out, "firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
+  append_json_pair(&out, "firmware", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   append_json_pair(&out, "chip", info.chip.empty() ? "unknown" : info.chip.c_str());
   if (!info.csi_profile.empty()) {
     append_json_pair(&out, "csi_profile", info.csi_profile.c_str());
-  }
-  if (info.network.channel > 0U) {
-    out += ",\"network\":{\"channel\":{\"primary\":";
-    out += std::to_string(static_cast<unsigned>(info.network.channel));
-    out += "}";
-    out += "}";
-  }
-
-  if (!info.detector.empty()) {
-    out += ",\"detection\":{";
-    append_json_pair(&out, "algorithm", info.detector.c_str(), true);
-    out += "}";
-  }
-  if (!info.csi_traffic_mode.empty()) {
-    append_json_pair(&out, "csi_traffic_mode", info.csi_traffic_mode.c_str());
-  }
-  if (!info.traffic_mode.empty()) {
-    append_json_pair(&out, "traffic_mode", info.traffic_mode.c_str());
-  }
-  if (info.csi_target_pps > 0U) {
-    out += ",\"csi_target_pps\":";
-    out += std::to_string(static_cast<unsigned>(info.csi_target_pps));
-  }
-  if (info.evaluation_interval_ms > 0U) {
-    out += ",\"evaluation_interval_ms\":";
-    out += std::to_string(static_cast<unsigned>(info.evaluation_interval_ms));
   }
   out += "}";
   return out;
@@ -779,59 +839,56 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
 std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreDeviceInfo &info,
                                           const EspectreCapabilityProfile &capabilities) {
-  const std::string device_id = espectre_effective_device_id(config);
+  (void) config;
   std::string out;
-  out.reserve(1536U + device_id.size());
+  out.reserve(1536U);
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", device_id.c_str());
-  out += ",\"commands\":[";
+  out += ",\"operations\":[";
   append_capability_commands(&out, capabilities);
   out += "],\"events\":[";
   bool first_event = true;
-  const auto append_event = [&out, &first_event, &capabilities](EspectreEvent event,
-                                                                const char *name) {
+  size_t event_count = 0U;
+  const EspectreApiEventDescriptor *events = espectre_api_events(&event_count);
+  for (size_t index = 0U; index < event_count; ++index) {
+    const EspectreApiEventDescriptor &event = events[index];
     const bool supported_ota_event =
-        event == EspectreEvent::OTA_STATUS &&
+        event.event == EspectreEvent::OTA_STATUS &&
         capabilities.supports(EspectreDirectMethod::OTA_STATUS);
-    if (!capabilities.publishes(event) && !supported_ota_event) return;
+    if ((!capabilities.publishes(event.event) && !supported_ota_event) ||
+        !capabilities.supports(event.capability)) {
+      continue;
+    }
     if (!first_event) out += ',';
-    append_json_string(&out, name);
+    append_json_string(&out, event.name);
     first_event = false;
-  };
-  append_event(EspectreEvent::TELEMETRY, "telemetry");
-  append_event(EspectreEvent::STATUS, "status");
-  append_event(EspectreEvent::INFO, "info");
-  append_event(EspectreEvent::CONFIG, "config");
-  append_event(EspectreEvent::OTA_STATUS, "ota_status");
-  append_event(EspectreEvent::FAULT, "fault");
-  out += "],\"config_sections\":[";
-  bool first_section = true;
-  const auto append_section = [&out, &first_section, &capabilities](EspectreConfigSection section,
-                                                                    const char *name) {
-    if (!capabilities.has(section)) return;
-    if (!first_section) out += ',';
-    out += '\"';
-    out += name;
-    out += '\"';
-    first_section = false;
-  };
-  append_section(EspectreConfigSection::RUNTIME, "runtime");
-  append_section(EspectreConfigSection::DEVICE, "device");
-  append_section(EspectreConfigSection::WIFI, "wifi");
-  append_section(EspectreConfigSection::MQTT, "mqtt");
+  }
+  out += "],\"resources\":[";
+  bool first_resource = true;
+  size_t route_count = 0U;
+  const EspectreApiRoute *routes = espectre_api_routes(&route_count);
+  for (size_t index = 0U; index < route_count; ++index) {
+    const EspectreApiRoute &route = routes[index];
+    if (route.kind != EspectreApiRouteKind::RESOURCE ||
+        !api_route_supported(route, capabilities)) {
+      continue;
+    }
+    if (!first_resource) out += ',';
+    append_json_string(&out, route.name);
+    first_resource = false;
+  }
   const bool supports_raw_csi =
       capabilities.supports(EspectreDirectMethod::START_RAW_STREAM) &&
       capabilities.supports(EspectreDirectMethod::STOP_RAW_STREAM);
-  out += "],\"features\":{\"raw_csi\":";
+  out += "],\"features\":{\"csi\":";
   out += supports_raw_csi ? "true" : "false";
   out += "}";
   if (supports_raw_csi) {
-    out += ",\"raw_csi\":{\"endpoint\":\"/espectre/v1/csi\","
+    out += ",\"csi\":{\"endpoint\":\"/espectre/v1/csi\","
            "\"transport\":\"http\",\"protocol_version\":";
     out += std::to_string(static_cast<unsigned>(ESPECTRE_RAW_CSI_PROTOCOL_VERSION));
     out += ",\"record_version\":8,\"frame_prefix_bytes\":60,"
-           "\"queue_depth\":16,\"batch_records\":4,\"bind_timeout_ms\":5000,"
+           "\"queue_depth\":16,\"batch_records\":4,"
            "\"traffic_udp_port\":";
     out += std::to_string(info.csi_traffic_udp_port == 0U ? RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT
                                                           : info.csi_traffic_udp_port);
@@ -892,27 +949,21 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   return espectre_capabilities_payload(config, info, capabilities);
 }
 
-std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
+std::string espectre_motion_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
                                     uint32_t timestamp_ms,
                                     uint32_t uptime_s,
                                     const char *frontend) {
-  char line[320];
-  const std::string device_id = espectre_effective_device_id(config);
+  (void) config;
+  (void) uptime_s;
+  (void) frontend;
+  char line[160];
   std::snprintf(line,
                 sizeof(line),
-                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"frontend\":\"%s\","
-                "\"timestamp_ms\":%u,\"motion_state\":\"%s\",\"movement_score\":%.6g,"
-                "\"threshold\":%.6g,\"detector\":\"%s\",\"health\":{\"uptime_s\":%u}}",
-                ESPECTRE_PROTOCOL_VERSION,
-                device_id.c_str(),
-                frontend != nullptr && frontend[0] != '\0' ? frontend : "unknown",
+                "{\"timestamp_ms\":%u,\"state\":\"%s\",\"score\":%.6g}",
                 static_cast<unsigned>(timestamp_ms),
                 motion_state_name(snapshot.motion_state),
-                json_finite(snapshot.movement_metric),
-                json_finite(snapshot.threshold),
-                snapshot.detector_name != nullptr ? snapshot.detector_name : "unknown",
-                static_cast<unsigned>(uptime_s));
+                json_finite(snapshot.movement_metric));
   return line;
 }
 
@@ -924,13 +975,11 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
                                          float loop_time_ms,
                                          const RuntimeDiagnosticsSample *diagnostics) {
   (void) snapshot;
-  const std::string device_id = espectre_effective_device_id(config);
+  (void) config;
   std::string out;
   out.reserve(diagnostics != nullptr ? 640U : 160U);
   out = "{";
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", device_id.c_str());
-  append_json_uint_field(&out, "timestamp_ms", timestamp_ms);
+  out += "\"timestamp_ms\":" + std::to_string(timestamp_ms);
   append_json_uint_field(&out, "uptime", uptime_s);
   append_json_float_field(&out, "free_memory_kb", free_memory_kb);
   append_json_float_field(&out, "loop_time_ms", loop_time_ms);
@@ -965,16 +1014,22 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
                                             const char *code,
                                             const char *message,
                                             const std::string &data_json) {
-  const std::string device_id = espectre_effective_device_id(config);
+  (void) config;
   std::string out;
-  out.reserve(128U + device_id.size() + command.command_id.size() + command.command.size() +
+  out.reserve(128U + command.command_id.size() + command.command.size() +
               (message != nullptr ? std::strlen(message) : 0U) + data_json.size());
   out = "{";
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", device_id.c_str());
-  append_json_pair(&out, "command_id", command.command_id.c_str());
-  append_json_pair(&out, "command", command.command.c_str());
-  out += ",\"accepted\":";
+  bool first = true;
+  if (!command.command_id.empty()) {
+    append_json_pair(&out, "command_id", command.command_id.c_str(), first);
+    first = false;
+  }
+  if (!command.command_id.empty() && !command.command.empty()) {
+    append_json_pair(&out, "command", command.command.c_str(), first);
+    first = false;
+  }
+  if (!first) out += ',';
+  out += "\"accepted\":";
   out += accepted ? "true" : "false";
   append_json_pair(&out, "code", code != nullptr ? code : (accepted ? "ok" : "internal_error"));
   append_json_pair(&out, "message", message != nullptr ? message : "");
@@ -996,11 +1051,10 @@ std::string espectre_command_request_payload(const std::string &command_id,
   std::vector<JsonObjectField> fields;
   if (!parse_json_object_fields(params_json, &fields, nullptr)) return {};
   std::string out{"{"};
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "command_id", command_id.c_str());
+  append_json_pair(&out, "command_id", command_id.c_str(), true);
   append_json_pair(&out, "command", command.c_str());
   for (const JsonObjectField &field : fields) {
-    if (field.name == "protocol_version" || field.name == "command_id" || field.name == "command") return {};
+    if (field.name == "command_id" || field.name == "command" || field.name == "protocol_version") return {};
     out += ',';
     append_json_string(&out, field.name.c_str());
     out += ':';
@@ -1018,9 +1072,8 @@ std::string espectre_fault_payload(const EspectreDeviceConfig &config,
                                    const char *message,
                                    uint32_t timestamp_ms) {
   std::string out{"{"};
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", espectre_effective_device_id(config).c_str());
-  out += ",\"timestamp_ms\":" + std::to_string(static_cast<unsigned>(timestamp_ms));
+  (void) config;
+  out += "\"timestamp_ms\":" + std::to_string(static_cast<unsigned>(timestamp_ms));
   append_json_pair(&out, "message", message != nullptr ? message : "runtime fault");
   out += "}";
   return out;
@@ -1030,7 +1083,7 @@ std::string espectre_message_catalog_payload() {
   EspectreDeviceConfig config;
   EspectreCommand command;
   command.command_id = "contract-1";
-  command.command = "set_threshold";
+  command.command = "update_sensing";
   RuntimeSnapshot snapshot;
   snapshot.motion_state = MotionState::MOTION;
   snapshot.movement_metric = 0.25f;
@@ -1050,11 +1103,11 @@ std::string espectre_message_catalog_payload() {
   out += ",\"error\":";
   out += espectre_command_result_payload(config, command, false, "invalid_params",
                                          "threshold is invalid");
-  out += ",\"events\":{\"names\":[\"telemetry\",\"status\",\"info\",\"config\","
-         "\"ota_status\",\"fault\"],\"status\":";
-  out += espectre_status_payload(config, true, 1000U);
-  out += ",\"telemetry\":";
-  out += espectre_telemetry_payload(config, snapshot, 1000U, 1U, "micro");
+  out += ",\"events\":{\"names\":[\"motion\",\"health\",\"device\",\"sensing\","
+         "\"ota\",\"fault\"],\"health\":";
+  out += espectre_health_payload(config, true, 1000U);
+  out += ",\"motion\":";
+  out += espectre_motion_payload(config, snapshot, 1000U, 1U, "micro");
   out += ",\"fault\":";
   out += espectre_fault_payload(config, "runtime fault", 1000U);
   out += "}}}";
@@ -1064,15 +1117,13 @@ std::string espectre_message_catalog_payload() {
 std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
                                     const EspectreOtaStatus &status,
                                     uint32_t timestamp_ms) {
-  const std::string device_id = espectre_effective_device_id(config);
+  (void) config;
   std::string out;
-  out.reserve(192U + device_id.size() + status.current_version.size() + status.target_version.size() +
+  out.reserve(192U + status.current_version.size() + status.target_version.size() +
               status.manifest_url.size() + status.image_url.size() + status.message.size() +
               status.default_channel.size() + status.channel.size());
   out = "{";
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", device_id.c_str());
-  append_json_pair(&out, "state", ota_state_name(status.state));
+  append_json_pair(&out, "state", ota_state_name(status.state), true);
   out += ",\"timestamp_ms\":";
   out += std::to_string(static_cast<unsigned>(timestamp_ms));
   out += ",\"busy\":";
@@ -1125,19 +1176,6 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
   }
   command_id = id_field->value;
   const JsonObjectField *command_field = find_json_object_field(fields, "command");
-  const JsonObjectField *version_field = find_json_object_field(fields, "protocol_version");
-  if (version_field == nullptr || version_field->type != JsonValueType::STRING ||
-      version_field->value != ESPECTRE_PROTOCOL_VERSION) {
-    if (error != nullptr) {
-      *error = "unsupported protocol_version";
-    }
-    *command = EspectreCommand{};
-    command->command_id = command_id;
-    if (command_field != nullptr && command_field->type == JsonValueType::STRING) {
-      command->command = command_field->value;
-    }
-    return false;
-  }
   if (command_field == nullptr || command_field->type != JsonValueType::STRING) {
     if (error != nullptr) {
       *error = "missing command";
@@ -1155,7 +1193,7 @@ bool parse_espectre_command_request(const std::string &command_id,
                                     EspectreCommand *command,
                                     std::string *error,
                                     const std::string &protocol_version) {
-  if (!command_id_accepted(command_id)) {
+  if (!command_id.empty() && !command_id_accepted(command_id)) {
     if (error != nullptr) {
       *error = "invalid command_id (accepted: non-empty string up to 64 characters)";
     }

@@ -125,6 +125,21 @@ void NativeDirectFrontend::refresh() {
   }
   if (!setup) {
     ESP_LOGE(TAG, "Direct HTTP service setup failed");
+    return;
+  }
+  uint64_t device_id = 0U;
+  if (parse_espectre_device_id(espectre_effective_device_id(owner_.device_config_), &device_id)) {
+    raw_session_controller_.configure(service_, &owner_.runtime_, device_id, owner_.device_info_.chip,
+                                      [this](RawCsiStopReason) {
+                                        this->owner_.runtime_events_.clear();
+                                        this->owner_.mqtt_frontend_->home_assistant().cancel_pending_state();
+                                        this->owner_.publish_runtime_status_state_();
+                                      },
+                                      [this]() {
+                                        this->owner_.runtime_events_.clear();
+                                        this->owner_.mqtt_frontend_->home_assistant().cancel_pending_state();
+                                        this->owner_.publish_runtime_status_state_();
+                                      });
   }
 }
 
@@ -176,7 +191,10 @@ std::string NativeDirectFrontend::handle_request_(const DirectRequest &request, 
                                            frontend_command_parse_error_code(parse_error), parse_error.c_str());
   }
   const FrontendCommandResult result =
-      owner_.dispatch_command_(command, FrontendCommandOrigin::DIRECT, true, connection_token, request.authorization);
+      owner_.dispatch_command_(command, FrontendCommandOrigin::DIRECT, true, connection_token);
+  if (result.accepted && request.http_method == "GET") {
+    return result.data_json;
+  }
   return espectre_command_result_payload(owner_.device_config_, result.command, result.accepted, result.code.c_str(),
                                          result.message.c_str(), result.data_json);
 }
@@ -184,7 +202,7 @@ std::string NativeDirectFrontend::handle_request_(const DirectRequest &request, 
 IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_request_(uint64_t connection_token,
                                                                                          const DirectRequest &request) {
   if (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid" ||
-      request.command == "clear_wifi_config") {
+      request.command == "clear_wifi_credentials") {
     EspectreCommand command;
     std::string parse_error;
     if (!direct_http_request_to_command(request, &command, &parse_error)) {
@@ -211,7 +229,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
                   "Wi-Fi BSSID update already in progress"),
               {}};
     }
-    if (request.command != "clear_wifi_config" && wifi_info_.ssid.empty()) {
+    if (request.command != "clear_wifi_credentials" && wifi_info_.ssid.empty()) {
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false, "unavailable",
@@ -236,7 +254,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
         },
     };
   }
-  if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
+  if (request.command != "devices") {
     return {false, handle_request_(request, connection_token), {}};
   }
   EspectreCommand command;
@@ -250,7 +268,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "invalid_params",
-                                                   "discover_peers does not accept parameters"),
+                                                   "devices does not accept parameters"),
             {}};
   }
   if (peer_discovery_->active()) {
@@ -268,8 +286,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
     completed.command = command_name;
     (void)this->service_->complete_deferred_response(
         connection_token,
-        espectre_command_result_payload(this->owner_.device_config_, completed, true, "ok", "peer discovery completed",
-                                        peer_discovery_snapshot_json(snapshot)));
+        peer_discovery_snapshot_json(snapshot));
   });
   if (!started) {
     return {false, espectre_command_result_payload(owner_.device_config_, command, false, "unavailable",
@@ -284,44 +301,30 @@ std::string NativeDirectFrontend::capabilities_payload() const {
                                        owner_.command_capability_profile_(true));
 }
 
-std::string NativeDirectFrontend::status_payload(bool online) const {
-  const uint32_t now = owner_.now_ms_();
-  std::string out = espectre_status_payload(owner_.device_config_, online, now);
-  if (!out.empty() && out.back() == '}') {
-    out.pop_back();
-  }
-  out += ",\"wifi_connected\":";
-  out += owner_.device_info_.network.ip_address.empty() ? "false" : "true";
-  out += ",\"mqtt_configured\":";
-  out += espectre_mqtt_configured(owner_.device_config_) ? "true" : "false";
-  out += ",\"mqtt_connected\":";
-  out += owner_.mqtt_frontend_->connected() ? "true" : "false";
-  out += ",\"sensing_enabled\":";
-  out += owner_.runtime_.services_armed() ? "true" : "false";
-  out += ",\"ready_to_publish\":";
-  out += owner_.runtime_.snapshot().ready_to_publish ? "true" : "false";
-  out += ",\"calibrating\":";
-  out += owner_.runtime_.is_calibrating() ? "true" : "false";
-  append_json_pair(&out, "operation_state", runtime_operation_state_name(owner_.runtime_.operation_state()));
-  const RawCsiSessionDiagnostics raw = service_ != nullptr ? service_->raw_diagnostics() : RawCsiSessionDiagnostics{};
-  out += ",\"raw_session\":{\"active\":";
-  out += raw.active ? "true" : "false";
-  out += ",\"binary_bound\":";
-  out += raw.binary_bound ? "true" : "false";
-  out += ",\"authorized\":";
-  out += raw_session_controller_.active() ? "true" : "false";
-  out += ",\"fresh_records\":" + std::to_string(raw.fresh_record_total) + "}}";
-  return out;
+std::string NativeDirectFrontend::device_payload() const {
+  return espectre_device_payload(owner_.device_config_, owner_.mqtt_protocol_device_info_());
 }
 
-std::string NativeDirectFrontend::config_payload(bool include_local) const {
+std::string NativeDirectFrontend::health_payload(bool online) const {
+  const uint32_t now = owner_.now_ms_();
+  return espectre_health_payload(owner_.device_config_, online, now);
+}
+
+std::string NativeDirectFrontend::sensing_payload() const {
   const RuntimeConfig &runtime_config = owner_.runtime_.config();
   std::string out{"{"};
-  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
-  append_json_pair(&out, "device_id", espectre_effective_device_id(owner_.device_config_).c_str());
-  out += ",\"runtime\":{";
-  out += "\"threshold\":" + std::to_string(owner_.runtime_.snapshot().threshold);
+  const bool collecting = owner_.runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION;
+  out += "\"enabled\":";
+  out += owner_.runtime_.services_armed() ? "true" : "false";
+  out += ",\"ready\":";
+  out += owner_.runtime_.snapshot().ready_to_publish && !collecting ? "true" : "false";
+  out += ",\"calibrating\":";
+  out += owner_.runtime_.is_calibrating() ? "true" : "false";
+  append_json_pair(&out, "mode", collecting ? "csi_collection" : "sensing");
+  out += ",\"derived_events_paused\":";
+  out += collecting ? "true" : "false";
   append_json_pair(&out, "detector", detection_algorithm_name(runtime_config.detection_algorithm));
+  out += ",\"threshold\":" + std::to_string(owner_.runtime_.snapshot().threshold);
   out += ",\"motion_on_hits\":" + std::to_string(runtime_config.motion_on_hits);
   out += ",\"motion_off_hits\":" + std::to_string(runtime_config.motion_off_hits);
   append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(runtime_config.csi_traffic_mode));
@@ -330,12 +333,10 @@ std::string NativeDirectFrontend::config_payload(bool include_local) const {
   out += ",\"csi_traffic_udp_port\":" + std::to_string(runtime_config.csi_traffic_udp_port);
   append_json_pair(&out, "csi_traffic_multicast_group", runtime_config.csi_traffic_multicast_group.c_str());
   out += "}";
-  if (!include_local) {
-    out += "}";
-    return out;
-  }
-  out += ",\"device\":{";
-  append_json_pair(&out, "device_label", owner_.device_config_.device_label.c_str(), true);
+  return out;
+}
+
+std::string NativeDirectFrontend::wifi_payload(bool mqtt_safe) const {
   DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
   wifi.configured = wifi.configured || wifi_configured();
   wifi.connected = wifi.connected || !owner_.device_info_.network.ip_address.empty();
@@ -347,19 +348,27 @@ std::string NativeDirectFrontend::config_payload(bool include_local) const {
   if (wifi.band.empty() && wifi.channel > 0U) {
     wifi.band = wifi.channel <= WIFI_CHANNEL_2G_MAX ? "2g" : "5g";
   }
-  out += "},\"wifi\":{\"configured\":";
+  std::string out{"{\"configured\":"};
   out += wifi.configured ? "true" : "false";
   out += ",\"connected\":";
   out += wifi.connected ? "true" : "false";
-  append_json_pair(&out, "ssid", wifi.ssid.c_str());
-  append_json_pair(&out, "bssid", wifi.bssid.c_str());
+  if (!mqtt_safe) {
+    append_json_pair(&out, "ssid", wifi.ssid.c_str());
+    append_json_pair(&out, "bssid", wifi.bssid.c_str());
+    append_json_pair(&out, "ip", owner_.device_info_.network.ip_address.c_str());
+  }
   append_json_pair(&out, "band", wifi.band.c_str());
   out += ",\"channel\":" + std::to_string(static_cast<unsigned>(wifi.channel));
   out += ",\"rssi_dbm\":";
   out += wifi.rssi_dbm == INT16_MIN ? "null" : std::to_string(wifi.rssi_dbm);
   append_json_pair(&out, "apply_state", wifi_info_.apply_state.c_str());
   append_json_pair(&out, "apply_message", wifi_info_.apply_message.c_str());
-  out += "},\"mqtt\":{\"configured\":";
+  out += "}";
+  return out;
+}
+
+std::string NativeDirectFrontend::mqtt_payload() const {
+  std::string out{"{\"configured\":"};
   out += espectre_mqtt_configured(owner_.device_config_) ? "true" : "false";
   append_json_pair(&out, "scheme", owner_.device_config_.mqtt_scheme.c_str());
   append_json_pair(&out, "host", owner_.device_config_.mqtt_host.c_str());
@@ -367,8 +376,12 @@ std::string NativeDirectFrontend::config_payload(bool include_local) const {
   out += ",\"username_configured\":";
   out += owner_.device_config_.mqtt_username.empty() ? "false" : "true";
   append_json_pair(&out, "topic_prefix", owner_.device_config_.topic_prefix.c_str());
-  out += "}}";
+  out += "}";
   return out;
+}
+
+std::string NativeDirectFrontend::ota_payload() const {
+  return espectre_ota_status_payload(owner_.device_config_, owner_.current_ota_status_(), owner_.now_ms_());
 }
 
 std::string NativeDirectFrontend::wifi_access_points_payload() const {
@@ -419,7 +432,7 @@ std::string NativeDirectFrontend::diagnostics_payload() const {
   out += ",\"malformed_requests\":" + std::to_string(direct.malformed_requests);
   out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
   out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
-  out += ",\"dropped_telemetry_events\":" + std::to_string(direct.dropped_telemetry_events);
+  out += ",\"dropped_motion_events\":" + std::to_string(direct.dropped_motion_events);
   out += ",\"send_failures\":" + std::to_string(direct.send_failures) + "}";
 
   const RawCsiSessionDiagnostics raw = service_ != nullptr ? service_->raw_diagnostics() : RawCsiSessionDiagnostics{};
@@ -463,11 +476,10 @@ void NativeDirectFrontend::refresh_peer_candidate_() {
   candidate.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
-  candidate.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
-  candidate.events = ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
+  candidate.path = ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT;
   candidate.firmware = owner_.device_info_.firmware_version;
   candidate.chip = owner_.device_info_.chip;
-  candidate.capabilities = "config,monitor,raw_csi";
+  candidate.capabilities = "config,monitor,csi";
   candidate.port = ESPECTRE_DIRECT_HTTP_PORT;
   peer_discovery_->set_local_candidate(std::move(candidate));
 }
@@ -481,17 +493,7 @@ bool NativeDirectFrontend::handle_raw_stream_command(const EspectreCommand &comm
     if (message != nullptr) *message = "device identity is unavailable";
     return false;
   }
-  raw_session_controller_.configure(service_, &owner_.runtime_, device_id, owner_.device_info_.chip,
-                                    [this](RawCsiStopReason) {
-                                      this->owner_.runtime_events_.clear();
-                                      this->owner_.mqtt_frontend_->home_assistant().cancel_pending_state();
-                                    });
-  const bool accepted = raw_session_controller_.handle_command(command, context, code, message, data_json);
-  if (accepted && command.command == "start_raw_stream") {
-    owner_.runtime_events_.clear();
-    owner_.mqtt_frontend_->home_assistant().cancel_pending_state();
-  }
-  return accepted;
+  return raw_session_controller_.handle_command(command, context, code, message, data_json);
 }
 
 }  // namespace espectre

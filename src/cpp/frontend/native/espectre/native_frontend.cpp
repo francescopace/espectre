@@ -174,7 +174,9 @@ void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
 
 void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
   if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
-  mqtt_frontend_->publish_info();
+  const std::string sensing = direct_frontend_->sensing_payload();
+  mqtt_frontend_->publish_message("sensing", sensing, true);
+  direct_frontend_->publish_event("sensing", sensing);
   mqtt_frontend_->publish_telemetry(snapshot, now_ms_());
   if (snapshot.ready_to_publish) {
     if (snapshot.detector_name != nullptr) {
@@ -230,15 +232,12 @@ void NativeFrontend::drain_pending_runtime_events_() {
   RuntimeSnapshot snapshot;
   while (runtime_events_.take_motion_state(snapshot)) {
     mqtt_frontend_->home_assistant().publish_motion(snapshot.motion_state);
-    const uint32_t now = now_ms_();
-    const std::string payload = espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, "native");
-    fan_out_payload_(nullptr, "telemetry", payload, false, true);
   }
   if (runtime_events_.take_live_telemetry(snapshot)) {
     const uint32_t now = now_ms_();
     const char *frontend = device_info_.frontend.empty() ? "native" : device_info_.frontend.c_str();
-    const std::string payload = espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend);
-    fan_out_payload_("telemetry", "telemetry", payload, false, true);
+    const std::string payload = espectre_motion_payload(device_config_, snapshot, now, now / 1000U, frontend);
+    fan_out_payload_("motion", "motion", payload, false, true);
     mqtt_frontend_->home_assistant().publish_movement(snapshot.movement_metric);
   }
 }
@@ -248,9 +247,8 @@ void NativeFrontend::on_runtime_fault(const char *message) {
 }
 
 FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &command, FrontendCommandOrigin origin,
-                                                        bool allow_local_config, uint64_t connection_token,
-                                                        std::string authorization) {
-  return command_bindings_->execute(command, origin, allow_local_config, connection_token, std::move(authorization));
+                                                        bool allow_local_config, uint64_t connection_token) {
+  return command_bindings_->execute(command, origin, allow_local_config, connection_token);
 }
 
 EspectreCapabilityProfile NativeFrontend::command_capability_profile_(bool allow_local_config) const {
@@ -280,7 +278,6 @@ bool NativeFrontend::handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t m
     return false;
   }
   mqtt_frontend_->home_assistant().publish_motion_hits(motion_on_hits, motion_off_hits);
-  mqtt_frontend_->publish_info();
   return true;
 }
 
@@ -298,7 +295,6 @@ bool NativeFrontend::handle_csi_traffic_mode_write_(CsiTrafficMode mode) {
   }
   mqtt_frontend_->home_assistant().publish_traffic_control(runtime_.config().csi_traffic_mode,
                                                            runtime_.config().traffic_generator_mode);
-  mqtt_frontend_->publish_info();
   return true;
 }
 
@@ -312,7 +308,6 @@ bool NativeFrontend::handle_traffic_generator_mode_write_(RuntimeTrafficMode mod
   }
   mqtt_frontend_->home_assistant().publish_traffic_control(runtime_.config().csi_traffic_mode,
                                                            runtime_.config().traffic_generator_mode);
-  mqtt_frontend_->publish_info();
   return true;
 }
 
@@ -351,14 +346,18 @@ void NativeFrontend::fan_out_payload_(const char *mqtt_suffix, const char *direc
 }
 
 void NativeFrontend::publish_runtime_config_state_() {
-  mqtt_frontend_->publish_config();
-  direct_frontend_->publish_event("config", direct_frontend_->config_payload());
+  const std::string payload = direct_frontend_->sensing_payload();
+  mqtt_frontend_->publish_message("sensing", payload, true);
+  direct_frontend_->publish_event("sensing", payload);
 }
 
 void NativeFrontend::publish_runtime_status_state_() {
-  const std::string payload = direct_frontend_->status_payload(!device_info_.network.ip_address.empty());
-  mqtt_frontend_->publish_message("status", payload, true);
-  direct_frontend_->publish_event("status", payload);
+  const std::string payload = direct_frontend_->health_payload(!device_info_.network.ip_address.empty());
+  mqtt_frontend_->publish_message("health", payload, true);
+  direct_frontend_->publish_event("health", payload);
+  const std::string sensing = direct_frontend_->sensing_payload();
+  mqtt_frontend_->publish_message("sensing", sensing, true);
+  direct_frontend_->publish_event("sensing", sensing);
 }
 
 EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
@@ -397,7 +396,7 @@ void NativeFrontend::publish_ota_status_(const EspectreOtaStatus &status) {
     normalized.current_version = device_info_.firmware_version;
   }
   const std::string payload = espectre_ota_status_payload(device_config_, normalized, now_ms_());
-  fan_out_payload_("ota_status", "ota_status", payload, true);
+  fan_out_payload_("ota", "ota", payload, true);
 }
 
 void NativeFrontend::prepare_for_ota_() {

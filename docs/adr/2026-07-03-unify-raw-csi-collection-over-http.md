@@ -1,9 +1,11 @@
 # ADR: unify raw CSI collection over HTTP
 
-- Status: Accepted
+- Status: Superseded in part
 - Date: 2026-07-03
 - Recorded: 2026-07-09 (retrospective)
 - Updated: 2026-08-29
+
+The binary framing, ordering, provenance, and fixed-ring behavior remain accepted. Explicit command-created sessions and bearer binding are superseded by automatic `GET /csi` lifetime ownership in [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md).
 
 ## Context
 

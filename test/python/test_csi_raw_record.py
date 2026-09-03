@@ -262,30 +262,26 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
             self.requests = []
             self.closed = False
 
-        def request(self, method, params=None, **_kwargs):
-            self.requests.append((method, params))
-            if method == "capabilities":
+        def request(self, verb, resource, data=None, **_kwargs):
+            self.requests.append((verb, resource, data))
+            if resource == "capabilities":
                 return {
-                    "features": {"raw_csi": True},
-                    "raw_csi": {
+                    "features": {"csi": True},
+                    "csi": {
                         "transport": "http",
                         "protocol_version": RAW_CSI_PROTOCOL_VERSION,
                         "record_version": 8,
                         "frame_prefix_bytes": 60,
                     },
                 }
-            if method == "info":
+            if resource == "device":
                 return {
                     "device_id": "112233445566",
                     "frontend": "native",
-                    "firmware_version": "test",
+                    "firmware": "test",
                     "chip": "esp32c3",
                 }
-            if method == "start_raw_stream":
-                return {"session_id": session_id.hex()}
-            if method == "stop_raw_stream":
-                return {"code": "ok"}
-            if method == "diagnostics":
+            if resource == "diagnostics":
                 return {
                     "raw_csi": {
                         "fresh_record_total": 1,
@@ -294,7 +290,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
                         "stream_sequence": 3,
                     }
                 }
-            raise AssertionError(method)
+            raise AssertionError((verb, resource, data))
 
         def close(self):
             self.closed = True
@@ -395,14 +391,12 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
     assert detached_packet.raw_drop_total == 2
     assert detached_packet.raw_send_backpressure_total == 3
     assert raw.request_args[0:2] == ("GET", "/espectre/v1/csi")
-    assert raw.request_args[2]["Authorization"] == f"Bearer {session_id.hex()}"
+    assert "Authorization" not in raw.request_args[2]
     assert raw.socket_timeouts == [None]
-    assert [request[0] for request in control.requests] == [
-        "capabilities",
-        "info",
-        "start_raw_stream",
-        "stop_raw_stream",
-        "diagnostics",
+    assert [(request[0], request[1]) for request in control.requests] == [
+        ("get", "capabilities"),
+        ("get", "device"),
+        ("get", "diagnostics"),
     ]
 
 
@@ -443,9 +437,9 @@ def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallb
         def __init__(self, *_args, **_kwargs):
             self.closed = False
 
-        def request(self, method, *_args, **_kwargs):
-            assert method == "capabilities"
-            return {"features": {"raw_csi": False}}
+        def request(self, verb, resource, *_args, **_kwargs):
+            assert (verb, resource) == ("get", "capabilities")
+            return {"features": {"csi": False}}
 
         def close(self):
             self.closed = True
@@ -463,7 +457,7 @@ def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallb
 def test_direct_raw_receiver_uses_shared_ghost_port_for_bare_targets():
     receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
 
-    assert receiver.control_endpoint == "http://192.168.1.23:62587/espectre/v1/request"
+    assert receiver.control_endpoint == "http://192.168.1.23:62587/espectre/v1"
     assert receiver.raw_endpoint == "http://192.168.1.23:62587/espectre/v1/csi"
 
 

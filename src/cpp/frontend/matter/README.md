@@ -80,7 +80,7 @@ That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
 The Matter frontend uses the shared periodic progress-bar sensing status helper, as do ESPHome and Native. The runtime uses that same one-second heartbeat to cache one CSI and Wi-Fi rate sample consumed by every C++ frontend and returned by Direct diagnostics.
 
-High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected. Runtime callbacks retain snapshots only; Direct serialization happens after the CSI drain, and edge-triggered occupancy updates are scheduled onto the CHIP work queue.
+Motion events follow the detector evaluation cadence only while a Direct SSE client is connected. Runtime callbacks retain snapshots only; Direct serialization happens after the CSI drain, and edge-triggered occupancy updates are scheduled onto the CHIP work queue.
 
 ### Commissioning Window Behavior
 
@@ -120,7 +120,7 @@ The standard Matter surface remains intentionally narrow. It does not expose:
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared [`TUNING.md`](../../../../docs/TUNING.md)
 
-The firmware exposes `http://<device>:62587/espectre/v1/request` as its local tuning plane. Direct HTTP provides the shared runtime controls, diagnostics, Wi-Fi association inspection, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI advertised by the capability catalog. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) owns the method catalog and [peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
+The firmware exposes resources below `http://<device>:62587/espectre/v1` as its local tuning plane. Direct HTTP provides the shared runtime controls, diagnostics, Wi-Fi association inspection, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and CSI advertised by the capability catalog. [`API.md`](../../../../docs/API.md) owns the resource catalog, and [`DISCOVERY.md`](../../../../docs/DISCOVERY.md#browser-bootstrap) owns peer-assisted browser discovery.
 
 Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
 
@@ -130,7 +130,7 @@ The Direct adapter uses the same `FrontendCommandEngine` as the other C++ fronte
 
 Matter supports both `lightweight` and `high_accuracy`. Published firmware starts with Lightweight, while a local build can select another initial profile through the shared ESP-IDF sensing configuration. Direct HTTP changes and persists the runtime selection; standard Matter occupancy clusters do not expose that control. [`TUNING.md`](../../../../docs/TUNING.md#startup-and-detection-profile) owns the profile trade-offs and startup procedure.
 
-Matter also supports the shared internal and external traffic modes and the bearer-bound raw HTTP surface. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic configuration, and [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi) owns raw-session behavior and framing.
+Matter also supports the shared internal and external traffic modes and automatic `GET /csi` collection. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic configuration, and [`API.md`](../../../../docs/API.md#csi-collection) owns collection behavior and framing.
 
 ## Targets and Validation
 

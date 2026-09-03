@@ -174,28 +174,24 @@ def normalize_direct_diagnostics(
         "detection_max_us": _integer(payload.get("detection_max_us")),
         "direct_rejected_connections": _integer(direct_http.get("rejected_connections")),
         "direct_send_failures": _integer(direct_http.get("send_failures")),
-        "direct_dropped_telemetry_events": _integer(direct_http.get("dropped_telemetry_events")),
+        "direct_dropped_motion_events": _integer(direct_http.get("dropped_motion_events")),
     }
 
 def normalize_direct_events(events: Sequence[DirectEvent], *, from_index: int) -> list[dict[str, object]]:
     normalized: list[dict[str, object]] = []
     for event in events[from_index:]:
-        if event.name not in {"telemetry", "status", "config", "fault"}:
+        if event.name not in {"motion", "health", "device", "sensing", "wifi", "ota", "fault"}:
             continue
         data = event.data
         normalized.append(
             {
                 "host_elapsed_seconds": round(event.host_elapsed_seconds, 6),
                 "event": event.name,
-                "motion": data.get("motion") if isinstance(data.get("motion"), bool) else None,
-                "motion_state": data.get("motion_state") if isinstance(data.get("motion_state"), str) else None,
-                "detector": data.get("detector") if isinstance(data.get("detector"), str) else None,
+                "motion": data.get("state") == "motion" if event.name == "motion" else None,
+                "motion_state": data.get("state") if isinstance(data.get("state"), str) else None,
+                "score": _numeric(data.get("score")),
                 "timestamp_ms": _integer(data.get("timestamp_ms")),
-                "uptime": _integer(data.get("uptime")) or (
-                    _integer(data.get("health", {}).get("uptime_s"))
-                    if isinstance(data.get("health"), dict)
-                    else None
-                ),
+                "uptime": _integer(data.get("uptime_s")) if event.name == "health" else None,
             }
         )
     return normalized
@@ -248,12 +244,13 @@ def discover_direct_device(
 
 
 def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
-    responses = {method: client.request(method) for method in ("capabilities", "info", "status", "config", "diagnostics")}
+    resources = ("capabilities", "device", "health", "sensing", "wifi", "diagnostics")
+    responses = {resource: client.request("get", resource) for resource in resources}
     capabilities = responses["capabilities"]
-    commands = capabilities.get("commands")
+    commands = capabilities.get("operations")
     if not isinstance(commands, list) or not all(isinstance(item, dict) for item in commands):
         raise RuntimeError("Direct capabilities response is incompatible")
-    info = responses["info"]
+    info = responses["device"]
     if info.get("frontend") != frontend:
         raise RuntimeError(f"Direct endpoint frontend mismatch: {info.get('frontend')!r}")
     reported_chip = normalized_discovery_chip(info.get("chip"))
@@ -265,30 +262,30 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
     handshake = direct_handshake(client, frontend=case.frontend, chip=chip)
     methods = {
         str(item.get("name"))
-        for item in handshake["capabilities"].get("commands", [])
+        for item in handshake["capabilities"].get("operations", [])
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
     if case.benchmark_mode == "runtime":
         required = {
-            "set_detector",
-            "set_sensing",
-            "diagnostics",
+            "update_sensing",
+            "read_diagnostics",
         }
         missing = sorted(required - methods)
         if missing:
             raise RuntimeError(f"Direct endpoint lacks required methods: {', '.join(missing)}")
-        client.request("set_detector", {"detector": case.detector})
-    if "set_sensing" in methods:
-        client.request("set_sensing", {"enabled": True})
-    confirmation = {method: client.request(method) for method in ("info", "status", "config")}
-    status = confirmation["status"]
-    if status.get("sensing_enabled") is not True:
-        raise RuntimeError("Direct status did not confirm sensing enabled")
+        client.request("patch", "sensing", {"detector": case.detector})
+    if "update_sensing" in methods:
+        client.request("patch", "sensing", {"enabled": True})
+    confirmation = {
+        resource: client.request("get", resource)
+        for resource in ("device", "health", "sensing", "wifi")
+    }
+    if confirmation["sensing"].get("enabled") is not True:
+        raise RuntimeError("Direct sensing resource did not confirm sensing enabled")
     if case.benchmark_mode == "runtime":
-        info = confirmation["info"]
+        info = confirmation["device"]
         detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
-        config = confirmation["config"]
-        runtime_config = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
+        runtime_config = confirmation["sensing"]
         detector = runtime_config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
         if detector != case.detector:
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
@@ -312,23 +309,22 @@ def prepare_micro_direct_runtime(
     handshake = direct_handshake(client, frontend="micro", chip=chip)
     methods = {
         str(item.get("name"))
-        for item in handshake["capabilities"].get("commands", [])
+        for item in handshake["capabilities"].get("operations", [])
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
-    required_methods = {"diagnostics", "recalibrate"}
+    required_methods = {"read_diagnostics", "recalibrate"}
     missing_methods = sorted(required_methods - methods)
     if missing_methods:
         raise RuntimeError(
             "Micro Direct endpoint lacks required methods: "
             + ", ".join(missing_methods)
         )
-    status = handshake["status"]
-    if status.get("sensing_enabled") is not True:
-        raise RuntimeError("Micro Direct status did not confirm sensing enabled")
-    info = handshake["info"]
+    status = handshake["sensing"]
+    if status.get("enabled") is not True:
+        raise RuntimeError("Micro Direct sensing resource did not confirm sensing enabled")
+    info = handshake["device"]
     detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
-    config = handshake["config"]
-    runtime_config = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
+    runtime_config = handshake["sensing"]
     detector = runtime_config.get("detector") or detection.get("algorithm")
     if detector != case.detector:
         raise RuntimeError(f"Micro Direct endpoint did not confirm detector {case.detector}")
@@ -342,8 +338,6 @@ def prepare_micro_direct_runtime(
         )
     diagnostics = handshake["diagnostics"]
     required_diagnostic_fields = {
-        "protocol_version",
-        "device_id",
         "timestamp_ms",
         "uptime",
     }
@@ -366,7 +360,7 @@ def prepare_micro_direct_runtime(
         "malformed_requests",
         "oversized_requests",
         "rate_limited_requests",
-        "dropped_telemetry_events",
+        "dropped_motion_events",
         "send_failures",
     }
     missing_direct_http_fields = sorted(
@@ -439,7 +433,7 @@ def _wait_for_direct_event_stream_closed(
     """Wait until the device has accounted for the closed SSE subscriber."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        diagnostics = client.request("diagnostics")
+        diagnostics = client.request("get", "diagnostics")
         direct_http = diagnostics.get("direct_http")
         if isinstance(direct_http, dict) and _integer(direct_http.get("event_clients")) == 0:
             return
@@ -477,7 +471,7 @@ def capture_direct_window(
                     raise
                 time.sleep(0.5)
     if require_fresh_timestamp:
-        previous_raw = client.request("diagnostics")
+        previous_raw = client.request("get", "diagnostics")
         events_start = len(client.events)
     started = time.monotonic()
     deadline = started + duration_seconds
@@ -489,14 +483,14 @@ def capture_direct_window(
                 time.sleep(min(next_sample - now, 0.05))
                 continue
             sampled_at = now
-            for method in ("status", "diagnostics"):
+            for method in ("health", "diagnostics"):
                 request_started = time.monotonic()
                 if isinstance(getattr(client, "last_request_timing", None), dict):
                     client.last_request_timing = {}
                 error: Exception | None = None
                 raw: dict[str, object] | None = None
                 try:
-                    raw = client.request(method)
+                    raw = client.request("get", method)
                 except (OSError, RuntimeError, TimeoutError) as exc:
                     error = exc
                 sampled_at = time.monotonic()
@@ -578,15 +572,15 @@ def wait_for_direct_runtime_ready(
     last_admitted_pps = 0.0
     last_uptime = 0
     while time.monotonic() < deadline:
-        status = client.request("status")
-        diagnostics = client.request("diagnostics")
+        sensing = client.request("get", "sensing")
+        diagnostics = client.request("get", "diagnostics")
         sample = normalize_direct_diagnostics(diagnostics, host_elapsed_seconds=0.0, previous=previous)
         previous = diagnostics
         admitted_pps = _numeric(sample.get("csi_admitted_pps")) or 0.0
         sampled_uptime = _integer(sample.get("uptime"))
         uptime = sampled_uptime or 0
-        sensing_enabled = status.get("sensing_enabled") is True
-        publish_ready = status.get("ready_to_publish") is True or not require_publish_ready
+        sensing_enabled = sensing.get("enabled") is True
+        publish_ready = sensing.get("ready") is True or not require_publish_ready
         last_sensing_enabled = sensing_enabled
         last_publish_ready = publish_ready
         last_admitted_pps = admitted_pps
@@ -663,6 +657,8 @@ class _TimedNonPersistentDirectClient(DirectClient):
 
     def _persistent_request(
         self,
+        method: str,
+        path: str,
         encoded: bytes,
         headers: dict[str, str],
         *,
@@ -675,7 +671,7 @@ class _TimedNonPersistentDirectClient(DirectClient):
         authority_host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
         authority = authority_host if port == 80 else f"{authority_host}:{port}"
         request_headers = {**headers, "Connection": "close", "Content-Length": str(len(encoded))}
-        head = [f"POST {parsed.path} HTTP/1.1", f"Host: {authority}"]
+        head = [f"{method} {path} HTTP/1.1", f"Host: {authority}"]
         head.extend(f"{name}: {value}" for name, value in request_headers.items())
         wire_request = ("\r\n".join(head) + "\r\n\r\n").encode("latin-1") + encoded
 
@@ -838,7 +834,7 @@ def _connect_direct_with_retry(
                 persistent_requests=True,
                 minimum_request_interval_seconds=DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS,
             )
-            client.request("capabilities")
+            client.request("get", "capabilities")
             return client
         except (OSError, RuntimeError, TimeoutError) as exc:
             if client is not None:
@@ -899,14 +895,11 @@ def _apply_serial_monitor_evidence(
             result.status = "FAIL"
 
 def _direct_radio_pin_matches(
-    config: dict[str, object],
+    wifi: dict[str, object],
     bssid: str,
     *,
     requested_channel: int = 0,
 ) -> bool:
-    wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
-    if not isinstance(wifi, dict):
-        return False
     bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
     channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
     return wifi.get("configured") is True and bssid_matches and channel_matches
@@ -924,10 +917,8 @@ def _apply_direct_radio_pin(
     if not bssid:
         return False, ""
     if skip_if_associated:
-        config = client.request("config")
-        if _direct_radio_pin_matches(config, bssid, requested_channel=requested_channel):
-            wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
-            assert isinstance(wifi, dict)
+        wifi = client.request("get", "wifi")
+        if _direct_radio_pin_matches(wifi, bssid, requested_channel=requested_channel):
             return False, str(wifi.get("bssid", ""))
     # Every frontend acknowledges the staged BSSID mutation before changing
     # the station association. A lost response is therefore a failed apply,
@@ -937,10 +928,12 @@ def _apply_direct_radio_pin(
     while True:
         try:
             acknowledgement = client.request(
-                "set_wifi_bssid",
+                "put",
+                "wifi/bssid",
                 {"bssid": bssid, "force": force},
             )
-            current_bssid = acknowledgement.get("current_bssid")
+            data = acknowledgement.get("data", {})
+            current_bssid = data.get("current_bssid") if isinstance(data, dict) else None
             if not isinstance(current_bssid, str):
                 raise DirectProtocolError(
                     "Direct set_wifi_bssid acknowledgement is missing current_bssid"
@@ -974,15 +967,9 @@ def _reconnect_direct_after_radio_pin(
     )
 
 def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
-    status = handshake["status"]
-    config = handshake["config"]
-    mqtt = config.get("mqtt") if isinstance(config.get("mqtt"), dict) else {}
-    if status.get("wifi_connected") is not True:
+    wifi = handshake["wifi"]
+    if wifi.get("connected") is not True:
         raise RuntimeError("Native Direct status did not confirm Wi-Fi connectivity")
-    if status.get("mqtt_configured") is not False or status.get("mqtt_connected") is not False:
-        raise RuntimeError("Native benchmark endpoint unexpectedly reports MQTT configured or connected")
-    if isinstance(mqtt, dict) and mqtt.get("configured") is not False:
-        raise RuntimeError("Native benchmark configuration unexpectedly contains MQTT settings")
 
 
 def _verify_default_runtime_baseline(
@@ -991,8 +978,7 @@ def _verify_default_runtime_baseline(
     expected_traffic_mode: str = "ping",
 ) -> None:
     """Require the production runtime defaults before benchmark mutations."""
-    config = handshake["config"]
-    runtime = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
+    runtime = handshake["sensing"]
     expected = {
         "detector": "lightweight",
         "csi_traffic_mode": "internal",
@@ -1037,16 +1023,12 @@ def _verify_direct_radio_pin(
 ) -> None:
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < deadline:
-        config = client.request("config")
-        wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
-        if not isinstance(wifi, dict):
-            time.sleep(1.0)
-            continue
+        wifi = client.request("get", "wifi")
         # A successful reconnect must expose the requested active association.
         # Native may additionally report a staged-apply state while ESPHome
         # and Matter keep their persisted pins outside the shared Wi-Fi snapshot.
         if _direct_radio_pin_matches(
-            config,
+            wifi,
             requested_bssid,
             requested_channel=requested_channel,
         ):
@@ -1359,7 +1341,7 @@ def run_direct_frontend_cases(
             result.transport_evidence = {
                 "transport": "http",
                 "origin": DIRECT_ORIGIN,
-                "request_path": "/espectre/v1/request",
+                "request_path": "/espectre/v1",
                 "events_path": "/espectre/v1/events",
                 "events_enabled": sse_enabled,
                 "improv_states": list(provisioning.get("states", [])) if provisioning is not None else [],
@@ -1441,7 +1423,7 @@ def run_direct_frontend_cases(
                     result.direct_samples,
                     result.direct_events,
                     duration_seconds=settings.MONITOR_DURATION_SECONDS,
-                    require_telemetry=sse_enabled,
+                    require_motion=sse_enabled,
                     require_detection_timing=True,
                     attempts=result.direct_attempts,
                 )
@@ -1454,7 +1436,7 @@ def run_direct_frontend_cases(
             if on_result is not None:
                 on_result(result)
         try:
-            client.request("set_sensing", {"enabled": False})
+            client.request("patch", "sensing", {"enabled": False})
         except (OSError, RuntimeError, TimeoutError):
             pass
         return results
@@ -1589,7 +1571,7 @@ def run_micro_case(
                 result.direct_samples,
                 result.direct_events,
                 duration_seconds=settings.MONITOR_DURATION_SECONDS,
-                require_telemetry=True,
+                require_motion=True,
                 require_detection_timing=True,
                 sample_interval_seconds=MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
                 status_gap_tolerance_ms=MICRO_RUNTIME_STATUS_GAP_TOLERANCE_MS,

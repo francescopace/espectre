@@ -750,7 +750,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         host_authority = f"[{self.target_host}]" if ":" in self.target_host else self.target_host
         authority = host_authority if self.target_port == 80 else f"{host_authority}:{self.target_port}"
         self._control_endpoint = urllib.parse.urlunsplit(
-            ("http", authority, "/espectre/v1/request", "", "")
+            ("http", authority, "/espectre/v1", "", "")
         )
         self.origin = origin
         self.timeout = float(timeout)
@@ -804,12 +804,12 @@ class DirectRawCSIReceiver(CSIReceiver):
             origin=self.origin,
             timeout=self.timeout,
         )
-        capabilities = self._control.request("capabilities")
+        capabilities = self._control.request("get", "capabilities")
         features = capabilities.get("features")
-        raw_capability = capabilities.get("raw_csi")
+        raw_capability = capabilities.get("csi")
         if (
             not isinstance(features, dict)
-            or features.get("raw_csi") is not True
+            or features.get("csi") is not True
             or not isinstance(raw_capability, dict)
             or raw_capability.get("transport") != "http"
             or raw_capability.get("protocol_version") != RAW_CSI_PROTOCOL_VERSION
@@ -819,29 +819,19 @@ class DirectRawCSIReceiver(CSIReceiver):
             self._control.close()
             self._control = None
             raise RuntimeError("target does not advertise compatible Direct raw CSI")
-        info = self._control.request("info")
+        info = self._control.request("get", "device")
         self._frontend = str(info.get("frontend", ""))
-        self._firmware_version = str(info.get("firmware_version", ""))
+        self._firmware_version = str(info.get("firmware", ""))
         self._firmware_identity = "|".join(
-            str(info.get(key, "")) for key in ("device_id", "frontend", "firmware_version", "chip")
+            str(info.get(key, "")) for key in ("device_id", "frontend", "firmware", "chip")
         )
 
-        session = self._control.request("start_raw_stream")
-        session_id = session.get("session_id")
-        if not isinstance(session_id, str) or len(session_id) != 32:
-            self._best_effort_stop()
-            raise RuntimeError("Direct raw session returned an invalid session id")
-        try:
-            self._session_id = bytes.fromhex(session_id)
-        except ValueError as exc:
-            self._best_effort_stop()
-            raise RuntimeError("Direct raw session returned an invalid session id") from exc
+        self._session_id = b""
 
     def _bind_stream(self) -> None:
         if self._raw_response is not None:
             return
         self._open_session()
-        session_id = self._session_id.hex()
         connection_factory = self._raw_connection_factory or http.client.HTTPConnection
         try:
             self._raw_connection = connection_factory(
@@ -854,7 +844,6 @@ class DirectRawCSIReceiver(CSIReceiver):
                 RAW_CSI_PATH,
                 headers={
                     "Accept": "application/octet-stream",
-                    "Authorization": f"Bearer {session_id}",
                     "Cache-Control": "no-store",
                     "Origin": self.origin,
                 },
@@ -886,7 +875,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._bind_stream()
 
     def start_session(self) -> None:
-        """Create the bearer-bound raw session without waiting for stream data."""
+        """Negotiate CSI capabilities without opening the stream."""
         self._open_session()
 
     def bind_stream(self) -> None:
@@ -898,11 +887,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._open()
 
     def _best_effort_stop(self) -> None:
-        if self._control is not None:
-            try:
-                self._control.request("stop_raw_stream", timeout=min(self.timeout, 2.0))
-            except Exception:
-                pass
+        return
 
     def _dispatch_direct_packet(self, packet: CSIPacket) -> None:
         packet.source_ip = self.target_host
@@ -945,6 +930,8 @@ class DirectRawCSIReceiver(CSIReceiver):
                 backpressure_total,
             ) = RAW_CSI_HTTP_FRAME_STRUCT.unpack_from(self._raw_buffer)
             frame_length = int(header_len) + int(record_len)
+            if not self._session_id and len(session_id) == 16:
+                self._session_id = bytes(session_id)
             if (
                 magic != RAW_CSI_RESPONSE_MAGIC
                 or version != RAW_CSI_PROTOCOL_VERSION
@@ -991,7 +978,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         if self._control is None:
             return
         try:
-            diagnostics = self._control.request("diagnostics", timeout=min(self.timeout, 2.0))
+            diagnostics = self._control.request("get", "diagnostics", timeout=min(self.timeout, 2.0))
         except Exception:
             return
         raw = diagnostics.get("raw_csi", {}) if isinstance(diagnostics, dict) else {}

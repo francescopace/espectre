@@ -119,7 +119,6 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
     frontend = _decode_txt(info.properties, "frontend")
     transport = _decode_txt(info.properties, "transport")
     path = _decode_txt(info.properties, "path")
-    events = _decode_txt(info.properties, "events")
     txtvers = _decode_txt(info.properties, "txtvers")
     protovers = _decode_txt(info.properties, "protovers")
     port = int(info.port)
@@ -130,8 +129,7 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         or frontend not in SUPPORTED_DISCOVERY_FRONTENDS
         or transport != "http"
         or not 1 <= port <= 65535
-        or path != "/espectre/v1/request"
-        or events != "/espectre/v1/events"
+        or path != "/espectre/v1"
         or txtvers != DNS_SD_TXT_SCHEMA_VERSION
         or protovers != PROTOCOL_VERSION
     ):
@@ -155,7 +153,7 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         transport=transport,
         endpoint=f"http://{authority}{path}",
         protocol=protovers,
-        events_endpoint=f"http://{authority}{events}",
+        events_endpoint=f"http://{authority}/espectre/v1/events",
         firmware=_decode_txt(info.properties, "firmware"),
         capabilities=capabilities,
         metadata=metadata,
