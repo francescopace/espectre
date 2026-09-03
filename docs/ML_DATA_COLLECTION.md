@@ -32,9 +32,9 @@ Gesture, HAR, and people-counting datasets are possible, but they are not the ma
 The primary collection path is:
 
 ```text
-raw-capable ESPectre frontend
+CSI-capable ESPectre frontend
   -> ExternalTrafficGenerator UDP marker
-  -> bearer-bound raw HTTP
+  -> connection-bound GET /espectre/v1/csi response
   -> ./espectre collect
   -> one .npz per device_id
 ```
@@ -212,7 +212,7 @@ Current collector fields:
 | `raw_protocol_version` | `uint8` | Raw HTTP protocol version, currently `1` |
 | `record_version` | `uint8` | CSI record version, currently `8` for live captures |
 | `frontend` | `str` | Device frontend (`native`, `esphome`, or `matter`) |
-| `firmware_version`, `firmware_identity` | `str` | Firmware provenance reported by Direct `info` |
+| `firmware_version`, `firmware_identity` | `str` | Firmware provenance reported by the Direct `device` resource |
 | `fresh_record_total`, `raw_fresh_record_total` | `uint64` | Final sent-record counter |
 | `raw_drop_total` | `uint64` | Final count of raw records not transmitted |
 | `send_backpressure_total`, `raw_send_backpressure_total` | `uint64` | Final failed-send backpressure counter |

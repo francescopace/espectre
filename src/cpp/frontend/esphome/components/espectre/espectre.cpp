@@ -358,13 +358,13 @@ bool ESpectreComponent::apply_esphome_wifi_bssid_pin_(const std::string &bssid,
   }
   station.clear_channel();
   wifi::global_wifi_component->set_sta(station);
-  bool station_transition_started = false;
-  const bool applied = apply_wifi_bssid_pin(bssid, message, &station_transition_started);
-  if (!applied) {
-    wifi::global_wifi_component->set_sta(previous_station);
+  wifi::global_wifi_component->retry_connect();
+  this->wifi_bssid_apply_transition_started_ = true;
+  if (message != nullptr) {
+    *message = bssid.empty() ? "Wi-Fi BSSID clear queued through ESPHome"
+                             : "Wi-Fi BSSID update queued through ESPHome";
   }
-  this->wifi_bssid_apply_transition_started_ = station_transition_started;
-  return applied;
+  return true;
 #else
   return apply_wifi_bssid_pin(bssid, message);
 #endif

@@ -203,7 +203,7 @@ def test_report_round_trip_preserves_reboot_and_settled_heap_diagnostics():
     assert parsed.gc_pause_us_max == 4_800
 
 
-def test_report_keeps_nonregressing_bssid_reboot_evidence_unknown():
+def test_report_keeps_bssid_evidence_out_of_the_summary():
     case = BenchmarkCase("esphome", "lightweight")
     result = BenchmarkResult(case=case, status="PASS")
     result.transport_evidence = {
@@ -213,7 +213,6 @@ def test_report_keeps_nonregressing_bssid_reboot_evidence_unknown():
             "already_associated": True,
             "reassociation_exercised": True,
             "verified": True,
-            "reboot_observed": None,
         }
     }
 
@@ -226,10 +225,9 @@ def test_report_keeps_nonregressing_bssid_reboot_evidence_unknown():
     )
     parsed = bench.parse_report_results(rendered)[0]
 
-    assert "| Frontend BSSID setup |" in rendered
-    assert "Setup verified; rearm exercised; reboot unknown" in rendered
+    assert "| Frontend BSSID setup |" not in rendered
     assert "| Frontend setup final BSSID reassociation exercised | yes |" in rendered
-    assert "| Frontend setup final BSSID reboot observed | unknown |" in rendered
+    assert "BSSID reboot observed" not in rendered
     assert parsed.status == "PASS"
     assert parsed.transport_evidence["bssid_provisioning"] == result.transport_evidence["bssid_provisioning"]
 

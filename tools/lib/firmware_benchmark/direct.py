@@ -72,7 +72,7 @@ from tools.lib.firmware_benchmark.settings import (
     DIRECT_EVENT_OPEN_ATTEMPTS,
     DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS,
     DIRECT_ORIGIN,
-    DIRECT_READINESS_REBOOT_MARGIN_SECONDS,
+    DIRECT_READINESS_MARGIN_SECONDS,
     DIRECT_SAMPLE_INTERVAL_SECONDS,
     DIRECT_SAMPLE_PHASE_OFFSET_SECONDS,
     DIRECT_STABLE_SAMPLE_COUNT,
@@ -555,18 +555,13 @@ def wait_for_direct_runtime_ready(
     require_publish_ready: bool = True,
     minimum_uptime_seconds: int = 0,
     initial_uptime_seconds: int | None = None,
-    allow_reboot_recovery: bool = False,
-    reboot_observed_before_wait: bool = False,
-) -> bool:
-    """Wait for stable CSI readiness and return whether a reboot was observed."""
+) -> None:
+    """Wait for stable CSI readiness and reject device restarts."""
     deadline = time.monotonic() + timeout_seconds
     stable_samples = 0
     previous: dict[str, object] | None = None
     previous_uptime = initial_uptime_seconds
-    reboot_count = 1 if reboot_observed_before_wait else 0
     startup_window_extended = False
-    extend_for_observed_reboot = reboot_observed_before_wait
-    reboot_recovery_extended = False
     last_sensing_enabled = False
     last_publish_ready = False
     last_admitted_pps = 0.0
@@ -593,7 +588,7 @@ def wait_for_direct_runtime_ready(
             startup_seconds = (
                 remaining_uptime_seconds
                 + DIRECT_STABLE_SAMPLE_COUNT * DIRECT_SAMPLE_INTERVAL_SECONDS
-                + DIRECT_READINESS_REBOOT_MARGIN_SECONDS
+                + DIRECT_READINESS_MARGIN_SECONDS
             )
             deadline = max(deadline, time.monotonic() + startup_seconds)
             startup_window_extended = True
@@ -602,26 +597,7 @@ def wait_for_direct_runtime_ready(
             and sampled_uptime is not None
             and sampled_uptime < previous_uptime
         ):
-            reboot_count += 1
-            stable_samples = 0
-            extend_for_observed_reboot = (
-                allow_reboot_recovery and not reboot_recovery_extended
-            )
-        if (
-            allow_reboot_recovery
-            and extend_for_observed_reboot
-            and not reboot_recovery_extended
-            and sampled_uptime is not None
-        ):
-            remaining_uptime_seconds = max(0, minimum_uptime_seconds - sampled_uptime)
-            recovery_seconds = (
-                remaining_uptime_seconds
-                + DIRECT_STABLE_SAMPLE_COUNT * DIRECT_SAMPLE_INTERVAL_SECONDS
-                + DIRECT_READINESS_REBOOT_MARGIN_SECONDS
-            )
-            deadline = max(deadline, time.monotonic() + recovery_seconds)
-            extend_for_observed_reboot = False
-            reboot_recovery_extended = True
+            raise RuntimeError("Direct uptime regressed while waiting for CSI readiness")
         if sampled_uptime is not None:
             previous_uptime = sampled_uptime
         if (
@@ -632,7 +608,7 @@ def wait_for_direct_runtime_ready(
         ):
             stable_samples += 1
             if stable_samples >= DIRECT_STABLE_SAMPLE_COUNT:
-                return reboot_count > 0
+                return
         else:
             stable_samples = 0
         time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
@@ -997,22 +973,19 @@ def _verify_default_runtime_baseline(
         )
 
 
-def _bssid_reboot_observed(
+def _verify_no_bssid_reboot(
     before: dict[str, dict[str, object]],
     after: dict[str, dict[str, object]],
-) -> bool | None:
-    """Return true only when Direct uptime evidence proves a BSSID-apply reboot."""
+) -> None:
+    """Reject a BSSID apply when Direct monotonic time proves a restart."""
     comparisons = []
     for field in ("uptime", "timestamp_ms"):
         before_value = _integer(before["diagnostics"].get(field))
         after_value = _integer(after["diagnostics"].get(field))
         if before_value is not None and after_value is not None:
             comparisons.append(after_value < before_value)
-    # A regression proves that the monotonic device clock restarted. The
-    # converse is unsafe: when a pin is applied at low uptime, the device can
-    # reboot and recover past the pre-apply value before Direct reconnects.
-    # Without a boot identifier, non-regression must remain unknown.
-    return True if any(comparisons) else None
+    if any(comparisons):
+        raise RuntimeError("device rebooted while applying the Wi-Fi BSSID")
 
 
 def _verify_direct_radio_pin(
@@ -1298,7 +1271,6 @@ def run_direct_frontend_cases(
             "already_associated": False,
             "reassociation_exercised": False,
             "verified": False,
-            "reboot_observed": None,
         }
         if frontend in {"native", "esphome", "matter"}:
             baseline_before_radio_pin = baseline
@@ -1323,10 +1295,7 @@ def run_direct_frontend_cases(
                     timed_nonpersistent=timed_nonpersistent,
                 )
                 baseline = direct_handshake(client, frontend=frontend, chip=chip)
-                bssid_evidence["reboot_observed"] = _bssid_reboot_observed(
-                    baseline_before_radio_pin,
-                    baseline,
-                )
+                _verify_no_bssid_reboot(baseline_before_radio_pin, baseline)
                 if frontend == "native":
                     _verify_native_baseline(baseline)
             if requested_bssid:
@@ -1383,7 +1352,7 @@ def run_direct_frontend_cases(
                     )
                     time.sleep(fixed_warmup_seconds)
                 else:
-                    readiness_reboot_observed = wait_for_direct_runtime_ready(
+                    wait_for_direct_runtime_ready(
                         client,
                         timeout_seconds=benchmark_setting_int(
                             "ESPECTRE_BENCHMARK_DIRECT_READY_TIMEOUT_SECONDS",
@@ -1394,20 +1363,7 @@ def run_direct_frontend_cases(
                         initial_uptime_seconds=_integer(
                             baseline["diagnostics"].get("uptime")
                         ),
-                        allow_reboot_recovery=(
-                            bssid_evidence["reassociation_exercised"] is True
-                        ),
-                        reboot_observed_before_wait=(
-                            bssid_evidence["reboot_observed"] is True
-                        ),
                     )
-                    if readiness_reboot_observed:
-                        bssid_evidence["reboot_observed"] = True
-                        result_bssid_evidence = result.transport_evidence.get(
-                            "bssid_provisioning"
-                        )
-                        if isinstance(result_bssid_evidence, dict):
-                            result_bssid_evidence["reboot_observed"] = True
                 (
                     result.direct_samples,
                     result.direct_events,

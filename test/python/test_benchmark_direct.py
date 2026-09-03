@@ -996,13 +996,13 @@ def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
 
-    reboot_observed = bench.wait_for_direct_runtime_ready(
+    ready = bench.wait_for_direct_runtime_ready(
         client,
         timeout_seconds=100,
         minimum_uptime_seconds=30,
     )
 
-    assert reboot_observed is False
+    assert ready is None
     assert client.diagnostics_calls == 7
 
 
@@ -1037,17 +1037,17 @@ def test_direct_runtime_readiness_reserves_stable_samples_after_minimum_uptime(m
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
 
-    reboot_observed = bench.wait_for_direct_runtime_ready(
+    ready = bench.wait_for_direct_runtime_ready(
         client,
         timeout_seconds=30,
         minimum_uptime_seconds=30,
     )
 
-    assert reboot_observed is False
+    assert ready is None
     assert client.diagnostics_calls == 34
 
 
-def test_direct_runtime_readiness_recovers_once_after_bssid_reboot(monkeypatch):
+def test_direct_runtime_readiness_rejects_a_reboot(monkeypatch):
     class FakeClock:
         now = 0.0
 
@@ -1079,19 +1079,18 @@ def test_direct_runtime_readiness_recovers_once_after_bssid_reboot(monkeypatch):
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
 
-    reboot_observed = bench.wait_for_direct_runtime_ready(
-        client,
-        timeout_seconds=30,
-        minimum_uptime_seconds=30,
-        initial_uptime_seconds=120,
-        allow_reboot_recovery=True,
-    )
+    with pytest.raises(RuntimeError, match="uptime regressed"):
+        bench.wait_for_direct_runtime_ready(
+            client,
+            timeout_seconds=30,
+            minimum_uptime_seconds=30,
+            initial_uptime_seconds=120,
+        )
 
-    assert reboot_observed is True
-    assert client.diagnostics_calls == 34
+    assert client.diagnostics_calls == 1
 
 
-def test_direct_runtime_readiness_bounds_recovery_after_repeated_reboots(monkeypatch):
+def test_direct_runtime_readiness_rejects_a_later_reboot(monkeypatch):
     class FakeClock:
         now = 0.0
 
@@ -1122,16 +1121,14 @@ def test_direct_runtime_readiness_bounds_recovery_after_repeated_reboots(monkeyp
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
 
-    with pytest.raises(RuntimeError, match="did not produce 5 consecutive"):
+    with pytest.raises(RuntimeError, match="uptime regressed"):
         bench.wait_for_direct_runtime_ready(
             FakeClient(),
             timeout_seconds=30,
             minimum_uptime_seconds=30,
-            initial_uptime_seconds=120,
-            allow_reboot_recovery=True,
         )
 
-    assert FakeClock.now == 36.0
+    assert FakeClock.now == 3.0
 
 def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
     previous = {
@@ -1186,7 +1183,7 @@ def test_cpp_radio_pin_accepts_a_single_target_bssid(monkeypatch, frontend):
         [BenchmarkCase(frontend, "lightweight")]
     )
 
-def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
+def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch):
     case = BenchmarkCase("native", "lightweight")
 
     class FakeContext:
@@ -1209,14 +1206,14 @@ def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
     )
     client = FakeClient()
     monitor_process = SimpleNamespace(poll=lambda: None)
-    readiness_recovery = []
+    readiness_calls = []
 
     def fake_flash(_case, _chip, _port, result, **_kwargs):
         result.flash = CommandResult(["flash"], 0, 1.0, "")
         return True
 
     def stop_at_readiness(_client, **kwargs):
-        readiness_recovery.append(kwargs["allow_reboot_recovery"])
+        readiness_calls.append(kwargs)
         raise RuntimeError("stop after readiness policy capture")
 
     monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
@@ -1253,7 +1250,7 @@ def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
         lambda *_args, **_kwargs: (True, "11:22:33:44:55:66"),
     )
     monkeypatch.setattr(bench, "_verify_direct_radio_pin", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(bench, "_bssid_reboot_observed", lambda *_args: False)
+    monkeypatch.setattr(bench, "_verify_no_bssid_reboot", lambda *_args: None)
     monkeypatch.setattr(bench, "prepare_direct_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", stop_at_readiness)
     monkeypatch.setattr(bench, "_terminate_process", lambda _process: None)
@@ -1271,11 +1268,12 @@ def test_forced_radio_pin_enables_readiness_reboot_recovery(monkeypatch):
 
     results = bench.run_direct_frontend_cases([case], "s3", "/dev/cu.test")
 
-    assert readiness_recovery == [True]
+    assert len(readiness_calls) == 1
+    assert "allow_reboot_recovery" not in readiness_calls[0]
     assert results[0].reasons == ["stop after readiness policy capture"]
 
 
-def test_native_radio_pin_accepts_committed_values_after_reboot():
+def test_native_radio_pin_accepts_committed_values_after_reassociation():
     class FakeClient:
         def request(self, verb: str, resource: str):
             assert (verb, resource) == ("get", "wifi")
@@ -1291,6 +1289,19 @@ def test_native_radio_pin_accepts_committed_values_after_reboot():
         "AA:BB:CC:DD:EE:FF",
         requested_channel=6,
     )
+
+
+def test_radio_pin_verification_fails_when_the_association_does_not_match(monkeypatch):
+    monotonic = iter([0.0, float(bench.WIFI_CONNECT_WAIT_SECONDS + 1)])
+    monkeypatch.setattr(bench.time, "monotonic", lambda: next(monotonic))
+
+    with pytest.raises(RuntimeError, match="did not match"):
+        bench._verify_direct_radio_pin(
+            SimpleNamespace(request=lambda *_args: {}),
+            "AA:BB:CC:DD:EE:FF",
+            requested_channel=6,
+        )
+
 
 def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
@@ -1450,25 +1461,26 @@ def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):
     ]
 
 
-def test_bssid_reboot_check_observes_uptime_regression():
+def test_bssid_apply_rejects_uptime_regression():
     before = {"diagnostics": {"uptime": 120, "timestamp_ms": 120_000}}
     after = {"diagnostics": {"uptime": 4, "timestamp_ms": 4_000}}
 
-    assert bench._bssid_reboot_observed(before, after) is True
+    with pytest.raises(RuntimeError, match="rebooted while applying"):
+        bench._verify_no_bssid_reboot(before, after)
 
 
-def test_bssid_reboot_check_is_unknown_without_uptime_regression():
+def test_bssid_apply_accepts_monotonic_uptime():
     before = {"diagnostics": {"uptime": 120, "timestamp_ms": 120_000}}
     after = {"diagnostics": {"uptime": 126, "timestamp_ms": 126_000}}
 
-    assert bench._bssid_reboot_observed(before, after) is None
+    bench._verify_no_bssid_reboot(before, after)
 
 
-def test_bssid_reboot_check_is_unknown_without_direct_uptime():
-    assert bench._bssid_reboot_observed(
+def test_bssid_apply_accepts_missing_uptime_evidence():
+    bench._verify_no_bssid_reboot(
         {"diagnostics": {}},
         {"diagnostics": {}},
-    ) is None
+    )
 
 
 @pytest.mark.parametrize(

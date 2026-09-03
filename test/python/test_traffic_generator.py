@@ -107,6 +107,28 @@ def test_station_radio_prefers_auto_band_on_dual_band_firmware(mock_wlan):
     assert call(band_mode=3) in mock_wlan.config.call_args_list
 
 
+def test_wifi_status_tolerates_single_band_queries_in_auto_mode(
+    monkeypatch, mock_wlan
+):
+    messages = []
+    mock_wlan.config.side_effect = RuntimeError("Wifi Unknown Error 0x0106")
+    monkeypatch.setattr(
+        wifi_bootstrap,
+        "print_log",
+        lambda level, message: messages.append((level, message)),
+    )
+
+    wifi_bootstrap.print_wifi_status(mock_wlan)
+
+    assert messages == [
+        (
+            "INFO",
+            "WiFi connected - IP: 192.168.1.100, Protocol: unknown, "
+            "Bandwidth: unknown",
+        )
+    ]
+
+
 def test_recover_wifi_rebuilds_csi_without_reconnecting_live_station(
     monkeypatch, mock_wlan
 ):

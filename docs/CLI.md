@@ -204,7 +204,7 @@ The password is never accepted as a command-line value, printed, or included in 
 ./espectre direct post sensing/calibrations --frontend matter --chip s3
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits mutation JSON to 4,096 bytes, accepts a response up to 8,192 bytes, validates direct resource snapshots or mutation results, and closes cleanly. It negotiates protocol `1.0` once through `capabilities`; messages do not repeat the version. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits mutation JSON to 2,048 bytes, accepts a response up to 8,192 bytes, validates direct resource snapshots or mutation results, and closes cleanly. It negotiates protocol `1.0` once through `capabilities`; messages do not repeat the version. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
 
 ### `collect`
 

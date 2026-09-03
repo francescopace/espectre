@@ -71,7 +71,7 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard sing
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
 
-The full runtime selects the read-only CSI capture profile after Wi-Fi association. The original ESP32 and ESP32-S2 use `lltf20`; a VHT-capable dual-band target uses `vht20` on 5 GHz; and every other association uses `ht20`. The active value is reported as `csi_profile` in the canonical `info` payload and is not a writable setting. LLTF admits legacy OFDM traffic while preserving the canonical centered 64-bin geometry: raw capture marks the unavailable physical tones ±27 and ±28 as zero, records the observed PHY and LLTF metadata, and copies I/Q from the nearest live ±26 tone only in the private detector view.
+The full runtime selects the read-only CSI capture profile after Wi-Fi association. The original ESP32 and ESP32-S2 use `lltf20`; a VHT-capable dual-band target uses `vht20` on 5 GHz; and every other association uses `ht20`. The active value is reported as `csi_profile` in the canonical `device` resource and is not a writable setting. LLTF admits legacy OFDM traffic while preserving the canonical centered 64-bin geometry: raw capture marks the unavailable physical tones ±27 and ±28 as zero, records the observed PHY and LLTF metadata, and copies I/Q from the nearest live ±26 tone only in the private detector view.
 
 ## Choosing a detection profile
 
@@ -152,7 +152,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
 | `runtime/mqtt_transport.h` | Implement to reach your own MQTT client |
 | `runtime/direct_http_protocol.h` | Canonical request parsing, Direct HTTP constants, and the executable Direct/MQTT mapping |
-| `runtime/direct_http_service.h` | Implement to expose Direct HTTP POST, SSE events, and optional raw CSI streaming |
+| `runtime/direct_http_service.h` | Implement to expose Direct HTTP resource methods, SSE events, and optional CSI streaming |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |

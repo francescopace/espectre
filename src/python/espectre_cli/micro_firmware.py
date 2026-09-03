@@ -174,17 +174,17 @@ def _configure_project_csi_capture(micropython_dir: Path, chip: str) -> None:
     source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
     source = source_path.read_text(encoding="utf-8")
     source = source.replace(".acquire_csi_legacy = 1,", ".acquire_csi_legacy = 0,", 1)
-    c5_profile_block = """#if CONFIG_IDF_TARGET_ESP32C5
+    c5_profile_block = """    #if CONFIG_IDF_TARGET_ESP32C5
     wifi_ap_record_t ap_info = {0};
     const bool use_vht20 =
         esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK && ap_info.primary > 14;
     config->acquire_csi_ht20 = !use_vht20;
     config->acquire_csi_vht = use_vht20;
-#endif"""
+    #endif"""
     if chip == "c5" and c5_profile_block not in source:
-        c6_profile_block = """#if CONFIG_IDF_TARGET_ESP32C6
+        c6_profile_block = """    #if CONFIG_IDF_TARGET_ESP32C6
     config->acquire_csi_he_stbc = 0;
-#endif"""
+    #endif"""
         if c6_profile_block not in source:
             raise RuntimeError(
                 f"MicroPython CSI profile builder anchor is missing: {source_path}"

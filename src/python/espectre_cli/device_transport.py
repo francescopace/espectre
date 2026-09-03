@@ -24,7 +24,7 @@ IMPROV_MAX_FRAME_SIZE = 265
 DIRECT_PATH = "/espectre/v1"
 DIRECT_EVENTS_PATH = "/espectre/v1/events"
 DIRECT_PROTOCOL_VERSION = "1.0"
-DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
+DIRECT_MAX_REQUEST_FRAME_SIZE = 2048
 DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
 DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
 DEFAULT_DIRECT_ORIGIN = "https://test.espectre.dev"
@@ -565,6 +565,8 @@ class DirectClient:
             TimeoutError,
             URLError,
             OSError,
+            http.client.IncompleteRead,
+            http.client.RemoteDisconnected,
             ValueError,
             AttributeError,
             DirectProtocolError,
@@ -576,7 +578,16 @@ class DirectClient:
                     self._events_error = DirectProtocolError(
                         f"Direct event stream HTTP {exc.code}: {exc.reason}"
                     )
-                elif isinstance(exc, (TimeoutError, URLError, OSError)):
+                elif isinstance(
+                    exc,
+                    (
+                        TimeoutError,
+                        URLError,
+                        OSError,
+                        http.client.IncompleteRead,
+                        http.client.RemoteDisconnected,
+                    ),
+                ):
                     self._events_error = DirectEventStreamTransportError(
                         f"Direct event stream failed: {exc}"
                     )

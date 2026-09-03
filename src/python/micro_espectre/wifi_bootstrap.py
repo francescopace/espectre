@@ -37,14 +37,29 @@ def print_wifi_status(wlan):
         network.MODE_11G: "g",
         network.MODE_11N: "n",
     }
-    protocol = wlan.config("protocol")
-    modes = [name for bit, name in protocol_names.items() if protocol & bit]
-    protocol_label = "802.11" + "/".join(modes) if modes else f"0x{protocol:02x}"
-    bandwidth = (
-        "HT20"
-        if wlan.config("bandwidth") == wlan.BANDWIDTH_20
-        else "unknown"
+    try:
+        protocol = wlan.config("protocol")
+    except Exception:
+        protocol = None
+    modes = (
+        [name for bit, name in protocol_names.items() if protocol & bit]
+        if protocol is not None
+        else []
     )
+    if modes:
+        protocol_label = "802.11" + "/".join(modes)
+    elif protocol is not None:
+        protocol_label = f"0x{protocol:02x}"
+    else:
+        protocol_label = "unknown"
+    try:
+        bandwidth = (
+            "HT20"
+            if wlan.config("bandwidth") == wlan.BANDWIDTH_20
+            else "unknown"
+        )
+    except Exception:
+        bandwidth = "unknown"
     ip_address = wlan.ifconfig()[0]
     print_log(
         "INFO",

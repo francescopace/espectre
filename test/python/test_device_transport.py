@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import threading
@@ -91,6 +92,13 @@ class _GatedEventResponse(_FakeEventResponse):
         if self.lines:
             return self.lines.pop(0)
         return b""
+
+
+class _IncompleteEventResponse(_GatedEventResponse):
+    def readline(self, _size: int = -1) -> bytes:
+        self.readable.wait(1.0)
+        raise http.client.IncompleteRead(b"")
+
 
 def _improv_rpc_response(command: ImprovCommand, values: list[str]) -> bytes:
     encoded = [value.encode() for value in values]
@@ -325,6 +333,20 @@ def test_direct_client_collects_canonical_sse_events():
 
 def test_direct_client_types_unexpected_sse_eof_as_transport_loss():
     response = _GatedEventResponse([])
+    client = DirectClient(
+        "http://192.0.2.10/espectre/v1",
+        urlopen_factory=lambda *_args, **_kwargs: response,
+    )
+
+    client.start_events()
+    response.readable.set()
+    assert response.closed.wait(1.0)
+    with pytest.raises(DirectEventStreamTransportError):
+        client.stop_events()
+
+
+def test_direct_client_types_incomplete_sse_chunk_as_transport_loss():
+    response = _IncompleteEventResponse([])
     client = DirectClient(
         "http://192.0.2.10/espectre/v1",
         urlopen_factory=lambda *_args, **_kwargs: response,

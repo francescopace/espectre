@@ -167,7 +167,7 @@ The public field names, units, optionality, and transport objects are part of th
 
 ## ESPectre Protocol In The Architecture
 
-ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`API.md`](API.md) owns discovery wire contracts, message families, Direct HTTP and MQTT mappings, payloads, commands, public limits, and version semantics.
+ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`API.md`](API.md) owns resources, operations, payloads, Direct HTTP and MQTT mappings, public limits, and version semantics. [`DISCOVERY.md`](DISCOVERY.md) owns DNS-SD, mDNS, browser bootstrap, and peer-result contracts.
 
 For every maintained C++ frontend, protocol adapters sit at the boundary between the frontend and shared runtime layers.
 
