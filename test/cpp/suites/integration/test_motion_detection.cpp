@@ -90,6 +90,7 @@ struct DatasetResults {
 };
 
 static std::vector<DatasetResults> g_results;
+static std::string g_missing_pair_reason;
 
 // Forward declarations for target getters used in summary output.
 inline float get_classic_fp_rate_target();
@@ -344,6 +345,21 @@ inline float get_ml_recall_target() { return 95.0f; }
 void setUp(void) {}
 void tearDown(void) {}
 
+void test_supported_chip_matrix_includes_s2(void) {
+    csi_test_data::ChipType parsed_chip = csi_test_data::ChipType::C3;
+    TEST_ASSERT_TRUE(csi_test_data::chip_from_string("S2", parsed_chip));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(csi_test_data::ChipType::S2),
+        static_cast<int>(parsed_chip));
+    TEST_ASSERT_EQUAL_STRING("S2", csi_test_data::chip_name(parsed_chip));
+
+    const std::vector<csi_test_data::ChipType> supported_chips =
+        csi_test_data::get_supported_chips();
+    TEST_ASSERT_TRUE(
+        std::find(supported_chips.begin(), supported_chips.end(),
+                  csi_test_data::ChipType::S2) != supported_chips.end());
+}
+
 // ============================================================================
 // Test 1: Lightweight with Fixed Subcarriers (Production Runtime)
 // ============================================================================
@@ -352,6 +368,10 @@ void tearDown(void) {}
 // before evaluation.
 
 void test_classic_fixed_subcarriers(void) {
+    if (!g_missing_pair_reason.empty()) {
+        TEST_IGNORE_MESSAGE(g_missing_pair_reason.c_str());
+    }
+
     float fp_target = get_classic_fp_rate_target();
     float recall_target = get_classic_recall_target();
     uint16_t window_size = get_window_size();
@@ -429,6 +449,10 @@ void test_classic_fixed_subcarriers(void) {
 // Tests ML neural network detector with fixed subcarriers.
 
 void test_ml_detection(void) {
+    if (!g_missing_pair_reason.empty()) {
+        TEST_IGNORE_MESSAGE(g_missing_pair_reason.c_str());
+    }
+
     float fp_target = get_ml_fp_rate_target();
     float recall_target = get_ml_recall_target();
     const int pkt_size = csi_test_data::packet_size();
@@ -481,16 +505,11 @@ void test_ml_detection(void) {
 
 int run_tests_for_pair(int pair_index) {
     const csi_test_data::ChipType chip = csi_test_data::pair_chip(pair_index);
+    g_missing_pair_reason.clear();
     printf("\n========================================\n");
     printf("Running tests with %s 64 SC dataset pair (HT20)\n", csi_test_data::chip_name(chip));
     printf("Pair: %s\n", csi_test_data::pair_label(pair_index));
     printf("========================================\n");
-    
-    const char* skip_reason = csi_test_data::chip_skip_reason(chip);
-    if (skip_reason != nullptr) {
-        printf("SKIPPED: %s\n", skip_reason);
-        return 0;
-    }
     
     if (!csi_test_data::switch_dataset_pair(pair_index)) {
         printf("ERROR: Failed to load %s dataset pair\n", csi_test_data::chip_name(chip));
@@ -503,8 +522,30 @@ int run_tests_for_pair(int pair_index) {
     return UNITY_END();
 }
 
+int run_supported_chip_matrix_test() {
+    UNITY_BEGIN();
+    RUN_TEST(test_supported_chip_matrix_includes_s2);
+    return UNITY_END();
+}
+
+int run_skipped_tests_for_chip(csi_test_data::ChipType chip) {
+    g_missing_pair_reason =
+        std::string("No complete 64 SC static-presence/motion dataset pair available for chip ") +
+        csi_test_data::chip_name(chip);
+    printf("\n========================================\n");
+    printf("Running tests with %s (dataset pending)\n", csi_test_data::chip_name(chip));
+    printf("========================================\n");
+
+    UNITY_BEGIN();
+    RUN_TEST(test_classic_fixed_subcarriers);
+    RUN_TEST(test_ml_detection);
+    const int result = UNITY_END();
+    g_missing_pair_reason.clear();
+    return result;
+}
+
 int process(void) {
-    int failures = 0;
+    int failures = run_supported_chip_matrix_test();
     g_results.clear();
     const int pair_count = csi_test_data::get_available_pair_count();
     if (pair_count <= 0) {
@@ -514,6 +555,15 @@ int process(void) {
 
     for (int pair_index = 0; pair_index < pair_count; pair_index++) {
         failures += run_tests_for_pair(pair_index);
+    }
+
+    const std::vector<csi_test_data::ChipType> available_chips =
+        csi_test_data::get_available_chips();
+    for (csi_test_data::ChipType chip : csi_test_data::get_supported_chips()) {
+        if (std::find(available_chips.begin(), available_chips.end(), chip) ==
+            available_chips.end()) {
+            failures += run_skipped_tests_for_chip(chip);
+        }
     }
     
     // Print summary table at the end

@@ -42,8 +42,11 @@ def run_esptool(args: list[str], *, cwd: Path | None = None) -> None:
 def esptool_flash_command(*, chip: str, idf_target: str, port: str) -> list[str]:
     """Return the common esptool arguments for one flash session."""
     # esptool 5.3.1 loses the classic ESP32 during its stub SFDP probe at 460800.
-    # Keeping the stub at 115200 preserves full-chip erase support.
-    baud = ESPTOOL_ESP32_FLASH_BAUD if idf_target == "esp32" else ESPTOOL_FLASH_BAUD
+    # macOS also raises an IOSSIOSPEED device error when an ESP32-S2 USB CDC
+    # watchdog reset disconnects a port configured at 460800. Keeping those
+    # sessions at 115200 preserves full-chip erase and post-flash reset support.
+    use_safe_baud = idf_target == "esp32" or serial_console_mode(chip, port) == "usb_cdc"
+    baud = ESPTOOL_ESP32_FLASH_BAUD if use_safe_baud else ESPTOOL_FLASH_BAUD
     after = "hard-reset" if idf_target == "esp32" else "watchdog-reset"
     args = [
         "--chip",

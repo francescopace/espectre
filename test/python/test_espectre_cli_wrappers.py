@@ -394,6 +394,30 @@ def test_resolve_serial_port_rejects_explicit_incompatible_port(monkeypatch) -> 
         )
 
 
+def test_resolve_serial_port_waits_for_explicit_port_reenumeration(monkeypatch) -> None:
+    attempts = iter([[], ["/dev/cu.usbmodem01"]])
+    clock = [0.0]
+    monkeypatch.setattr(
+        common,
+        "compatible_serial_ports",
+        lambda **_kwargs: next(attempts),
+    )
+    monkeypatch.setattr(common.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        common.time,
+        "sleep",
+        lambda duration: clock.__setitem__(0, clock[0] + duration),
+    )
+
+    assert common.resolve_serial_port(
+        "/dev/cu.usbmodem01",
+        chip="s2",
+        frontend="native",
+        purpose="improv",
+        wait_timeout_s=10.0,
+    ) == "/dev/cu.usbmodem01"
+
+
 def test_resolve_serial_port_uses_metadata_without_opening_devices(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
     fake_tools = ModuleType("serial.tools")
@@ -510,6 +534,41 @@ def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> Non
     assert observed == [
         ("port", "/dev/cu.valid"),
         ("provision", "lab", "secret", 60.0),
+    ]
+
+
+def test_s2_improv_provision_waits_for_usb_reenumeration(monkeypatch) -> None:
+    observed = []
+
+    def capture_port(port, **kwargs):
+        observed.append((port, kwargs))
+        raise SystemExit(1)
+
+    monkeypatch.setattr(device_control, "resolve_serial_port", capture_port)
+
+    with pytest.raises(SystemExit):
+        device_control.run_improv_provision_command(
+            argparse.Namespace(
+                port="/dev/cu.usbmodem01",
+                chip="s2",
+                frontend="native",
+                ssid="lab",
+                password_env="TEST_ESPECTRE_WIFI_PASSWORD",
+                timeout=60.0,
+                json=False,
+            )
+        )
+
+    assert observed == [
+        (
+            "/dev/cu.usbmodem01",
+            {
+                "chip": "s2",
+                "frontend": "native",
+                "purpose": "improv",
+                "wait_timeout_s": 10.0,
+            },
+        )
     ]
 
 
@@ -1431,7 +1490,7 @@ def _write_flasher_args(build_dir: Path) -> None:
     ("chip", "idf_target", "console", "before", "after", "baud"),
     [
         ("esp32", "esp32", "uart", "default-reset", "hard-reset", "115200"),
-        ("s2", "esp32s2", "usb_cdc", "no-reset", "watchdog-reset", "460800"),
+        ("s2", "esp32s2", "usb_cdc", "no-reset", "watchdog-reset", "115200"),
         ("s2", "esp32s2", "uart", "default-reset", "watchdog-reset", "460800"),
         ("s3", "esp32s3", "usb_serial_jtag", "default-reset", "watchdog-reset", "460800"),
         ("c6", "esp32c6", "usb_serial_jtag", "default-reset", "watchdog-reset", "460800"),
@@ -1545,7 +1604,7 @@ def test_factory_flash_and_application_start_use_public_esptool_commands(
                 "--port",
                 "/dev/cu.loader",
                 "--baud",
-                "460800",
+                "115200",
                 "--before",
                 "no-reset",
                 "--after",

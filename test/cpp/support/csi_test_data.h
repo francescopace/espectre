@@ -306,10 +306,11 @@ enum class ChipType {
     C5,
     C6,
     ESP32, // Control set (excluded from ML training)
+    S2,
     S3
 };
 
-static constexpr size_t CHIP_COUNT = 5;
+static constexpr size_t CHIP_COUNT = 6;
 
 inline int chip_index(ChipType chip) {
     switch (chip) {
@@ -317,7 +318,8 @@ inline int chip_index(ChipType chip) {
         case ChipType::C5: return 1;
         case ChipType::C6: return 2;
         case ChipType::ESP32: return 3;
-        case ChipType::S3: return 4;
+        case ChipType::S2: return 4;
+        case ChipType::S3: return 5;
         default: return -1;
     }
 }
@@ -342,6 +344,10 @@ inline bool chip_from_string(const char* text, ChipType& out_chip) {
         out_chip = ChipType::ESP32;
         return true;
     }
+    if (std::strcmp(text, "S2") == 0) {
+        out_chip = ChipType::S2;
+        return true;
+    }
     if (std::strcmp(text, "S3") == 0) {
         out_chip = ChipType::S3;
         return true;
@@ -355,6 +361,7 @@ inline const char* chip_name(ChipType chip) {
         case ChipType::C5: return "C5";
         case ChipType::C6: return "C6";
         case ChipType::ESP32: return "ESP32";
+        case ChipType::S2: return "S2";
         case ChipType::S3: return "S3";
         default: return "Unknown";
     }
@@ -384,19 +391,6 @@ inline bool switch_empty_room_dataset(int empty_index);
 inline const struct LowRssiDatasetSelection* real_low_rssi_pair_for_chip(ChipType chip);
 inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
 inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
-
-/**
- * Check if a chip type should be skipped in tests.
- * Returns skip reason or nullptr if chip should run.
- * 
- * Note: C3 runs with forced subcarriers [20-31]. Only auto-calibration
- * tests are skipped per-test (not at chip level).
- */
-inline const char* chip_skip_reason(ChipType chip) {
-    switch (chip) {
-        default: return nullptr;
-    }
-}
 
 // ============================================================================
 // Global Data Storage
@@ -1450,12 +1444,18 @@ inline const char* long_recording_label(int recording_index) {
  * Get list of supported chip configurations.
  */
 inline std::vector<ChipType> get_supported_chips() {
-    return {ChipType::C3, ChipType::C5, ChipType::C6, ChipType::ESP32, ChipType::S3};
+    return {
+        ChipType::C3,
+        ChipType::C5,
+        ChipType::C6,
+        ChipType::ESP32,
+        ChipType::S2,
+        ChipType::S3,
+    };
 }
 
 /**
  * Get list of chip configurations with complete static-presence/motion pairs.
- * Note: Some chips are skipped (check chip_skip_reason()).
  */
 inline std::vector<ChipType> get_available_chips() {
     std::vector<ChipType> chips;

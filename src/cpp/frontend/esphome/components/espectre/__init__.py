@@ -503,6 +503,8 @@ async def _configure_tinyusb_primary_console():
     add_idf_sdkconfig_option("CONFIG_ESP_CONSOLE_NONE", True)
     add_idf_sdkconfig_option("CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE", True)
     add_idf_sdkconfig_option("CONFIG_TINYUSB_CDC_ENABLED", True)
+    # Match the ESP32-S2 ROM CDC serial so macOS preserves the device path.
+    add_idf_sdkconfig_option("CONFIG_TINYUSB_DESC_SERIAL_STRING", "0")
 
 
 async def to_code(config):

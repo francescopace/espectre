@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -145,13 +146,24 @@ def resolve_serial_port(
     chip: str | None,
     frontend: str,
     purpose: str,
+    wait_timeout_s: float = 0.0,
 ) -> str:
     """Resolve one compatible serial port without opening or resetting devices."""
-    ports = compatible_serial_ports(
-        chip=chip,
-        frontend=frontend,
-        purpose=purpose,
-    )
+    deadline = time.monotonic() + max(wait_timeout_s, 0.0)
+    while True:
+        ports = compatible_serial_ports(
+            chip=chip,
+            frontend=frontend,
+            purpose=purpose,
+        )
+        if port_arg is None or any(
+            _serial_ports_match(port_arg, candidate) for candidate in ports
+        ):
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.1, remaining))
     if port_arg is not None:
         if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
             return port_arg

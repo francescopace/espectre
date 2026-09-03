@@ -18,6 +18,7 @@ import numpy as np
 import math
 
 from filters import HampelFilter
+from src.python.espectre_cli.common import CHIP_CHOICES
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
@@ -29,7 +30,6 @@ from tools.lib.performance_report import (
     compute_ml_dataset_result as _compute_ml_dataset_result,
     compute_ml_empty_fp_result as _compute_ml_empty_fp_result,
     evaluate_detector_packets,
-    get_available_chip_types as _shared_get_available_chip_types,
     get_available_empty_datasets as _shared_get_available_empty_datasets,
     get_available_paired_datasets as _shared_get_available_paired_datasets,
     get_paired_dataset_role as _get_paired_dataset_role,
@@ -101,9 +101,9 @@ def get_available_empty_datasets():
     ]
 
 
-def get_available_chip_types():
-    """Return the stable set of chips covered by the paired real-data datasets."""
-    return _shared_get_available_chip_types()
+def get_supported_chip_types():
+    """Return every supported chip, including chips with datasets pending."""
+    return sorted("ESP32" if chip == "esp32" else chip.upper() for chip in CHIP_CHOICES)
 
 
 def get_end_to_end_datasets():
@@ -123,11 +123,21 @@ def get_end_to_end_datasets():
             preferred_by_chip[chip_key] = record
 
     params = []
-    for chip in get_available_chip_types():
+    for chip in get_supported_chip_types():
         chip_key = str(chip).upper()
         selected = preferred_by_chip.get(chip_key) or fallback_by_chip.get(chip_key)
-        if selected is not None:
-            params.append(pytest.param(selected, id=f"{chip_key.lower()}_{selected[4]}"))
+        if selected is None:
+            params.append(
+                pytest.param(
+                    None,
+                    marks=pytest.mark.skip(
+                        reason=f"No normal-link paired datasets found for chip {chip_key}"
+                    ),
+                    id=f"{chip_key.lower()}_no_normal_link_pair",
+                )
+            )
+            continue
+        params.append(pytest.param(selected, id=f"{chip_key.lower()}_{selected[4]}"))
     return params
 
 
@@ -995,7 +1005,7 @@ class TestEndToEndWithCalibration:
         )
 
 
-@pytest.mark.parametrize("chip", get_available_chip_types())
+@pytest.mark.parametrize("chip", get_supported_chip_types())
 def test_classic_chip_aggregate_targets(chip):
     """Gate Lightweight on the aggregate normal-link metrics published in PERFORMANCE.md."""
     fp_rate_target = get_classic_fp_rate_target(chip)
@@ -1012,7 +1022,8 @@ def test_classic_chip_aggregate_targets(chip):
             continue
         chip_pairs.append((static_path, motion_path, dataset_id))
 
-    assert chip_pairs, f"No paired datasets found for chip {chip}"
+    if not chip_pairs:
+        pytest.skip(f"No normal-link paired datasets found for chip {chip}")
 
     total_tp = total_fn = total_fp = total_baseline = 0
     for static_path, motion_path, _dataset_id in chip_pairs:
@@ -1058,7 +1069,7 @@ def test_classic_chip_aggregate_targets(chip):
     )
 
 
-@pytest.mark.parametrize("chip", get_available_chip_types())
+@pytest.mark.parametrize("chip", get_supported_chip_types())
 def test_ml_chip_aggregate_reserved_targets(chip):
     """Gate ML on aggregate reserved normal-link replays."""
     chip_pairs = []
@@ -1107,7 +1118,7 @@ def test_ml_chip_aggregate_reserved_targets(chip):
     )
 
 
-@pytest.mark.parametrize("chip", get_available_chip_types())
+@pytest.mark.parametrize("chip", get_supported_chip_types())
 def test_ml_chip_aggregate_stress_targets(chip):
     """Gate ML weak-link stress replays on aggregate relaxed targets."""
     chip_pairs = []

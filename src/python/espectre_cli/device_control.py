@@ -19,6 +19,8 @@ from .device_transport import (
     direct_endpoint_from_device_url,
 )
 
+ESP32_S2_USB_REENUMERATION_WAIT_SECONDS = 10.0
+
 
 def run_improv_provision_command(args) -> int:
     json_output = bool(getattr(args, "json", False))
@@ -33,6 +35,11 @@ def run_improv_provision_command(args) -> int:
                 chip=chip,
                 frontend=frontend,
                 purpose="improv",
+                wait_timeout_s=(
+                    min(float(args.timeout), ESP32_S2_USB_REENUMERATION_WAIT_SECONDS)
+                    if chip == "s2"
+                    else 0.0
+                ),
             )
         password = os.environ.get(args.password_env)
         if password is None:

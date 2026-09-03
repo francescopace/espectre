@@ -509,6 +509,53 @@ def test_release_firmware_rejects_a_version_tag_mismatch(tmp_path: Path) -> None
     assert not output.exists()
 
 
+def test_local_release_staging_uses_the_build_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(SCRIPTS_DIR))
+    stager = importlib.import_module("stage_web_firmware")
+    existing = {"release_tag": "3.0.0-rc1"}
+
+    assert (
+        stager.resolve_local_release_tag(
+            "release",
+            "2.8.0-408-ga7d5d0a",
+            None,
+            existing,
+        )
+        == "2.8.0-408-ga7d5d0a"
+    )
+    assert stager.resolve_local_release_tag("preview", "snapshot", None, existing) == "3.0.0-rc1"
+    assert stager.resolve_local_release_tag("release", "snapshot", "override", existing) == "override"
+
+
+def test_web_firmware_staging_validates_before_cleaning_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.syspath_prepend(str(SCRIPTS_DIR))
+    stager = importlib.import_module("stage_web_firmware")
+    firmware_dir = tmp_path / "firmware"
+    output_dir = tmp_path / "output"
+    firmware_dir.mkdir()
+    output_dir.mkdir()
+    existing = output_dir / "espectre-native-3.0.0-esp32s3.bin"
+    existing.write_bytes(b"existing firmware")
+    args = argparse.Namespace(
+        firmware_dir=str(firmware_dir),
+        output_dir=str(output_dir),
+        channel="release",
+        version="3.0.0-rc1",
+        release_tag="3.0.0",
+        commit="0123456789abcdef",
+        url_prefix="/artifacts/firmware/release",
+    )
+
+    with pytest.raises(ValueError, match="Release firmware version and release tag must match"):
+        stager.stage_web_firmware(args)
+    assert existing.read_bytes() == b"existing firmware"
+
+
 def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -21,6 +21,5 @@
 
 - Run the narrowest owner test first with concise output. Use `-q --tb=short` for Python where appropriate, and rerun only failures verbosely.
 - Keep the Python and `C++` coverage uploads and gates active.
-- Tests that bind local UDP sockets must run outside the network sandbox. Treat `PermissionError` or `EPERM` during socket setup as a sandbox restriction, not evidence that the test should use another address.
 - On failure, investigate the implementation root cause. Never skip, disable, or weaken a test to produce a passing result, and ask before changing a supported behavior expectation.
 - Report every required check that did not run with its exact command and blocker.

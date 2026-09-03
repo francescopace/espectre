@@ -226,6 +226,38 @@ def test_esphome_bootstrap_reuses_normal_build_and_erases_during_flash(tmp_path)
     assert "--erase" in flash
 
 
+def test_s2_flash_prompts_for_download_mode_at_flash_boundary(monkeypatch):
+    case = BenchmarkCase("native", "lightweight")
+    result = BenchmarkResult(case=case)
+    prompts = []
+
+    class InteractiveInput:
+        @staticmethod
+        def isatty():
+            return True
+
+    monkeypatch.setattr(bench.sys, "stdin", InteractiveInput())
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt))
+    monkeypatch.setattr(
+        bench,
+        "run_command",
+        lambda command, **_kwargs: CommandResult(command, 0, 1.0, ""),
+    )
+
+    assert bench._flash_prebuilt_cpp_case_in_context(
+        case,
+        "s2",
+        "/dev/cu.usbmodem01",
+        result,
+        env=None,
+        config=None,
+    )
+    assert prompts == [
+        "Hold BOOT, tap RESET/EN, release BOOT, then press Enter "
+        "to flash Native Lightweight: "
+    ]
+
+
 def test_idf_benchmark_contract_uses_incremental_canonical_build_and_full_erase():
     for frontend, detector in (("native", "lightweight"), ("matter", "default")):
         build, flash, _monitor = bench._commands_for_case(

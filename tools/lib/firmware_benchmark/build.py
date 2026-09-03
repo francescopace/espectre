@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import hashlib
 from pathlib import Path
 import re
+import sys
 from typing import Callable, Iterator
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
@@ -295,6 +296,20 @@ def _flash_prebuilt_cpp_case_in_context(
         port,
         config,
     )
+    if chip == "s2" and sys.stdin.isatty():
+        print(
+            "\nESP32-S2 USB CDC requires manual download mode before flashing.",
+            flush=True,
+        )
+        try:
+            input(
+                "Hold BOOT, tap RESET/EN, release BOOT, then press Enter "
+                f"to flash {case.label}: "
+            )
+        except EOFError as exc:
+            raise RuntimeError(
+                "ESP32-S2 download-mode confirmation was not available"
+            ) from exc
     result.flash = run_command(
         flash_command,
         env=env,
