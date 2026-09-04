@@ -353,3 +353,72 @@ def test_direct_facade_uptime_accumulates_across_tick_wrap(monkeypatch):
 
     assert facade._uptime_seconds(500) == 1
     assert facade._uptime_seconds(1500) == 2
+
+
+def test_native_direct_rejects_oversized_bodies_before_recalibration(tmp_path):
+    """Execute the device handler with HTTPD stubs, including boundary sizes."""
+    source = (
+        repo_root() / "src/python/micro_espectre/firmware/native_components/native_direct.c"
+    ).read_text(encoding="utf-8")
+    limit = next(line for line in source.splitlines()
+                 if line.startswith("#define DIRECT_MAX_REQUEST_BYTES "))
+    handler = source[
+        source.index("static bool direct_request_size_allowed("):
+        source.index("static esp_err_t direct_options_handler(")
+    ]
+    stubs = r'''
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+typedef int esp_err_t;
+typedef struct { int method; const char *uri; size_t content_len; } httpd_req_t;
+typedef struct { const char *data; } direct_command_snapshot_t;
+enum { HTTP_POST=1, HTTP_GET=2, ESP_FAIL=-1 };
+static struct { unsigned rate_limited_requests; unsigned oversized_requests; } direct_state;
+static bool queued;
+static bool close_connection;
+static const char *response_status;
+static bool direct_set_cors(httpd_req_t *r) { return true; }
+static bool direct_request_allowed(void) { return true; }
+static void direct_increment(unsigned *p) { ++*p; }
+static void httpd_resp_set_status(httpd_req_t *r, const char *s) { response_status=s; }
+static int httpd_resp_sendstr(httpd_req_t *r, const char *s) { return 0; }
+static void httpd_resp_set_type(httpd_req_t *r, const char *s) {}
+static int httpd_resp_set_hdr(httpd_req_t *r, const char *k, const char *v) {
+    if (strcmp(k, "Connection") == 0 && strcmp(v, "close") == 0) close_connection = true;
+    return 0;
+}
+static direct_command_snapshot_t direct_acquire_command_snapshot(const char *s) { return (direct_command_snapshot_t){"{}"}; }
+static void direct_release_command_snapshot(direct_command_snapshot_t *s) {}
+static bool direct_queue_recalibration(void) { queued=true; return true; }
+static int direct_send_result(httpd_req_t *r, const char *id, const char *cmd, bool ok, const char *code, const char *msg, void *data, const char *status) { response_status=status; return 0; }
+'''
+    main = r'''
+
+int main(void) {
+    const size_t sizes[] = {0, DIRECT_MAX_REQUEST_BYTES, DIRECT_MAX_REQUEST_BYTES + 1, 1048576};
+    for (unsigned i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+        queued = false;
+        close_connection = false;
+        response_status = NULL;
+        direct_state.oversized_requests = 0;
+        httpd_req_t request = {HTTP_POST, "/espectre/v1/sensing/calibrations", sizes[i]};
+        int result = direct_request_handler(&request);
+        bool oversized = sizes[i] > DIRECT_MAX_REQUEST_BYTES;
+        if (queued == oversized || close_connection != oversized ||
+            direct_state.oversized_requests != oversized ||
+            result != (oversized ? ESP_FAIL : 0) ||
+            strcmp(response_status, oversized ? "413 Payload Too Large" : "202 Accepted") != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+'''
+    probe_source = tmp_path / "direct_request_probe.c"
+    probe_source.write_text(limit + "\n" + stubs + handler + main, encoding="utf-8")
+    executable = tmp_path / "direct_request_probe"
+    subprocess.run(["cc", str(probe_source), "-o", str(executable)], check=True,
+                   capture_output=True, text=True)
+    subprocess.run([str(executable)], check=True, capture_output=True, text=True)

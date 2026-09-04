@@ -234,3 +234,76 @@ def test_startup_gate_disabled_completes_at_target_packet_count() -> None:
     threshold, formula = tracker.calculate_threshold()
     assert threshold == pytest.approx(0.5 * 1.1)
     assert formula == "max x 1.1"
+
+
+@pytest.mark.parametrize("stream", ["sparse", "empty", "duplicate", "healthy"])
+@pytest.mark.parametrize("start_ms", [0, (1 << 30) - 5000])
+def test_device_calibration_has_a_deadline(monkeypatch, stream, start_ms):
+    """Continuous but unusable CSI must not keep startup or recalibration busy."""
+    import importlib
+    import importlib.util
+    import sys
+    from pathlib import Path
+    from types import ModuleType, SimpleNamespace
+    from unittest.mock import Mock
+
+    root = Path(__file__).resolve().parents[3] / "src/python/micro_espectre"
+    package = ModuleType("src")
+    package.__path__ = [str(root)]
+    monkeypatch.setitem(sys.modules, "src", package)
+    for name in ("config", "device_utils", "detector_interface", "runtime_motion_policy",
+                 "console_output", "threshold"):
+        module = importlib.import_module(name)
+        monkeypatch.setitem(sys.modules, "src." + name, module)
+        setattr(package, name, module)
+    # The reference sampler implements the same temporal admission contract on host.
+    monkeypatch.setitem(sys.modules, "src.temporal_csi_sampler",
+                        importlib.import_module("temporal_csi_sampler"))
+    monkeypatch.setitem(sys.modules, "src.wifi_bootstrap", SimpleNamespace(
+        cleanup_wifi=Mock(), connect_wifi=Mock(), print_wifi_status=Mock(), recover_wifi=Mock(),
+    ))
+    spec = importlib.util.spec_from_file_location("calibration_runtime", root / "runtime_main.py")
+    runtime = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runtime)
+    elapsed = 0
+    period = 1 << 30
+
+    def read_frame(*_args):
+        nonlocal elapsed
+        elapsed += 10 if stream == "healthy" else 20
+        assert elapsed <= 30_000, "Calibration did not honor its deadline"
+        if stream == "empty":
+            return None
+        timestamp = 1000 if stream == "duplicate" else elapsed * 1000
+        return [0, 6, 0, 0, timestamp, bytearray(128)]
+
+    monkeypatch.setattr(runtime, "time", SimpleNamespace(
+        ticks_ms=lambda: (start_ms + elapsed) % period,
+        ticks_diff=lambda a, b: (a - b + period // 2) % period - period // 2,
+        sleep_us=lambda _: None,
+    ))
+    monkeypatch.setattr(runtime, "gc", SimpleNamespace(collect=lambda: None, mem_free=lambda: 100000))
+    monkeypatch.setattr(runtime, "csi_read_frame", read_frame)
+    monkeypatch.setattr(runtime, "print_log", Mock())
+    detector = Mock(STARTUP_THRESHOLD_FACTOR=1.0, STARTUP_GATE=True)
+    detector.get_window_size.return_value = 100
+    detector.get_name.return_value = "Lightweight"
+    detector.get_motion_metric.return_value = 0.1
+    detector.get_threshold.return_value = 0.6
+    detector.is_ready.side_effect = lambda: stream == "healthy" and elapsed >= 1000
+
+    result = runtime.run_startup_calibration(
+        SimpleNamespace(csi_dropped=lambda: 0), detector,
+        SimpleNamespace(get_packet_count=lambda: 0),
+    )
+
+    assert result is (stream == "healthy")
+    assert runtime.g_state.calibration_mode is False
+    assert detector.reset.call_count >= 2
+    if stream == "sparse":
+        assert elapsed == 21_000
+        assert detector.update_state.call_count > 0
+    elif stream in ("empty", "duplicate"):
+        assert elapsed == 15_000
+    else:
+        detector.set_adaptive_threshold.assert_called_once()

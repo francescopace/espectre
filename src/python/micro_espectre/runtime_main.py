@@ -207,12 +207,20 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     print('-'*60)
 
     max_timeout_ms = 15000
+    # Allow warmup and reduced occupancy, but never let arrivals or repeated
+    # sampler resets extend calibration indefinitely.
+    calibration_timeout_ms = max(
+        max_timeout_ms,
+        2 * int(getattr(config, 'CALIBRATION_DURATION_MS', 10_000))
+        + int(getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000)),
+    )
     filtered_count = 0
     accepted_packet_count = 0
     calibration_progress = 0
     packets_since_evaluation = 0
     next_progress_report = 100
     last_packet_time = time.ticks_ms()
+    calibration_started_ms = last_packet_time
     rate_report_time = last_packet_time
     rate_previous_accepted = 0
     rate_previous_admitted = 0
@@ -234,6 +242,19 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     assessment_result = {}
     advance_missing = getattr(detector, "advance_missing_slots", None)
     while not calibration_tracker.is_complete():
+        now_ms = time.ticks_ms()
+        if (time.ticks_diff(now_ms, calibration_started_ms) >= calibration_timeout_ms
+                or time.ticks_diff(now_ms, last_packet_time) >= max_timeout_ms):
+            print_log(
+                "WARN",
+                "Startup calibration aborted: timed out waiting for sufficient CSI coverage "
+                "(collected {}/{})".format(
+                    calibration_progress, calibration_target_packets,
+                ),
+            )
+            detector.reset()
+            g_state.calibration_mode = False
+            return False
         frame = csi_read_frame(wlan, frame_result)
         if frame:
             frame_result = frame
@@ -259,18 +280,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                         ),
                     )
                 del frame
-                if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                    print_log(
-                        "WARN",
-                        "Startup calibration aborted: timed out waiting for valid CSI packets "
-                        "(collected {}/{})".format(
-                            calibration_progress,
-                            calibration_target_packets,
-                        ),
-                    )
-                    detector.reset()
-                    g_state.calibration_mode = False
-                    return False
                 continue
 
             csi_data, _, remap_tag = normalize_ht20_csi_payload(
@@ -282,18 +291,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
             if csi_data is None:
                 filtered_count += 1
                 del frame
-                if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                    print_log(
-                        "WARN",
-                        "Startup calibration aborted: timed out waiting for valid CSI packets "
-                        "(collected {}/{})".format(
-                            calibration_progress,
-                            calibration_target_packets,
-                        ),
-                    )
-                    detector.reset()
-                    g_state.calibration_mode = False
-                    return False
                 continue
 
             if use_lltf:
@@ -406,18 +403,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     next_progress_report += 100
         else:
             time.sleep_us(100)
-            if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
-                print_log(
-                    "WARN",
-                    "Startup calibration aborted: timed out waiting for CSI packets "
-                    "(collected {}/{})".format(
-                        calibration_progress,
-                        calibration_target_packets,
-                    ),
-                )
-                detector.reset()
-                g_state.calibration_mode = False
-                return False
 
     gc.collect()
     success = calibration_tracker.is_successful()

@@ -599,10 +599,25 @@ static bool direct_queue_recalibration(void) {
   return accepted;
 }
 
+static bool direct_request_size_allowed(httpd_req_t *request) {
+  if (request->content_len <= DIRECT_MAX_REQUEST_BYTES) {
+    return true;
+  }
+  direct_increment(&direct_state.oversized_requests);
+  httpd_resp_set_status(request, "413 Payload Too Large");
+  (void) httpd_resp_set_hdr(request, "Connection", "close");
+  (void) httpd_resp_sendstr(request, "Direct request body is too large");
+  return false;
+}
+
 static esp_err_t direct_request_handler(httpd_req_t *request) {
   if (!direct_set_cors(request)) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
+  }
+  if (!direct_request_size_allowed(request)) {
+    // Returning an error closes the session without draining an oversized body.
+    return ESP_FAIL;
   }
   if (!direct_request_allowed()) {
     direct_increment(&direct_state.rate_limited_requests);
@@ -654,6 +669,10 @@ static esp_err_t direct_options_handler(httpd_req_t *request) {
   if (!direct_set_cors(request)) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
+  }
+  if (!direct_request_size_allowed(request)) {
+    // Returning an error closes the session without draining an oversized body.
+    return ESP_FAIL;
   }
   (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Headers", "Content-Type");
@@ -748,6 +767,10 @@ static esp_err_t direct_events_handler(httpd_req_t *request) {
   if (!direct_set_cors(request)) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
+  }
+  if (!direct_request_size_allowed(request)) {
+    // Returning an error closes the session without draining an oversized body.
+    return ESP_FAIL;
   }
   if (direct_state.lock != NULL) {
     xSemaphoreTake(direct_state.lock, portMAX_DELAY);
