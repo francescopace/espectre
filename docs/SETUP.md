@@ -15,16 +15,17 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 
 Browser flashing uses Web Serial and works in desktop Chrome or Edge. Firefox, Safari, and mobile browsers do not support it; on those, [build and flash with the repository CLI](#local-build-prerequisites) instead.
 
-Published Native and ESPHome images speak standard Improv Serial, so any website that supports that protocol can provision Wi-Fi after a flash. Use [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) as the recommended installer: it has the published catalog, detects the chip over USB, and chooses the matching image.
+Published Native and ESPHome images speak standard Improv Serial. The ESPectre installer uses that protocol directly after flashing: it opens Wi-Fi setup when the device is unconfigured and carries the returned private address into Device settings when one is available. Matter exposes a read-only Improv surface for firmware identification and its persisted setup QR and manual code; it rejects Improv Wi-Fi provisioning because the Matter controller owns network commissioning.
 
-Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPectre firmware images start with Lightweight Detection and support persisted runtime switching to High Accuracy through their advertised controls.
+Use `Release` for official firmware, `Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPectre firmware images start with Lightweight Detection and support persisted runtime switching to High Accuracy through their advertised controls.
 
 To flash:
 
 1. Connect the board over USB
-2. Click **Connect via USB**
-3. Select the serial port
-4. Confirm the browser prompt
+2. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/), select **Connect USB device**, and choose the board from the browser's serial-port list
+3. Wait for the installer to detect the chip and current firmware, then choose an update, reinstall, or another firmware type and channel
+4. Review whether the installation preserves device data or erases the complete flash, then confirm
+5. Keep the page open until the board restarts, and complete the displayed setup step
 
 If the board does not enter download mode automatically, use its `BOOT` and `RESET` controls: hold `BOOT`, press and release `RESET`, release `BOOT`, and retry the flash. Board labels and automatic-reset behavior vary, so use the board documentation when those controls are named differently.
 

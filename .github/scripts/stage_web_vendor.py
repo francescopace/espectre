@@ -6,18 +6,13 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
 NODE_MODULES = WEB_ROOT / "node_modules"
 VENDOR_ROOT = WEB_ROOT / "vendor"
-ESP_WEB_TOOLS_DEVICE_LINK_LABEL = "Open device settings"
-ESP_WEB_TOOLS_DEVICE_LINK_HREF = (
-    '${(()=>{const destination=new URL("/",location.origin);'
-    'destination.search=new URL(this._client.nextUrl,location.href).search;'
-    'destination.hash="tool-configure";return destination.toString()})()}'
-)
 
 
 def require(path: Path) -> Path:
@@ -31,39 +26,38 @@ def copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(require(source), destination)
 
 
-def customize_esp_web_tools(destination: Path) -> None:
-    """Route post-install device links through the current portal origin."""
-    install_dialog = next(destination.glob("install-dialog-*.js"), None)
-    if install_dialog is None:
-        raise FileNotFoundError("Missing ESP Web Tools install dialog bundle")
-    source = install_dialog.read_text(encoding="utf-8")
-    expected_occurrences = 2
-    source_label = ">Visit Device</div>"
-    source_href = "href=${this._client.nextUrl}"
-    if source.count(source_label) != expected_occurrences:
-        raise ValueError("Unexpected ESP Web Tools device-link label count")
-    if source.count(source_href) != expected_occurrences:
-        raise ValueError("Unexpected ESP Web Tools device-link href count")
-    install_dialog.write_text(
-        source.replace(source_label, f">{ESP_WEB_TOOLS_DEVICE_LINK_LABEL}</div>")
-        .replace(source_href, f"href={ESP_WEB_TOOLS_DEVICE_LINK_HREF}"),
-        encoding="utf-8",
-    )
-
-
 def stage_vendor() -> None:
     if VENDOR_ROOT.exists():
         shutil.rmtree(VENDOR_ROOT)
 
-    esp_source = require(NODE_MODULES / "esp-web-tools" / "dist" / "web")
-    esp_destination = VENDOR_ROOT / "esp-web-tools-10.4.0-espectre.1"
-    shutil.copytree(esp_source, esp_destination)
-    copy_file(NODE_MODULES / "esp-web-tools" / "LICENSE", esp_destination / "LICENSE")
-    customize_esp_web_tools(esp_destination)
+    subprocess.run(
+        ["npm", "run", "build:headless"],
+        cwd=WEB_ROOT,
+        check=True,
+    )
+    serial_destination = VENDOR_ROOT / "espectre-web-serial-0.6.1-2.8.0"
+    copy_file(WEB_ROOT / "build" / "headless-web-serial.js", serial_destination / "headless.js")
+    copy_file(NODE_MODULES / "esptool-js" / "LICENSE", serial_destination / "LICENSE.esptool-js")
+    copy_file(
+        NODE_MODULES / "atob-lite" / "LICENSE.md",
+        serial_destination / "LICENSE.atob-lite",
+    )
+    copy_file(
+        NODE_MODULES / "pako" / "LICENSE",
+        serial_destination / "LICENSE.pako",
+    )
+    copy_file(
+        NODE_MODULES / "improv-wifi-serial-sdk" / "LICENSE",
+        serial_destination / "LICENSE.improv-wifi-serial-sdk",
+    )
 
     qrcode_destination = VENDOR_ROOT / "qrcodejs-1.0.0"
     copy_file(NODE_MODULES / "qrcodejs" / "qrcode.min.js", qrcode_destination / "qrcode.min.js")
     copy_file(NODE_MODULES / "qrcodejs" / "LICENSE", qrcode_destination / "LICENSE")
+
+    ansi_destination = VENDOR_ROOT / "ansi_up-6.0.6"
+    copy_file(NODE_MODULES / "ansi_up" / "ansi_up.js", ansi_destination / "ansi_up.js")
+    copy_file(NODE_MODULES / "ansi_up" / "LICENSE", ansi_destination / "LICENSE")
 
 
 def main() -> int:

@@ -36,17 +36,17 @@
         <tr><td>Want raw CSI data for research</td><td><strong>Native, ESPHome, or Matter</strong></td><td>Raw HTTP capture through the browser tool or <code>./espectre collect</code></td></tr>
       </tbody>
     </table></div>
-    <div class="note">Not sure? Pick Native, the default in the installer: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
+    <div class="note">Not sure? Pick Native, the default when the installer does not recognize existing ESPectre firmware: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
 
     <h2 id="setup-flash">Step 2 — Install ESPectre</h2>
     <h3 class="subheading">Recommended: install a published image</h3>
     <ol class="steps-list">
       <li><h3>Plug the board in</h3><p>Connect the ESP32 to your computer over USB. Close anything that may be using the serial port, such as a previous flasher tab, the Arduino IDE, or a serial monitor.</p></li>
-      <li><h3>Open the installer</h3><p>Go to <a href="/tools/flash/">Install ESPectre</a> and choose the firmware type from Step&nbsp;1. The installer detects the chip over USB and selects the matching image. Preview and development versions are intended for testing.</p></li>
-      <li><h3>Connect</h3><p>Click <em>Connect via USB</em>. The browser shows a list of serial ports: pick the one that appears when you plug the board in (on Windows a <code>COMx</code> port, on macOS/Linux something like <code>usbserial</code>, <code>usbmodem</code>, or <code>ttyACM</code>).</p></li>
-      <li><h3>Install</h3><p>Choose <em>Install</em>, confirm, and wait. Flashing takes one to three minutes; do not unplug the cable. When it finishes, the device reboots into ESPectre.</p></li>
+      <li><h3>Open the installer</h3><p>Go to <a href="/tools/flash/">Install ESPectre</a> and select <em>Connect USB device</em>.</p></li>
+      <li><h3>Connect and detect</h3><p>Choose the USB device when the browser shows its serial-port list. Pick the port that appears when you plug the board in (on Windows a <code>COMx</code> port, on macOS/Linux something like <code>usbserial</code>, <code>usbmodem</code>, or <code>ttyACM</code>). The wizard detects the chip and checks for an existing ESPectre installation before asking what to install.</p></li>
+      <li><h3>Choose and install</h3><p>If the installed firmware type is recognized and a matching image is available, choose Update or Reinstall to preserve device data. Otherwise, choose a different firmware type and release channel. Changing the firmware type or replacing an unrecognized image requires an explicit full-erase confirmation. Keep the page open while the wizard downloads, erases when required, writes, and restarts the board.</p></li>
     </ol>
-    <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
+    <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and select <em>Connect USB device</em> again. That forces the chip into download mode.</div>
 
     <details class="article-details">
       <summary>For integrators: build from source with the CLI</summary>
@@ -107,7 +107,7 @@ python -m pip install -r requirements.txt</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-network-native-panel" role="tabpanel" aria-labelledby="setup-network-native-tab" data-network-frontend="native">
         <ol class="steps-list">
-          <li><h3>Provision Wi-Fi over USB</h3><p>After flashing, complete the standard Improv Serial prompt in Chrome or Edge. If the handoff cannot open the device automatically, keep the returned URL.</p></li>
+          <li><h3>Provision Wi-Fi over USB</h3><p>After flashing, the ESPectre wizard checks the board over Improv Serial. An unconfigured device opens the Wi-Fi setup form in the page; an already configured device proceeds directly to completion.</p></li>
           <li><h3>Open Device settings</h3><p>Go to <a href="/tools/device-settings/">Device settings</a>. Enter the private device IP if the installer supplied one, or use Auto-discovery to find compatible devices on the same network. You can rename the device, inspect its Wi-Fi connection, choose a preferred access point, and add or remove MQTT settings.</p><p>Change the Wi-Fi network name or password through Improv Serial over USB. Resetting Wi-Fi disconnects the device and returns it to USB provisioning. Hold BOOT for 3 seconds when USB recovery is needed.</p></li>
           <li><h3>Start sensing</h3><p>Open <a href="/tools/monitor/">Live motion</a>, connect to the same device, and verify sensing without a broker. Configure MQTT separately when you need Home Assistant or another broker-based automation system.</p></li>
         </ol>
@@ -123,14 +123,14 @@ espectre&gt; recalibrate</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-network-esphome-panel" role="tabpanel" aria-labelledby="setup-network-esphome-tab" data-network-frontend="esphome" hidden>
         <ol class="steps-list">
-          <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. If that prompt does not appear, connect to the <code>ESPectre Fallback</code> hotspot and finish setup in the browser.</p></li>
+          <li><h3>Configure Wi-Fi in the installer</h3><p>Right after installation, enter the network name and password when the board is unconfigured. Published images use 2.4&nbsp;GHz. If serial provisioning is unavailable, connect to the <code>ESPectre Fallback</code> hotspot and finish setup in the browser.</p></li>
           <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, recalibrate button, and calibration-state sensor. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns those entities into a focused sensing and diagnostics view.</p></li>
         </ol>
         <p><strong>CLI path:</strong> repository builds use the local component checkout without embedding Wi-Fi credentials; provision the resulting firmware through Improv Serial or the fallback access point.</p>
       </div>
       <div class="code-tab-panel" id="setup-network-matter-panel" role="tabpanel" aria-labelledby="setup-network-matter-tab" data-network-frontend="matter" hidden>
         <ol class="steps-list">
-          <li><h3>Get the QR code</h3><p>The CLI prints the code while <code>matter flash</code> captures the first boot. To retrieve it later, use <em>Show Matter setup code</em> on the <a href="/tools/flash/">Install ESPectre</a> page, or run <code>./espectre matter qr --chip c3</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
+          <li><h3>Get the QR code</h3><p>The web wizard identifies Matter over USB and reads the persisted QR payload and manual code directly from the board after it restarts. To retrieve them later, reconnect on the <a href="/tools/flash/">Install ESPectre</a> page and select <strong>Matter QR code</strong>, or run <code>./espectre matter qr --chip c3</code>. Each device has its own code, and reflashing without a full erase does not change it.</p></li>
           <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
           <li><h3>Choose an access point, if needed</h3><p>After commissioning, open <a href="/tools/device-settings/">Device settings</a> over Direct HTTP. If several access points share the commissioned network name, choose the one ESPectre should use. Matter stores this BSSID preference separately from its credentials and reapplies it after restart only while the commissioned network matches. Select <em>Automatic (strongest available)</em> to remove the preference without changing the Matter fabric or Wi-Fi credentials.</p></li>
           <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
@@ -173,7 +173,7 @@ espectre&gt; recalibrate</code></pre>
     <h2 id="setup-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
       <article><h3>No serial port appears</h3><ul><li>Try another USB cable; charge-only cables are a common cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
-      <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
+      <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Use the advanced erase-and-reinstall option to start from a clean flash.</li></ul></article>
       <article><h3>The installer says the board is not supported</h3><ul><li>The connected chip has no published image for the selected firmware and channel.</li><li>The Install ESPectre page lists the chips that currently have firmware.</li><li>ESP32-S2 is available in the browser for ESPHome and Native, but not Matter. Micro-ESPectre images are built and flashed from the CLI; other variants outside the listed matrix cannot be flashed from the browser.</li></ul></article>
       <article><h3>Device will not join Wi-Fi</h3><ul><li>Repeat Improv Serial provisioning over USB and enter the exact SSID and password; both are case-sensitive.</li><li>If a saved BSSID is no longer available, select automatic access-point selection in Device settings after reconnecting, or hold BOOT for 3 seconds and provision again.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
       <article><h3>Cannot find a previously configured device</h3><ul><li>Use the private IPv4 address from the Improv completion link or router lease table when Auto-discovery or a <code>.local</code> device ID fails.</li><li>Ignore stale browser suggestions, and enter the current private IP directly. A full ID, short ID, or device name still depends on mDNS.</li><li>Grant local-network access only to the ESPectre portal in a supported browser; an Origin or mixed-content error means that browser path is not available.</li></ul></article>

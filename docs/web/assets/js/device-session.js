@@ -977,6 +977,10 @@
     /* ----------------------------------------------------- shared teardown */
 
     function disconnect() {
+        if (flash.usbDialog && typeof window.flashDisconnect === 'function') {
+            void window.flashDisconnect();
+            return;
+        }
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
         if (typeof window.rawCsiStop === 'function') void window.rawCsiStop('user');
@@ -1121,23 +1125,7 @@
                 ? 'USB flashing requires desktop Chrome or Edge.'
                 : flashUnsupportedMessage();
         }
-        const installTrigger = $('.js-flash-install [slot="activate"]');
-        const installButton = $('.js-flash-install');
-        if (installTrigger) {
-            installTrigger.disabled = !browserSupport.flash;
-            installTrigger.setAttribute('aria-disabled', String(!browserSupport.flash));
-            installTrigger.title = browserSupport.flash ? '' : flashUnsupportedMessage();
-        }
-        if (installButton) {
-            installButton.classList.toggle('is-disabled', !browserSupport.flash);
-            installButton.toggleAttribute('inert', !browserSupport.flash);
-        }
-        const matterReadButton = $('.js-matter-read');
-        if (matterReadButton) {
-            matterReadButton.disabled = !browserSupport.flash;
-            matterReadButton.setAttribute('aria-disabled', String(!browserSupport.flash));
-            matterReadButton.title = browserSupport.flash ? '' : flashUnsupportedMessage();
-        }
+        if (typeof flashSyncControls === 'function') flashSyncControls();
     }
 
     function renderConnection() {
@@ -1207,7 +1195,7 @@
         const usbNote = $('.js-usb-port-note');
         if (usbNote) usbNote.hidden = !usbConnected;
         const disconnectButton = $('.js-disconnect');
-        if (disconnectButton) disconnectButton.hidden = usbConnected;
+        if (disconnectButton) disconnectButton.hidden = false;
         $$('.js-direct-chip').forEach((chip) => {
             chip.classList.toggle('ready', connected && conn.mode === 'direct');
         });

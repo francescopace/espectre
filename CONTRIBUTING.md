@@ -170,9 +170,6 @@ git push --force-with-lease
 #### C++
 
 - Keep shared `core` and `runtime` code frontend-agnostic
-- Follow ESPHome component conventions only under `src/cpp/frontend/esphome/`
-- Use ESP-IDF framework (not Arduino)
-- Use `ESP_LOGD`, `ESP_LOGI`, `ESP_LOGW`, `ESP_LOGE` for logging
 - All code and comments in English
 
 **File Header:**

@@ -3,12 +3,12 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <h1 class="page-title">Install ESPectre</h1>
-<p class="page-sub">Connect your board over USB, choose a firmware type, and start the installation. <br>To erase saved Wi-Fi settings, hold the <strong>BOOT/FLASH</strong> button for 3 seconds.</p>
+<p class="page-sub">Connect an ESP32 over USB to update, replace, or configure its ESPectre firmware.</p>
 
 <section class="tool-static-entry" aria-labelledby="flash-static-title">
   <h2 id="flash-static-title">Install from your browser</h2>
-  <p>The installer detects a supported ESP32 over USB, matches it to the selected ESPectre frontend, and writes the corresponding factory image. Release, preview, and development channels remain separate, so you can choose between a published version and an upcoming build.</p>
-  <p>Use a Chromium-based browser and a USB data cable. The serial connection stays open only while the installer is active; after installation, continue with the setup guide to connect the device to Wi-Fi.</p>
+  <p>The installer detects a supported ESP32 and its current ESPectre firmware over USB. It can update the installed firmware without removing device data, replace it with another firmware type, or retrieve a Matter device's persisted setup code.</p>
+  <p>Use a Chromium-based browser and a USB data cable. The serial connection stays open only while the installer is active.</p>
   <div class="tool-static-actions">
     <a href="/#tool-flash" class="btn-primary">Open the browser installer</a>
     <a href="/guides/setup/" class="btn-secondary">Read the setup guide</a>
@@ -16,33 +16,161 @@
 </section>
 
 <div class="tool-interactive">
-  <div class="config-grid">
-    <section class="panel">
-      <h2>Choose firmware</h2>
-      <div class="fields">
-        <div class="field"><label for="flash-frontend">Firmware type</label><select id="flash-frontend"></select></div>
-        <div class="field"><label for="flash-channel">Version</label>
-          <select id="flash-channel">
-            <option value="release">Release</option>
-            <option value="preview">Preview — for testing</option>
-            <option value="develop">Development — may be unstable</option>
-          </select>
+  <div class="flash-wizard" aria-labelledby="flash-wizard-title">
+    <section class="empty-state connection-card flash-connect-card flash-stage js-flash-stage" data-flash-step="select" aria-labelledby="flash-wizard-title">
+      <span class="connection-card-eyebrow">USB installer</span>
+      <h2 id="flash-wizard-title">Connect your device</h2>
+      <p>The installer identifies the board and checks its current firmware.</p>
+      <button type="button" class="btn-primary js-flash-connect">Connect USB device</button>
+      <a class="flash-releases-link js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse firmware releases on GitHub</a>
+    </section>
+
+    <section class="flash-stage js-flash-stage" data-flash-step="review" aria-labelledby="flash-review-title" hidden>
+      <h2 id="flash-review-title" class="sr-only">Connected device</h2>
+      <div class="config-grid flash-device-grid">
+        <section class="panel flash-current-panel" aria-labelledby="flash-current-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="flash-current-title">Current firmware</h2>
+              <p class="panel-intro"><span class="js-flash-review-chip">Device</span> connected over USB.</p>
+            </div>
+            <span class="config-status" role="status" data-state="connected"><span class="dot dot-ok" aria-hidden="true"></span><span>Connected</span></span>
+          </div>
+          <div class="flash-firmware-value">
+            <strong class="js-flash-review-frontend">Unknown</strong>
+            <span class="js-flash-review-version">Firmware not recognized. Choose a firmware type to install.</span>
+          </div>
+          <div class="field flash-canonical-control" hidden>
+            <label for="flash-channel">Firmware channel</label>
+            <select id="flash-channel">
+              <option value="release">Release</option>
+              <option value="preview">Preview — for testing</option>
+              <option value="develop">Development — may be unstable</option>
+            </select>
+          </div>
+          <label class="flash-option flash-erase-option js-flash-force-erase-wrap" for="flash-force-erase">
+            <input id="flash-force-erase" type="checkbox" class="js-flash-force-erase">
+            <span><strong>Erase device data</strong><small>Remove saved Wi-Fi settings and all device data.</small></span>
+          </label>
+          <div class="panel-actions">
+            <div class="js-flash-current-install-slot"></div>
+            <button type="button" class="btn-secondary btn-sm js-flash-configure-wifi">Configure Wi-Fi</button>
+            <a class="btn-secondary btn-sm js-flash-device-settings" href="/tools/device-settings/">Open device settings</a>
+            <button type="button" class="btn-secondary btn-sm js-flash-show-matter" hidden>Matter QR code</button>
+          </div>
+        </section>
+
+        <section class="panel flash-change-panel" aria-labelledby="flash-change-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="flash-change-title">Change firmware type</h2>
+              <p class="panel-intro">Install one of the other firmware types available for this board.</p>
+            </div>
+          </div>
+          <div class="flash-frontend-switch js-flash-frontend-switch" role="group" aria-label="Choose a different firmware type"></div>
+          <div class="field flash-canonical-control" hidden>
+            <label for="flash-frontend">Firmware type</label>
+            <select id="flash-frontend"></select>
+          </div>
+          <div class="panel-actions">
+            <div class="js-flash-change-install-slot"></div>
+          </div>
+        </section>
+
+      </div>
+    </section>
+
+    <section class="panel flash-progress-card js-flash-progress-card" aria-labelledby="flash-install-title" hidden>
+      <h2 id="flash-install-title">USB installer</h2>
+      <p class="js-flash-progress-label" id="flash-progress-label">Preparing…</p>
+      <progress class="flash-progress js-flash-progress" max="100" value="0" aria-describedby="flash-progress-label">0%</progress>
+      <p class="tool-note">Do not unplug the board or close this page while its flash memory is being updated.</p>
+    </section>
+
+    <details class="panel flash-console js-flash-console" data-flash-session-panel hidden>
+      <summary>Serial console</summary>
+      <div class="flash-console-body">
+        <p class="tool-note">During installation, this console shows installer diagnostics. At other times, opening it starts live serial output and takes control of the selected port.</p>
+        <pre class="flash-console-output js-flash-console-output" tabindex="0" aria-label="Serial output"></pre>
+        <div class="panel-actions">
+          <button type="button" class="btn-ghost btn-sm js-flash-console-reset" title="Restart the connected device without clearing the console output" disabled>Reset device</button>
+          <button type="button" class="btn-ghost btn-sm js-flash-console-clear" title="Clear the displayed and buffered console output without restarting the device">Clear output</button>
+          <button type="button" class="btn-ghost btn-sm js-flash-console-download">Download log</button>
+          <button type="button" class="btn-ghost btn-sm js-flash-console-fullscreen" aria-pressed="false">Full screen</button>
         </div>
       </div>
-      <p class="tool-note">Use the published release unless you are testing an upcoming change. After installation, follow the <a href="/guides/setup/">setup guide</a> to connect the board to Wi-Fi.</p>
-    </section>
-    <section class="panel">
-      <h2>Install</h2>
-      <div class="flash-summary js-flash-summary">Loading firmware metadata…</div>
-      <div class="flash-status js-flash-status"></div>
-      <div class="panel-actions">
-        <esp-web-install-button class="js-flash-install">
-          <button slot="activate" class="btn-primary btn-sm">Connect via USB</button>
-        </esp-web-install-button>
-        <button type="button" class="btn-secondary btn-sm js-matter-read" hidden>Device QR code</button>
-        <a class="btn-secondary btn-sm js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse GitHub releases</a>
-      </div>
-      <p class="tool-note js-matter-status" role="status" hidden></p>
-    </section>
+    </details>
   </div>
+</div>
+
+<div class="modal-backdrop js-flash-flow-modal" hidden>
+  <section class="modal-card flash-flow-card flash-stage js-flash-stage" data-flash-step="onboarding" role="dialog" aria-modal="true" aria-labelledby="flash-onboarding-title" tabindex="-1" hidden>
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">Device setup</span>
+        <h2 id="flash-onboarding-title">Set up your device</h2>
+      </div>
+      <button type="button" class="modal-close js-flash-flow-close" aria-label="Close device setup">×</button>
+    </div>
+    <div class="js-flash-improv-onboarding">
+      <p>Enter the Wi-Fi network name and password. Credentials are sent directly to the connected board and are never stored by this site.</p>
+      <form class="js-flash-wifi-form">
+        <div class="fields">
+          <div class="field"><label for="flash-wifi-ssid">Wi-Fi network name</label><input id="flash-wifi-ssid" class="js-flash-wifi-ssid" autocomplete="off" required></div>
+          <div class="field"><label for="flash-wifi-password">Password</label><input id="flash-wifi-password" class="js-flash-wifi-password" type="password" autocomplete="new-password"></div>
+        </div>
+        <div class="panel-actions">
+          <button type="submit" class="btn-primary btn-sm js-flash-provision">Connect device to Wi-Fi</button>
+          <button type="button" class="btn-ghost btn-sm js-flash-skip-onboarding">Set up later</button>
+        </div>
+      </form>
+    </div>
+    <div class="js-flash-matter-onboarding" hidden>
+      <p>This device-specific code was read directly from the board over USB. Scan it with your Matter controller, or enter the manual setup code; Wi-Fi commissioning remains in the controller.</p>
+      <div class="matter-loading js-matter-loading" role="status">
+        <span class="spinner matter-loading-spinner" aria-hidden="true"></span>
+        <span>Loading QR code…</span>
+      </div>
+      <div class="matter-result js-matter-result" hidden>
+        <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter setup QR code"></div>
+        <dl class="matter-codes">
+          <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
+          <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="modal-card flash-flow-card flash-error flash-stage js-flash-stage" data-flash-step="error" role="dialog" aria-modal="true" aria-labelledby="flash-error-title" tabindex="-1" hidden>
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">USB installer</span>
+        <h2 id="flash-error-title">Operation interrupted</h2>
+      </div>
+      <button type="button" class="modal-close js-flash-flow-close" aria-label="Close error">×</button>
+    </div>
+    <p class="js-flash-error-detail">Reconnect the board and try again.</p>
+    <div class="panel-actions">
+      <button type="button" class="btn-primary btn-sm js-flash-retry">Try again</button>
+      <button type="button" class="btn-secondary btn-sm js-flash-new-session">Start over</button>
+    </div>
+  </section>
+</div>
+
+<div class="modal-backdrop js-flash-erase-modal" hidden>
+  <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="flash-erase-modal-title" aria-describedby="flash-erase-modal-description" tabindex="-1">
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">Firmware installation</span>
+        <h2 id="flash-erase-modal-title">Erase device data?</h2>
+      </div>
+      <button type="button" class="modal-close js-flash-erase-cancel" aria-label="Cancel firmware installation">×</button>
+    </div>
+    <p class="modal-description js-flash-erase-description" id="flash-erase-modal-description">This installation requires a full erase.</p>
+    <div class="modal-warning">Saved Wi-Fi settings and all device data will be permanently removed.</div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost js-flash-erase-cancel">Cancel</button>
+      <button type="button" class="btn-danger js-flash-erase-confirm">Erase and install</button>
+    </div>
+  </section>
 </div>

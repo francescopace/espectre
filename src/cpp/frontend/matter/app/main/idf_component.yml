@@ -4,3 +4,6 @@ dependencies:
     version: ">=5.5.0"
   espressif/esp_matter:
     version: "1.6.0"
+  improv:
+    git: https://github.com/improv-wifi/sdk-cpp.git
+    version: 17898613a1c17062ca5af295ceb639b16b4930bf

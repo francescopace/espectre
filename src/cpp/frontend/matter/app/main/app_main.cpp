@@ -40,6 +40,7 @@
 #include "direct_wifi_snapshot_esp_idf.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
+#include "improv_serial_service.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
@@ -65,6 +66,7 @@ namespace {
 espectre::MatterEspBindings g_bindings;
 espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
+espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
 espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 espectre::WifiBssidPinService *g_wifi_bssid_pin_service = nullptr;
@@ -109,6 +111,8 @@ uint32_t g_station_ipv4 = 0U;
 bool g_operational_start_pending = false;
 TickType_t g_operational_start_retry_at = 0U;
 TickType_t g_operational_start_not_before = 0U;
+std::string g_matter_qr;
+std::string g_matter_manual_code;
 
 constexpr TickType_t kOperationalStartRetryDelay = pdMS_TO_TICKS(1000);
 constexpr TickType_t kPostCommissioningRuntimeGrace = pdMS_TO_TICKS(10000);
@@ -251,7 +255,7 @@ void open_commissioning_window_if_necessary() {
   }
 }
 
-void log_onboarding_codes() {
+bool refresh_matter_onboarding_codes() {
   constexpr auto rendezvous =
       chip::RendezvousInformationFlags(chip::RendezvousInformationFlag::kBLE);
   char qr_code[128] = {};
@@ -262,13 +266,48 @@ void log_onboarding_codes() {
   CHIP_ERROR qr_error = GetQRCode(qr_span, rendezvous);
   CHIP_ERROR manual_error = GetManualPairingCode(manual_span, rendezvous);
   if (qr_error != CHIP_NO_ERROR || manual_error != CHIP_NO_ERROR) {
-    ESP_LOGE(TAG, "Failed to generate Matter onboarding codes");
-    return;
+    return false;
   }
 
-  ESP_LOGI(TAG, "MATTER_QR=%.*s", static_cast<int>(qr_span.size()), qr_span.data());
-  ESP_LOGI(TAG, "MATTER_MANUAL_CODE=%.*s", static_cast<int>(manual_span.size()),
-           manual_span.data());
+  g_matter_qr.assign(qr_span.data(), qr_span.size());
+  g_matter_manual_code.assign(manual_span.data(), manual_span.size());
+  return true;
+}
+
+bool matter_onboarding_codes(std::string *qr, std::string *manual_code) {
+  if (qr == nullptr || manual_code == nullptr || g_matter_qr.empty() ||
+      g_matter_manual_code.empty()) {
+    return false;
+  }
+  *qr = g_matter_qr;
+  *manual_code = g_matter_manual_code;
+  return true;
+}
+
+[[gnu::noinline]] bool setup_matter_improv_serial(
+    const espectre::RuntimeConfig &runtime_config) {
+  espectre::ImprovSerialServiceConfig improv_config;
+  improv_config.firmware_name = "ESPectre Matter";
+  improv_config.firmware_version = espectre::espectre_firmware_version();
+  improv_config.hardware_variant = CONFIG_IDF_TARGET;
+  improv_config.device_name = matter_display_name(
+      runtime_config.device_id, CONFIG_ESPECTRE_MATTER_NODE_LABEL);
+  improv_config.matter_onboarding = matter_onboarding_codes;
+  static espectre::ImprovSerialService improv_serial;
+  if (!improv_serial.setup(std::move(improv_config))) {
+    return false;
+  }
+  g_improv_serial = &improv_serial;
+  return true;
+}
+
+void log_onboarding_codes() {
+  if (g_matter_qr.empty() || g_matter_manual_code.empty()) {
+    ESP_LOGE(TAG, "Matter onboarding codes are unavailable");
+    return;
+  }
+  ESP_LOGI(TAG, "MATTER_QR=%s", g_matter_qr.c_str());
+  ESP_LOGI(TAG, "MATTER_MANUAL_CODE=%s", g_matter_manual_code.c_str());
   ESP_LOGI(TAG, "MATTER_DISCRIMINATOR=%u",
            static_cast<unsigned>(g_commissioning_data.setup_discriminator()));
 }
@@ -462,6 +501,9 @@ void espectre_loop_task(void *arg) {
     if (g_wifi_bssid_pin_service != nullptr) {
       g_wifi_bssid_pin_service->loop();
     }
+    if (g_improv_serial != nullptr) {
+      g_improv_serial->loop();
+    }
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }
@@ -522,6 +564,10 @@ extern "C" void app_main() {
   static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id, &direct_service);
   const espectre::RuntimeConfig runtime_config = build_runtime_config();
   g_device_id = runtime_config.device_id;
+  if (!setup_matter_improv_serial(runtime_config)) {
+    ESP_LOGE(TAG, "Failed to initialize Matter Improv Serial identity service");
+    return;
+  }
   frontend.set_runtime_config(runtime_config);
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
@@ -574,6 +620,10 @@ extern "C" void app_main() {
   err = esp_matter::start(app_event_cb);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
+    return;
+  }
+  if (!refresh_matter_onboarding_codes()) {
+    ESP_LOGE(TAG, "Failed to generate Matter onboarding codes");
     return;
   }
   g_wifi_station_state_event.post();

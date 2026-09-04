@@ -75,7 +75,7 @@ The full runtime selects the read-only CSI capture profile after Wi-Fi associati
 
 ## Choosing a detection profile
 
-Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TUNING.md](TUNING.md#detection-profile) owns the operator-facing choice.
+Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TUNING.md](TUNING.md#startup-and-detection-profile) owns the operator-facing choice.
 
 For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror threshold changes from `IRuntimeListener::on_threshold_changed()`, and budget flash separately from the CPU and working memory used by the active profile. A runtime-switching build may contain both detector implementations and ML weights even while Lightweight is active.
 

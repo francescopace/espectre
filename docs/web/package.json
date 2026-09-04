@@ -2,11 +2,20 @@
   "name": "espectre-web",
   "private": true,
   "scripts": {
+    "build:headless": "rollup --config rollup.config.mjs",
     "stage:vendor": "python3 ../../.github/scripts/stage_web_vendor.py",
     "test": "node --test '../../test/web/*.mjs'"
   },
   "dependencies": {
-    "esp-web-tools": "10.4.0",
+    "ansi_up": "6.0.6",
+    "esptool-js": "0.6.1",
+    "improv-wifi-serial-sdk": "2.8.0",
     "qrcodejs": "1.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "28.0.6",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "16.0.1",
+    "rollup": "4.50.0"
   }
 }

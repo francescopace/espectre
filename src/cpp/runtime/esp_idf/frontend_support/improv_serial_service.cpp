@@ -36,18 +36,19 @@ constexpr size_t kMaxReadBytesPerLoop = 64U;
 
 }  // namespace
 
-ImprovSerialService::ImprovSerialService(WifiProvisioningService *wifi_provisioning,
-                                         StandaloneWifiService *wifi_manager,
-                                         ReadCallback read_callback,
+ImprovSerialService::ImprovSerialService(ReadCallback read_callback,
                                          WriteCallback write_callback)
-    : wifi_provisioning_(wifi_provisioning),
-      wifi_manager_(wifi_manager),
-      read_callback_(std::move(read_callback)),
+    : read_callback_(std::move(read_callback)),
       write_callback_(std::move(write_callback)) {}
 
 bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
-  if (wifi_provisioning_ == nullptr || wifi_manager_ == nullptr || config.firmware_name.empty() ||
-      config.firmware_version.empty() || config.hardware_variant.empty() || config.device_name.empty()) {
+  const bool has_any_provisioning_callback =
+      config.begin_provisioning || config.provisioning_state || config.network_connected;
+  const bool has_all_provisioning_callbacks =
+      config.begin_provisioning && config.provisioning_state && config.network_connected;
+  if (config.firmware_name.empty() || config.firmware_version.empty() ||
+      config.hardware_variant.empty() || config.device_name.empty() ||
+      (has_any_provisioning_callback && !has_all_provisioning_callbacks)) {
     ESPECTRE_LOGE(TAG, "Invalid Improv Serial configuration");
     return false;
   }
@@ -176,10 +177,14 @@ bool ImprovSerialService::handle_command_(uint8_t command,
                                           const std::string &password) {
   (void) send_error_(improv::ERROR_NONE);
 
-  switch (static_cast<improv::Command>(command)) {
-    case improv::WIFI_SETTINGS: {
+  switch (command) {
+    case static_cast<uint8_t>(improv::WIFI_SETTINGS): {
+      if (!config_.begin_provisioning) {
+        (void) send_error_(improv::ERROR_UNKNOWN_RPC);
+        return false;
+      }
       std::string message;
-      if (!wifi_provisioning_->begin_serial_provisioning(ssid, password, &message)) {
+      if (!config_.begin_provisioning(ssid, password, &message)) {
         ESPECTRE_LOGW(TAG, "Rejected Improv Wi-Fi settings: %s", message.c_str());
         (void) send_error_(improv::ERROR_INVALID_RPC);
         return false;
@@ -189,14 +194,14 @@ bool ImprovSerialService::handle_command_(uint8_t command,
       (void) send_state_(state_);
       return false;
     }
-    case improv::GET_CURRENT_STATE:
+    case static_cast<uint8_t>(improv::GET_CURRENT_STATE):
       state_ = connected_() ? improv::STATE_PROVISIONED : improv::STATE_AUTHORIZED;
       (void) send_state_(state_);
       if (state_ == improv::STATE_PROVISIONED) {
         (void) send_rpc_response_(improv::GET_CURRENT_STATE, {device_url_()});
       }
       return false;
-    case improv::GET_DEVICE_INFO:
+    case static_cast<uint8_t>(improv::GET_DEVICE_INFO):
       (void) send_rpc_response_(improv::GET_DEVICE_INFO,
                                 {config_.firmware_name,
                                  config_.firmware_version,
@@ -205,7 +210,11 @@ bool ImprovSerialService::handle_command_(uint8_t command,
                                  "ESP-IDF",
                                  esp_get_idf_version()});
       return false;
-    case improv::GET_NETWORK_STATE: {
+    case static_cast<uint8_t>(improv::GET_NETWORK_STATE): {
+      if (!config_.network_connected) {
+        (void) send_error_(improv::ERROR_UNKNOWN_RPC);
+        return false;
+      }
       uint8_t flags = improv::NETWORK_SUPPORTS_WIFI;
       if (connected_()) {
         flags |= improv::NETWORK_IS_ONLINE;
@@ -217,8 +226,19 @@ bool ImprovSerialService::handle_command_(uint8_t command,
       }
       return false;
     }
-    case improv::UNKNOWN:
-    case improv::BAD_CHECKSUM:
+    case kImprovGetMatterOnboardingCommand: {
+      std::string qr;
+      std::string manual_code;
+      if (!config_.matter_onboarding || !config_.matter_onboarding(&qr, &manual_code) ||
+          qr.empty() || manual_code.empty()) {
+        (void) send_error_(improv::ERROR_UNKNOWN);
+        return false;
+      }
+      (void) send_rpc_response_(kImprovGetMatterOnboardingCommand, {qr, manual_code});
+      return false;
+    }
+    case static_cast<uint8_t>(improv::UNKNOWN):
+    case static_cast<uint8_t>(improv::BAD_CHECKSUM):
       (void) send_error_(improv::ERROR_INVALID_RPC);
       return false;
     default:
@@ -228,6 +248,9 @@ bool ImprovSerialService::handle_command_(uint8_t command,
 }
 
 void ImprovSerialService::sync_state_() {
+  if (!config_.provisioning_state) {
+    return;
+  }
   if (!provisioning_request_pending_) {
     const uint8_t current = connected_() ? improv::STATE_PROVISIONED : improv::STATE_AUTHORIZED;
     if (current != state_) {
@@ -237,8 +260,8 @@ void ImprovSerialService::sync_state_() {
     return;
   }
 
-  switch (wifi_provisioning_->apply_state()) {
-    case WifiProvisioningApplyState::APPLIED:
+  switch (config_.provisioning_state()) {
+    case ImprovSerialProvisioningState::APPLIED:
       if (connected_()) {
         state_ = improv::STATE_PROVISIONED;
         (void) send_state_(state_);
@@ -246,8 +269,7 @@ void ImprovSerialService::sync_state_() {
         provisioning_request_pending_ = false;
       }
       break;
-    case WifiProvisioningApplyState::ROLLED_BACK:
-    case WifiProvisioningApplyState::RECOVERY_REQUIRED:
+    case ImprovSerialProvisioningState::FAILED:
       (void) send_error_(improv::ERROR_UNABLE_TO_CONNECT);
       state_ = connected_() ? improv::STATE_PROVISIONED : improv::STATE_AUTHORIZED;
       (void) send_state_(state_);
@@ -338,8 +360,7 @@ void ImprovSerialService::flush_output_() {
 }
 
 bool ImprovSerialService::connected_() const {
-  StandaloneWifiInfo info;
-  return wifi_manager_ != nullptr && wifi_manager_->get_info(&info) && info.connected && info.ip_address[0] != '\0';
+  return config_.network_connected && config_.network_connected();
 }
 
 std::string ImprovSerialService::device_url_() const {

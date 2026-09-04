@@ -204,7 +204,7 @@ Threshold publishes after operator writes, calibration, and Lightweight settled-
 
 If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
-To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. First-party CI and release builds use the local checkout and override `project_version` with `git describe` or the release tag.
+To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. Repository builds launched through `./espectre esphome` resolve `project_version` from the same numeric `git describe` identity used by the other frontends. First-party CI and release builds override it with the detected build version or release tag.
 
 To install a prebuilt OTA image from GitHub Releases instead, download the `espectre-esphome-<channel-or-version>-<chip>-ota.bin` asset and upload it over the network:
 

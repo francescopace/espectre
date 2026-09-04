@@ -28,7 +28,7 @@ ESP32-S2 is intentionally excluded. It has no Bluetooth radio, while the support
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
-2. use **Read the onboarding QR over USB** on the web flasher, or run `./espectre matter qr --chip <chip> --port <port>`, to retrieve the device-specific code
+2. use the setup codes that the browser installer reads automatically after the device restarts; to retrieve them later, reconnect and choose **Matter QR code**, or run `./espectre matter qr --chip <chip> --port <port>`
 3. use a Matter controller that supports BLE commissioning
 4. commission the device into your target fabric
 5. use the standard Matter occupancy surface exposed by the firmware
@@ -91,7 +91,9 @@ Current behavior from the firmware app:
 - commissioning data is generated locally with the ESP32 hardware RNG
 - onboarding data persists in the `matter_factory` partition at the end of flash and is independent from the application image
 - every boot emits `MATTER_QR` and `MATTER_MANUAL_CODE` markers on serial
-- the browser and CLI read those markers rather than generating competing codes
+- Improv Serial exposes `GET_CURRENT_STATE` and `GET_DEVICE_INFO` for firmware discovery, but does not accept Wi-Fi provisioning commands because Matter owns network commissioning
+- ESPectre's vendor Improv RPC `GET_MATTER_ONBOARDING` (`0x80`) returns the persisted QR payload and manual pairing code as two response strings
+- the browser prefers that RPC, while the serial markers remain a compatible fallback for the browser and CLI; neither client generates competing codes
 - an uncommissioned device opens a `300` second commissioning window
 - the commissioning window advertises all supported discovery transports, including BLE
 - DNS-SD includes the standard commissionable device type for an occupancy sensor, while the separate `_espectre._tcp.local.` service advertises the Direct HTTP endpoint used by `./espectre devices --frontend matter` after commissioning

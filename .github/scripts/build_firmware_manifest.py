@@ -226,7 +226,7 @@ def build_manifest(args: argparse.Namespace) -> dict:
         "frontends": {
             "esphome": {
                 "label": "ESPHome",
-                "post_flash": "Configure Wi-Fi via ESPHome/Home Assistant, then wait for native API discovery.",
+                "post_flash": "Provision Wi-Fi over Improv Serial or the fallback access point, then wait for native API discovery.",
                 "artifacts": [],
             },
             "matter": {

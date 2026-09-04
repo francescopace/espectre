@@ -11,7 +11,9 @@ import { readFileSync } from 'node:fs';
 export const read = (path) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8');
 
 export const index = read('docs/web/index.html');
+export const flashSource = read('docs/web/assets/js/flash-tool.js');
 export const app = [
+    'flash-tool.js',
     'device-session.js',
     'direct-discovery.js',
     'configure-tool.js',

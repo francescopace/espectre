@@ -5,6 +5,7 @@ idf_component_register(
         ${ESPECTRE_FRONTEND_MATTER_SOURCES}
         ${ESPECTRE_CORE_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
+        ${ESPECTRE_RUNTIME_ESP_IDF_IMPROV_SOURCES}
         ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES}
     INCLUDE_DIRS
         "."
@@ -20,6 +21,7 @@ idf_component_register(
         freertos
         heap
         log
+        improv
         mbedtls
         mdns
         esp_http_server

@@ -36,16 +36,18 @@ Website tests reject stale hashes. Generated static and SDK pages compute their 
 
 ## Browser dependencies
 
-Production uses pinned, same-origin copies of ESP Web Tools 10.4.0 and QRCode.js 1.0.0. Install and stage them locally with:
+The browser installer uses a same-origin ESM bundle built from pinned `esptool-js` 0.6.1 and `improv-wifi-serial-sdk` 2.8.0 dependencies. The bundle adds ESPectre's `GET_MATTER_ONBOARDING` (`0x80`) RPC, QRCode.js 1.0.0 renders the returned Matter setup code, and ansi_up 6.0.6 renders ANSI styling in serial logs. Install and stage the dependencies locally with:
 
 ```bash
 npm --prefix docs/web ci --ignore-scripts
 npm --prefix docs/web run stage:vendor
 ```
 
-`package-lock.json` owns the versions. CI stages the same files, while `vendor/` and `node_modules/` remain ignored. Localhost may fall back to the matching unpkg package when a dependency is missing; production treats a missing same-origin dependency as an error.
+`package-lock.json` owns the versions. `stage:vendor` builds the headless Web Serial bundle and copies it with the QR and ANSI renderers and upstream licenses. CI stages the same files, while `build/`, `vendor/`, and `node_modules/` remain ignored. There is no remote fallback: a local preview must run both commands before the installer can connect to a board.
 
 ## Firmware and artifacts
+
+USB detection tries Improv Serial first, then resets the board to inspect boot logs, and finally reads app descriptors through the bootloader when firmware identity or version is still unavailable. The fallbacks recognize Native, Matter, and ESPectre ESPHome firmware. ESPHome logs report the `francescopace.espectre` project version, including on renamed devices. Descriptor-only ESPHome detection recognizes the standard `espectre` app name and leaves the firmware version unavailable because that descriptor contains the ESPHome framework version. Custom ESPHome app names require Improv or project logs for identification. Initial detection does not request Matter pairing codes; the Matter QR action prefers the Improv onboarding RPC and retains serial markers as a compatibility fallback.
 
 Use locally built firmware in the browser preview by restaging the available Native, Matter, and ESPHome factory images:
 

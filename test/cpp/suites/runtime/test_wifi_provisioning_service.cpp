@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "device_config_store.h"
@@ -102,6 +103,44 @@ WifiProvisioningDefaults make_defaults() {
   defaults.max_retry = 4;
   defaults.manage_csi_lifecycle = false;
   return defaults;
+}
+
+ImprovSerialServiceConfig make_improv_wifi_config(WifiProvisioningService *provisioning,
+                                                  StandaloneWifiService *manager,
+                                                  std::string hardware_variant = "esp32c3") {
+  ImprovSerialServiceConfig config;
+  config.firmware_name = "ESPectre Native";
+  config.firmware_version = "3.0.0-test";
+  config.hardware_variant = std::move(hardware_variant);
+  config.device_name = "ESPectre test device";
+  config.device_url = []() {
+    return "https://espectre.dev/tools/device-settings/?target=192.168.1.42";
+  };
+  config.begin_provisioning = [provisioning](const std::string &ssid,
+                                             const std::string &password,
+                                             std::string *message) {
+    return provisioning->begin_serial_provisioning(ssid, password, message);
+  };
+  config.provisioning_state = [provisioning]() {
+    switch (provisioning->apply_state()) {
+      case WifiProvisioningApplyState::APPLIED:
+        return ImprovSerialProvisioningState::APPLIED;
+      case WifiProvisioningApplyState::ROLLED_BACK:
+      case WifiProvisioningApplyState::RECOVERY_REQUIRED:
+        return ImprovSerialProvisioningState::FAILED;
+      case WifiProvisioningApplyState::VERIFYING:
+      case WifiProvisioningApplyState::ROLLING_BACK:
+        return ImprovSerialProvisioningState::PENDING;
+      case WifiProvisioningApplyState::IDLE:
+      default:
+        return ImprovSerialProvisioningState::IDLE;
+    }
+  };
+  config.network_connected = [manager]() {
+    StandaloneWifiInfo info;
+    return manager->get_info(&info) && info.connected && info.ip_address[0] != '\0';
+  };
+  return config;
 }
 
 void emit_got_ip(StandaloneWifiService *manager) {
@@ -320,8 +359,6 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
   size_t input_position = 0U;
   std::vector<uint8_t> output;
   ImprovSerialService service(
-      &wifi_provisioning,
-      &manager,
       [&input, &input_position](uint8_t *data, size_t capacity) {
         const size_t available = input.size() - input_position;
         const size_t count = std::min(capacity, available);
@@ -335,13 +372,7 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
         output.insert(output.end(), data, data + length);
         return static_cast<int>(length);
       });
-  TEST_ASSERT_TRUE(service.setup(ImprovSerialServiceConfig{
-      "ESPectre Native",
-      "3.0.0-test",
-      "esp32c3",
-      "ESPectre test device",
-      []() { return "https://espectre.dev/tools/device-settings/?target=192.168.1.42"; },
-  }));
+  TEST_ASSERT_TRUE(service.setup(make_improv_wifi_config(&wifi_provisioning, &manager)));
 
   std::vector<CapturedImprovFrame> frames = parse_improv_frames(output);
   TEST_ASSERT_EQUAL(2U, frames.size());
@@ -404,16 +435,14 @@ void test_improv_serial_flushes_partial_writes_without_blocking(void) {
 
   std::vector<uint8_t> output;
   ImprovSerialService service(
-      &wifi_provisioning,
-      &manager,
       [](uint8_t *, size_t) { return 0; },
       [&output](const uint8_t *data, size_t length) {
         const size_t written = std::min<size_t>(3U, length);
         output.insert(output.end(), data, data + written);
         return static_cast<int>(written);
       });
-  TEST_ASSERT_TRUE(service.setup(ImprovSerialServiceConfig{
-      "ESPectre Native", "3.0.0-test", "esp32s2", "ESPectre test device", {}}));
+  TEST_ASSERT_TRUE(service.setup(
+      make_improv_wifi_config(&wifi_provisioning, &manager, "esp32s2")));
 
   TEST_ASSERT_TRUE(output.size() < 20U);
   for (int iteration = 0; iteration < 8; ++iteration) {
@@ -423,6 +452,79 @@ void test_improv_serial_flushes_partial_writes_without_blocking(void) {
   TEST_ASSERT_EQUAL(2U, frames.size());
   TEST_ASSERT_EQUAL_UINT8(improv::TYPE_ERROR_STATE, frames[0].type);
   TEST_ASSERT_EQUAL_UINT8(improv::TYPE_CURRENT_STATE, frames[1].type);
+}
+
+void test_improv_serial_identity_mode_exposes_only_matter_identity_and_onboarding(void) {
+  std::vector<uint8_t> input;
+  size_t input_position = 0U;
+  std::vector<uint8_t> output;
+  ImprovSerialService service(
+      [&input, &input_position](uint8_t *data, size_t capacity) {
+        const size_t count = std::min(capacity, input.size() - input_position);
+        if (count > 0U) {
+          std::memcpy(data, input.data() + input_position, count);
+          input_position += count;
+        }
+        return static_cast<int>(count);
+      },
+      [&output](const uint8_t *data, size_t length) {
+        output.insert(output.end(), data, data + length);
+        return static_cast<int>(length);
+      });
+
+  ImprovSerialServiceConfig config;
+  config.firmware_name = "ESPectre Matter";
+  config.firmware_version = "3.0.0-test";
+  config.hardware_variant = "esp32s3";
+  config.device_name = "ESPectre Matter test device";
+  config.matter_onboarding = [](std::string *qr, std::string *manual_code) {
+    *qr = "MT:TESTPAYLOAD";
+    *manual_code = "12345678901";
+    return true;
+  };
+  TEST_ASSERT_TRUE(service.setup(std::move(config)));
+
+  output.clear();
+  input = make_improv_rpc_frame(improv::GET_CURRENT_STATE);
+  input_position = 0U;
+  service.loop();
+  std::vector<CapturedImprovFrame> frames = parse_improv_frames(output);
+  TEST_ASSERT_EQUAL(2U, frames.size());
+  TEST_ASSERT_EQUAL_UINT8(improv::TYPE_CURRENT_STATE, frames[1].type);
+  TEST_ASSERT_EQUAL_UINT8(improv::STATE_AUTHORIZED, frames[1].payload[0]);
+
+  output.clear();
+  input = make_improv_rpc_frame(improv::GET_DEVICE_INFO);
+  input_position = 0U;
+  service.loop();
+  frames = parse_improv_frames(output);
+  TEST_ASSERT_EQUAL(2U, frames.size());
+  const std::vector<std::string> info =
+      parse_improv_rpc_strings(frames[1], improv::GET_DEVICE_INFO);
+  TEST_ASSERT_EQUAL_STRING("ESPectre Matter", info[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("3.0.0-test", info[1].c_str());
+  TEST_ASSERT_EQUAL_STRING("esp32s3", info[2].c_str());
+
+  output.clear();
+  input = make_improv_rpc_frame(kImprovGetMatterOnboardingCommand);
+  input_position = 0U;
+  service.loop();
+  frames = parse_improv_frames(output);
+  TEST_ASSERT_EQUAL(2U, frames.size());
+  const std::vector<std::string> onboarding =
+      parse_improv_rpc_strings(frames[1], kImprovGetMatterOnboardingCommand);
+  TEST_ASSERT_EQUAL(2U, onboarding.size());
+  TEST_ASSERT_EQUAL_STRING("MT:TESTPAYLOAD", onboarding[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("12345678901", onboarding[1].c_str());
+
+  output.clear();
+  input = make_improv_rpc_frame(improv::WIFI_SETTINGS, {0U, 0U});
+  input_position = 0U;
+  service.loop();
+  frames = parse_improv_frames(output);
+  TEST_ASSERT_EQUAL(2U, frames.size());
+  TEST_ASSERT_EQUAL_UINT8(improv::TYPE_ERROR_STATE, frames[1].type);
+  TEST_ASSERT_EQUAL_UINT8(improv::ERROR_UNKNOWN_RPC, frames[1].payload[0]);
 }
 
 void test_wifi_provisioning_bssid_command_preserves_credentials(void) {
@@ -649,6 +751,7 @@ int process(void) {
   RUN_TEST(test_wifi_provisioning_rejects_overlapping_direct_and_improv_candidates);
   RUN_TEST(test_improv_serial_reports_info_and_completes_verified_provisioning);
   RUN_TEST(test_improv_serial_flushes_partial_writes_without_blocking);
+  RUN_TEST(test_improv_serial_identity_mode_exposes_only_matter_identity_and_onboarding);
   RUN_TEST(test_wifi_provisioning_bssid_command_preserves_credentials);
   RUN_TEST(test_wifi_provisioning_scan_filters_provisioned_ssid_and_tracks_lifecycle);
   RUN_TEST(test_wifi_provisioning_clear_command_erases_and_disconnects);

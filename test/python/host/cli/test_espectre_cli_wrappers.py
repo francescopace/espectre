@@ -818,6 +818,34 @@ def test_esp32_s2_is_supported_without_claiming_matter() -> None:
         targets.resolve_idf_target("matter", "s2")
 
 
+def test_esphome_command_environment_exports_shared_git_version(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    monkeypatch.delenv("ESPECTRE_GIT_VERSION", raising=False)
+    monkeypatch.setattr(
+        esphome,
+        "detect_espectre_project_version",
+        lambda: "2.8.0-417-g2b49a9c",
+    )
+
+    environment = esphome.esphome_command_environment(config_path)
+
+    assert environment["ESPECTRE_GIT_VERSION"] == "2.8.0-417-g2b49a9c"
+    assert environment["ESPHOME_BUILD_PATH"] == str(esphome.esphome_build_root(config_path))
+
+
+def test_esphome_command_environment_preserves_explicit_git_version(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ESPECTRE_GIT_VERSION", "3.0.0-release")
+    monkeypatch.setattr(
+        esphome,
+        "detect_espectre_project_version",
+        lambda *args, **kwargs: pytest.fail("explicit version must not be replaced"),
+    )
+
+    environment = esphome.esphome_command_environment(tmp_path / "firmware.yaml")
+
+    assert environment["ESPECTRE_GIT_VERSION"] == "3.0.0-release"
+
+
 def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
