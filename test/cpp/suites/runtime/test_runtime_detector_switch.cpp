@@ -550,8 +550,24 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
   TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
 
+  const int calibration_starts = listener.calibration_starts;
+  const int calibration_finishes = listener.calibration_finishes;
+  TEST_ASSERT_FALSE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, runtime.operation_state());
+  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
+  TEST_ASSERT_FALSE(runtime.csi_pipeline_.raw_capture_active());
+  TEST_ASSERT_FALSE(runtime.csi_traffic_service_.is_running());
+  TEST_ASSERT_EQUAL(0U, traffic_generator.start_calls);
+  TEST_ASSERT_EQUAL(0U, traffic_ingress.start_calls);
+  TEST_ASSERT_FALSE(runtime.snapshot_.calibrating);
+  TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
+  TEST_ASSERT_EQUAL(calibration_starts, listener.calibration_starts);
+  TEST_ASSERT_EQUAL(calibration_finishes, listener.calibration_finishes);
+
+  runtime.set_services_armed(true);
   TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
   TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
+  runtime.set_services_armed(false);
   runtime.set_services_armed(true);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, runtime.operation_state());
   TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));

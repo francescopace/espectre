@@ -45,6 +45,8 @@ esp_err_t capture_payload(httpd_req_t *request, const char *payload, size_t leng
                 g_httpd_mock.pending_allow_origin);
   }
   if (g_httpd_mock.send_result != ESP_OK) return g_httpd_mock.send_result;
+  // Response headers are consumed by the first successful send.
+  g_httpd_mock.pending_allow_origin = nullptr;
   if (chunk) g_httpd_mock.chunk_calls++;
   const int index = g_httpd_mock.send_calls++;
   if (index >= 0 && index < 64) {

@@ -63,20 +63,8 @@ bool parse_direct_http_request(const std::string &http_method,
     return false;
   }
 
-  parsed.params = "{";
-  bool first = true;
-  for (const JsonObjectField &field : fields) {
-    if (!first) parsed.params += ',';
-    append_json_string(&parsed.params, field.name.c_str());
-    parsed.params += ':';
-    if (field.type == JsonValueType::STRING) {
-      append_json_string(&parsed.params, field.value.c_str());
-    } else {
-      parsed.params += field.value;
-    }
-    first = false;
-  }
-  parsed.params += '}';
+  // Preserve escaped characters in keys and values for canonical validation.
+  parsed.params = normalized_payload;
   *request = std::move(parsed);
   return true;
 }

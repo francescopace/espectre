@@ -271,6 +271,8 @@ Each SSE connection receives a `: heartbeat` comment every 10 seconds. There is 
 
 `GET /espectre/v1/csi` opens the single exclusive binary CSI collection session. No setup request, bearer token, session deletion, or bind timeout exists. Closing the TCP response ends collection.
 
+The C++ runtime requires sensing services to be armed before collection starts. If sensing is disabled or services are suspended for reconfiguration or maintenance, opening collection fails without re-enabling CSI capture or traffic generation. An accepted collection pauses derived sensing while retaining the active capture and traffic services.
+
 Each CSI V8 record retains the established 60-byte little-endian HTTP prefix. The client adopts the 16-byte session identifier from the first frame and rejects a change within the same connection. The producer preserves order; fixed-ring drops remain observable in the transport counters.
 
 While CSI is active, sensing reports `csi_collection`, readiness is false, and motion plus all present or future derived events are paused on every transport. Control and resource events remain available. A second `/csi` request and sensing, Wi-Fi, or OTA mutations return `409`. On close, the runtime restores its prior state, recalibrates when required, and resumes derived events only after readiness returns. When external traffic is configured, the host traffic generator must start before opening `/csi`.

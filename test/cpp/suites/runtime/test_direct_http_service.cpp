@@ -492,7 +492,7 @@ void test_response_completion_runs_after_send_and_reports_delivery(void) {
   TEST_ASSERT_FALSE(response_sent);
 }
 
-void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
+void assert_raw_get_opens_automatic_session_and_emits_v2_frame(const char *origin) {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
   EspIdfDirectHttpService service;
@@ -505,7 +505,7 @@ void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   }
   accept_raw_open(&service, session);
 
-  httpd_mock_set_header("Origin", "https://test.espectre.dev");
+  httpd_mock_set_header("Origin", origin);
   httpd_req_t raw_request = request_for(2U, 9);
   TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
   service.loop();
@@ -527,7 +527,7 @@ void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
   service.loop();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
-  TEST_ASSERT_EQUAL_STRING("https://test.espectre.dev", g_httpd_mock.allow_origin);
+  TEST_ASSERT_EQUAL_STRING(origin, g_httpd_mock.allow_origin);
   TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[0]);
   TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
                     g_httpd_mock.sent_lengths[0]);
@@ -546,6 +546,32 @@ void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   TEST_ASSERT_EQUAL(1U, header->fresh_record_total);
   TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+}
+
+void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
+  assert_raw_get_opens_automatic_session_and_emits_v2_frame("https://test.espectre.dev");
+}
+
+void test_raw_loopback_origin_survives_until_first_packet() {
+  assert_raw_get_opens_automatic_session_and_emits_v2_frame("http://localhost:5173");
+}
+
+void test_raw_loopback_origin_is_sent_when_closed_before_first_packet() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 1U;
+  accept_raw_open(&service, session);
+  httpd_mock_set_header("Origin", "http://localhost:5173");
+  httpd_req_t raw_request = request_for(2U, 9);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
+  TEST_ASSERT_EQUAL(0, g_httpd_mock.send_calls);
+  TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL_STRING("http://localhost:5173", g_httpd_mock.allow_origin);
+  TEST_ASSERT_EQUAL(0U, g_httpd_mock.sent_lengths[0]);
 }
 
 void test_raw_batches_up_to_four_records_without_pacing() {
@@ -755,6 +781,8 @@ int main() {
   RUN_TEST(test_deferred_post_completes_only_once);
   RUN_TEST(test_response_completion_runs_after_send_and_reports_delivery);
   RUN_TEST(test_raw_get_opens_automatic_session_and_emits_v2_frame);
+  RUN_TEST(test_raw_loopback_origin_survives_until_first_packet);
+  RUN_TEST(test_raw_loopback_origin_is_sent_when_closed_before_first_packet);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
   RUN_TEST(test_second_raw_get_is_rejected_while_the_first_open_is_pending);
   RUN_TEST(test_raw_ring_drops_new_record_and_accounts_every_offer);

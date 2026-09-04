@@ -753,6 +753,27 @@ void test_direct_http_request_reuses_transport_neutral_command_validation(void) 
   TEST_ASSERT_EQUAL_STRING("unknown_method", command.command.c_str());
 }
 
+void test_direct_http_preserves_embedded_nuls_for_canonical_validation(void) {
+  const char *params[] = {
+      R"({"label":"room\u0000hidden"})",
+      R"({"label\u0000hidden":"room"})",
+  };
+  for (const char *payload : params) {
+    DirectRequest request;
+    EspectreCommand direct_command;
+    EspectreCommand mqtt_command;
+    std::string direct_error;
+    std::string mqtt_error;
+    TEST_ASSERT_TRUE(parse_direct_http_request(
+        "PATCH", "/espectre/v1/device", payload, &request, &direct_error));
+    TEST_ASSERT_FALSE(direct_http_request_to_command(request, &direct_command, &direct_error));
+    std::string mqtt_payload = R"({"command_id":"nul-test","command":"update_device",)";
+    mqtt_payload += payload + 1;
+    TEST_ASSERT_FALSE(parse_espectre_command(mqtt_payload, &mqtt_command, &mqtt_error));
+    TEST_ASSERT_EQUAL_STRING(mqtt_error.c_str(), direct_error.c_str());
+  }
+}
+
 void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   EspectreCommand command;
   std::string error;
@@ -1037,6 +1058,7 @@ int process(void) {
   RUN_TEST(test_direct_http_request_separates_framing_from_canonical_validation);
   RUN_TEST(test_canonical_message_builders_and_transport_catalog);
   RUN_TEST(test_direct_http_request_reuses_transport_neutral_command_validation);
+  RUN_TEST(test_direct_http_preserves_embedded_nuls_for_canonical_validation);
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
   RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);

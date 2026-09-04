@@ -492,7 +492,7 @@ RuntimeOperationState EspIdfRuntime::operation_state() const {
 }
 
 bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, void *context) {
-  if (!capabilities_.supports_raw_csi || callback == nullptr || !setup_complete_ ||
+  if (!capabilities_.supports_raw_csi || callback == nullptr || !setup_complete_ || !services_armed_ ||
       !wifi_ready_ || wifi_ip_info_.ip.addr == 0U ||
       operation_state() != RuntimeOperationState::SENSING) {
     return false;

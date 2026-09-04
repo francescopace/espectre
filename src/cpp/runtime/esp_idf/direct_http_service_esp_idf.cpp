@@ -561,6 +561,8 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   }
   if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   httpd_req_t *request = nullptr;
+  std::string origin;
+  bool headers_pending = false;
   if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) {
     xSemaphoreGive(raw_send_mutex_);
     return false;
@@ -571,12 +573,15 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
     raw_drop_total_.fetch_add(tail - head, std::memory_order_relaxed);
   }
   request = raw_session_.request;
+  headers_pending = raw_session_.stream_sequence == 0U;
+  if (headers_pending) origin = raw_session_.origin;
   pending_raw_stopped_callback_ = std::move(raw_session_.stopped_callback);
   pending_raw_stop_reason_ = reason;
   reset_raw_session_locked_();
   unlock_();
   xSemaphoreGive(raw_send_mutex_);
   if (request != nullptr) {
+    if (headers_pending) set_response_headers_(request, origin);
     (void) httpd_resp_send_chunk(request, nullptr, 0U);
     (void) httpd_req_async_handler_complete(request);
   }
@@ -1194,6 +1199,8 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
   if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   RawCsiSessionConfig config;
   httpd_req_t *request = nullptr;
+  std::string origin;
+  bool headers_pending = false;
   if (!lock_()) {
     xSemaphoreGive(raw_send_mutex_);
     return false;
@@ -1206,6 +1213,8 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
   }
   config = raw_session_.config;
   request = raw_session_.request;
+  headers_pending = raw_session_.stream_sequence == 0U;
+  if (headers_pending) origin = raw_session_.origin;
   unlock_();
 
   size_t length = 0U;
@@ -1266,6 +1275,8 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
     return false;
   }
 
+  // The HTTP server borrows header strings until the first chunk is sent.
+  if (headers_pending) set_response_headers_(request, origin);
   const esp_err_t result = httpd_resp_send_chunk(request,
                                                   reinterpret_cast<const char *>(raw_send_buffer_.data()),
                                                   length);
@@ -1298,6 +1309,7 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
     std::string message;
     const bool started = raw_open_callback && raw_open_callback(&message);
     PendingRawOpen pending;
+    bool bound = false;
     if (lock_()) {
       pending = std::move(pending_raw_open_);
       pending_raw_open_ = {};
@@ -1306,26 +1318,23 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
         const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
         raw_session_.request = pending.request;
         raw_session_.fd = httpd_req_to_sockfd(pending.request);
-        raw_session_.binary_bound = true;
         raw_session_.last_send_us = now_us;
         raw_session_.origin = pending.origin;
+        const int keepalive = 1;
+        (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+        raw_session_.binary_bound = true;
+        bound = true;
       }
       unlock_();
     }
-    if (!started || !raw_session_active_.load(std::memory_order_acquire)) {
+    if (!bound) {
       if (pending.request != nullptr) {
         (void) send_error_(pending.request, kHttp409,
                            message.empty() ? "CSI collection is unavailable" : message.c_str(),
                            pending.origin);
         (void) httpd_req_async_handler_complete(pending.request);
       }
-    } else if (pending.request != nullptr) {
-      set_response_headers_(pending.request, pending.origin);
-      (void) httpd_resp_set_type(pending.request, "application/octet-stream");
-      (void) httpd_resp_set_hdr(pending.request, "Cache-Control", "no-store");
-      const int fd = httpd_req_to_sockfd(pending.request);
-      const int keepalive = 1;
-      (void) setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+    } else {
       notify_raw_worker_();
     }
   }
