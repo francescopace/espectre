@@ -11,8 +11,11 @@
 #include "matter_bindings_esp_matter.h"
 
 #include <app-common/zap-generated/cluster-objects.h>
+#include <app/clusters/occupancy-sensor-server/OccupancySensingCluster.h>
+#include <data_model_provider/esp_matter_data_model_provider.h>
 #include <esp_log.h>
 #include <esp_matter.h>
+#include <esp_matter_mem.h>
 #include <platform/CHIPDeviceLayer.h>
 
 namespace espectre {
@@ -61,14 +64,14 @@ void MatterEspBindings::drain_motion_queue_on_chip_thread_() {
   PendingMotionPublish pending;
   while (pending_motion_.take(pending)) {
     using namespace chip::app::Clusters::OccupancySensing;
-    const uint8_t occupancy = pending.motion_detected
-                                  ? chip::to_underlying(OccupancyBitmap::kOccupied)
-                                  : 0U;
-    esp_matter_attr_val_t val = esp_matter_bitmap8(occupancy);
-    if (esp_matter::attribute::update(
-            pending.endpoint_id, Id, Attributes::Occupancy::Id, &val) != ESP_OK) {
-      ESP_LOGW(TAG, "Failed to update Matter occupancy attribute");
+    auto *cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+        chip::app::ConcreteClusterPath(pending.endpoint_id, Id));
+    if (cluster == nullptr) {
+      ESP_LOGW(TAG, "Matter occupancy cluster is unavailable");
+      continue;
     }
+    static_cast<chip::app::Clusters::OccupancySensingCluster *>(cluster)->SetOccupancy(
+        pending.motion_detected);
   }
   motion_work_scheduled_.store(false, std::memory_order_release);
   if (pending_motion_.size() > 0U) {
@@ -77,9 +80,9 @@ void MatterEspBindings::drain_motion_queue_on_chip_thread_() {
 }
 
 /*
- * NodeLabel reads and writes originate from low-rate Direct commands. The
- * occupancy path above is scheduled separately because it originates in the
- * latency-sensitive sensing loop.
+ * Direct reads a NodeLabel snapshot maintained by CHIP callbacks. Writes use
+ * attribute::update(), which acquires the CHIP lock internally. Occupancy work
+ * is scheduled separately because it originates in the sensing loop.
  */
 void MatterEspBindings::report_fault(const char *message) {
   (void)message;
@@ -87,14 +90,32 @@ void MatterEspBindings::report_fault(const char *message) {
 
 bool MatterEspBindings::get_node_label(std::string *label) {
   if (label == nullptr) return false;
+  std::lock_guard<std::mutex> lock(node_label_mutex_);
+  if (!node_label_ready_) return false;
+  *label = node_label_;
+  return true;
+}
+
+void MatterEspBindings::cache_node_label(const std::string &label) {
+  std::lock_guard<std::mutex> lock(node_label_mutex_);
+  node_label_ = label;
+  node_label_ready_ = true;
+}
+
+void MatterEspBindings::refresh_node_label_on_chip_thread() {
+  // Read the data model only on CHIP; Direct consumes the cached snapshot.
   using namespace chip::app::Clusters::BasicInformation;
   esp_matter_attr_val_t value = esp_matter_invalid(nullptr);
   if (esp_matter::attribute::get_val(0, Id, Attributes::NodeLabel::Id, &value) != ESP_OK ||
       value.type != ESP_MATTER_VAL_TYPE_CHAR_STRING) {
-    return false;
+    ESP_LOGW(TAG, "Failed to read Matter NodeLabel");
+    return;
   }
-  label->assign(reinterpret_cast<const char *>(value.val.a.b), value.val.a.s);
-  return true;
+  cache_node_label(value.val.a.s == 0U
+                      ? std::string{}
+                      : std::string(reinterpret_cast<const char *>(value.val.a.b), value.val.a.s));
+  // esp-matter 1.6 transfers ownership of string reads to the caller.
+  esp_matter_mem_free(value.val.a.b);
 }
 
 bool MatterEspBindings::set_node_label(const std::string &label) {

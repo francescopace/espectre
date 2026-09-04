@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_netif.h>
+#include <esp_system.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -22,7 +23,6 @@
 #include <string>
 #include <utility>
 
-#include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
 #include <esp_matter.h>
 #include <esp_matter_attribute.h>
@@ -238,21 +238,11 @@ bool configure_logging() {
   return true;
 }
 
-void open_commissioning_window_if_necessary() {
-  if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
-    return;
-  }
-
-  chip::CommissioningWindowManager &commission_mgr = chip::Server::GetInstance().GetCommissioningWindowManager();
-  if (commission_mgr.IsCommissioningWindowOpen()) {
-    return;
-  }
-
-  CHIP_ERROR err = commission_mgr.OpenBasicCommissioningWindow(
-      chip::System::Clock::Seconds16(300), chip::CommissioningWindowAdvertisement::kAllSupported);
-  if (err != CHIP_NO_ERROR) {
-    ESP_LOGE(TAG, "Failed to open commissioning window");
-  }
+void restart_for_commissioning(chip::System::Layer *, void *) {
+  if (has_commissioned_fabric_on_chip_thread()) return;
+  // BLE memory was released after commissioning; only a reboot restores it.
+  ESP_LOGI(TAG, "Restarting to restore BLE commissioning");
+  esp_restart();
 }
 
 bool refresh_matter_onboarding_codes() {
@@ -316,6 +306,7 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
   (void) arg;
 
   const bool commissioned = has_commissioned_fabric_on_chip_thread();
+  g_bindings.refresh_node_label_on_chip_thread();
   log_onboarding_codes();
   g_commissioned_event.post(commissioned);
 
@@ -341,8 +332,13 @@ void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
       ESP_LOGI(TAG, "Fabric removed");
       if (!has_commissioned_fabric_on_chip_thread()) {
         g_commissioned_event.post(false);
+        // Allow the RemoveFabric response to leave before restarting.
+        const CHIP_ERROR err = chip::DeviceLayer::SystemLayer().StartTimer(
+            chip::System::Clock::Seconds32(2), restart_for_commissioning, nullptr);
+        if (err != CHIP_NO_ERROR) {
+          ESP_LOGE(TAG, "Failed to schedule commissioning restart: %s", err.AsString());
+        }
       }
-      open_commissioning_window_if_necessary();
       g_wifi_station_state_event.post();
       break;
     case chip::DeviceLayer::DeviceEventType::kWiFiConnectivityChange:
@@ -366,6 +362,9 @@ esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endp
       cluster_id == BasicInformation::Id &&
       attribute_id == BasicInformation::Attributes::NodeLabel::Id && val != nullptr &&
       val->type == ESP_MATTER_VAL_TYPE_CHAR_STRING) {
+    g_bindings.cache_node_label(val->val.a.s == 0U
+                                   ? std::string{}
+                                   : std::string(reinterpret_cast<const char *>(val->val.a.b), val->val.a.s));
     g_node_label_event.post();
   }
   return ESP_OK;

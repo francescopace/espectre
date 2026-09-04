@@ -84,7 +84,7 @@ Motion events follow the detector evaluation cadence only while a Direct SSE cli
 
 ### Commissioning Window Behavior
 
-The firmware opens a basic commissioning window for uncommissioned devices and re-opens it when the last fabric is removed.
+The firmware opens a basic commissioning window for uncommissioned devices. Removing the last fabric schedules a restart after two seconds to restore BLE, whose memory was released after commissioning. The device then opens a new commissioning window with its persisted onboarding codes.
 
 Current behavior from the firmware app:
 
@@ -99,7 +99,7 @@ Current behavior from the firmware app:
 - DNS-SD includes the standard commissionable device type for an occupancy sensor, while the separate `_espectre._tcp.local.` service advertises the Direct HTTP endpoint used by `./espectre devices --frontend matter` after commissioning
 - commissioning completion is logged
 - a failed commissioning attempt is logged when the fail-safe timer expires
-- removing the last fabric stops the ESPectre operational services and re-opens the commissioning window automatically
+- removing the last fabric stops the ESPectre operational services and restarts the device to restore BLE commissioning; the restart is canceled if a fabric exists when the timer expires
 
 Only the firmware-owned behavior is documented here. The exact controller UX, QR/manual-pairing presentation, and fabric-management screens depend on the Matter controller you use.
 

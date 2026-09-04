@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "matter_bindings.h"
@@ -26,6 +27,10 @@ class MatterEspBindings : public IMatterBindings {
   void report_fault(const char *message) override;
   bool get_node_label(std::string *label) override;
   bool set_node_label(const std::string &label) override;
+  /** Load the persisted label while running on the CHIP task. */
+  void refresh_node_label_on_chip_thread();
+  /** Copy a successful NodeLabel update for readers outside the CHIP task. */
+  void cache_node_label(const std::string &label);
 
  private:
   struct PendingMotionPublish {
@@ -39,6 +44,9 @@ class MatterEspBindings : public IMatterBindings {
 
   PendingQueue<PendingMotionPublish, 8U> pending_motion_{};
   std::atomic<bool> motion_work_scheduled_{false};
+  std::mutex node_label_mutex_;
+  std::string node_label_;
+  bool node_label_ready_{false};
 };
 
 }  // namespace espectre
