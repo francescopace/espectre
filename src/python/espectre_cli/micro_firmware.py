@@ -35,12 +35,13 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "fixed-csi-records-v1"
+MICROPYTHON_PATCH_REVISION = "s2-rom-usb-serial-v2"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
     "c3": "ESP32C3_MICRO_ESPECTRE",
     "c5": "ESP32C5_MICRO_ESPECTRE",
     "c6": "ESP32C6_MICRO_ESPECTRE",
+    "s2": "ESP32S2_MICRO_ESPECTRE",
     "s3": "ESP32S3_MICRO_ESPECTRE",
 }
 
@@ -58,6 +59,7 @@ PROJECT_FIRMWARE_NAMES = {
     "c3": f"ESP32_GENERIC_C3-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
     "c5": f"ESP32_GENERIC_C5-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
     "c6": f"ESP32_GENERIC_C6-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
+    "s2": f"ESP32_GENERIC_S2-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
     "s3": f"ESP32_GENERIC_S3-{MICROPYTHON_FIRMWARE_BUILD}-espectre.bin",
 }
 
@@ -1053,6 +1055,41 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
     source_path.write_text(source, encoding="utf-8")
 
 
+def _configure_project_s2_usb_serial(micropython_dir: Path) -> None:
+    """Keep the ESP32-S2 TinyUSB path stable across ROM bootloader resets."""
+    source_path = micropython_dir / "ports" / "esp32" / "usb.c"
+    source = source_path.read_text(encoding="utf-8")
+    original = """void mp_usbd_port_get_serial_number(char *serial_buf) {
+    // use factory default MAC as serial ID
+    uint8_t mac[8];
+    esp_efuse_mac_get_default(mac);
+    MP_STATIC_ASSERT(sizeof(mac) * 2 <= MICROPY_HW_USB_DESC_STR_MAX);
+    mp_usbd_hex_str(serial_buf, mac, sizeof(mac));
+}
+"""
+    replacement = """void mp_usbd_port_get_serial_number(char *serial_buf) {
+    #if CONFIG_IDF_TARGET_ESP32S2
+    // Match the ROM CDC serial so macOS preserves the device path after reset.
+    serial_buf[0] = '0';
+    serial_buf[1] = '\\0';
+    #else
+    // use factory default MAC as serial ID
+    uint8_t mac[8];
+    esp_efuse_mac_get_default(mac);
+    MP_STATIC_ASSERT(sizeof(mac) * 2 <= MICROPY_HW_USB_DESC_STR_MAX);
+    mp_usbd_hex_str(serial_buf, mac, sizeof(mac));
+    #endif
+}
+"""
+    if replacement in source:
+        return
+    if original not in source:
+        raise RuntimeError(
+            f"MicroPython USB serial-number anchor is missing: {source_path}"
+        )
+    source_path.write_text(source.replace(original, replacement, 1), encoding="utf-8")
+
+
 def _configure_project_wifi_channel_pin(micropython_dir: Path) -> None:
     """Allow a BSSID pin to carry its known channel into ESP-IDF."""
     source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
@@ -1270,6 +1307,7 @@ def _build_project_firmware_locked(
     _configure_project_csi_fixed_records(micropython_dir)
     _configure_project_gc_heap_reserve(micropython_dir)
     _configure_project_wifi_channel_pin(micropython_dir)
+    _configure_project_s2_usb_serial(micropython_dir)
     if chip == "c5":
         _configure_project_wifi_band_mode(micropython_dir)
     patch_stamp_path.write_text(MICROPYTHON_PATCH_REVISION + "\n", encoding="utf-8")

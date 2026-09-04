@@ -40,7 +40,7 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
 
 MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
 CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
-MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
+MICRO_CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
 CHIP_LABELS = {
     "esp32": "ESP32",
     "c3": "ESP32-C3",
@@ -230,6 +230,7 @@ def get_serial_port(
     chip: str | None = None,
     frontend: str = "native",
     purpose: str = "flash",
+    wait_timeout_s: float = 0.0,
 ) -> str:
     """Resolve a serial port through the shared selection path."""
     return resolve_serial_port(
@@ -237,6 +238,7 @@ def get_serial_port(
         chip=chip,
         frontend=frontend,
         purpose=purpose,
+        wait_timeout_s=wait_timeout_s,
     )
 
 

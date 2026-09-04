@@ -69,6 +69,7 @@ MPY_OPTIMIZATION_LEVEL = "-O3"
 MICROPYTHON_READY_TIMEOUT_SECONDS = 15.0
 MICROPYTHON_HEALTHCHECK_TIMEOUT_SECONDS = 5.0
 MICROPYTHON_READY_RETRY_SECONDS = 1.0
+ESP32_S2_USB_REENUMERATION_WAIT_SECONDS = 10.0
 
 
 def _resolve_config_local_path(config_path: str | Path | None = None) -> Path:
@@ -351,6 +352,11 @@ def deploy_code(args) -> None:
         chip=getattr(args, "chip", None),
         frontend="micro",
         purpose="deploy",
+        wait_timeout_s=(
+            ESP32_S2_USB_REENUMERATION_WAIT_SECONDS
+            if getattr(args, "chip", None) == "s2"
+            else 0.0
+        ),
     )
 
     config_local_path = _resolve_config_local_path(getattr(args, "config", None))
@@ -522,6 +528,11 @@ def run_application(args) -> None:
         chip=getattr(args, "chip", None),
         frontend="micro",
         purpose="run",
+        wait_timeout_s=(
+            ESP32_S2_USB_REENUMERATION_WAIT_SECONDS
+            if getattr(args, "chip", None) == "s2"
+            else 0.0
+        ),
     )
 
     print_box_banner("Running MicroPython Application")
@@ -608,6 +619,11 @@ def verify_installation(args) -> None:
         chip=getattr(args, "chip", None),
         frontend="micro",
         purpose="verify",
+        wait_timeout_s=(
+            ESP32_S2_USB_REENUMERATION_WAIT_SECONDS
+            if getattr(args, "chip", None) == "s2"
+            else 0.0
+        ),
     )
     print_box_banner("Verifying Installation")
     print()

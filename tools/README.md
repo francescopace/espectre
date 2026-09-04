@@ -131,7 +131,7 @@ Behavioral tests under `test/python/host/benchmark/test_benchmark_*.py` are the 
 6. Matter High Accuracy by runtime switching of the same Matter firmware
 7. Micro-ESPectre Lightweight
 
-The numbered cases are a representative matrix for supported frontend and chip combinations. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy; Micro-ESPectre deploys Lightweight only. ESP32-S2 is included for ESPHome and Native, but not for Matter or Micro-ESPectre.
+The numbered cases are a representative matrix for supported frontend and chip combinations. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy; Micro-ESPectre deploys Lightweight only. ESP32-S2 is included for ESPHome, Native, and Micro-ESPectre, but not for Matter.
 
 The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence.
 
@@ -147,7 +147,7 @@ Micro-ESPectre clears the flash, copies only the laboratory connectivity setting
 python tools/benchmark_firmware.py --chip c3 --port /dev/cu.usbmodem01
 ```
 
-The benchmark requires `--port`, passes that value unchanged to every delegated command, and never performs serial discovery or reset recovery. It always passes `--chip` to `./espectre` and delegates canonical config selection, build artifact resolution, chip verification, full-data erasure during flash, provisioning, onboarding reads, and monitoring to the repository CLI. Delegated build, provisioning, Matter onboarding, and Micro Direct-ready events use final machine-readable JSON objects rather than human-output parsing. Flashing is one esptool operation owned by the CLI, including optional full erase, verified writes, and the post-write reset; a non-zero CLI exit status is final. In an interactive terminal, the benchmark pauses immediately before each ESP32-S2 USB CDC flash so the operator can place the device in download mode; non-interactive runs require the device to be prepared in advance. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth, and Micro-ESPectre is omitted because ESP32-S2 is not a maintained Micro target.
+The benchmark requires `--port`, passes that value unchanged to every delegated command, and never performs serial discovery or reset recovery. It always passes `--chip` to `./espectre` and delegates canonical config selection, build artifact resolution, chip verification, full-data erasure during flash, provisioning, onboarding reads, and monitoring to the repository CLI. Delegated build, provisioning, Matter onboarding, and Micro Direct-ready events use final machine-readable JSON objects rather than human-output parsing. Flashing is one esptool operation owned by the CLI, including optional full erase, verified writes, and the post-write reset; a non-zero CLI exit status is final. In an interactive terminal, the benchmark pauses immediately before each ESP32-S2 USB CDC C++ flash so the operator can place the device in download mode; Micro-ESPectre requires the same manual preparation before its flash, and non-interactive runs require the device to be prepared in advance. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth.
 
 Use `--duration SECONDS` for a longer scored window, such as a five-minute Micro-ESPectre heap soak:
 
