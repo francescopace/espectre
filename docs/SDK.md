@@ -182,11 +182,15 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct HTTP, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
 - Raw CSI packet callbacks are the deliberate exception: they run synchronously in the Wi-Fi CSI capture context. Keep them bounded, non-blocking, and allocation-free, and copy accepted samples into a preallocated bounded queue when another task must process them. Returning false reports a caller-owned drop or backpressure event; it does not stop collection.
 
+Stopping raw collection synchronizes with any packet callback already in progress before releasing its context. The caller can reclaim that context after `stop_raw_collection()` succeeds. Raw callbacks must follow the owner-task rule for runtime controls; they must not stop collection themselves.
+
 ### Lifecycle
 
 `set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`. Create the default station interface and ESP event loop before `setup()`. Prefer setup before association so the CSI radio policy is applied at `WIFI_EVENT_STA_START`; setup after association is also supported and restores the station's current IPv4 state. The controller is reusable after `shutdown()`: the configuration survives and `set_config()` becomes effective again. `setup()` is idempotent, and a failed `setup()` leaves the controller un-setup so you can fix the config and retry.
 
 Register an optional `LogSink` before `setup()`. Do not replace or clear it until every runtime and callback source using it has shut down.
+
+High Accuracy preserves the configured or live threshold when sensing starts, Wi-Fi reconnects, or raw collection ends. Explicit recalibration and switching detectors restore the detector's default threshold. Lightweight continues to derive its threshold through startup calibration.
 
 ### Errors
 
@@ -248,6 +252,27 @@ Both surfaces are distributed as source, but they compile different source sets.
 - **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, provisioning, and OTA lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS`; the frontend `CMakeLists.txt` files show working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
+
+Source-list integrations must also resolve the SDK version and publish its compiler definitions to consumers of either facade. The vendored ESP-IDF component already handles this. A complete core-only target is:
+
+```cmake
+set(ESPECTRE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/espectre/src/cpp")
+include("${ESPECTRE_CPP_ROOT}/espectre_sources.cmake")
+include("${ESPECTRE_CPP_ROOT}/espectre_git_version.cmake")
+add_library(espectre_core STATIC ${ESPECTRE_CORE_SOURCES})
+target_compile_features(espectre_core PUBLIC cxx_std_17)
+target_include_directories(espectre_core PUBLIC ${ESPECTRE_SHARED_INCLUDE_DIRS})
+if(NOT ESPECTRE_GIT_VERSION_STAMPED)
+    target_compile_definitions(espectre_core PUBLIC
+        ESPECTRE_SDK_VERSION_STRING="${ESPECTRE_GIT_VERSION}"
+        ESPECTRE_SDK_VERSION_MAJOR=${ESPECTRE_SDK_VERSION_MAJOR}
+        ESPECTRE_SDK_VERSION_MINOR=${ESPECTRE_SDK_VERSION_MINOR}
+        ESPECTRE_SDK_VERSION_PATCH=${ESPECTRE_SDK_VERSION_PATCH}
+    )
+endif()
+```
+
+Link the application target to `espectre_core` to inherit the includes, C++ standard, and version definitions. Adjust `ESPECTRE_CPP_ROOT` to the SDK's location. The version helper reads numeric Git tags or accepts `-DESPECTRE_GIT_VERSION=...`; a stamped bundle needs neither Git history nor extra version definitions. Apply the same version setup to a full-runtime source-list target.
 
 The shared component does not require ESP-IDF's `log` component. A product that registers an `esp_log` adapter declares that dependency in its own frontend or application component.
 

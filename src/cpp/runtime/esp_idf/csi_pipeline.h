@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 
 #include "base_detector.h"
 #include "csi_capture_service.h"
@@ -349,8 +350,11 @@ class CsiPipeline {
   static constexpr size_t kPendingCsiFrameCapacity = 8U;
   PendingQueue<PendingCsiFrame, kPendingCsiFrameCapacity> pending_frames_;
   std::atomic<uint64_t> pending_frame_drops_{0U};
+  // A task mutex keeps caller-owned raw context alive through the complete
+  // bounded callback without running application code in a critical section.
+  std::mutex raw_packet_lock_;
   std::atomic<raw_csi_packet_callback_t> raw_packet_callback_{nullptr};
-  std::atomic<void *> raw_packet_context_{nullptr};
+  void *raw_packet_context_{nullptr};
   // Notifications are produced while the owning loop evaluates detector state
   // and are consumed after the pending CSI batch has been drained.
   PendingEvent<MotionState> motion_state_event_;

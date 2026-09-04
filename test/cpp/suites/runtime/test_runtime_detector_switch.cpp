@@ -106,12 +106,38 @@ void test_runtime_detector_configuration_preserves_the_requested_threshold(void)
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
   config.segmentation_threshold = 0.73f;
-  EspIdfRuntime runtime(config);
+  FakeCsiTrafficGenerator traffic_generator;
+  FakeCsiTrafficIngress traffic_ingress;
+  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
 
-  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  TEST_ASSERT_TRUE(runtime.setup());
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.config_.segmentation_threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.detector_->get_threshold());
+
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
+  ip_info.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip_info);
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.detector_->get_threshold());
+
+  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.68f));
+  runtime.on_wifi_disconnected_();
+  runtime.on_wifi_connected_(ip_info);
+  wifi_event_sta_scan_done_t scan_done{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &scan_done);
+  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_EQUAL_FLOAT(0.68f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.68f, runtime.detector_->get_threshold());
+
+  TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
+  TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
+  TEST_ASSERT_EQUAL_FLOAT(0.68f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.68f, runtime.detector_->get_threshold());
+  runtime.shutdown();
 }
 
 void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {

@@ -96,14 +96,20 @@ bool CsiPipeline::start_raw_capture(raw_csi_packet_callback_t callback, void *co
   motion_state_event_.clear();
   detection_timing_.clear();
   clear_detector_state_();
-  raw_packet_context_.store(context, std::memory_order_release);
-  raw_packet_callback_.store(callback, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lock(raw_packet_lock_);
+    raw_packet_context_ = context;
+    raw_packet_callback_.store(callback, std::memory_order_release);
+  }
   return true;
 }
 
 void CsiPipeline::stop_raw_capture() {
-  raw_packet_callback_.store(nullptr, std::memory_order_release);
-  raw_packet_context_.store(nullptr, std::memory_order_release);
+  {
+    std::lock_guard<std::mutex> lock(raw_packet_lock_);
+    raw_packet_callback_.store(nullptr, std::memory_order_release);
+    raw_packet_context_ = nullptr;
+  }
   pending_frames_.clear();
   pending_candidate_valid_ = false;
   live_telemetry_event_.clear();
@@ -388,9 +394,14 @@ void CsiPipeline::capture_packet_callback_(void *context,
     pipeline->traffic_classified_packets_total_.fetch_add(1U, std::memory_order_relaxed);
   }
 
-  raw_csi_packet_callback_t raw_callback =
-      pipeline->raw_packet_callback_.load(std::memory_order_acquire);
-  if (raw_callback != nullptr) {
+  if (pipeline->raw_packet_callback_.load(std::memory_order_acquire) != nullptr) {
+    // Never wait in Wi-Fi capture context. Contention means the owner is
+    // changing raw sessions; this frame belongs to that transition.
+    std::unique_lock<std::mutex> lock(pipeline->raw_packet_lock_, std::try_to_lock);
+    if (!lock.owns_lock()) return;
+    raw_csi_packet_callback_t raw_callback =
+        pipeline->raw_packet_callback_.load(std::memory_order_acquire);
+    if (raw_callback == nullptr) return;
     RawCsiPacketView packet;
     packet.csi = normalized.data;
     packet.csi_len = static_cast<uint16_t>(normalized.len);
@@ -418,8 +429,7 @@ void CsiPipeline::capture_packet_callback_(void *context,
                                  ? RawCsiLtfType::LLTF
                                  : RawCsiLtfType::HT_LTF);
     packet.channel_width = RawCsiChannelWidth::MHZ_20;
-    (void) raw_callback(
-        pipeline->raw_packet_context_.load(std::memory_order_acquire), packet);
+    (void) raw_callback(pipeline->raw_packet_context_, packet);
     return;
   }
 
@@ -476,15 +486,10 @@ esp_err_t CsiPipeline::disable() {
   }
   
   enabled_ = false;
-  raw_packet_callback_.store(nullptr, std::memory_order_release);
-  raw_packet_context_.store(nullptr, std::memory_order_release);
+  stop_raw_capture();
   packet_callback_ = nullptr;
   capture_service_.set_packet_callback(nullptr, nullptr);
-  pending_frames_.clear();
-  clear_detector_state_();
   motion_state_event_.clear();
-  live_telemetry_event_.clear();
-  detection_timing_.clear();
   packets_processed_.store(0U, std::memory_order_relaxed);
   last_heartbeat_ms_ = 0U;
   last_rssi_dbm_ = INT8_MIN;

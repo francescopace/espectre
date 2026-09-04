@@ -819,7 +819,7 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     return;
   }
 
-  start_calibration_();
+  start_calibration_(false);
   snapshot_.ready_to_publish = true;
   reset_periodic_status_logger_();
 }
@@ -875,11 +875,13 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
   on_wifi_connected_(ip_info);
 }
 
-bool EspIdfRuntime::start_calibration_() {
+bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold) {
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 
   if (config_.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
-    const float threshold = runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY);
+    const float threshold = reset_high_accuracy_threshold
+                                ? runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY)
+                                : config_.segmentation_threshold;
     if (detector_ != nullptr) {
       detector_->set_threshold(threshold);
     }

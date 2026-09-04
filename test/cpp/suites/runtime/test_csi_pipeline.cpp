@@ -11,6 +11,10 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <thread>
 #include "lwip/inet.h"
 #include "lightweight_detector.h"
 #include "csi_pipeline.h"
@@ -1259,6 +1263,70 @@ void test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly(void) {
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
 }
 
+void test_csi_pipeline_raw_stop_finishes_in_flight_callback_before_returning(void) {
+    struct CaptureContext {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool entered{false};
+        bool release{false};
+        bool finished{false};
+    } context;
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+    TEST_ASSERT_TRUE(manager.start_raw_capture(
+        [](void *opaque, const RawCsiPacketView &) {
+            auto &capture = *static_cast<CaptureContext *>(opaque);
+            std::unique_lock<std::mutex> lock(capture.mutex);
+            capture.entered = true;
+            capture.changed.notify_all();
+            capture.changed.wait(lock, [&] { return capture.release; });
+            capture.finished = true;
+            return true;
+        }, &context));
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable());
+    std::array<int8_t, HT20_CSI_LEN> csi_buf{};
+    wifi_csi_info_t csi_info{};
+    fill_valid_csi_info_(&csi_info, csi_buf.data());
+    csi_info.rx_ctrl.timestamp = 100000U;
+    std::thread capture([&] { g_wifi_mock.trigger_callback(&csi_info); });
+
+    bool entered;
+    {
+        std::unique_lock<std::mutex> lock(context.mutex);
+        entered = context.changed.wait_for(lock, std::chrono::seconds(1),
+                                           [&] { return context.entered; });
+    }
+    std::promise<void> stop_started;
+    auto stopping = std::async(std::launch::async, [&] {
+        stop_started.set_value();
+        manager.stop_raw_capture();
+    });
+    stop_started.get_future().wait();
+    const bool stopped_early =
+        stopping.wait_for(std::chrono::milliseconds(30)) == std::future_status::ready;
+    {
+        std::lock_guard<std::mutex> lock(context.mutex);
+        context.release = true;
+        context.changed.notify_all();
+    }
+    capture.join();
+    stopping.get();
+
+    TEST_ASSERT_TRUE(entered);
+    TEST_ASSERT_FALSE(stopped_early);
+    TEST_ASSERT_TRUE(context.finished);
+    TEST_ASSERT_FALSE(manager.raw_capture_active());
+
+    RawCaptureProbe next_session;
+    TEST_ASSERT_TRUE(manager.start_raw_capture(&raw_capture_probe_, &next_session));
+    csi_info.rx_ctrl.timestamp += 10000U;
+    g_wifi_mock.trigger_callback(&csi_info);
+    TEST_ASSERT_EQUAL(1U, next_session.packets);
+    manager.stop_raw_capture();
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+}
+
 void test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector(void) {
     LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
@@ -1573,6 +1641,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
     RUN_TEST(test_csi_pipeline_counts_callback_queue_overflow);
     RUN_TEST(test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly);
+    RUN_TEST(test_csi_pipeline_raw_stop_finishes_in_flight_callback_before_returning);
     RUN_TEST(test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector);
     RUN_TEST(test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain);
     RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);
