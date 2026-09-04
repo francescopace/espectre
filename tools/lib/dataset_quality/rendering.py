@@ -565,12 +565,14 @@ def _report_source_path():
         return core.DATASET_INFO.as_posix()
 
 
-def _report_evaluation_view_is_current():
-    """Return whether the report was generated for the selected packet view."""
+def _report_evaluation_view_is_current(chip_filter=None):
+    """Return whether the report matches the selected packet view and scope."""
     if not core.REPORT_OUTPUT.exists():
         return False
     expected = f"Evaluation view: `{core._report_evaluation_view()}`"
-    return expected in core.REPORT_OUTPUT.read_text(encoding="utf-8").splitlines()
+    lines = core.REPORT_OUTPUT.read_text(encoding="utf-8").splitlines()
+    scope = f"Chip filter: `{core._report_chip_filter(chip_filter)}`"
+    return expected in lines and scope in lines
 
 
 def _md_file_link(text, label, filename):

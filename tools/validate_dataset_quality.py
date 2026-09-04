@@ -82,7 +82,7 @@ Examples:
             core.REPORT_OUTPUT,
             core.DATASET_INFO,
             input_paths=core._report_input_paths(),
-        ) and _report_evaluation_view_is_current():
+        ) and _report_evaluation_view_is_current(chip_filter=args.chip):
             print(f"Current: {core.REPORT_OUTPUT}")
             sys.exit(0)
         print(

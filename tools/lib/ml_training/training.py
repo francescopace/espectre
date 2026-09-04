@@ -1742,6 +1742,12 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             - evaluation_summary: CV report used for model selection
     """
     total_start = perf_counter()
+    if scaler_mode == 'clipped_standard' and (export_artifacts or evaluate_deployment):
+        print(
+            "Error: clipped_standard cannot be used for runtime evaluation or "
+            "export. Use --no-export for host-side CV, or choose an affine scaler."
+        )
+        return 1, seed, None
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)

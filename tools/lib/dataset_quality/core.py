@@ -70,6 +70,11 @@ def _report_evaluation_view():
     )
 
 
+def _report_chip_filter(chip_filter=None):
+    """Return the report scope using the validator's case-insensitive filter."""
+    return f"chip={str(chip_filter).lower()}" if chip_filter else "all"
+
+
 def _report_input_paths():
     """Return implementation and capture inputs to the quality report."""
     roots = (

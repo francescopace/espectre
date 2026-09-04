@@ -504,12 +504,36 @@ def test_report_current_check_includes_evaluation_view(tmp_path, monkeypatch) ->
     )
     monkeypatch.setattr(core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR)
     core.configure_dataset_paths(tmp_path / "dataset", report)
-    report.write_text("Evaluation view: `HT20/HT-LTF`\n", encoding="utf-8")
+    report.write_text("Evaluation view: `HT20/HT-LTF`\nChip filter: `all`\n", encoding="utf-8")
 
     assert rendering._report_evaluation_view_is_current()
 
     core.configure_validation_mode(diagnostic_all_phy=True)
     assert not rendering._report_evaluation_view_is_current()
+
+
+@pytest.mark.parametrize(
+    ("recorded_scope", "requested_scope", "expected"),
+    [
+        ("chip=c6", None, False),
+        ("chip=c6", "C6", True),
+        ("chip=c6", "C3", False),
+        ("all", "C6", False),
+        ("chip=all", None, False),
+        (None, None, False),
+    ],
+)
+def test_report_current_check_requires_matching_scope(
+    tmp_path, monkeypatch, recorded_scope, requested_scope, expected,
+) -> None:
+    report = tmp_path / "quality.md"
+    monkeypatch.setattr(core, "REPORT_OUTPUT", report)
+    monkeypatch.setattr(core, "DIAGNOSTIC_ALL_PHY", False)
+    text = "Evaluation view: `HT20/HT-LTF`\n"
+    if recorded_scope is not None:
+        text += f"Chip filter: `{recorded_scope}`\n"
+    report.write_text(text, encoding="utf-8")
+    assert rendering._report_evaluation_view_is_current(requested_scope) is expected
 
 
 def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
@@ -573,7 +597,7 @@ def test_main_check_current_returns_status(monkeypatch, tmp_path, current, expec
         "generated_report_is_current",
         lambda *_args, **_kwargs: current,
     )
-    monkeypatch.setattr(module, "_report_evaluation_view_is_current", lambda: True)
+    monkeypatch.setattr(module, "_report_evaluation_view_is_current", lambda **_kwargs: True)
     monkeypatch.setattr(
         sys,
         "argv",

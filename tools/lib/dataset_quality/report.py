@@ -59,6 +59,8 @@ def _generate_report(
     excluded_pair_rows,
     excluded_idle_rows,
     review_profiles,
+    *,
+    chip_filter=None,
 ):
     """Generate markdown report."""
     lines = []
@@ -66,6 +68,7 @@ def _generate_report(
     lines.append(f"Last update: {datetime.date.today().isoformat()}")
     lines.append(f"Source: `{_report_source_path()}`")
     lines.append(f"Evaluation view: `{core._report_evaluation_view()}`")
+    lines.append(f"Chip filter: `{core._report_chip_filter(chip_filter)}`")
     lines.append(
         f"Dataset revision: `sha256:{dataset_metadata.dataset_info_revision(core.DATASET_INFO)}`"
     )

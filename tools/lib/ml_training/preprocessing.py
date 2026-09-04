@@ -132,7 +132,7 @@ def fit_preprocessor(preprocessor, X, y=None, sample_context=None):
 
 def normalized_feature_bounds(preprocessor, feature_names):
     """Return normalized bounds used to keep augmented feature rows valid."""
-    center, scale = get_preprocessor_arrays(preprocessor)
+    center, scale = get_preprocessor_arrays(preprocessor, allow_clipping=True)
     lower = np.full(len(feature_names), -np.inf, dtype=np.float32)
     upper = np.full(len(feature_names), np.inf, dtype=np.float32)
     for name in (
@@ -187,8 +187,13 @@ def augment_normalized_features(X, config, seed, bounds=None, apply_fraction=0.5
     return result
 
 
-def get_preprocessor_arrays(preprocessor):
-    """Extract center/scale arrays for export across scaler implementations."""
+def get_preprocessor_arrays(preprocessor, *, allow_clipping=False):
+    """Extract affine arrays, rejecting clipping that the runtime cannot carry."""
+    if isinstance(preprocessor, ClippedStandardScaler) and not allow_clipping:
+        raise ValueError(
+            "clipped_standard is supported only for host-side CV; runtime "
+            "evaluation and export require an affine scaler"
+        )
     center = getattr(preprocessor, 'mean_', None)
     if center is None:
         center = getattr(preprocessor, 'center_', None)

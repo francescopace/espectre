@@ -67,6 +67,7 @@ from tools.fit_lightweight_detector import (  # noqa: E402
 from tools.lib.candidate_features import CANDIDATE_FEATURES  # noqa: E402
 from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
+    dataset_role,
     detector_window_packets,
     load_dataset_info,
     measure_packet_interval_us,
@@ -413,7 +414,7 @@ def iter_empty_replays(
     for entry in files["empty"]:
         if bool(entry.get("synthetic")):
             continue
-        role = str(entry.get("dataset_role", "train")).strip().lower() or "train"
+        role = dataset_role(entry)
         if role not in REPLAY_ROLES:
             continue
         empties.append(

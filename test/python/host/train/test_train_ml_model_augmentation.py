@@ -35,6 +35,47 @@ def _synthetic_packets(count=200, *, source="sample.npz", interval_us=10_000):
     return packets
 
 
+@pytest.mark.parametrize("evaluate_deployment", [False, True])
+def test_clipped_scaler_rejects_runtime_training_before_loading_data(
+    monkeypatch, evaluate_deployment,
+):
+    def unexpected_load(*args, **kwargs):
+        pytest.fail("runtime-incompatible preprocessing must fail before loading data")
+
+    monkeypatch.setattr(training, "ensure_torch_available", unexpected_load)
+    result = training.train_all(
+        scaler_mode="clipped_standard",
+        export_artifacts=not evaluate_deployment,
+        evaluate_deployment=evaluate_deployment,
+        seed=17,
+    )
+    assert result == (1, 17, None)
+
+
+@pytest.mark.parametrize("exporter", [export.export_micropython, export.export_cpp_weights])
+def test_clipped_scaler_cannot_silently_export_affine_normalization(tmp_path, exporter):
+    scaler = preprocessing.ClippedStandardScaler().fit(
+        np.arange(100, dtype=np.float32).reshape(-1, 1)
+    )
+    model = types.SimpleNamespace(
+        get_weights=lambda: [np.ones((1, 1)), np.zeros(1)],
+    )
+    destination = tmp_path / "weights.py"
+    destination.write_text("existing weights\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="affine scaler"):
+        exporter(model, scaler, destination)
+    assert destination.read_text(encoding="utf-8") == "existing weights\n"
+    with pytest.raises(ValueError, match="affine scaler"):
+        evaluation.StreamingEvaluator(model, scaler, ["turb_autocorr"])
+
+    # Host CV still clips outliers and can derive augmentation bounds.
+    assert scaler.transform([[1000]]) == pytest.approx(
+        scaler.transform(scaler.upper_bounds_.reshape(1, -1))
+    )
+    lower, upper = preprocessing.normalized_feature_bounds(scaler, ["turb_autocorr"])
+    assert np.all(np.isfinite(lower)) and np.all(np.isfinite(upper))
+
+
 def test_parse_augmentation_components_normalizes_order_and_deduplicates():
     assert augmentation.parse_augmentation_components("burst-loss,base,drift,base") == (
         "base",

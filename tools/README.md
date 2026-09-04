@@ -52,6 +52,8 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, ESP32-S2, an
 
 ## Dataset Inspection And Validation
 
+Generated quality reports record their chip filter. `--check-current` requires the same `--chip` scope as the generating run; a filtered report is not current for a full-corpus check. Reports created before scope tracking must be regenerated. A filtered run still replaces the default report, so use `--report-output` to retain a separate copy.
+
 Use lightweight inspection before changing a detector:
 
 ```bash
@@ -76,6 +78,8 @@ The validator checks catalog metadata, NPZ integrity, CSI shape, packet timing, 
 `dataset_role` remains a manual curation decision. The trainer treats a missing role as excluded, but the validator requires every catalog entry to declare its role explicitly, including `exclude`. It never promotes a recording to `train`, `selection`, or `holdout`. Review scores are diagnostic and do not replace admission gates: mean valid-slot occupancy warns below 85%, fails admission below 70%, and caps every affected score. Excluded idle captures that produce no usable feature rows after temporal admission are listed first in the generated report with `n/a ⚠️`. The generated report owns the detailed tables and definitions.
 
 ## ML Training
+
+`clipped_standard` is available for host-side CV with `--no-export`. Runtime replay and export require an affine scaler (`standard`, `robust`, or `session_balanced_robust`), because the runtime model contract does not carry clipping bounds.
 
 Read [ML_TRAINING.md](../docs/ML_TRAINING.md) before running a promotion workflow. Use this promotion sequence:
 
@@ -186,6 +190,8 @@ The candidate tools answer different questions:
 | Does a selected ML candidate survive the reserved selection roles? | `compare_reserved_selection.py` |
 
 These tools are diagnostic by default and must not write production runtime artifacts. Their durable conclusions belong in [FEATURES.md](../docs/FEATURES.md); detector formulas belong in [ALGORITHMS.md](../docs/ALGORITHMS.md). Use an ADR only for a durable architectural or project-level decision.
+
+Candidate replay uses the canonical dataset roles: an empty or missing role means `exclude`, including for empty-room recordings. Such recordings remain available as excluded diagnostics and are never admitted as training negatives by `--include-train-empty`.
 
 Replay independent catalogs only after fitting and primary-corpus ranking. Repeat `--external-data-dir` for multiple sealed holdouts; add `--external-diagnostic-all-phy` only for a matching external catalog whose explicit non-production PHY rows are intentionally being evaluated as diagnostics:
 

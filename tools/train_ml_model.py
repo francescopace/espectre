@@ -21,7 +21,7 @@ Usage:
     python tools/train_ml_model.py --info             # Show dataset info
     python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
     python tools/train_ml_model.py --fp-weight 1.75   # Penalize FP 1.75x more
-    python tools/train_ml_model.py --scaler clipped_standard
+    python tools/train_ml_model.py --scaler clipped_standard --no-export
                                                     # Robust clipping + z-score
     python tools/train_ml_model.py --batch-size 32
                                                     # Smaller batch size experiment
@@ -222,7 +222,7 @@ def main():
     parser.add_argument('--scaler', choices=[
                            'standard', 'robust', 'session_balanced_robust', 'clipped_standard'],
                        default=DEFAULT_SCALER_MODE,
-                       help='Feature normalization mode for training/evaluation')
+                       help='Feature normalization mode; clipped_standard supports host-side CV only')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
                        help='Mini-batch size for PyTorch training '
                             f'(default: {DEFAULT_BATCH_SIZE})')

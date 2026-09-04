@@ -389,6 +389,7 @@ def run_validation(
             excluded_pair_rows,
             excluded_idle_rows,
             review_profiles,
+            chip_filter=chip_filter,
         )
         print(f"\nReport: {core.REPORT_OUTPUT}")
 
