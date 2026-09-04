@@ -314,6 +314,27 @@ def test_update_state_uses_weighted_probability(monkeypatch) -> None:
     )
 
 
+def test_manual_threshold_suspends_settling_until_recalibration() -> None:
+    detector = LightweightDetector()
+    detector.set_adaptive_threshold(0.5)
+    assert detector.set_threshold(0.9)
+    detector.reset()
+    detector._current_logit = -10.0
+    evaluations = detector.SETTLE_BLOCKS * detector.SETTLE_BLOCK_EVALUATIONS
+
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert detector.get_threshold() == pytest.approx(0.9)
+
+    detector.on_startup_calibration_begin()
+    detector.set_adaptive_threshold(0.5)
+    calibrated = detector.get_threshold()
+    assert not detector.set_threshold(1.01)
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert detector.get_threshold() < calibrated
+
+
 def test_reset_preserves_threshold_and_clears_feature_state() -> None:
     detector = LightweightDetector(threshold=0.7)
     detector._current_probability = 0.9

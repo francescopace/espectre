@@ -295,7 +295,7 @@ The production model consumes these eight scale-invariant inputs, in export orde
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [FEATURES.md](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
+The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Consecutive identical CSI payloads contribute no additional profiles, but their timestamps still advance the window and expire old trajectory features. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [FEATURES.md](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
 
 ### Inference Flow
 

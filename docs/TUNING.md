@@ -39,7 +39,7 @@ See [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](per
 
 Lightweight adapts its threshold to the observed room during startup. It may lower that value later after a long quiet stretch if the opening was noisier than the rest of the session. High Accuracy starts from the threshold validated with the exported model.
 
-Both profiles use a `0.0-1.0` probability threshold. Where a frontend advertises writable threshold control, an operator can override it for the current session. Operator changes are discarded at boot: Lightweight calibrates again, while High Accuracy restores its trained default.
+Both profiles use a `0.0-1.0` probability threshold. Where a frontend advertises writable threshold control, an operator can override it for the current session. A Lightweight override suspends automatic threshold lowering until recalibration or explicit adaptive-threshold application. Operator changes are discarded at boot: Lightweight calibrates again, while High Accuracy restores its trained default.
 
 Rules of thumb:
 

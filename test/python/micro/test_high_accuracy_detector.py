@@ -143,6 +143,30 @@ def test_trajectory_duplicate_detection_accepts_signed_payloads():
     assert tracker._current_profile_count == profile_count
 
 
+@pytest.mark.parametrize("tracker_class", [
+    ChannelShapeTrajectoryTracker, HostChannelShapeTrajectoryTracker,
+])
+def test_trajectory_duplicate_packets_expire_old_motion(tracker_class):
+    tracker = (
+        tracker_class(track_subband_kendall_lag_excess=True)
+        if tracker_class is HostChannelShapeTrajectoryTracker
+        else tracker_class()
+    )
+    for step in range(12):
+        payload = _make_trajectory_payload(step)
+        tracker.process_packet(payload, step * CHANNEL_SHAPE_BIN_US)
+    assert tracker.shape_spread_subband() > 0.0
+
+    for step in range(12, 40):
+        tracker.process_packet(payload, step * CHANNEL_SHAPE_BIN_US)
+    assert tracker.trajectory_features_with_spread() == pytest.approx((0.0, 0.0, 0.0))
+    assert tracker.subband_kendall_lag_excess() == 0.0
+
+    for step in range(40, 52):
+        tracker.process_packet(_make_trajectory_payload(step), step * CHANNEL_SHAPE_BIN_US)
+    assert tracker.shape_spread_subband() > 0.0
+
+
 def test_l1_precomputed_mean_matches_default_normalization():
     direct = L1DeltaTracker(window_size=32, enable_hampel=False)
     shared_mean = L1DeltaTracker(window_size=32, enable_hampel=False)

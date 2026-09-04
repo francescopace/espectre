@@ -99,13 +99,6 @@ class ChannelShapeTrajectoryTracker {
     if (!enabled_ || csi_data == nullptr || csi_len < HT20_CSI_LEN) {
       return;
     }
-    if (has_previous_raw_ &&
-        std::memcmp(previous_raw_.data(), csi_data, HT20_CSI_LEN) == 0) {
-      return;
-    }
-    std::memcpy(previous_raw_.data(), csi_data, HT20_CSI_LEN);
-    has_previous_raw_ = true;
-
     const uint64_t bin_index = timestamp_us / CHANNEL_SHAPE_BIN_US;
     if (!has_current_bin_) {
       current_bin_ = bin_index;
@@ -116,6 +109,13 @@ class ChannelShapeTrajectoryTracker {
       current_profile_count_ = 0U;
       trim_(bin_index);
     }
+    // Duplicate payloads still advance the physical-time window.
+    if (has_previous_raw_ &&
+        std::memcmp(previous_raw_.data(), csi_data, HT20_CSI_LEN) == 0) {
+      return;
+    }
+    std::memcpy(previous_raw_.data(), csi_data, HT20_CSI_LEN);
+    has_previous_raw_ = true;
     if (current_profile_count_ >= CHANNEL_SHAPE_MAX_PROFILES_PER_BIN) {
       return;
     }

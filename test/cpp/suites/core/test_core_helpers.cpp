@@ -97,6 +97,33 @@ void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
         gained.subband_kendall_lag_excess());
 }
 
+void test_trajectory_duplicate_packets_expire_old_motion(void) {
+    ChannelShapeTrajectoryTracker tracker;
+    tracker.configure(true);
+    for (uint8_t step = 0U; step < 12U; ++step) {
+        const auto packet = make_trajectory_packet(step, 1);
+        tracker.process_packet(packet.data(), packet.size(),
+                               static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
+    }
+    TEST_ASSERT_TRUE(tracker.shape_spread_subband() > 0.0f);
+    const auto repeated = make_trajectory_packet(11U, 1);
+    for (uint8_t step = 12U; step < 40U; ++step) {
+        tracker.process_packet(repeated.data(), repeated.size(),
+                               static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
+    }
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.coherent_innovation_energy());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.excess_path());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.shape_spread_subband());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.subband_kendall_lag_excess());
+
+    for (uint8_t step = 40U; step < 52U; ++step) {
+        const auto packet = make_trajectory_packet(step - 40U, 1);
+        tracker.process_packet(packet.data(), packet.size(),
+                               static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
+    }
+    TEST_ASSERT_TRUE(tracker.shape_spread_subband() > 0.0f);
+}
+
 void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
     ChannelShapeTrajectoryTracker direct_trajectory;
     ChannelShapeTrajectoryTracker shared_trajectory;
@@ -670,6 +697,7 @@ int process(void) {
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_channel_shape_trajectory_is_gain_and_stutter_invariant);
+    RUN_TEST(test_trajectory_duplicate_packets_expire_old_motion);
     RUN_TEST(test_shared_packet_frame_matches_direct_trajectory_tracker);
     RUN_TEST(test_lightweight_detector_move_semantics_and_base_accessors);
     RUN_TEST(test_high_accuracy_detector_move_semantics_and_cv_state);

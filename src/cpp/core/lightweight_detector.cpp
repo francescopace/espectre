@@ -28,6 +28,7 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
       startup_logit_count_(0U),
       adapted_threshold_(LIGHTWEIGHT_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
+      manual_threshold_override_(false),
       autocorr_lag_(autocorr_lag > 0U ? autocorr_lag : 1U),
       settle_block_max_(0.0f),
       settle_block_evaluations_(0U),
@@ -213,7 +214,7 @@ void LightweightDetector::reset_settled_level_() {
  * LightweightDetector._observe_settled_level in lightweight_detector.py.
  */
 void LightweightDetector::observe_settled_level_() {
-  if (!adapted_threshold_ready_) {
+  if (!adapted_threshold_ready_ || manual_threshold_override_) {
     return;
   }
   if (current_logit_ > settle_block_max_) {
@@ -247,6 +248,7 @@ void LightweightDetector::observe_settled_level_() {
 
 void LightweightDetector::on_startup_calibration_begin() {
   reset_settled_level_();
+  manual_threshold_override_ = false;
   startup_logit_count_ = 0U;
   adapted_threshold_ready_ = false;
 }
@@ -264,6 +266,7 @@ void LightweightDetector::on_startup_calibration_complete() {
 
 bool LightweightDetector::set_adaptive_threshold(float) {
   reset_settled_level_();
+  manual_threshold_override_ = false;
   threshold_ = adapted_threshold_ready_ ? adapted_threshold_ : LIGHTWEIGHT_DEFAULT_THRESHOLD;
   return true;
 }
@@ -275,6 +278,7 @@ bool LightweightDetector::set_threshold(float threshold) {
     return false;
   }
   threshold_ = threshold;
+  manual_threshold_override_ = true;
   ESPECTRE_LOGI(TAG, "Threshold updated: %.6f", threshold);
   return true;
 }

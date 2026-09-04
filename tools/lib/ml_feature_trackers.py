@@ -264,8 +264,6 @@ class ChannelShapeTrajectoryTracker:
                     duplicate = False
                 self._previous_raw[i] = value
         self._has_previous_raw = True
-        if duplicate:
-            return
         bin_index = max(0, self._timestamp_us(timestamp_us)) // self.bin_us
         if self._current_bin is None:
             self._current_bin = bin_index
@@ -274,6 +272,9 @@ class ChannelShapeTrajectoryTracker:
             self._current_bin = bin_index
             self._current_profile_count = 0
             self._trim(bin_index)
+        # Duplicate payloads still advance the physical-time window.
+        if duplicate:
+            return
         if self._current_profile_count >= CHANNEL_SHAPE_MAX_PROFILES_PER_BIN:
             return
         self._fill_profile(

@@ -103,6 +103,35 @@ void test_lightweight_detector_startup_q95_adapts_threshold(void) {
   TEST_ASSERT_TRUE(detector.get_threshold() < 1.0f);
 }
 
+void test_manual_threshold_suspends_settling_until_recalibration(void) {
+  LightweightDetector detector;
+  detector.on_startup_calibration_complete();
+  detector.set_adaptive_threshold(0.5f);
+  TEST_ASSERT_TRUE(detector.set_threshold(0.9f));
+  detector.reset();
+  detector.clear_buffer();
+  int8_t packet[HT20_CSI_LEN];
+  std::fill(packet, packet + HT20_CSI_LEN, 20);
+  const unsigned packets = detector.get_window_size() +
+      LIGHTWEIGHT_SETTLE_BLOCKS * LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS;
+  for (unsigned i = 0U; i < packets; ++i) {
+    detector.process_packet(packet, sizeof(packet), nullptr, 0U);
+    detector.update_state();
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.9f, detector.get_threshold());
+
+  detector.on_startup_calibration_begin();
+  detector.on_startup_calibration_complete();
+  detector.set_adaptive_threshold(0.5f);
+  const float calibrated = detector.get_threshold();
+  TEST_ASSERT_FALSE(detector.set_threshold(1.01f));
+  for (unsigned i = 0U; i < packets; ++i) {
+    detector.process_packet(packet, sizeof(packet), nullptr, 0U);
+    detector.update_state();
+  }
+  TEST_ASSERT_TRUE(detector.get_threshold() < calibrated);
+}
+
 void test_lightweight_detector_noisy_startup_still_uses_shifted_logit_threshold(void) {
   LightweightDetector detector;
   detector.startup_logit_count_ = 4U;
@@ -156,6 +185,7 @@ int process(void) {
   RUN_TEST(test_lightweight_detector_owns_aggregated_turbulence_ring);
   RUN_TEST(test_filtered_turbulence_ring_skips_large_missing_runs);
   RUN_TEST(test_lightweight_detector_startup_q95_adapts_threshold);
+  RUN_TEST(test_manual_threshold_suspends_settling_until_recalibration);
   RUN_TEST(test_lightweight_detector_noisy_startup_still_uses_shifted_logit_threshold);
   RUN_TEST(test_lightweight_detector_clear_buffer_resets_feature_state);
   RUN_TEST(test_lightweight_detector_honours_shared_state_contract);

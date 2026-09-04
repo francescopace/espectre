@@ -489,14 +489,7 @@ class ChannelShapeTrajectoryTracker:
     def process_packet(self, csi_data, timestamp_us: int) -> None:
         """Consume one CSI payload at its monotonic physical timestamp."""
         raw = np.asarray(csi_data, dtype=np.int8)
-        if self._previous_raw is not None and np.array_equal(
-            raw,
-            self._previous_raw,
-        ):
-            return
-        self._previous_raw = raw.copy()
         bin_index = max(0, int(timestamp_us)) // self.bin_us
-        profile = hellinger_subband_profile(complex_profile(raw))
         if self._current_bin is None:
             self._current_bin = bin_index
         elif bin_index != self._current_bin:
@@ -504,6 +497,14 @@ class ChannelShapeTrajectoryTracker:
             self._current_bin = bin_index
             self._current_profiles = []
             self._trim(bin_index)
+        # Duplicate payloads still advance the physical-time window.
+        if self._previous_raw is not None and np.array_equal(
+            raw,
+            self._previous_raw,
+        ):
+            return
+        self._previous_raw = raw.copy()
+        profile = hellinger_subband_profile(complex_profile(raw))
         self._current_profiles.append(profile)
 
     def _binned_path(self) -> List[Tuple[int, np.ndarray]]:

@@ -156,6 +156,7 @@ class LightweightDetector : public BaseDetector {
   uint8_t startup_logit_count_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
+  bool manual_threshold_override_;
   uint16_t autocorr_lag_;
   float settle_blocks_[LIGHTWEIGHT_SETTLE_BLOCKS]{};
   float settle_block_max_;

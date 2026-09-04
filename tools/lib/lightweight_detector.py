@@ -100,6 +100,7 @@ class LightweightDetector(IDetector):
         self._current_turb_iqr_over_mean_aggr = 0.0
         self._startup_logits = []
         self._adapted_threshold_ready = False
+        self._manual_threshold_override = False
         self._settle_blocks = []
         self._settle_block_max = _SETTLE_FLOOR
         self._settle_block_count = 0
@@ -411,7 +412,7 @@ class LightweightDetector(IDetector):
         which is what keeps it from chasing the metric downward during activity.
         Blocks rather than a full history keep it to `SETTLE_BLOCKS` floats.
         """
-        if not self._adapted_threshold_ready:
+        if not self._adapted_threshold_ready or self._manual_threshold_override:
             return
         if self._current_logit > self._settle_block_max:
             self._settle_block_max = self._current_logit
@@ -441,6 +442,7 @@ class LightweightDetector(IDetector):
 
     def set_adaptive_threshold(self, _shared_threshold):
         self._reset_settled_level()
+        self._manual_threshold_override = False
         self._adapted_threshold_ready = True
         session_q95 = self._quantile(self._startup_logits, self.STARTUP_QUANTILE)
         if session_q95 is None:
@@ -454,6 +456,7 @@ class LightweightDetector(IDetector):
 
     def on_startup_calibration_begin(self):
         """Discard stale runtime logits before a fresh calibration session."""
+        self._manual_threshold_override = False
         self._startup_logits = []
         self._adapted_threshold_ready = False
         self._settle_blocks = []
@@ -465,6 +468,7 @@ class LightweightDetector(IDetector):
         if value < 0.0 or value > 1.0:
             return False
         self._threshold = value
+        self._manual_threshold_override = True
         return True
 
     def get_threshold(self):
