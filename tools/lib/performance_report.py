@@ -2574,8 +2574,9 @@ def render_performance_report_markdown(
         parity_note,
         "",
         (
-            "- **Lightweight Detection**: Uses the Lightweight feature-fusion implementation, "
-            "calibrates itself for each recording, and is not trained on recorded data."
+            "- **Lightweight Detection**: Uses feature-fusion coefficients fitted offline on "
+            "training recordings and calibrates its threshold for each recording without "
+            "refitting those coefficients."
         ),
         (
             "- **High-Accuracy Detection**: Uses the ML neural implementation trained on "

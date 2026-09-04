@@ -125,7 +125,7 @@ MicroPython and is not exposed by ESPectre.
 
 | Command | Purpose |
 | --- | --- |
-| `./espectre micro build [--chip <esp32|c3|s3|c5|c6>]` | Build the lean project firmware; the default chip is `esp32` |
+| `./espectre micro build [--chip <esp32\|c3\|s2\|s3\|c5\|c6>]` | Build the lean project firmware; the default chip is `esp32` |
 | `./espectre micro flash --chip <chip> --erase` | Build and flash the canonical project image |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
 | `./espectre micro run` | Start the device application |

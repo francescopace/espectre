@@ -166,8 +166,8 @@ Reset on open:
 
 | Flag | Purpose |
 |------|---------|
-| `--frontend native|esphome|matter|micro` | Limit discovery to one frontend; omit it to browse every supported service |
-| `--chip esp32|c3|s2|s3|c5|c6` | Limit normalized records to one chip family |
+| `--frontend native\|esphome\|matter\|micro` | Limit discovery to one frontend; omit it to browse every supported service |
+| `--chip esp32\|c3\|s2\|s3\|c5\|c6` | Limit normalized records to one chip family |
 | `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
 | `--json` | Emit machine-readable normalized records for scripts and tooling |
 

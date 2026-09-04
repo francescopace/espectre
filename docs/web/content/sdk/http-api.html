@@ -10,7 +10,9 @@
 
   <h2 data-toc-label="Connect">Connect to a device</h2>
   <p>Direct HTTP listens on TCP port <code>62587</code> and uses the versioned base path <code>/espectre/v1</code>. The stable mDNS hostname is <code>espectre-&lt;device-id&gt;.local</code>. Clients can also connect to the device's private IP address.</p>
-  <pre class="code"><code>curl http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/capabilities</code></pre>
+  <p>Every request, including requests from command-line clients, must include an allowed <code>Origin</code> header. Published firmware accepts <code>https://espectre.dev</code>.</p>
+  <pre class="code"><code>curl -H 'Origin: https://espectre.dev' \
+  http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/capabilities</code></pre>
   <p>After connecting, read <code>capabilities.protocol_version</code>, <code>resources</code>, <code>operations</code>, and <code>events</code>. Treat the returned catalog as authoritative. Firmware compatible with <code>v1</code> may add fields and capabilities, so clients must ignore additions they do not understand.</p>
 
   <h2 data-toc-label="Resources">Read resources</h2>
@@ -35,6 +37,7 @@
   <h2 data-toc-label="Operations">Run operations</h2>
   <p>Send a JSON object for requests with a body and set <code>Content-Type: application/json</code>. The device rejects unknown fields. A completed mutation returns HTTP <code>200</code>; queued or disruptive work returns <code>202</code> after dispatch.</p>
   <pre class="code"><code>curl -X PATCH \
+  -H 'Origin: https://espectre.dev' \
   -H 'Content-Type: application/json' \
   -d '{"detector":"high_accuracy","threshold":0.5}' \
   http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/sensing</code></pre>
@@ -57,7 +60,8 @@
 
   <h2 data-toc-label="Live events">Follow live events</h2>
   <p><code>GET /espectre/v1/events</code> opens the JSON Server-Sent Events stream. It publishes the resource snapshots and events listed in <code>capabilities</code>, which can include <code>health</code>, <code>device</code>, <code>sensing</code>, <code>wifi</code>, <code>ota</code>, <code>motion</code>, and <code>fault</code>. The stream has no replay. After reconnecting, read the resources again to refresh local state.</p>
-  <pre class="code"><code>curl -N http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/events</code></pre>
+  <pre class="code"><code>curl -N -H 'Origin: https://espectre.dev' \
+  http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/events</code></pre>
   <p>A motion payload contains the monotonic evaluation timestamp, state, and detector score:</p>
   <pre class="code"><code>{"timestamp_ms":42000,"state":"motion","score":0.7312}</code></pre>
 

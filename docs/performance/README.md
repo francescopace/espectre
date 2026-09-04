@@ -16,7 +16,7 @@ This report shows how ESPectre's motion detectors perform on recorded data.
 
 `tools/generate_performance_report.py` also verifies that the host-side C++ and Python implementations produce matching results when they replay the same recordings.
 
-- **Lightweight Detection**: Uses the Lightweight feature-fusion implementation, calibrates itself for each recording, and is not trained on recorded data.
+- **Lightweight Detection**: Uses feature-fusion coefficients fitted offline on training recordings and calibrates its threshold for each recording without refitting those coefficients.
 - **High-Accuracy Detection**: Uses the ML neural implementation trained on recordings marked as motion or no motion. Published replay results use only recordings outside its training corpus.
 
 See [ALGORITHMS.md](../ALGORITHMS.md) for the full detector design.

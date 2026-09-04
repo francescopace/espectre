@@ -15,10 +15,11 @@
       <tr><td>Classifier</td><td>Fixed weighted logistic fusion</td><td>MLP: <code>8 → 24 → 12 → 1</code></td></tr>
       <tr><td>Persistent detector state</td><td>1,792 B</td><td>6,144 B</td></tr>
       <tr><td>Startup</td><td>Calibrates from up to 10 seconds of clean, ready slot coverage</td><td>Uses a default threshold of 0.5 without threshold calibration</td></tr>
-      <tr><td>Learned parameters</td><td>None</td><td>529</td></tr>
+      <tr><td>Learned parameters</td><td>Two logistic weights, an intercept, and fitted normalization</td><td>529 neural-network parameters</td></tr>
     </tbody>
   </table></div>
   <p class="article-footnote">Persistent state is the detector object's <code>sizeof</code> plus live heap allocations after construction; allocator metadata and the rest of the firmware are not included. A build that supports runtime switching may still carry both detector implementations and the ML weights in flash.</p>
+  <p>Lightweight's coefficients are fitted offline on training recordings and shipped in the firmware. Startup calibration adapts its threshold to the room without refitting those coefficients.</p>
 
   <h2 id="sdk-detectors-performance" data-toc-label="Measured performance">Current measured comparison</h2>
   <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 13 real dataset pairs from the combined <code>selection + holdout</code> corpus. Both receive identical <code>base + drift + burst-loss</code> augmentation generated from the same two fixed seeds. The device columns are unweighted arithmetic means of passing Native, ESPHome, and Matter campaign averages in the per-chip reports from the revision used to build this page. Micro-ESPectre is excluded.</p>
