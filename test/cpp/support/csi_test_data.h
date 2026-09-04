@@ -26,6 +26,7 @@
 // Include cnpy declarations; implementation is linked from espectre_test_support.
 #include "cnpy.h"
 #include "csi_format.h"
+#include "runtime/csi_raw_record.h"
 
 #include <array>
 #include <vector>
@@ -301,14 +302,7 @@ inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
 // Dataset Configuration
 // ============================================================================
 
-enum class ChipType {
-    C3,    // Uses forced subcarriers [20-31] - auto-calibration skipped per-test
-    C5,
-    C6,
-    ESP32, // Control set (excluded from ML training)
-    S2,
-    S3
-};
+using ChipType = espectre::RawCsiChipType;
 
 static constexpr size_t CHIP_COUNT = 6;
 
@@ -367,6 +361,18 @@ inline const char* chip_name(ChipType chip) {
     }
 }
 
+inline bool is_admitted_dataset_role(const char* role) {
+    return role != nullptr &&
+           (std::strcmp(role, "train") == 0 ||
+            std::strcmp(role, "selection") == 0 ||
+            std::strcmp(role, "holdout") == 0);
+}
+
+inline bool readable_dataset_file(const std::string& path) {
+    std::ifstream input(path, std::ios::binary);
+    return input.good();
+}
+
 inline bool load_tuning_cache();
 inline const char* static_presence_file_for_chip(ChipType chip);
 inline const char* motion_file_for_chip(ChipType chip);
@@ -375,6 +381,9 @@ inline std::vector<ChipType> get_available_chips();
 inline int get_available_pair_count();
 inline ChipType pair_chip(int pair_index);
 inline const char* pair_label(int pair_index);
+inline const char* pair_dataset_role(int pair_index);
+inline bool pair_is_low_rssi(int pair_index);
+inline bool pair_is_synthetic(int pair_index);
 inline bool switch_dataset_pair(int pair_index);
 inline int get_available_low_rssi_pair_count();
 inline ChipType low_rssi_pair_chip(int pair_index);
@@ -419,6 +428,7 @@ struct ChipDatasetSelection {
     std::string environment;
     std::string dataset_role;
     bool synthetic = false;
+    bool low_rssi = false;
     bool valid = false;
 };
 static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
@@ -552,12 +562,12 @@ inline bool load_real_low_rssi_cache() {
     for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool low_rssi = entry["low_rssi"] | false;
         const bool synthetic = entry["synthetic"] | false;
         if (filename == nullptr || chip_text == nullptr || subcarriers != 64 ||
-            !low_rssi || synthetic || std::strcmp(dataset_role, "exclude") == 0) {
+            !low_rssi || synthetic || !is_admitted_dataset_role(dataset_role)) {
             continue;
         }
 
@@ -583,12 +593,12 @@ inline bool load_real_low_rssi_cache() {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool low_rssi = entry["low_rssi"] | false;
         const bool synthetic = entry["synthetic"] | false;
         if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr ||
-            subcarriers != 64 || !low_rssi || synthetic || std::strcmp(dataset_role, "exclude") == 0) {
+            subcarriers != 64 || !low_rssi || synthetic || !is_admitted_dataset_role(dataset_role)) {
             continue;
         }
 
@@ -603,7 +613,8 @@ inline bool load_real_low_rssi_cache() {
 
         auto motion_it = motion_by_filename.find(optimal_pair_motion_file);
         if (motion_it == motion_by_filename.end()) {
-            continue;
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Broken low-RSSI pair for %s\n", filename);
+            return false;
         }
 
         LowRssiDatasetSelection candidate{};
@@ -614,6 +625,12 @@ inline bool load_real_low_rssi_cache() {
         candidate.motion_path = motion_it->second.path;
         candidate.environment = entry["environment"] | "";
         candidate.valid = true;
+        if (!readable_dataset_file(candidate.static_presence_path) ||
+            !readable_dataset_file(candidate.motion_path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Low-RSSI pair file is missing for %s\n",
+                         filename);
+            return false;
+        }
         g_low_rssi_pair_selections.push_back(candidate);
 
         LowRssiDatasetSelection& selected = g_low_rssi_selected_by_chip[idx];
@@ -665,6 +682,7 @@ inline bool load_tuning_cache() {
         std::string optimal_pair_motion_file;
         std::string dataset_role;
         bool synthetic = false;
+        bool low_rssi = false;
         bool valid = false;
     };
     std::array<std::vector<PairFile>, CHIP_COUNT> static_presence_candidates{};
@@ -677,11 +695,11 @@ inline bool load_tuning_cache() {
         int subcarriers = entry["subcarriers"] | 0;
         const char* environment = entry["environment"] | "";
         const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr) {
             continue;
         }
-        if (std::strcmp(dataset_role, "exclude") == 0) {
+        if (!is_admitted_dataset_role(dataset_role)) {
             continue;
         }
 
@@ -702,6 +720,7 @@ inline bool load_tuning_cache() {
             candidate.optimal_pair_motion_file = optimal_pair_motion_file;
             candidate.dataset_role = dataset_role;
             candidate.synthetic = entry["synthetic"] | false;
+            candidate.low_rssi = entry["low_rssi"] | false;
             candidate.valid = true;
             static_presence_candidates[idx].push_back(candidate);
         }
@@ -712,11 +731,11 @@ inline bool load_tuning_cache() {
     for (JsonObject entry : motion_entries) {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         int subcarriers = entry["subcarriers"] | 0;
         ChipType chip{};
         if (filename != nullptr && chip_from_string(chip_text, chip)) {
-            if (std::strcmp(dataset_role, "exclude") == 0) {
+            if (!is_admitted_dataset_role(dataset_role)) {
                 continue;
             }
             if (subcarriers == 64) {
@@ -728,6 +747,7 @@ inline bool load_tuning_cache() {
                     candidate.environment = entry["environment"] | "";
                     candidate.dataset_role = dataset_role;
                     candidate.synthetic = entry["synthetic"] | false;
+                    candidate.low_rssi = entry["low_rssi"] | false;
                     candidate.valid = true;
                     motion_by_filename[candidate.filename] = candidate;
                 }
@@ -751,15 +771,21 @@ inline bool load_tuning_cache() {
         for (const auto& static_presence : static_presence_candidates[idx]) {
             auto motion_it = motion_by_filename.find(static_presence.optimal_pair_motion_file);
             if (motion_it == motion_by_filename.end()) {
-                continue;
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Broken pair for %s\n",
+                             static_presence.filename.c_str());
+                return false;
             }
 
             const PairFile& motion = motion_it->second;
             if (static_presence.synthetic != motion.synthetic) {
-                continue;
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair synthetic flags differ for %s\n",
+                             static_presence.filename.c_str());
+                return false;
             }
             if (static_presence.dataset_role != motion.dataset_role) {
-                continue;
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair roles differ for %s\n",
+                             static_presence.filename.c_str());
+                return false;
             }
             ChipDatasetSelection selected{};
             selected.chip = chip;
@@ -770,7 +796,14 @@ inline bool load_tuning_cache() {
             selected.environment = static_presence.environment;
             selected.dataset_role = static_presence.dataset_role;
             selected.synthetic = static_presence.synthetic;
+            selected.low_rssi = static_presence.low_rssi || motion.low_rssi;
             selected.valid = true;
+            if (!readable_dataset_file(selected.static_presence_path) ||
+                !readable_dataset_file(selected.motion_path)) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair file is missing for %s\n",
+                             static_presence.filename.c_str());
+                return false;
+            }
             g_pair_selections.push_back(selected);
 
             ChipDatasetSelection& selected_by_chip = g_selected_by_chip[idx];
@@ -834,14 +867,14 @@ inline bool load_long_recording_cache() {
         const char* chip_text = entry["chip"];
         const char* collected_at = entry["collected_at"];
         const char* description = entry["description"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool long_recording = entry["long_recording"] | false;
         const int num_packets = entry["num_packets"] | 0;
         if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
             continue;
         }
-        if (!long_recording || std::strcmp(dataset_role, "exclude") == 0) {
+        if (!long_recording || !is_admitted_dataset_role(dataset_role)) {
             continue;
         }
 
@@ -867,11 +900,10 @@ inline bool load_long_recording_cache() {
         candidate.chip = chip;
         candidate.filename = filename;
         candidate.path = std::string("../../data/empty/") + filename;
-        {
-            std::ifstream current_layout(candidate.path.c_str());
-            if (!current_layout.good()) {
-                candidate.path = std::string("../../data/test/") + filename;
-            }
+        if (!readable_dataset_file(candidate.path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Long-recording file is missing: %s\n",
+                         candidate.path.c_str());
+            return false;
         }
         candidate.collected_at = collected_at;
         candidate.motion_start_packet = motion_start_packet;
@@ -893,13 +925,13 @@ inline bool load_long_recording_cache() {
             const char* chip_text = entry["chip"];
             const char* collected_at = entry["collected_at"];
             const char* description = entry["description"];
-            const char* dataset_role = entry["dataset_role"] | "train";
+            const char* dataset_role = entry["dataset_role"] | "exclude";
             const int subcarriers = entry["subcarriers"] | 0;
             const int num_packets = entry["num_packets"] | 0;
             if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
                 continue;
             }
-            if (std::strcmp(dataset_role, "exclude") == 0) {
+            if (!is_admitted_dataset_role(dataset_role)) {
                 continue;
             }
 
@@ -925,6 +957,11 @@ inline bool load_long_recording_cache() {
             candidate.chip = chip;
             candidate.filename = filename;
             candidate.path = std::string("../../data/test/") + filename;
+            if (!readable_dataset_file(candidate.path)) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Long-recording file is missing: %s\n",
+                             candidate.path.c_str());
+                return false;
+            }
             candidate.collected_at = collected_at;
             candidate.motion_start_packet = motion_start_packet;
             candidate.num_packets = num_packets;
@@ -987,13 +1024,13 @@ inline bool load_empty_room_cache() {
         const char* filename = entry["filename"];
         const char* chip_text = entry["chip"];
         const char* environment = entry["environment"];
-        const char* dataset_role = entry["dataset_role"] | "train";
+        const char* dataset_role = entry["dataset_role"] | "exclude";
         const int subcarriers = entry["subcarriers"] | 0;
         const bool long_recording = entry["long_recording"] | false;
         if (filename == nullptr || chip_text == nullptr || subcarriers != 64) {
             continue;
         }
-        if (long_recording || std::strcmp(dataset_role, "exclude") == 0) {
+        if (long_recording || !is_admitted_dataset_role(dataset_role)) {
             continue;
         }
 
@@ -1008,6 +1045,11 @@ inline bool load_empty_room_cache() {
         candidate.path = std::string("../../data/empty/") + filename;
         candidate.environment = environment == nullptr ? "" : environment;
         candidate.valid = true;
+        if (!readable_dataset_file(candidate.path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Empty-room file is missing: %s\n",
+                         candidate.path.c_str());
+            return false;
+        }
         g_empty_room_selections.push_back(candidate);
     }
 
@@ -1513,6 +1555,26 @@ inline const char* pair_label(int pair_index) {
     label = std::string(chip_name(selected.chip)) + ":" + selected.environment + ":" +
             selected.static_presence_filename;
     return label.c_str();
+}
+
+inline const char* pair_dataset_role(int pair_index) {
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return "exclude";
+    }
+    return g_pair_selections[pair_index].dataset_role.c_str();
+}
+
+inline bool pair_is_low_rssi(int pair_index) {
+    return load_tuning_cache() && pair_index >= 0 &&
+           pair_index < static_cast<int>(g_pair_selections.size()) &&
+           g_pair_selections[pair_index].low_rssi;
+}
+
+inline bool pair_is_synthetic(int pair_index) {
+    return load_tuning_cache() && pair_index >= 0 &&
+           pair_index < static_cast<int>(g_pair_selections.size()) &&
+           g_pair_selections[pair_index].synthetic;
 }
 
 inline const char* low_rssi_pair_label(int pair_index) {

@@ -76,6 +76,7 @@ target_link_libraries(espectre_core_testlib
 add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/primary_console.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/ota_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
@@ -166,6 +167,14 @@ target_include_directories(espectre_native_mdns_bootstrap_testlib
 
 add_library(espectre_mqtt_transport_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/mqtt_transport_esp_idf.cpp"
+)
+add_library(espectre_ota_https_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/ota_service_https.cpp"
+)
+target_link_libraries(espectre_ota_https_testlib
+    PUBLIC
+        espectre_runtime_testlib
+        espectre_test_mocks
 )
 target_link_libraries(espectre_mqtt_transport_testlib
     PUBLIC

@@ -13,6 +13,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "dataset_test_cli.h"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -528,6 +529,21 @@ int run_supported_chip_matrix_test() {
     return UNITY_END();
 }
 
+bool pair_matches_gate(int pair_index, const std::string& gate) {
+    if (csi_test_data::pair_is_synthetic(pair_index) ||
+        csi_test_data::pair_is_low_rssi(pair_index)) {
+        return false;
+    }
+    if (gate == "normal") {
+        return true;
+    }
+    if (gate == "reserved") {
+        const std::string role = csi_test_data::pair_dataset_role(pair_index);
+        return role == "selection" || role == "holdout";
+    }
+    return false;
+}
+
 int run_skipped_tests_for_chip(csi_test_data::ChipType chip) {
     g_missing_pair_reason =
         std::string("No complete 64 SC static-presence/motion dataset pair available for chip ") +
@@ -544,8 +560,8 @@ int run_skipped_tests_for_chip(csi_test_data::ChipType chip) {
     return result;
 }
 
-int process(void) {
-    int failures = run_supported_chip_matrix_test();
+int process(const espectre::test::dataset_cli::Options& options) {
+    int failures = options.aggregate ? run_supported_chip_matrix_test() : 0;
     g_results.clear();
     const int pair_count = csi_test_data::get_available_pair_count();
     if (pair_count <= 0) {
@@ -553,17 +569,20 @@ int process(void) {
         return 1;
     }
 
+    int selected_pairs = 0;
     for (int pair_index = 0; pair_index < pair_count; pair_index++) {
+        if (!espectre::test::dataset_cli::matches(
+                options, csi_test_data::pair_chip(pair_index))) {
+            continue;
+        }
+        if (!options.aggregate && !pair_matches_gate(pair_index, options.gate)) {
+            continue;
+        }
+        selected_pairs++;
         failures += run_tests_for_pair(pair_index);
     }
-
-    const std::vector<csi_test_data::ChipType> available_chips =
-        csi_test_data::get_available_chips();
-    for (csi_test_data::ChipType chip : csi_test_data::get_supported_chips()) {
-        if (std::find(available_chips.begin(), available_chips.end(), chip) ==
-            available_chips.end()) {
-            failures += run_skipped_tests_for_chip(chip);
-        }
+    if (!options.aggregate && selected_pairs == 0) {
+        return espectre::test::dataset_cli::no_eligible_dataset(options);
     }
     
     // Print summary table at the end
@@ -574,7 +593,17 @@ int process(void) {
 }
 
 #if defined(ESP_PLATFORM)
-extern "C" void app_main(void) { process(); }
+extern "C" void app_main(void) {
+    espectre::test::dataset_cli::Options options;
+    process(options);
+}
 #else
-int main(int argc, char **argv) { return process(); }
+int main(int argc, char **argv) {
+    espectre::test::dataset_cli::Options options;
+    if (!espectre::test::dataset_cli::parse(argc, argv, nullptr, options) ||
+        (!options.aggregate && options.gate != "normal" && options.gate != "reserved")) {
+        return 2;
+    }
+    return process(options);
+}
 #endif

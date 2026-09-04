@@ -13,47 +13,28 @@ import pytest
 
 import config
 
+from support.dataset_cases import per_chip_params
 from tools.lib.performance_report import (
     compute_classic_dataset_result,
-    get_available_paired_datasets,
-    get_paired_dataset_role,
-    is_low_rssi_paired_dataset,
 )
 
 
 def _real_low_rssi_pairs():
-    params = []
-    for static_path, motion_path, _num_sc, chip, dataset_id in get_available_paired_datasets(
-        synthetic=False
-    ):
-        if not is_low_rssi_paired_dataset(static_path):
-            continue
-        dataset_role = get_paired_dataset_role(static_path)
-        assert dataset_role is not None
-        params.append(
-            pytest.param(
-                static_path,
-                motion_path,
-                chip,
-                dataset_role,
-                dataset_id,
-                id=f"{chip}:{dataset_role}:{dataset_id}",
-            )
-        )
-    return params
+    return per_chip_params("weak")
 
 
 @pytest.mark.parametrize(
-    ("static_path", "motion_path", "chip", "dataset_role", "dataset_id"),
+    "dataset_case",
     _real_low_rssi_pairs(),
 )
 def test_production_classic_handles_real_low_rssi_pair(
-    static_path,
-    motion_path,
-    chip,
-    dataset_role,
-    dataset_id,
+    dataset_case,
 ):
+    static_path = dataset_case.path
+    motion_path = dataset_case.counterpart_path
+    chip = dataset_case.chip
+    dataset_role = dataset_case.entry["dataset_role"]
+    dataset_id = dataset_case.label
     result = compute_classic_dataset_result(
         static_path,
         motion_path,

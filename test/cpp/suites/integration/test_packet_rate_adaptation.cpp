@@ -10,6 +10,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "dataset_test_cli.h"
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,7 @@ constexpr int kTargetPps[] = {120, 100, 80};
 constexpr size_t kTargetCount = sizeof(kTargetPps) / sizeof(kTargetPps[0]);
 
 struct PacketRateSourceSelection {
+  csi_test_data::ChipType chip{csi_test_data::ChipType::ESP32};
   std::string pair_id;
   std::string static_presence_path;
   std::string motion_path;
@@ -143,7 +145,12 @@ const std::vector<PacketRateSourceSelection>& source_pairs() {
       if (nominal_pps <= 0) {
         continue;
       }
+      csi_test_data::ChipType chip{};
+      if (!csi_test_data::chip_from_string(entry["chip"], chip)) {
+        throw std::runtime_error("Eligible packet-rate pair has no supported chip");
+      }
       loaded.push_back(PacketRateSourceSelection{
+          chip,
           std::string(filename),
           std::string("../../data/static_presence/") + filename,
           motion_it->second.path,
@@ -167,6 +174,9 @@ const std::vector<PacketRateSourceSelection>& source_pairs() {
   }();
   return selections;
 }
+
+bool g_filter_chip = false;
+csi_test_data::ChipType g_selected_chip = csi_test_data::ChipType::ESP32;
 
 replay::ReplayPacketMetadata metadata_for_data(const csi_test_data::CsiData& data) {
   return {
@@ -419,6 +429,9 @@ void print_summary_table(const PacketRateSourceSelection& selection,
 
 void test_packet_rate_adaptation_regression(void) {
   for (const PacketRateSourceSelection& selection : source_pairs()) {
+    if (g_filter_chip && selection.chip != g_selected_chip) {
+      continue;
+    }
     std::vector<RateResult> results;
     results.reserve(kTargetCount);
     for (size_t i = 0; i < kTargetCount; i++) {
@@ -483,8 +496,26 @@ void test_detector_window_covers_the_configured_duration(void) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  (void) argc;
-  (void) argv;
+  espectre::test::dataset_cli::Options options;
+  if (!espectre::test::dataset_cli::parse(argc, argv, "packet_rate", options)) {
+    return 2;
+  }
+  if (source_pairs().empty()) {
+    std::fprintf(stderr, "No eligible packet-rate datasets found\n");
+    return 1;
+  }
+  if (!options.aggregate) {
+    const bool available = std::any_of(
+        source_pairs().begin(), source_pairs().end(),
+        [&options](const PacketRateSourceSelection& selection) {
+          return selection.chip == options.chip;
+        });
+    if (!available) {
+      return espectre::test::dataset_cli::no_eligible_dataset(options);
+    }
+    g_filter_chip = true;
+    g_selected_chip = options.chip;
+  }
   UNITY_BEGIN();
   RUN_TEST(test_detector_window_covers_the_configured_duration);
   RUN_TEST(test_packet_rate_adaptation_regression);

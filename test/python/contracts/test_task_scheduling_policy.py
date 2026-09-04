@@ -7,8 +7,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tools.lib.repo_paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+REPO_ROOT = repo_root()
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 SHARED_KCONFIG = CPP_ROOT / "runtime" / "esp_idf" / "espectre_config" / "Kconfig.projbuild"
 NATIVE_KCONFIG = CPP_ROOT / "frontend" / "native" / "espectre" / "Kconfig.projbuild"

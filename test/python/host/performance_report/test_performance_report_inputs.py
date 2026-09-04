@@ -9,11 +9,176 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 import json
+import sys
+from pathlib import Path
+from unittest.mock import ANY, Mock
 
 import numpy as np
+import pytest
 
 from tools import generate_performance_report
 from tools.lib import performance_report, performance_report_inputs
+
+
+def _stub_report_main_dependencies(monkeypatch, report_data=None):
+    """Replace expensive report inputs while preserving main() control flow."""
+    data = {} if report_data is None else report_data
+    monkeypatch.setattr(
+        generate_performance_report.performance_report,
+        "configure_dataset_root",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "collect_extended_report_inputs",
+        Mock(return_value=({}, None)),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "_load_cached_report_data",
+        Mock(return_value=data),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "dataset_info_revision",
+        Mock(return_value="dataset-revision"),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "generated_input_revision",
+        Mock(return_value="input-revision"),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "get_available_paired_datasets",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "get_available_long_test_datasets",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        generate_performance_report.performance_report,
+        "report_evaluation_view",
+        Mock(return_value="HT20/HT-LTF"),
+    )
+    return data
+
+
+@pytest.mark.parametrize(("is_current", "expected"), [(True, 0), (False, 1)])
+def test_main_check_current_returns_contract_exit_code(
+    monkeypatch, tmp_path, capsys, is_current, expected
+):
+    output = tmp_path / "report.md"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_performance_report.py", "--check-current", "--output", str(output)],
+    )
+    monkeypatch.setattr(
+        generate_performance_report.performance_report,
+        "configure_dataset_root",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "generated_report_is_current",
+        Mock(return_value=is_current),
+    )
+    monkeypatch.setattr(
+        generate_performance_report,
+        "_report_mode_is_current",
+        Mock(return_value=True),
+    )
+
+    assert generate_performance_report.main() == expected
+    stream = capsys.readouterr().out if is_current else capsys.readouterr().err
+    assert ("Current:" if is_current else "Stale or missing:") in stream
+
+
+def test_main_stdout_runs_cpp_parity_for_primary_corpus(monkeypatch, capsys):
+    data = _stub_report_main_dependencies(monkeypatch)
+    parity = Mock()
+    monkeypatch.setattr(generate_performance_report, "verify_cpp_report_parity", parity)
+    monkeypatch.setattr(
+        generate_performance_report,
+        "render_performance_report_markdown",
+        Mock(return_value="# generated\n"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_performance_report.py", "--stdout", "--quiet"],
+    )
+
+    assert generate_performance_report.main() == 0
+    assert capsys.readouterr().out == "# generated\n"
+    parity.assert_called_once_with(data, progress=ANY)
+
+
+def test_main_external_dataset_uses_external_output_and_skips_cpp_parity(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / "dataset_info.json").write_text('{"files": {}}\n', encoding="utf-8")
+    _stub_report_main_dependencies(monkeypatch)
+    parity = Mock()
+    write_report = Mock(side_effect=lambda output, **_kwargs: Path(output))
+    monkeypatch.setattr(generate_performance_report, "verify_cpp_report_parity", parity)
+    monkeypatch.setattr(generate_performance_report, "write_performance_report", write_report)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_performance_report.py", "--data-dir", str(tmp_path), "--quiet"],
+    )
+
+    assert generate_performance_report.main() == 0
+    parity.assert_not_called()
+    assert write_report.call_args.args[0] == (
+        tmp_path / "auto_generated" / "PERFORMANCE_REPORT.md"
+    )
+    assert "Wrote" in capsys.readouterr().out
+
+
+def test_main_explicit_skip_bypasses_cpp_parity(monkeypatch):
+    _stub_report_main_dependencies(monkeypatch)
+    parity = Mock()
+    monkeypatch.setattr(generate_performance_report, "verify_cpp_report_parity", parity)
+    monkeypatch.setattr(
+        generate_performance_report,
+        "render_performance_report_markdown",
+        Mock(return_value="report"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_performance_report.py",
+            "--stdout",
+            "--quiet",
+            "--skip-cpp-parity-check",
+        ],
+    )
+
+    assert generate_performance_report.main() == 0
+    parity.assert_not_called()
+
+
+def test_main_propagates_cpp_parity_failure(monkeypatch):
+    _stub_report_main_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        generate_performance_report,
+        "verify_cpp_report_parity",
+        Mock(side_effect=RuntimeError("parity failed")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generate_performance_report.py", "--stdout", "--quiet"],
+    )
+
+    with pytest.raises(RuntimeError, match="parity failed"):
+        generate_performance_report.main()
 
 
 def test_external_dataset_root_can_replay_explicit_nonstandard_phy(tmp_path):

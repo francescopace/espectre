@@ -13,8 +13,29 @@ function(add_espectre_test target_name source_path)
     add_test(NAME "${target_name}" COMMAND "${target_name}")
     set_tests_properties("${target_name}" PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        LABELS "unit"
     )
     espectre_apply_coverage("${target_name}")
+endfunction()
+
+function(add_espectre_dataset_cases target_name gate_name)
+    set(shared_chips ESP32 C3 S2 S3 C5 C6)
+    set_tests_properties("${target_name}" PROPERTIES
+        LABELS "integration;performance;aggregate;dataset:${gate_name}"
+    )
+    foreach(chip IN LISTS shared_chips)
+        string(TOLOWER "${chip}" chip_id)
+        set(test_name "${target_name}.${gate_name}.${chip_id}")
+        add_test(
+            NAME "${test_name}"
+            COMMAND "${target_name}" --gate "${gate_name}" --chip "${chip}"
+        )
+        set_tests_properties("${test_name}" PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            SKIP_RETURN_CODE 77
+            LABELS "integration;performance;chip:${chip_id};dataset:${gate_name}"
+        )
+    endforeach()
 endfunction()
 
 add_espectre_test(test_utils
@@ -50,6 +71,21 @@ add_espectre_test(test_traffic_generator
 add_espectre_test(test_runtime_helpers
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_helpers.cpp"
     LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_periodic_sensing_status_logger
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_periodic_sensing_status_logger.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_device_identity
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_device_identity.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_ota_service_https
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_ota_service_https.cpp"
+    LIBRARIES espectre_ota_https_testlib
 )
 
 add_espectre_test(test_runtime_frontend_controller
@@ -166,6 +202,13 @@ add_espectre_test(test_packet_rate_adaptation
     "${CMAKE_CURRENT_SOURCE_DIR}/integration/test_packet_rate_adaptation.cpp"
     LIBRARIES espectre_runtime_testlib
 )
+
+add_espectre_dataset_cases(test_motion_detection normal)
+add_espectre_dataset_cases(test_motion_detection reserved)
+add_espectre_dataset_cases(test_long_recordings long)
+add_espectre_dataset_cases(test_low_rssi weak)
+add_espectre_dataset_cases(test_empty_rooms empty)
+add_espectre_dataset_cases(test_packet_rate_adaptation packet_rate)
 
 add_espectre_test(test_sensor_publisher
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_sensor_publisher.cpp"

@@ -31,6 +31,7 @@ RESOURCE_BENCHMARK_SOURCES = (
     CORE_SOURCE_DIR / "filtered_turbulence_ring.cpp",
     CORE_SOURCE_DIR / "filters.cpp",
     CORE_SOURCE_DIR / "high_accuracy_detector.cpp",
+    CORE_SOURCE_DIR / "espectre_log.cpp",
 )
 RESOURCE_BENCHMARK_DEPENDENCIES = (
     *RESOURCE_BENCHMARK_SOURCES,

@@ -18,6 +18,7 @@
 #include "runtime_diagnostics.h"
 #include "runtime_performance_diagnostics.h"
 #include "runtime_time.h"
+#include "sta_socket_helpers.h"
 #include "wifi_csi_interface.h"
 
 #include <algorithm>
@@ -25,6 +26,11 @@
 #include <vector>
 
 #include "esp_timer.h"
+#include "esp_netif.h"
+
+#include <net/if.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #define private public
 #undef private
@@ -651,6 +657,35 @@ void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {
     TEST_ASSERT_TRUE(assembler.payload().empty());
 }
 
+void test_sta_socket_binding_rejects_missing_or_invalid_interface(void) {
+    esp_netif_mock_reset();
+    g_esp_netif_mock.handle_available = false;
+    TEST_ASSERT_FALSE(bind_socket_to_sta_interface(-1, "test", "udp"));
+
+    esp_netif_mock_reset();
+    g_esp_netif_mock.impl_index = 0;
+    TEST_ASSERT_FALSE(bind_socket_to_sta_interface(-1, "test", "udp"));
+}
+
+void test_sta_socket_binding_uses_resolved_interface(void) {
+    esp_netif_mock_reset();
+    unsigned interface_index = if_nametoindex("lo");
+    if (interface_index == 0U) {
+        interface_index = if_nametoindex("lo0");
+    }
+    TEST_ASSERT_TRUE(interface_index > 0U);
+    g_esp_netif_mock.impl_index = static_cast<int>(interface_index);
+    const int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    TEST_ASSERT_TRUE(sock >= 0);
+    const bool bound = bind_socket_to_sta_interface(sock, "test", "udp");
+#if defined(__linux__)
+    TEST_ASSERT_TRUE(bound);
+#else
+    (void)bound;
+#endif
+    close(sock);
+}
+
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
@@ -671,6 +706,8 @@ int process(void) {
     RUN_TEST(test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);
     RUN_TEST(test_mqtt_payload_assembler_rejects_invalid_fragments);
+    RUN_TEST(test_sta_socket_binding_rejects_missing_or_invalid_interface);
+    RUN_TEST(test_sta_socket_binding_uses_resolved_interface);
     return UNITY_END();
 }
 

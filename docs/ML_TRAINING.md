@@ -248,13 +248,13 @@ After changing detection logic, features, preprocessing, or exported weights, ru
 cmake -S test/cpp -B test/cpp/build
 cmake --build test/cpp/build
 ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
-.venv/bin/pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -v
+.venv/bin/pytest test/python/performance/test_validation_real_data.py::TestPerformanceMetrics -v
 ```
 
 Validate long quiet recordings and regenerate the performance report:
 
 ```bash
-.venv/bin/pytest test/python/test_validation_long_recordings.py -v
+.venv/bin/pytest test/python/performance/test_validation_long_recordings.py -v
 .venv/bin/python tools/generate_performance_report.py
 .venv/bin/python tools/generate_performance_report.py --check-current
 ```
@@ -264,7 +264,7 @@ When the corpus, roles, or dataset-quality logic changes, also regenerate and ve
 ```bash
 .venv/bin/python tools/validate_dataset_quality.py
 .venv/bin/python tools/validate_dataset_quality.py --check-current
-.venv/bin/pytest test/python/test_dataset_quality_validation.py -v
+.venv/bin/pytest test/python/host/dataset/test_dataset_quality_validation.py -v
 ```
 
 Do not claim a promotion is complete until the generated reports are current, every required Python/C++ gate passes, and [FEATURES.md](FEATURES.md) identifies the promoted run's corpus revision and training contract.

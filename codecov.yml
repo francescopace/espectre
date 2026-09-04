@@ -8,13 +8,37 @@ codecov:
 coverage:
   status:
     project:
-      default:
-        target: 80%      # Overall coverage target
-        threshold: 2%    # Allow 2% drop without failing
+      cpp_core:
+        target: auto
+        threshold: 0%
+        flags: [cpp]
+        paths: ["src/cpp/core/**"]
+      cpp_runtime:
+        target: auto
+        threshold: 0%
+        flags: [cpp]
+        paths: ["src/cpp/runtime/**"]
+      cpp_frontend:
+        target: auto
+        threshold: 0%
+        flags: [cpp]
+        paths: ["src/cpp/frontend/**"]
+      python:
+        target: auto
+        threshold: 0%
+        flags: [python]
+        paths: ["src/python/**"]
     patch:
-      default:
-        target: 70%      # New code coverage target
-        threshold: 5%
+      cpp:
+        target: 90%
+        threshold: 0%
+        flags: [cpp]
+        paths: ["src/cpp/**"]
+      python:
+        target: 90%
+        threshold: 0%
+        flags: [python]
+        paths: ["src/python/**"]
 
 # Ignore test files and mocks (only track src/)
 ignore:
@@ -27,4 +51,3 @@ comment:
   layout: "reach,diff,flags,files"
   behavior: default
   require_changes: true  # Only comment if coverage changed
-

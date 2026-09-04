@@ -11,7 +11,88 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 import json
 from pathlib import Path
 
+import numpy as np
+import pytest
+
+from support.dataset_cases import validate_testable_catalog
 from tools.lib import dataset_metadata
+
+
+def _write_testable_catalog(root: Path) -> Path:
+    """Write one minimal admitted pair and return its catalog path."""
+    (root / "static_presence").mkdir(parents=True)
+    (root / "motion").mkdir(parents=True)
+    np.savez(root / "static_presence" / "static.npz", csi_data=np.zeros((1, 128)))
+    np.savez(root / "motion" / "motion.npz", csi_data=np.zeros((1, 128)))
+    catalog = root / "dataset_info.json"
+    catalog.write_text(
+        json.dumps(
+            {
+                "files": {
+                    "static_presence": [
+                        {
+                            "filename": "static.npz",
+                            "chip": "S2",
+                            "subcarriers": 64,
+                            "dataset_role": "selection",
+                            "optimal_pair_motion_file": "motion.npz",
+                        }
+                    ],
+                    "motion": [
+                        {
+                            "filename": "motion.npz",
+                            "chip": "S2",
+                            "subcarriers": 64,
+                            "dataset_role": "selection",
+                        }
+                    ],
+                    "empty": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return catalog
+
+
+def test_repository_testable_dataset_catalog_is_consistent() -> None:
+    validate_testable_catalog()
+
+
+def test_testable_catalog_missing_file_fails_instead_of_skipping(tmp_path) -> None:
+    catalog = _write_testable_catalog(tmp_path)
+    (tmp_path / "motion" / "motion.npz").unlink()
+
+    with pytest.raises(AssertionError, match="file is missing"):
+        validate_testable_catalog(catalog)
+
+
+def test_testable_catalog_broken_pair_fails_instead_of_skipping(tmp_path) -> None:
+    catalog = _write_testable_catalog(tmp_path)
+    payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["files"]["motion"] = []
+    catalog.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="missing motion metadata"):
+        validate_testable_catalog(catalog)
+
+
+def test_testable_catalog_corrupt_npz_fails_instead_of_skipping(tmp_path) -> None:
+    catalog = _write_testable_catalog(tmp_path)
+    (tmp_path / "motion" / "motion.npz").write_bytes(b"not-an-npz")
+
+    with pytest.raises(AssertionError, match="corrupt or unreadable"):
+        validate_testable_catalog(catalog)
+
+
+def test_testable_catalog_missing_or_malformed_metadata_fails(tmp_path) -> None:
+    catalog = tmp_path / "dataset_info.json"
+    with pytest.raises(AssertionError, match="catalog is missing"):
+        validate_testable_catalog(catalog)
+
+    catalog.write_text("not-json", encoding="utf-8")
+    with pytest.raises(AssertionError, match="not readable JSON"):
+        validate_testable_catalog(catalog)
 
 
 def test_dataset_roles_are_normalized_and_admitted_centrally() -> None:

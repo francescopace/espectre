@@ -1,0 +1,25 @@
+{
+  "segments": {
+    "core": {
+      "branches": 75.19,
+      "functions": 92.47,
+      "lines": 88.71
+    },
+    "frontend": {
+      "branches": 63.76,
+      "functions": 92.01,
+      "lines": 82.78
+    },
+    "overall": {
+      "branches": 57.2,
+      "functions": 85.14,
+      "lines": 74.54
+    },
+    "runtime": {
+      "branches": 52.81,
+      "functions": 80.71,
+      "lines": 69.58
+    }
+  },
+  "version": 1
+}

@@ -13,6 +13,7 @@ test/cpp/build-coverage/
 *.profdata
 coverage.lcov
 coverage.xml
+test/cpp/coverage-summary.json
 .coverage
 test/.coverage.tmp.lcov
 htmlcov/

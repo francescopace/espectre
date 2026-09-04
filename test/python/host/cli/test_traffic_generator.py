@@ -107,6 +107,29 @@ def test_station_radio_prefers_auto_band_on_dual_band_firmware(mock_wlan):
     assert call(band_mode=3) in mock_wlan.config.call_args_list
 
 
+def test_station_radio_falls_back_when_auto_band_is_not_supported(mock_wlan):
+    def configure(*_args, **kwargs):
+        if kwargs == {"band_mode": mock_wlan.BAND_MODE_AUTO}:
+            raise RuntimeError("Wifi Unknown Error 0x0102")
+
+    mock_wlan.config.side_effect = configure
+
+    wifi_bootstrap._configure_station_radio(mock_wlan)
+
+    assert mock_wlan.config.call_args_list == [
+        call(band_mode=mock_wlan.BAND_MODE_AUTO),
+        call(band_mode=mock_wlan.BAND_MODE_2G_ONLY),
+        call(
+            protocol=(
+                mock_network.MODE_11B
+                | mock_network.MODE_11G
+                | mock_network.MODE_11N
+            )
+        ),
+        call(bandwidth=mock_wlan.BANDWIDTH_20),
+    ]
+
+
 def test_wifi_status_tolerates_single_band_queries_in_auto_mode(
     monkeypatch, mock_wlan
 ):

@@ -19,7 +19,7 @@ from tools.lib.performance_report import (
     get_available_long_test_dataset_specs,
 )
 
-from conftest import (
+from support.performance import (
     build_long_test_params,
     extract_motion_start_from_description,
     load_long_test_dataset,
@@ -66,7 +66,7 @@ def _representative_long_recording_param():
         return pytest.param(
             None,
             marks=pytest.mark.skip(
-                reason="No long-recording replays available in dataset_info.json"
+                reason="No eligible long dataset in dataset_info.json"
             ),
             id="no_long_test_recordings",
         )
@@ -130,7 +130,7 @@ class TestLongRecordings:
     def test_long_recording_replays(self, long_dataset):
         """Validate split metadata plus ML and Lightweight replays once per recording."""
         if long_dataset is None:
-            pytest.skip("No long-recording replays available in dataset_info.json")
+            pytest.skip("No eligible long dataset in dataset_info.json")
 
         long_dataset = load_long_test_dataset(long_dataset)
         test_path, baseline_packets, movement_packets, motion_start_packet, chip, entry = long_dataset
@@ -192,7 +192,7 @@ class TestLongRecordings:
 def test_classic_long_recording_cached_rows_match_packet_replay(long_dataset):
     """Keep exact raw-versus-row parity on one deterministic long replay."""
     if long_dataset is None:
-        pytest.skip("No long-recording replays available in dataset_info.json")
+        pytest.skip("No eligible long dataset in dataset_info.json")
 
     test_path, baseline_packets, movement_packets, motion_start_packet, _chip, _entry = (
         load_long_test_dataset(long_dataset)

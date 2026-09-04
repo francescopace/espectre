@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import pytest
 from dotenv import dotenv_values
+from support.chip_matrix import DETECTION_CHIPS, MATTER_CHIPS, MICROPYTHON_CHIPS
+from tools import benchmark_firmware
 from tools.lib.firmware_benchmark import build as bench
 from tools.lib.firmware_benchmark import settings as benchmark_settings
 from tools.lib.firmware_benchmark.models import BenchmarkCase, BenchmarkResult, CommandResult
@@ -14,6 +16,17 @@ IDF_SIZE_LOG = """
 Bootloader binary size 0x51e0 bytes. 0x2ae20 bytes (89%) free.
 espectre-native.bin binary size 0x15a8c0 bytes. Smallest app partition is 0x1e0000 bytes. 0x85640 bytes (27%) free.
 """
+
+
+@pytest.mark.parametrize("chip", DETECTION_CHIPS)
+def test_benchmark_case_matrix_tracks_supported_chip_registries(chip):
+    key = "esp32" if chip == "ESP32" else chip.lower()
+    selected = benchmark_firmware.select_cases(chip=key)
+    frontends = {case.frontend for case in selected}
+
+    assert {"esphome", "native"} <= frontends
+    assert ("matter" in frontends) == (chip in MATTER_CHIPS)
+    assert ("micro" in frontends) == (chip in MICROPYTHON_CHIPS)
 
 def test_parse_build_metrics_uses_app_image_not_bootloader():
     metrics = bench.parse_build_metrics(IDF_SIZE_LOG)

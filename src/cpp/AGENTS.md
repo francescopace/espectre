@@ -19,7 +19,7 @@
 ## Published SDK Surface
 
 - Treat everything reachable from `espectre_sdk.h` as the published SDK surface.
-- Adding a public type requires updating the facade include, the `Doxyfile` INPUT list, and the header map in `docs/SDK.md` in the same change. `test/python/test_sdk_surface_invariants.py` enforces this.
+- Adding a public type requires updating the facade include, the `Doxyfile` INPUT list, and the header map in `docs/SDK.md` in the same change. `test/python/contracts/test_sdk_surface_invariants.py` enforces this.
 - Forward declarations are acceptable, but every public definition must still arrive through the facade. A type an integrator can name in a signature but cannot construct is a broken surface.
 - Adding or changing a member of `IEspectreRuntime`, `IRuntimeListener`, or a boundary interface breaks external implementers. Give new members a default implementation, or take the break deliberately and record it in the active changelog section.
 - Document accessors that silently degrade when a build-time option is disabled. Prefer removing a cheap build-time gate over hiding available data.
@@ -28,7 +28,7 @@
 After changing the published surface, run:
 
 ```bash
-.venv/bin/pytest test/python/test_sdk_surface_invariants.py -q --tb=short
+.venv/bin/pytest test/python/contracts/test_sdk_surface_invariants.py -q --tb=short
 python3 .github/scripts/generate_sdk_api.py
 ```
 
@@ -43,7 +43,7 @@ python3 .github/scripts/generate_sdk_api.py
 cmake -S test/cpp -B test/cpp/build
 cmake --build test/cpp/build
 ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
-.venv/bin/pytest test/python/test_validation_real_data.py::TestPerformanceMetrics -q --tb=short
+.venv/bin/pytest test/python/performance/test_validation_real_data.py::TestPerformanceMetrics -q --tb=short
 ```
 
 - If either validation cannot run, report the exact command and blocker; use `docs/performance/README.md` for the current performance workflow.

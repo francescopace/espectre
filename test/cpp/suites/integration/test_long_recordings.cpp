@@ -9,6 +9,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "dataset_test_cli.h"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -424,7 +425,7 @@ int run_tests_for_long_recording(int recording_index) {
   return UNITY_END();
 }
 
-int process(void) {
+int process(const espectre::test::dataset_cli::Options& options) {
   int failures = 0;
   g_results.clear();
   const int recording_count = csi_test_data::get_available_long_recording_count();
@@ -432,8 +433,17 @@ int process(void) {
     printf("ERROR: No long recording datasets available\n");
     return 1;
   }
+  int selected_recordings = 0;
   for (int recording_index = 0; recording_index < recording_count; recording_index++) {
+    if (!espectre::test::dataset_cli::matches(
+            options, csi_test_data::long_recording_chip(recording_index))) {
+      continue;
+    }
+    selected_recordings++;
     failures += run_tests_for_long_recording(recording_index);
+  }
+  if (!options.aggregate && selected_recordings == 0) {
+    return espectre::test::dataset_cli::no_eligible_dataset(options);
   }
   print_summary_table();
   write_parity_payload_if_requested();
@@ -441,7 +451,16 @@ int process(void) {
 }
 
 #if defined(ESP_PLATFORM)
-extern "C" void app_main(void) { process(); }
+extern "C" void app_main(void) {
+  espectre::test::dataset_cli::Options options;
+  process(options);
+}
 #else
-int main(int argc, char **argv) { return process(); }
+int main(int argc, char **argv) {
+  espectre::test::dataset_cli::Options options;
+  if (!espectre::test::dataset_cli::parse(argc, argv, "long", options)) {
+    return 2;
+  }
+  return process(options);
+}
 #endif

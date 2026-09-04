@@ -14,9 +14,10 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from tools.lib.repo_paths import repo_root
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root()
 SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "build_firmware_compliance.py"
 BUNDLE_SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "build_firmware_compliance_bundle.py"
 GPL_SPDX_HEADER = "SPDX-License-Identifier: GPL-3.0-only"

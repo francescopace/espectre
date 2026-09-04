@@ -23,8 +23,9 @@ from pathlib import Path
 import pytest
 
 from config import DEFAULT_SUBCARRIERS
-from conftest import DATA_DIR, DATASET_INFO_PATH
 from runtime_policy import derive_detector_timing
+from support.chip_matrix import DETECTION_CHIPS, chip_label
+from support.dataset_cases import DATA_DIR, DATASET_INFO_PATH
 from tools.lib.dataset_metadata import measure_packet_interval_us
 from tools.lib.performance_report import (
     _compute_ml_row_result,
@@ -43,6 +44,7 @@ TARGET_PPS = (120, 100, 80)
 
 @dataclass(frozen=True)
 class PacketRateSourcePair:
+    chip: str
     pair_id: str
     static_filename: str
     motion_filename: str
@@ -114,6 +116,7 @@ def _source_pairs() -> tuple[PacketRateSourcePair, ...]:
         pair_id = Path(static_filename).stem
         pairs.append(
             PacketRateSourcePair(
+                chip=chip_label(str(static_entry.get("chip", ""))),
                 pair_id=pair_id,
                 static_filename=static_filename,
                 motion_filename=motion_filename,
@@ -127,23 +130,28 @@ def _source_pairs() -> tuple[PacketRateSourcePair, ...]:
 
 def _pair_params() -> list[object]:
     pairs = _source_pairs()
-    if not pairs:
-        return [
-            pytest.param(
-                None,
-                marks=pytest.mark.skip(
-                    reason="No explicit static_presence/motion pairs with average_packet_rate >= 500"
-                ),
-                id="no_high_packet_rate_pairs",
+    params: list[object] = []
+    for chip in DETECTION_CHIPS:
+        matches = [pair for pair in pairs if pair.chip == chip]
+        if not matches:
+            params.append(
+                pytest.param(
+                    None,
+                    marks=pytest.mark.skip(
+                        reason=f"No eligible packet_rate dataset for chip {chip}"
+                    ),
+                    id=f"{chip.lower()}_no_eligible_packet_rate_dataset",
+                )
             )
-        ]
-    return [
-        pytest.param(
-            pair,
-            id=f"{pair.source_pps}pps_{pair.pair_id}",
+            continue
+        params.extend(
+            pytest.param(
+                pair,
+                id=f"{chip.lower()}_{pair.source_pps}pps_{pair.pair_id}",
+            )
+            for pair in matches
         )
-        for pair in pairs
-    ]
+    return params
 
 
 @lru_cache(maxsize=None)

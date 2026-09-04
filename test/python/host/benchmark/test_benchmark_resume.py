@@ -211,13 +211,13 @@ def test_cases_include_micro_espectre_lightweight_only():
     assert "Micro-ESPectre Lightweight" in labels
     assert "Micro-ESPectre High Accuracy" not in labels
 
-def test_s2_cases_exclude_unsupported_matter_and_micro_frontends():
+def test_s2_cases_exclude_only_unsupported_matter_frontend():
     labels = [case.label for case in bench.select_cases(chip="s2")]
 
     assert "Matter Lightweight" not in labels
     assert "Matter High Accuracy" not in labels
     assert "Native Lightweight" in labels
-    assert "Micro-ESPectre Lightweight" not in labels
+    assert "Micro-ESPectre Lightweight" in labels
     assert "ESPHome Lightweight" in labels
 
 def test_resume_selects_only_failed_and_missing_requested_cases():

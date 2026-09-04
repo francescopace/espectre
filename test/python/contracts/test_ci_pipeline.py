@@ -20,12 +20,51 @@ from urllib.parse import urlparse
 import pytest
 
 from espectre_cli.idf_container import IDF_DOCKER_IMAGE
+from tools.lib.repo_paths import repo_root
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root()
 SCRIPTS_DIR = REPO_ROOT / ".github" / "scripts"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 PROTOCOL_HEADER = REPO_ROOT / "src" / "cpp" / "runtime" / "espectre_protocol.h"
+
+
+def _workflow_job(source: str, job_name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        source,
+    )
+    assert match is not None, f"missing workflow job {job_name}"
+    return match.group("body")
+
+
+def _workflow_chip_matrix(source: str, job_name: str) -> set[str]:
+    return set(
+        re.findall(
+            r"(?m)^\s+- chip: (ESP32(?:-[A-Z0-9]+)?)$",
+            _workflow_job(source, job_name),
+        )
+    )
+
+
+def test_ci_chip_matrices_follow_production_registries() -> None:
+    from support.chip_matrix import ESPHOME_CHIPS, MATTER_CHIPS, NATIVE_CHIPS
+
+    def workflow_label(chip: str) -> str:
+        return "ESP32" if chip == "ESP32" else f"ESP32-{chip}"
+
+    source = (WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8")
+    assert _workflow_chip_matrix(source, "build-esphome") == {
+        workflow_label(chip) for chip in ESPHOME_CHIPS
+    }
+    assert _workflow_chip_matrix(source, "build-native") == {
+        workflow_label(chip) for chip in NATIVE_CHIPS
+    }
+    assert _workflow_chip_matrix(source, "build-matter") == {
+        workflow_label(chip) for chip in MATTER_CHIPS
+    }
+    assert "flags: cpp" in _workflow_job(source, "test-cpp")
+    assert "flags: python" in _workflow_job(source, "test-python")
 
 
 def _ota_release_tags() -> tuple[str, str]:

@@ -31,6 +31,8 @@ typedef struct {
   uint32_t gw_addr;
   int get_ip_info_call_count;
   int get_handle_call_count;
+  int handle_available;
+  int impl_index;
 } esp_netif_mock_state_t;
 
 extern esp_netif_mock_state_t g_esp_netif_mock;
@@ -55,7 +57,9 @@ static inline esp_netif_t *esp_netif_create_default_wifi_sta(void) {
 static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {
   (void)ifkey;
   g_esp_netif_mock.get_handle_call_count++;
-  // Return a non-null pointer for testing
+  if (!g_esp_netif_mock.handle_available) {
+    return nullptr;
+  }
   static esp_netif_t dummy_netif = (esp_netif_t)0x1;
   return &dummy_netif;
 }
@@ -76,7 +80,7 @@ static inline esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_i
 
 static inline int esp_netif_get_netif_impl_index(esp_netif_t *netif) {
   (void)netif;
-  return 0;
+  return g_esp_netif_mock.impl_index;
 }
 
 #ifdef __cplusplus

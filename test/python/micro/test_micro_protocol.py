@@ -18,6 +18,7 @@ from src.python.micro_espectre.runtime_diagnostics import (
     periodic_maintenance_due,
     wifi_csi_available,
 )
+from tools.lib.repo_paths import repo_root
 
 
 def test_micro_heartbeat_uses_the_shared_runtime_status_format():
@@ -106,10 +107,10 @@ def test_chip_labels_match_the_shared_short_names():
 
 
 def test_cpp_and_python_protocol_catalogs_match():
-    repo_root = Path(__file__).resolve().parents[2]
-    build_dir = repo_root / "test" / "cpp" / "build"
+    root = repo_root()
+    build_dir = root / "test" / "cpp" / "build"
     probe = build_dir / "suites" / "espectre_capabilities_probe"
-    subprocess.run(["cmake", "-S", str(repo_root / "test" / "cpp"), "-B", str(build_dir)], check=True)
+    subprocess.run(["cmake", "-S", str(root / "test" / "cpp"), "-B", str(build_dir)], check=True)
     subprocess.run(["cmake", "--build", str(build_dir), "--target", "espectre_capabilities_probe"], check=True)
 
     cpp_catalog = json.loads(subprocess.run(
@@ -164,7 +165,7 @@ def test_micro_diagnostics_payload_keeps_only_canonical_fields():
 
 def test_native_direct_diagnostics_use_pinned_double_buffer_without_heap_copy():
     source = (
-        Path(__file__).parents[2]
+        repo_root()
         / "src/python/micro_espectre/firmware/native_components/native_direct.c"
     ).read_text(encoding="utf-8")
 
@@ -184,7 +185,7 @@ def test_native_direct_diagnostics_use_pinned_double_buffer_without_heap_copy():
 
 def test_native_direct_enforces_bounded_secure_sse_profile():
     source = (
-        Path(__file__).parents[2]
+        repo_root()
         / "src/python/micro_espectre/firmware/native_components/native_direct.c"
     ).read_text(encoding="utf-8")
 

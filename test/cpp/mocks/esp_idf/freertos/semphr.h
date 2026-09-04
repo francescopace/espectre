@@ -10,6 +10,7 @@
 #include "FreeRTOS.h"
 
 static inline SemaphoreHandle_t xSemaphoreCreateMutex(void) { return malloc(1U); }
+static inline SemaphoreHandle_t xSemaphoreCreateBinary(void) { return malloc(1U); }
 static inline void vSemaphoreDelete(SemaphoreHandle_t semaphore) { free(semaphore); }
 static inline BaseType_t xSemaphoreTake(SemaphoreHandle_t semaphore, TickType_t ticks) {
   (void) ticks;

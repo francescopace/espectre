@@ -5,15 +5,87 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 from pathlib import Path
 
+from tools.lib.repo_paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+REPO_ROOT = repo_root()
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 SOURCE_SUFFIXES = {".cpp", ".h"}
 IGNORED_PARTS = {".esphome", "managed_components"}
+OWNERSHIP_MANIFEST = REPO_ROOT / "test" / "cpp" / "coverage_ownership.json"
+CPP_SOURCES_CMAKE = CPP_ROOT / "espectre_sources.cmake"
+CPP_TEST_CMAKE = REPO_ROOT / "test" / "cpp" / "suites" / "CMakeLists.txt"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CPP_COVERAGE_BASELINE = REPO_ROOT / "test" / "cpp" / "coverage-baseline.json"
+CPP_COVERAGE_RUNNER = REPO_ROOT / "test" / "cpp" / "run_coverage.sh"
+FIRMWARE_WIRING_SOURCES = {
+    "src/cpp/frontend/native/app/main/app_main.cpp",
+    "src/cpp/frontend/matter/app/main/app_main.cpp",
+    "src/cpp/frontend/matter/app/main/matter_bindings_esp_matter.cpp",
+}
+
+
+def test_every_cpp_production_source_has_an_explicit_test_owner() -> None:
+    cmake_source = CPP_SOURCES_CMAKE.read_text(encoding="utf-8")
+    expected = {
+        f"src/cpp/{path}"
+        for path in re.findall(r'\$\{ESPECTRE_CPP_ROOT\}/([^"\s]+\.cpp)', cmake_source)
+    }
+    expected.update(FIRMWARE_WIRING_SOURCES)
+    manifest = json.loads(OWNERSHIP_MANIFEST.read_text(encoding="utf-8"))
+    test_cmake = CPP_TEST_CMAKE.read_text(encoding="utf-8")
+    ci_workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    declared: list[str] = []
+
+    assert manifest["version"] == 1
+    for group in manifest["owners"]:
+        assert group["kind"] in {"host_test", "firmware_build"}
+        assert group["sources"] and group["owners"]
+        declared.extend(group["sources"])
+        if group["kind"] == "host_test":
+            for owner in group["owners"]:
+                assert re.search(
+                    rf"add_espectre_test\({re.escape(owner)}(?:\s|\n)", test_cmake
+                ), f"unknown C++ test owner {owner}"
+        else:
+            assert set(group["sources"]) <= FIRMWARE_WIRING_SOURCES
+            for owner in group["owners"]:
+                assert re.search(rf"(?m)^  {re.escape(owner)}:$", ci_workflow)
+
+    assert len(declared) == len(set(declared)), "C++ sources must have exactly one owner group"
+    assert set(declared) == expected, (
+        f"missing owners={sorted(expected - set(declared))}; "
+        f"stale owners={sorted(set(declared) - expected)}"
+    )
+
+
+def test_cpp_dataset_and_coverage_contracts_are_complete() -> None:
+    from support.chip_matrix import DETECTION_CHIPS
+
+    test_cmake = CPP_TEST_CMAKE.read_text(encoding="utf-8")
+    chip_list = re.search(r"set\(shared_chips (?P<chips>[^)]+)\)", test_cmake)
+    assert chip_list is not None
+    assert set(chip_list.group("chips").split()) == set(DETECTION_CHIPS)
+    assert "SKIP_RETURN_CODE 77" in test_cmake
+    for gate in ("normal", "reserved", "long", "weak", "empty", "packet_rate"):
+        assert f"add_espectre_dataset_cases(" in test_cmake
+        assert re.search(rf"add_espectre_dataset_cases\([^\n]+ {gate}\)", test_cmake)
+
+    baseline = json.loads(CPP_COVERAGE_BASELINE.read_text(encoding="utf-8"))
+    assert baseline["version"] == 1
+    assert set(baseline["segments"]) == {"overall", "core", "runtime", "frontend"}
+    for metrics in baseline["segments"].values():
+        assert set(metrics) == {"lines", "functions", "branches"}
+        assert all(0.0 < float(value) <= 100.0 for value in metrics.values())
+
+    coverage_runner = CPP_COVERAGE_RUNNER.read_text(encoding="utf-8")
+    assert "--update-baseline" in coverage_runner
+    assert "C++ coverage regression" in coverage_runner
 
 
 def is_first_party_source(path: Path) -> bool:

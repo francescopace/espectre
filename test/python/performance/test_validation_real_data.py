@@ -18,7 +18,8 @@ import numpy as np
 import math
 
 from filters import HampelFilter
-from src.python.espectre_cli.common import CHIP_CHOICES
+from support.chip_matrix import DETECTION_CHIPS
+from support.dataset_cases import per_chip_params
 from tools.lib.csi_analysis import calculate_spatial_turbulence
 from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
@@ -64,7 +65,7 @@ from config import (
     LOWPASS_CUTOFF,
 )
 from lightweight_detector import LightweightDetector
-from conftest import get_classic_fp_rate_target, get_classic_recall_target, record_performance
+from support.performance import get_classic_fp_rate_target, get_classic_recall_target, record_performance
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 from runtime_policy import make_evaluation_cadence, nominal_packet_interval_us
 from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
@@ -94,16 +95,13 @@ def get_available_datasets():
 
 
 def get_available_empty_datasets():
-    """Get empty-room recordings for ML false-positive gates."""
-    return [
-        pytest.param(path, id=path.stem)
-        for path in _shared_get_available_empty_datasets()
-    ]
+    """Get every chip as an explicit empty-room performance case."""
+    return per_chip_params("empty")
 
 
 def get_supported_chip_types():
     """Return every supported chip, including chips with datasets pending."""
-    return sorted("ESP32" if chip == "esp32" else chip.upper() for chip in CHIP_CHOICES)
+    return list(DETECTION_CHIPS)
 
 
 def get_end_to_end_datasets():
@@ -131,7 +129,7 @@ def get_end_to_end_datasets():
                 pytest.param(
                     None,
                     marks=pytest.mark.skip(
-                        reason=f"No normal-link paired datasets found for chip {chip_key}"
+                        reason=f"No eligible normal dataset for chip {chip_key}"
                     ),
                     id=f"{chip_key.lower()}_no_normal_link_pair",
                 )
@@ -151,7 +149,7 @@ def _get_first_reserved_normal_pair():
         dataset_role = _get_paired_dataset_role(static_path)
         if dataset_role in {"selection", "holdout"}:
             return static_path, motion_path
-    pytest.skip("No reserved normal-link paired dataset available for gate parity")
+    pytest.skip("No eligible reserved normal-link dataset for gate parity")
 
 
 def _assert_paired_gate_row_match(expected, actual):
@@ -665,11 +663,12 @@ class TestPerformanceMetrics:
                     f"(guardrail: <{ML_RESERVED_REPLAY_GUARDRAIL_FP_RATE}%)"
                 )
 
-    @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
-    def test_ml_empty_false_positive_rate(self, empty_dataset_path):
+    @pytest.mark.parametrize("empty_dataset_case", get_available_empty_datasets())
+    def test_ml_empty_false_positive_rate(self, empty_dataset_case):
         """Validate that empty-room recordings stay below the ML FP target."""
         from config import DEFAULT_SUBCARRIERS
 
+        empty_dataset_path = empty_dataset_case.path
         result = _compute_ml_empty_fp_result(
             empty_dataset_path,
             tuple(DEFAULT_SUBCARRIERS),
@@ -684,8 +683,8 @@ class TestPerformanceMetrics:
             f"{fp_rate:.1f}% (target: <{fp_rate_target}%)"
         )
 
-    @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
-    def test_classic_empty_false_positive_rate(self, empty_dataset_path):
+    @pytest.mark.parametrize("empty_dataset_case", get_available_empty_datasets())
+    def test_classic_empty_false_positive_rate(self, empty_dataset_case):
         """Validate that empty-room recordings stay inside the Lightweight budget.
 
         Empty rooms are the corpus ground truth for "nothing is moving", so this
@@ -696,6 +695,7 @@ class TestPerformanceMetrics:
         """
         from config import DEFAULT_SUBCARRIERS
 
+        empty_dataset_path = empty_dataset_case.path
         result = _compute_classic_empty_fp_result(
             empty_dataset_path,
             tuple(DEFAULT_SUBCARRIERS),
@@ -1023,7 +1023,7 @@ def test_classic_chip_aggregate_targets(chip):
         chip_pairs.append((static_path, motion_path, dataset_id))
 
     if not chip_pairs:
-        pytest.skip(f"No normal-link paired datasets found for chip {chip}")
+        pytest.skip(f"No eligible normal dataset for chip {chip}")
 
     total_tp = total_fn = total_fp = total_baseline = 0
     for static_path, motion_path, _dataset_id in chip_pairs:
@@ -1086,7 +1086,7 @@ def test_ml_chip_aggregate_reserved_targets(chip):
         chip_pairs.append((static_path, motion_path, dataset_id))
 
     if not chip_pairs:
-        pytest.skip(f"No reserved normal-link paired datasets found for chip {chip}")
+        pytest.skip(f"No eligible reserved dataset for chip {chip}")
 
     total_tp = total_fn = total_fp = total_baseline = 0
     for static_path, motion_path, _dataset_id in chip_pairs:
@@ -1132,7 +1132,7 @@ def test_ml_chip_aggregate_stress_targets(chip):
         chip_pairs.append((static_path, motion_path, dataset_id))
 
     if not chip_pairs:
-        pytest.skip(f"No weak-link paired datasets found for chip {chip}")
+        pytest.skip(f"No eligible weak dataset for chip {chip}")
 
     total_tp = total_fn = total_fp = total_baseline = 0
     for static_path, motion_path, _dataset_id in chip_pairs:
@@ -1230,7 +1230,7 @@ def test_ml_cached_quiet_gate_matches_packet_replay():
     """Cached quiet rows must match packet replay on one reserved empty replay."""
     empty_datasets = _shared_get_available_empty_datasets()
     if not empty_datasets:
-        pytest.skip("No reserved empty datasets available for quiet gate parity")
+        pytest.skip("No eligible reserved empty dataset for quiet gate parity")
     empty_path = empty_datasets[0]
     feature_names, center, scale, layers = _load_exported_model_arrays()
     expected = evaluate_idle_streaming(
@@ -1253,7 +1253,7 @@ def test_classic_cached_quiet_gate_matches_packet_replay():
     """Cached Lightweight quiet rows must match packet replay on one empty capture."""
     empty_datasets = _shared_get_available_empty_datasets()
     if not empty_datasets:
-        pytest.skip("No reserved empty datasets available for quiet gate parity")
+        pytest.skip("No eligible reserved empty dataset for quiet gate parity")
     empty_path = empty_datasets[0]
     packets = _load_npz_packets_cached(empty_path)
     calibrated = build_calibrated_lightweight_detector(

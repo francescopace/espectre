@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "owners": [
+    {
+      "kind": "host_test",
+      "owners": ["test_core_helpers", "test_sdk_surface"],
+      "sources": [
+        "src/cpp/core/espectre_log.cpp",
+        "src/cpp/core/base_detector.cpp",
+        "src/cpp/core/temporal_csi_sampler.cpp",
+        "src/cpp/core/filtered_turbulence_ring.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_lightweight_detector", "test_motion_detection", "test_long_recordings"],
+      "sources": ["src/cpp/core/lightweight_detector.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_hampel_filter", "test_core_helpers"],
+      "sources": ["src/cpp/core/filters.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_high_accuracy_detector", "test_motion_detection", "test_long_recordings"],
+      "sources": ["src/cpp/core/high_accuracy_detector.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_csi_traffic_service", "test_traffic_generator"],
+      "sources": ["src/cpp/runtime/csi_traffic_service.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_periodic_sensing_status_logger"],
+      "sources": ["src/cpp/runtime/periodic_sensing_status_logger.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_espectre_protocol", "test_direct_http_service"],
+      "sources": [
+        "src/cpp/runtime/espectre_protocol.cpp",
+        "src/cpp/runtime/firmware_version.cpp",
+        "src/cpp/runtime/ota_version.cpp",
+        "src/cpp/runtime/direct_http_protocol.cpp",
+        "src/cpp/runtime/peer_discovery.cpp",
+        "src/cpp/runtime/protocol_json.cpp",
+        "src/cpp/runtime/frontend_command_engine.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_runtime_helpers", "test_runtime_sensing_invalid_kconfig"],
+      "sources": [
+        "src/cpp/runtime/runtime_config_utils.cpp",
+        "src/cpp/runtime/runtime_diagnostics.cpp",
+        "src/cpp/runtime/runtime_time.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_runtime_frontend_controller", "test_home_assistant_mqtt_frontend"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/frontend_ha_mqtt_helpers.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_runtime_helpers", "test_csi_pipeline"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/primary_console.cpp",
+        "src/cpp/runtime/esp_idf/csi_capture_service.cpp",
+        "src/cpp/runtime/esp_idf/csi_pipeline.cpp",
+        "src/cpp/runtime/esp_idf/csi_payload_normalizer.cpp",
+        "src/cpp/runtime/esp_idf/csi_platform_config.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_device_identity"],
+      "sources": ["src/cpp/runtime/esp_idf/device_identity.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_runtime_detector_switch", "test_wifi_lifecycle"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/esp_idf_runtime.cpp",
+        "src/cpp/runtime/esp_idf/esp_idf_runtime_base.cpp",
+        "src/cpp/runtime/esp_idf/nvs_helpers.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_runtime_frontend_controller", "test_runtime_helpers"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/runtime_frontend_controller.cpp",
+        "src/cpp/runtime/esp_idf/runtime_detector_store.cpp",
+        "src/cpp/runtime/esp_idf/runtime_motion_hits_store.cpp",
+        "src/cpp/runtime/esp_idf/runtime_traffic_mode_store.cpp",
+        "src/cpp/runtime/esp_idf/runtime_performance_diagnostics.cpp",
+        "src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_wifi_lifecycle", "test_runtime_helpers"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/standalone_wifi_service.cpp",
+        "src/cpp/runtime/esp_idf/sta_socket_helpers.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_csi_frame_identity", "test_traffic_generator", "test_udp_listener"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/csi_frame_identity.cpp",
+        "src/cpp/runtime/esp_idf/traffic_generator_manager.cpp",
+        "src/cpp/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp",
+        "src/cpp/runtime/esp_idf/udp_listener.cpp",
+        "src/cpp/runtime/esp_idf/wifi_lifecycle.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_ota_service_https", "test_native_frontend_ota"],
+      "sources": ["src/cpp/runtime/esp_idf/ota_service_https.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_device_config_store", "test_wifi_provisioning_service"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/frontend_support/device_config_store.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/improv_serial_service.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_mqtt_transport_esp_idf"],
+      "sources": ["src/cpp/runtime/esp_idf/frontend_support/mqtt_transport_esp_idf.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_direct_http_service", "test_native_direct_frontend", "test_mdns_discovery_service"],
+      "sources": [
+        "src/cpp/runtime/esp_idf/direct_wifi_snapshot_esp_idf.cpp",
+        "src/cpp/runtime/esp_idf/direct_http_service_esp_idf.cpp",
+        "src/cpp/runtime/esp_idf/mdns_bootstrap_responder.cpp",
+        "src/cpp/runtime/esp_idf/mdns_discovery_service.cpp",
+        "src/cpp/runtime/esp_idf/peer_discovery_service_esp_idf.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/raw_csi_session_controller.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/runtime_direct_http_bridge.cpp",
+        "src/cpp/runtime/esp_idf/frontend_support/wifi_bssid_pin_service.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_sensor_publisher", "test_frontend_controls"],
+      "sources": [
+        "src/cpp/frontend/esphome/components/espectre/esphome_log_sink.cpp",
+        "src/cpp/frontend/esphome/components/espectre/recalibrate_button.cpp",
+        "src/cpp/frontend/esphome/components/espectre/sensing_switch.cpp",
+        "src/cpp/frontend/esphome/components/espectre/detector_select.cpp",
+        "src/cpp/frontend/esphome/components/espectre/diagnostics_button.cpp",
+        "src/cpp/frontend/esphome/components/espectre/espectre.cpp",
+        "src/cpp/frontend/esphome/components/espectre/motion_hits_number.cpp",
+        "src/cpp/frontend/esphome/components/espectre/sensor_publisher.cpp",
+        "src/cpp/frontend/esphome/components/espectre/threshold_number.cpp",
+        "src/cpp/frontend/esphome/components/espectre/traffic_mode_select.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
+      "owners": ["test_matter_frontend"],
+      "sources": ["src/cpp/frontend/matter/espectre/matter_frontend.cpp"]
+    },
+    {
+      "kind": "host_test",
+      "owners": [
+        "test_home_assistant_mqtt_frontend",
+        "test_native_direct_frontend",
+        "test_native_frontend_lifecycle",
+        "test_native_mqtt_frontend",
+        "test_recovery_button_service"
+      ],
+      "sources": [
+        "src/cpp/frontend/native/espectre/home_assistant_mqtt_frontend.cpp",
+        "src/cpp/frontend/native/espectre/native_command_bindings.cpp",
+        "src/cpp/frontend/native/espectre/native_direct_frontend.cpp",
+        "src/cpp/frontend/native/espectre/recovery_button_service.cpp",
+        "src/cpp/frontend/native/espectre/native_mqtt_frontend.cpp",
+        "src/cpp/frontend/native/espectre/native_frontend.cpp"
+      ]
+    },
+    {
+      "kind": "firmware_build",
+      "owners": ["build-native"],
+      "sources": ["src/cpp/frontend/native/app/main/app_main.cpp"]
+    },
+    {
+      "kind": "firmware_build",
+      "owners": ["build-matter"],
+      "sources": [
+        "src/cpp/frontend/matter/app/main/app_main.cpp",
+        "src/cpp/frontend/matter/app/main/matter_bindings_esp_matter.cpp"
+      ]
+    }
+  ]
+}

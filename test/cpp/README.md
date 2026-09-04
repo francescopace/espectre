@@ -23,7 +23,7 @@ CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 The registered targets are grouped by the layer they exercise:
 
 - Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_lightweight_detector`, and `test_high_accuracy_detector`
-- Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
+- Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_periodic_sensing_status_logger`, `test_device_identity`, `test_ota_service_https`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
 - Integration with real CSI: `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and `test_packet_rate_adaptation`
 - Frontend: `test_sensor_publisher`, `test_frontend_controls`, `test_native_frontend_lifecycle`, `test_native_direct_frontend`, `test_native_mqtt_frontend`, `test_home_assistant_mqtt_frontend`, `test_native_frontend_ota`, `test_recovery_button_service`, and `test_matter_frontend`
 
@@ -35,16 +35,22 @@ The test, coverage, and performance-report launchers use every detected logical 
 
 `test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80 pps through the fixed temporal-admission grid. Those rates exercise denser capture, the default target, and a lower explicit target; they are not an automatic supported-cadence floor.
 
+### Dataset Test Matrix
+
+CTest registers `normal`, `reserved`, `weak`, `empty`, `long`, and `packet_rate` cases for ESP32, C3, S2, S3, C5, and C6. Names use the form `test_<suite>.<gate>.<chip>`, and labels expose `performance`, `chip:<chip>`, and `dataset:<gate>` filters.
+
+A case exits with code 77, configured through CTest's `SKIP_RETURN_CODE`, only when the catalog has no eligible dataset for that chip and gate. A malformed catalog, broken pair, missing file, or failed replay is a test failure. The aggregate executables remain available without arguments for local summaries and the C++/Python performance-report parity gate.
+
 ### Source Ownership
 
-Each contract has one primary unit-test owner. Integration and parity suites consume those contracts without restating their constants or implementation layout.
+Each contract has one primary unit-test owner. `coverage_ownership.json` is the machine-readable registry, and the Python contract suite rejects missing, duplicated, or stale source owners. Integration and parity suites consume those contracts without restating their constants or implementation layout.
 
 | Production source | Primary test owner | Separate integration or parity gate |
 |---|---|---|
 | `src/cpp/core/utils.*`, feature helpers, CSI format helpers, and `temporal_csi_sampler.*` | `test_utils`, `test_core_helpers` | `test_motion_detection` only for replay metrics |
 | `src/cpp/core/hampel_filter.*` | `test_hampel_filter` | Detector replay suites run it without duplicating filter expectations |
 | `src/cpp/core/lightweight_detector.*` | `test_lightweight_detector` | `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, and `test_empty_rooms` |
-| `src/cpp/core/high_accuracy_detector.*` and generated weights | `test_high_accuracy_detector` | `test_motion_detection` and `test_long_recordings` |
+| `src/cpp/core/high_accuracy_detector.*` and generated weights | `test_high_accuracy_detector` | `test_motion_detection`, `test_long_recordings`, and `test_empty_rooms` |
 | Shared runtime contracts, policies, configuration, CSI pipeline, and protocol | The matching `test_runtime_*`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_*`, or service suite | `test_packet_rate_adaptation` for quantified cadence behavior |
 | Published SDK facade | `test_sdk_surface` | Python `test_sdk_surface_invariants.py` checks facade and documentation registration |
 | ESPHome, Native, and Matter adapters | The matching frontend suite; shared controls stay in `test_frontend_controls` | Full firmware builds validate SDK-specific integration |
@@ -76,10 +82,11 @@ Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://gith
 | ESP32-C3 | `static_presence_c3_64sc_*.npz` | `motion_c3_64sc_*.npz` |
 | ESP32-C5 | `static_presence_c5_64sc_*.npz` | `motion_c5_64sc_*.npz` |
 | ESP32-C6 | `static_presence_c6_64sc_*.npz` | `motion_c6_64sc_*.npz` |
+| ESP32-S2 | Pending | Pending |
 | ESP32-S3 | `static_presence_s3_64sc_*.npz` | `motion_s3_64sc_*.npz` |
 | ESP32 | `static_presence_esp32_64sc_*.npz` | `motion_esp32_64sc_*.npz` |
 
-The Python and C++ suites read the same 64-subcarrier HT20 NPZ files for C3, C5, C6, S3, and ESP32.
+The Python and C++ suites register all six supported chips and read the same eligible 64-subcarrier HT20 NPZ files. S2 remains in every applicable test gate and is reported as skipped until a testable dataset is catalogued.
 
 ## Code Coverage
 
@@ -89,14 +96,11 @@ Run the host-side suite with coverage instrumentation:
 ./test/cpp/run_coverage.sh
 ```
 
-The coverage script prints both the aggregate report and the per-layer breakdown used during development (`core`, `runtime`, `frontend`).
+The coverage script prints line, function, and branch coverage for the aggregate suite and for `core`, `runtime`, and `frontend`. CI compares those values with `coverage-baseline.json` and fails on any decrease. Refreshing the baseline is explicit and refuses lower values:
 
-Recent local snapshot (2026-05-30):
-
-- Total line coverage: `87.09%`
-- `core`: `92.25%`
-- `runtime`: `80.92%`
-- `frontend`: `97.69%`
+```bash
+./test/cpp/run_coverage.sh --update-baseline
+```
 
 ## Project Structure
 

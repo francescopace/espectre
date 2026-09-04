@@ -8,6 +8,7 @@
 # Usage:
 #   ./run_coverage.sh           # Local run (prints summary)
 #   ./run_coverage.sh --ci      # CI run (writes coverage artifacts)
+#   ./run_coverage.sh --update-baseline
 #   CTEST_PARALLEL_LEVEL=2 ./run_coverage.sh
 
 set -euo pipefail
@@ -18,11 +19,17 @@ BUILD_DIR="$SCRIPT_DIR/build-coverage"
 LCOV_OUTPUT="$SCRIPT_DIR/coverage.lcov"
 XML_OUTPUT="$SCRIPT_DIR/coverage.xml"
 TMP_LCOV="$SCRIPT_DIR/.coverage.tmp.lcov"
+SUMMARY_OUTPUT="$SCRIPT_DIR/coverage-summary.json"
+BASELINE_FILE="$SCRIPT_DIR/coverage-baseline.json"
 
 CI_MODE=false
-if [[ "${1:-}" == "--ci" ]]; then
-    CI_MODE=true
-fi
+UPDATE_BASELINE=false
+case "${1:-}" in
+    "") ;;
+    --ci) CI_MODE=true ;;
+    --update-baseline) UPDATE_BASELINE=true ;;
+    *) echo "error: expected --ci or --update-baseline" >&2; exit 2 ;;
+esac
 
 detect_parallel_jobs() {
     local jobs="${CTEST_PARALLEL_LEVEL:-}"
@@ -56,13 +63,18 @@ detect_compiler() {
 }
 
 summarize_lcov() {
-    python3 - "$1" "$WORKSPACE_ROOT" <<'PY'
+    python3 - "$1" "$WORKSPACE_ROOT" "$SUMMARY_OUTPUT" "$BASELINE_FILE" "$CI_MODE" "$UPDATE_BASELINE" <<'PY'
 import collections
+import json
 import os
 import sys
 
 lcov_path = sys.argv[1]
 workspace_root = os.path.realpath(sys.argv[2])
+summary_path = sys.argv[3]
+baseline_path = sys.argv[4]
+ci_mode = sys.argv[5] == "true"
+update_baseline = sys.argv[6] == "true"
 
 files = {}
 current = None
@@ -146,6 +158,12 @@ for path, stats in files.items():
     segments[classify(path)].append(stats)
 
 print("Coverage by segment:")
+summary = {}
+summary["overall"] = {
+    "lines": round(pct(overall["lines_hit"], overall["lines_total"]), 2),
+    "functions": round(pct(overall["func_hit"], overall["func_total"]), 2),
+    "branches": round(pct(overall["branch_hit"], overall["branch_total"]), 2),
+}
 for segment in ("core", "runtime", "frontend", "other"):
     if not segments[segment]:
         continue
@@ -156,6 +174,50 @@ for segment in ("core", "runtime", "frontend", "other"):
         f"functions {pct(totals['func_hit'], totals['func_total']):.2f}% | "
         f"branches {pct(totals['branch_hit'], totals['branch_total']):.2f}%"
     )
+    summary[segment] = {
+        "lines": round(pct(totals["lines_hit"], totals["lines_total"]), 2),
+        "functions": round(pct(totals["func_hit"], totals["func_total"]), 2),
+        "branches": round(pct(totals["branch_hit"], totals["branch_total"]), 2),
+    }
+
+with open(summary_path, "w", encoding="utf-8") as handle:
+    json.dump({"version": 1, "segments": summary}, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+
+if update_baseline:
+    if os.path.exists(baseline_path):
+        with open(baseline_path, "r", encoding="utf-8") as handle:
+            previous = json.load(handle)["segments"]
+        regressions = []
+        for segment, metrics in previous.items():
+            for metric, minimum in metrics.items():
+                actual = summary.get(segment, {}).get(metric, 0.0)
+                if actual < float(minimum):
+                    regressions.append(
+                        f"{segment}.{metric}: {actual:.2f}% < {float(minimum):.2f}%"
+                    )
+        if regressions:
+            raise SystemExit("Refusing to lower coverage baseline:\n  " + "\n  ".join(regressions))
+    with open(baseline_path, "w", encoding="utf-8") as handle:
+        json.dump({"version": 1, "segments": summary}, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    print(f"Updated coverage baseline: {baseline_path}")
+
+if ci_mode:
+    with open(baseline_path, "r", encoding="utf-8") as handle:
+        baseline = json.load(handle)
+    if baseline.get("version") != 1:
+        raise SystemExit("Unsupported C++ coverage baseline version")
+    regressions = []
+    for segment, metrics in baseline["segments"].items():
+        for metric, minimum in metrics.items():
+            actual = summary.get(segment, {}).get(metric, 0.0)
+            if actual < float(minimum):
+                regressions.append(
+                    f"{segment}.{metric}: {actual:.2f}% < {float(minimum):.2f}%"
+                )
+    if regressions:
+        raise SystemExit("C++ coverage regression:\n  " + "\n  ".join(regressions))
 PY
 }
 
@@ -281,7 +343,8 @@ def run_test(test):
     env["LLVM_PROFILE_FILE"] = profraw
 
     result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True)
-    return name, executable, profraw, profdata, result
+    skip_return_code = get_property(test, "SKIP_RETURN_CODE")
+    return name, executable, profraw, profdata, skip_return_code, result
 
 combined = {}
 overall_status = 0
@@ -291,15 +354,18 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_jobs) as executo
     for item in executor.map(run_test, tests):
         if item is None:
             continue
-        name, executable, profraw, profdata, result = item
+        name, executable, profraw, profdata, skip_return_code, result = item
         print(f"Completed {name} ...")
         if result.stdout:
             print(result.stdout, end="")
-        if result.returncode != 0:
+        skipped = skip_return_code is not None and result.returncode == int(skip_return_code)
+        if result.returncode != 0 and not skipped:
             overall_status = result.returncode
             if result.stderr:
                 print(result.stderr, end="", file=sys.stderr)
             print(f"[FAIL] {name}", file=sys.stderr)
+        elif skipped:
+            print(f"[SKIP] {name}")
         else:
             print(f"[PASS] {name}")
 
@@ -333,7 +399,7 @@ echo "Compiler: $COMPILER"
 echo "Parallel jobs: $PARALLEL_JOBS"
 
 rm -rf "$BUILD_DIR"
-rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$TMP_LCOV"
+rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$TMP_LCOV" "$SUMMARY_OUTPUT"
 
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
@@ -375,8 +441,8 @@ else
     fi
 fi
 
-if [[ "$CI_MODE" != true ]]; then
-    rm -f "$LCOV_OUTPUT" "$XML_OUTPUT"
+if [[ "$CI_MODE" != true && "$UPDATE_BASELINE" != true ]]; then
+    rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$SUMMARY_OUTPUT"
 fi
 
 if [[ $TEST_RESULT -ne 0 ]]; then

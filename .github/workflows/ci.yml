@@ -127,7 +127,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .npz_cache
-          key: ${{ format('npz-cache-v1-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py', 'test/python/test_packet_rate_adaptation_regression.py')) }}
+          key: ${{ format('npz-cache-v1-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py', 'test/python/performance/test_packet_rate_adaptation_regression.py')) }}
           restore-keys: |
             npz-cache-v1-${{ runner.os }}-
 

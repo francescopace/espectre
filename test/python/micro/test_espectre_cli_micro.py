@@ -22,7 +22,11 @@ import pytest
 
 from espectre_cli import micro
 from espectre_cli import micro_firmware
-from espectre_cli.common import FIRMWARE_CACHE_DIR, MICRO_ESPECTRE_SRC_DIR
+from espectre_cli.common import (
+    FIRMWARE_CACHE_DIR,
+    MICRO_CHIP_CHOICES,
+    MICRO_ESPECTRE_SRC_DIR,
+)
 
 
 def test_firmware_cache_is_scoped_to_micro_espectre_project() -> None:
@@ -378,21 +382,68 @@ def test_flash_firmware_propagates_first_runner_failure(
     assert attempts == [tmp_path]
 
 
-def test_flash_firmware_rejects_experimental_s2_profile(monkeypatch, capsys) -> None:
+def test_flash_firmware_accepts_s2_profile(monkeypatch, tmp_path: Path) -> None:
+    build_dir = tmp_path / "build"
+    image = build_dir / "firmware.bin"
+    image.parent.mkdir()
+    image.write_bytes(b"firmware")
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(micro, "resolve_serial_port", lambda port, **_kwargs: port)
     monkeypatch.setattr(
         micro,
-        "resolve_serial_port",
-        lambda *_args, **_kwargs: pytest.fail(
-            "unsupported chips must fail before serial access"
+        "build_project_firmware_artifact",
+        lambda **_kwargs: micro_firmware.BuiltProjectFirmware(
+            image=image,
+            build_dir=build_dir,
         ),
     )
+    monkeypatch.setattr(
+        micro,
+        "flash_build",
+        lambda *args, **kwargs: calls.append((*args, kwargs)),
+    )
+
+    micro.flash_firmware(_make_args(chip="s2", port="/dev/cu.test", erase=True))
+
+    assert calls == [
+        (
+            build_dir,
+            {
+                "chip": "s2",
+                "idf_target": "esp32s2",
+                "port": "/dev/cu.test",
+                "erase": True,
+            },
+        )
+    ]
+
+
+def test_s2_deploy_waits_for_usb_reenumeration(monkeypatch) -> None:
+    observed = []
+
+    def capture_port(port, **kwargs):
+        observed.append((port, kwargs))
+        raise SystemExit(1)
+
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", capture_port)
 
     with pytest.raises(SystemExit):
-        micro.flash_firmware(
-            _make_args(chip="s2", port="/dev/cu.test", erase=True)
+        micro.deploy_code(
+            _make_args(chip="s2", port="/dev/cu.usbmodem01")
         )
 
-    assert "Unsupported Micro-ESPectre chip: s2" in capsys.readouterr().out
+    assert observed == [
+        (
+            "/dev/cu.usbmodem01",
+            {
+                "chip": "s2",
+                "frontend": "micro",
+                "purpose": "deploy",
+                "wait_timeout_s": 10.0,
+            },
+        )
+    ]
 
 
 def test_deploy_code_requires_config_local(monkeypatch, tmp_path: Path) -> None:
@@ -570,7 +621,10 @@ def test_generated_sdkconfig_is_reused_when_kconfig_profile_matches(tmp_path: Pa
 
 @pytest.mark.parametrize(
     ("chip", "expected_lltf", "expected_htltf"),
-    (("esp32", 1, 0), ("c3", 0, 1), ("c5", 0, 1)),
+    tuple(
+        (chip, 1 if chip == "esp32" else 0, 0 if chip == "esp32" else 1)
+        for chip in MICRO_CHIP_CHOICES
+    ),
 )
 def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
     tmp_path: Path,
@@ -930,6 +984,31 @@ def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -
     assert source.count("MP_QSTR_BAND_MODE_AUTO") == 1
 
 
+def test_project_firmware_matches_s2_rom_usb_serial(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "usb.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """void mp_usbd_port_get_serial_number(char *serial_buf) {
+    // use factory default MAC as serial ID
+    uint8_t mac[8];
+    esp_efuse_mac_get_default(mac);
+    MP_STATIC_ASSERT(sizeof(mac) * 2 <= MICROPY_HW_USB_DESC_STR_MAX);
+    mp_usbd_hex_str(serial_buf, mac, sizeof(mac));
+}
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_s2_usb_serial(tmp_path)
+    micro_firmware._configure_project_s2_usb_serial(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert source.count("#if CONFIG_IDF_TARGET_ESP32S2") == 1
+    assert source.count("serial_buf[0] = '0';") == 1
+    assert source.count("serial_buf[1] = '\\0';") == 1
+    assert source.count("esp_efuse_mac_get_default(mac);") == 1
+
+
 def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
     source_path = tmp_path / "ports" / "esp32" / "network_wlan.c"
     source_path.parent.mkdir(parents=True)
@@ -953,12 +1032,11 @@ def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
     assert "args[ARG_channel].u_int > 14" not in source
 
 
-def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None:
+def test_project_boards_cover_micro_chip_registry_and_only_esp32_override() -> None:
     boards_dir = micro.PYTHON_SRC_DIR / "firmware" / "boards"
 
-    assert (boards_dir / "ESP32S2_MICRO_ESPECTRE").is_dir()
-    assert "s2" not in micro_firmware.PROJECT_FIRMWARE_BOARDS
-    assert "s2" not in micro_firmware.PROJECT_FIRMWARE_NAMES
+    assert set(micro_firmware.PROJECT_FIRMWARE_BOARDS) == set(MICRO_CHIP_CHOICES)
+    assert set(micro_firmware.PROJECT_FIRMWARE_NAMES) == set(MICRO_CHIP_CHOICES)
 
     for board in micro_firmware.PROJECT_FIRMWARE_BOARDS.values():
         board_cmake = (boards_dir / board / "mpconfigboard.cmake").read_text(

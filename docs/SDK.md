@@ -315,7 +315,7 @@ The published bundle is a versioned C++ source SDK with stamped packaging metada
 - [README.md](performance/README.md) publishes the current benchmark and validation metrics per chip and detector.
 - `test/cpp/` builds the full sensing stack on a host machine, including integration suites that replay real CSI recordings through the production pipeline; `test/python/` mirrors the algorithm behavior for parity checks.
 - `test/cpp/suites/runtime/test_sdk_surface.cpp` compiles against `espectre_sdk.h` alone, so it fails if the facade stops reaching the documented surface or a published default drifts out of its range.
-- `test/python/test_sdk_surface_invariants.py` checks the surface against its own documentation: every facade header appears in the API reference and this guide's header map, and no type reachable from the facade is left as an unresolved forward declaration.
+- `test/python/contracts/test_sdk_surface_invariants.py` checks the surface against its own documentation: every facade header appears in the API reference and this guide's header map, and no type reachable from the facade is left as an unresolved forward declaration.
 - The dataset collection and quality workflow is documented in [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md).
 
 ## Generated API reference

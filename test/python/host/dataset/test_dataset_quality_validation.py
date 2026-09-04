@@ -20,9 +20,10 @@ from tools.lib.dataset_quality import (
     replay,
     severity,
 )
+from tools.lib.repo_paths import repo_root
 
 
-VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "tools" / "validate_dataset_quality.py"
+VALIDATOR_PATH = repo_root() / "tools" / "validate_dataset_quality.py"
 
 
 def _load_validator_module():
@@ -557,6 +558,62 @@ def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
         "refresh_pair_metadata": False,
         "diagnostic_all_phy": True,
     }
+
+
+@pytest.mark.parametrize(("current", "expected"), [(True, 0), (False, 1)])
+def test_main_check_current_returns_status(monkeypatch, tmp_path, current, expected) -> None:
+    module = _load_validator_module()
+    monkeypatch.setattr(module.core, "configure_dataset_paths", lambda *_args: None)
+    monkeypatch.setattr(module.core, "configure_validation_mode", lambda **_kwargs: None)
+    monkeypatch.setattr(module.core, "REPORT_OUTPUT", tmp_path / "report.md")
+    monkeypatch.setattr(module.core, "DATASET_INFO", tmp_path / "dataset_info.json")
+    monkeypatch.setattr(module.core, "_report_input_paths", lambda: [])
+    monkeypatch.setattr(
+        module.dataset_metadata,
+        "generated_report_is_current",
+        lambda *_args, **_kwargs: current,
+    )
+    monkeypatch.setattr(module, "_report_evaluation_view_is_current", lambda: True)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["validate_dataset_quality.py", "--check-current", "--data-dir", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        module.main()
+
+    assert exit_info.value.code == expected
+
+
+def test_main_forwards_no_report_and_no_cache(monkeypatch, tmp_path) -> None:
+    module = _load_validator_module()
+    captured = {}
+    monkeypatch.setattr(module.core, "configure_dataset_paths", lambda *_args: None)
+    monkeypatch.setattr(module.core, "configure_validation_mode", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "run_validation",
+        lambda **kwargs: captured.update(kwargs) or 4,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "validate_dataset_quality.py",
+            "--data-dir",
+            str(tmp_path),
+            "--no-report",
+            "--no-cache",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        module.main()
+
+    assert exit_info.value.code == 4
+    assert captured["generate_report"] is False
+    assert captured["use_cache"] is False
 
 
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:

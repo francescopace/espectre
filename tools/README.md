@@ -119,7 +119,7 @@ The following rules are normative for `benchmark_firmware.py` and its owners und
 - Use one SSE connection per detector from readiness through scored sampling. Close it after the detector window, wait until the device releases the connection, and open a distinct connection for the next detector.
 - Verify production runtime defaults before applying case-specific mutations. Reuse one canonical Lightweight image and select another supported detector through Direct instead of rebuilding it.
 
-Behavioral tests under `test/python/test_benchmark_*.py` are the executable enforcement of this contract. Generated performance reports describe individual runs and are not contract owners.
+Behavioral tests under `test/python/host/benchmark/test_benchmark_*.py` are the executable enforcement of this contract. Generated performance reports describe individual runs and are not contract owners.
 
 `benchmark_firmware.py` operates on one connected chip and writes its generated report under `docs/performance/`. The representative matrix is:
 

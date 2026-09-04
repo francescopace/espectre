@@ -9,6 +9,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "dataset_test_cli.h"
 
 #include "lightweight_detector.h"
 #include "csi_replay_metrics.h"
@@ -94,7 +95,7 @@ void test_classic_handles_loaded_low_rssi_pair(void) {
   TEST_ASSERT_TRUE(metrics.fp_rate <= 12.0f);
 }
 
-int process(void) {
+int process(const espectre::test::dataset_cli::Options& options) {
   int failures = 0;
   const int pair_count = csi_test_data::get_available_low_rssi_pair_count();
   if (pair_count <= 0) {
@@ -102,8 +103,13 @@ int process(void) {
     return 1;
   }
 
+  int selected_pairs = 0;
   for (int pair_index = 0; pair_index < pair_count; pair_index++) {
     const csi_test_data::ChipType chip = csi_test_data::low_rssi_pair_chip(pair_index);
+    if (!espectre::test::dataset_cli::matches(options, chip)) {
+      continue;
+    }
+    selected_pairs++;
     printf("\n========================================\n");
     printf("Running low-RSSI Lightweight with %s dataset pair\n",
            csi_test_data::chip_name(chip));
@@ -122,11 +128,24 @@ int process(void) {
     failures += UNITY_END();
   }
 
+  if (!options.aggregate && selected_pairs == 0) {
+    return espectre::test::dataset_cli::no_eligible_dataset(options);
+  }
+
   return failures;
 }
 
 #if defined(ESP_PLATFORM)
-extern "C" void app_main(void) { process(); }
+extern "C" void app_main(void) {
+  espectre::test::dataset_cli::Options options;
+  process(options);
+}
 #else
-int main(int argc, char** argv) { return process(); }
+int main(int argc, char** argv) {
+  espectre::test::dataset_cli::Options options;
+  if (!espectre::test::dataset_cli::parse(argc, argv, "weak", options)) {
+    return 2;
+  }
+  return process(options);
+}
 #endif

@@ -18,7 +18,14 @@ import numpy as np
 import json
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def _bootstrap_repo_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "tools" / "lib" / "repo_paths.py").is_file():
+            return parent
+    raise RuntimeError("Unable to locate the ESPectre repository root")
+
+
+REPO_ROOT = _bootstrap_repo_root()
 TESTS_PATH = Path(__file__).resolve().parent
 PYTHON_ROOT_PATH = REPO_ROOT / "src" / "python"
 
@@ -34,13 +41,20 @@ _prepend_sys_path(REPO_ROOT)
 _prepend_sys_path(TESTS_PATH)
 _prepend_sys_path(PYTHON_ROOT_PATH)
 
-from tools.lib.performance_report import (
-    extract_motion_start_from_description as _shared_extract_motion_start_from_description,
-    get_available_long_test_dataset_specs as _shared_get_available_long_test_dataset_specs,
-    get_available_long_test_datasets as _shared_get_available_long_test_datasets,
-    load_long_test_dataset as _shared_load_long_test_dataset,
+from support.performance import (
+    build_long_test_params,
+    configure_performance_session,
+    format_targets_summary_line,
+    get_classic_fp_rate_target,
+    get_classic_recall_target,
+    get_ml_fp_rate_target,
+    get_ml_recall_target,
+    load_long_test_dataset,
+    write_performance_terminal_summary,
 )
-from tools.lib.repo_paths import data_dir, tools_lib_dir, python_src_dir
+from tools.lib.repo_paths import data_dir, tools_lib_dir, python_src_dir, repo_root
+
+assert REPO_ROOT == repo_root()
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
 # The runtime dir is inserted last (position 0) so it takes precedence for
@@ -107,42 +121,6 @@ def pytest_xdist_auto_num_workers(config):
     return min(DEFAULT_XDIST_AUTO_WORKERS, available_workers)
 
 
-def get_classic_fp_rate_target(chip_type=None):
-    """Bound the Lightweight motion share on static-presence baselines.
-
-    This is a sanity bound, not a false-positive gate. Static-presence
-    recordings hold a stationary person, whose breathing and small shifts are
-    real channel motion, so part of this share is the detector working. Zero
-    alarms is asserted separately on the empty-room recordings, the only
-    streams in the corpus with nobody in the room. Corpus maximum is 10.6%.
-    """
-    return 12.0
-
-
-def get_classic_recall_target(chip_type=None):
-    """Match the shared Lightweight recall target."""
-    return 95.0
-
-
-def get_ml_fp_rate_target():
-    """Match C++ get_ml_fp_rate_target()."""
-    return 5.0
-
-
-def get_ml_recall_target():
-    """Match C++ get_ml_recall_target()."""
-    return 95.0
-
-
-def format_targets_summary_line():
-    """Build summary line from target getter functions."""
-    return (
-        "Targets: "
-        f"Lightweight >{get_classic_recall_target():.0f}% R, <{get_classic_fp_rate_target():.1f}% FP | "
-        f"ML >{get_ml_recall_target():.0f}% R, <{get_ml_fp_rate_target():.1f}% FP"
-    )
-
-
 @pytest.fixture
 def fp_rate_target(chip_type):
     """Lightweight FP-rate target fixture shared across test modules."""
@@ -166,46 +144,6 @@ def ml_recall_target(chip_type):
     """ML recall target fixture shared across test modules."""
     return get_ml_recall_target()
 
-
-def extract_motion_start_from_description(description):
-    """Extract motion start packet index from free-text test metadata."""
-    return _shared_extract_motion_start_from_description(description)
-
-
-def get_available_long_test_datasets(chips=None):
-    """Return cached long-recording replays with validated split metadata."""
-    return _shared_get_available_long_test_datasets(chips=chips)
-
-
-def load_long_test_dataset(spec):
-    """Load one long-recording replay from a lightweight parameter spec."""
-    return _shared_load_long_test_dataset(spec)
-
-
-def build_long_test_params(chips=None):
-    """Build stable pytest params for available long-recording replays."""
-    params = []
-    for spec in _shared_get_available_long_test_dataset_specs(chips=chips):
-        _, motion_start_packet, num_packets, chip, _ = spec
-        params.append(
-            pytest.param(
-                spec,
-                id=(
-                    f"{chip.lower()}_long_"
-                    f"{motion_start_packet}b_{num_packets - motion_start_packet}m_"
-                    f"start{motion_start_packet}"
-                ),
-            )
-        )
-    if not params:
-        params.append(
-            pytest.param(
-                None,
-                marks=pytest.mark.skip(reason="No long-recording replays available in dataset_info.json"),
-                id="no_long_test_recordings",
-            )
-        )
-    return params
 
 # ============================================================================
 # Configuration Fixtures

@@ -19,11 +19,7 @@ The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home
 
 ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
-Thanks to the MicroPython maintainers for reviewing, testing, and merging that upstream CSI contribution.
-
-The project firmware supports classic ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. It uses an associated 2.4 GHz Wi-Fi station with HT20 CSI and does not enable promiscuous mode. Valid network credentials are therefore required for protected networks, but they are not proof of consent or authorization to sense a space.
-
-ESP32-S2 is not currently supported by Micro-ESPectre. The `ESP32S2_MICRO_ESPECTRE` board directory remains available as an experimental profile for development, but the CLI and firmware benchmark matrix do not expose it as a supported target. Use ESPHome or Native for maintained ESP32-S2 deployments.
+The project firmware supports classic ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. It uses an associated 2.4 GHz Wi-Fi station with HT20 CSI and does not enable promiscuous mode. Valid network credentials are therefore required for protected networks, but they are not proof of consent or authorization to sense a space.
 
 ## Build and deploy
 
@@ -161,7 +157,7 @@ Confirm that `config_local.py` exists, contains the intended SSID and password, 
 Run the focused host tests from the repository environment:
 
 ```bash
-.venv/bin/pytest test/python/test_traffic_generator.py test/python/test_espectre_cli_micro.py test/python/test_micro_protocol.py -q --tb=short
+.venv/bin/pytest test/python/host/cli/test_traffic_generator.py test/python/micro/test_espectre_cli_micro.py test/python/micro/test_micro_protocol.py -q --tb=short
 ```
 
 Firmware builds use the project wrapper:

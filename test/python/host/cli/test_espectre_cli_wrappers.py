@@ -477,7 +477,15 @@ def test_get_serial_port_forwards_operation_to_shared_resolver(monkeypatch) -> N
         purpose="deploy",
     ) == "/dev/cu.c6"
     assert observed == [
-        (None, {"chip": "c6", "frontend": "micro", "purpose": "deploy"}),
+        (
+            None,
+            {
+                "chip": "c6",
+                "frontend": "micro",
+                "purpose": "deploy",
+                "wait_timeout_s": 0.0,
+            },
+        ),
     ]
 
 
@@ -1956,9 +1964,10 @@ def test_micro_device_parsers_accept_optional_chip() -> None:
 
 
 @pytest.mark.parametrize("command", ["build", "flash", "deploy", "run", "verify"])
-def test_micro_parsers_reject_experimental_s2(command: str) -> None:
-    with pytest.raises(SystemExit):
-        app.build_parser().parse_args(["micro", command, "--chip", "s2"])
+def test_micro_parsers_accept_s2(command: str) -> None:
+    args = app.build_parser().parse_args(["micro", command, "--chip", "s2"])
+
+    assert args.chip == "s2"
 
 
 def test_generic_parsers_continue_to_accept_s2() -> None:
