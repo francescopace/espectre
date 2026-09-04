@@ -6,6 +6,21 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
+import { ImprovSerial as BaseImprovSerial } from 'improv-wifi-serial-sdk/dist/serial.js';
+
 export { ESPLoader, Transport } from 'esptool-js';
-export { ImprovSerial } from 'improv-wifi-serial-sdk/dist/serial.js';
 export { ImprovSerialCurrentState } from 'improv-wifi-serial-sdk/dist/const.js';
+
+const ESPECTRE_IMPROV_GET_MATTER_ONBOARDING = 0x80;
+
+export class ImprovSerial extends BaseImprovSerial {
+    async requestMatterOnboarding(timeout) {
+        const response = await this._sendRPCWithResponse(
+            ESPECTRE_IMPROV_GET_MATTER_ONBOARDING, [], timeout
+        );
+        return {
+            qr: response[0] || '',
+            manual: response[1] || '',
+        };
+    }
+}

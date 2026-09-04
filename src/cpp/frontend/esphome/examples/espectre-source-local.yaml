@@ -1,6 +1,6 @@
 # ESPectre component source for repository development.
 substitutions:
-  project_version: local
+  project_version: !env_var ESPECTRE_GIT_VERSION local
 
 external_components:
   - source:

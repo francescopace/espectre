@@ -9,6 +9,7 @@
  */
 #include <cstdarg>
 #include <string>
+#include <utility>
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -152,6 +153,12 @@ std::string improv_device_url() {
     return {};
   }
   return std::string("https://espectre.dev/tools/device-settings/?target=") + wifi_info.ip_address;
+}
+
+bool improv_network_connected() {
+  espectre::StandaloneWifiInfo wifi_info;
+  return g_wifi_manager.get_info(&wifi_info) && wifi_info.connected &&
+         wifi_info.ip_address[0] != '\0';
 }
 
 void sync_frontend_wifi_info() {
@@ -395,14 +402,35 @@ extern "C" void app_main() {
       []() {
         if (g_frontend != nullptr) g_frontend->resume_after_wifi_reconfigure();
       });
-  static espectre::ImprovSerialService improv_serial(&g_wifi_provisioning, &g_wifi_manager);
-  if (!improv_serial.setup(espectre::ImprovSerialServiceConfig{
-          "ESPectre Native",
-          espectre::espectre_firmware_version(),
-          CONFIG_IDF_TARGET,
-          display_name,
-          improv_device_url,
-      })) {
+  espectre::ImprovSerialServiceConfig improv_config;
+  improv_config.firmware_name = "ESPectre Native";
+  improv_config.firmware_version = espectre::espectre_firmware_version();
+  improv_config.hardware_variant = CONFIG_IDF_TARGET;
+  improv_config.device_name = display_name;
+  improv_config.device_url = improv_device_url;
+  improv_config.begin_provisioning = [](const std::string &ssid,
+                                        const std::string &password,
+                                        std::string *message) {
+    return g_wifi_provisioning.begin_serial_provisioning(ssid, password, message);
+  };
+  improv_config.provisioning_state = []() {
+    switch (g_wifi_provisioning.apply_state()) {
+      case espectre::WifiProvisioningApplyState::APPLIED:
+        return espectre::ImprovSerialProvisioningState::APPLIED;
+      case espectre::WifiProvisioningApplyState::ROLLED_BACK:
+      case espectre::WifiProvisioningApplyState::RECOVERY_REQUIRED:
+        return espectre::ImprovSerialProvisioningState::FAILED;
+      case espectre::WifiProvisioningApplyState::VERIFYING:
+      case espectre::WifiProvisioningApplyState::ROLLING_BACK:
+        return espectre::ImprovSerialProvisioningState::PENDING;
+      case espectre::WifiProvisioningApplyState::IDLE:
+      default:
+        return espectre::ImprovSerialProvisioningState::IDLE;
+    }
+  };
+  improv_config.network_connected = improv_network_connected;
+  static espectre::ImprovSerialService improv_serial;
+  if (!improv_serial.setup(std::move(improv_config))) {
     ESP_LOGE(TAG, "Failed to initialize Improv Serial");
     return;
   }

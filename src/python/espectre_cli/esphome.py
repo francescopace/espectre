@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from .build_artifacts import print_build_artifact_metadata
@@ -42,6 +43,23 @@ ESPHOME_COMMAND_PREFIX = [
 ]
 
 
+def detect_espectre_project_version() -> str:
+    """Resolve the canonical firmware version through the shared repository script."""
+    version_script = REPO_ROOT / ".github" / "scripts" / "detect_git_version.py"
+    try:
+        process = subprocess.Popen(
+            [sys.executable, str(version_script)],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        stdout, _ = process.communicate()
+    except OSError:
+        return ""
+    return stdout.strip() if process.returncode == 0 else ""
+
+
 def esphome_build_root(config_path: Path) -> Path:
     """Return the config-specific root passed to ESPHome for local builds."""
     return config_path.parent / ".esphome" / "build" / config_path.stem
@@ -51,6 +69,10 @@ def esphome_command_environment(config_path: Path) -> dict[str, str]:
     """Isolate each repository config while preserving the caller environment."""
     environment = os.environ.copy()
     environment["ESPHOME_BUILD_PATH"] = str(esphome_build_root(config_path))
+    if not environment.get("ESPECTRE_GIT_VERSION"):
+        version = detect_espectre_project_version()
+        if version:
+            environment["ESPECTRE_GIT_VERSION"] = version
     return environment
 
 

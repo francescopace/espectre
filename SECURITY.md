@@ -14,7 +14,7 @@ Use GitHub's private vulnerability reporting:
 2. Click "Report a vulnerability"
 3. Fill in the details
 
-This allows private discussion, coordinated disclosure, and automatic CVE assignment.
+This allows private discussion and coordinated disclosure. When a CVE is appropriate, the maintainers can request one through the advisory or provide an existing identifier.
 
 ### Information to Include
 - Description of the vulnerability

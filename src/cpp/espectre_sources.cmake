@@ -68,9 +68,13 @@ set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/ota_service_https.cpp"
 )
 
+set(ESPECTRE_RUNTIME_ESP_IDF_IMPROV_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
+)
+
 set(ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
+    ${ESPECTRE_RUNTIME_ESP_IDF_IMPROV_SOURCES}
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
 )
 

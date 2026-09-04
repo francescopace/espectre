@@ -16,16 +16,32 @@
 #include <initializer_list>
 #include <string>
 
-#include "wifi_provisioning_service.h"
-
 namespace espectre {
 
+constexpr uint8_t kImprovGetMatterOnboardingCommand = 0x80U;
+
+enum class ImprovSerialProvisioningState : uint8_t {
+  IDLE = 0,
+  PENDING,
+  APPLIED,
+  FAILED,
+};
+
 struct ImprovSerialServiceConfig {
+  using BeginProvisioningCallback =
+      std::function<bool(const std::string &ssid, const std::string &password, std::string *message)>;
+  using ProvisioningStateCallback = std::function<ImprovSerialProvisioningState()>;
+  using MatterOnboardingCallback = std::function<bool(std::string *qr, std::string *manual_code)>;
+
   std::string firmware_name;
   std::string firmware_version;
   std::string hardware_variant;
   std::string device_name;
   std::function<std::string()> device_url;
+  BeginProvisioningCallback begin_provisioning;
+  ProvisioningStateCallback provisioning_state;
+  std::function<bool()> network_connected;
+  MatterOnboardingCallback matter_onboarding;
 };
 
 class ImprovSerialService {
@@ -33,9 +49,7 @@ class ImprovSerialService {
   using ReadCallback = std::function<int(uint8_t *data, size_t capacity)>;
   using WriteCallback = std::function<int(const uint8_t *data, size_t length)>;
 
-  explicit ImprovSerialService(WifiProvisioningService *wifi_provisioning,
-                               StandaloneWifiService *wifi_manager,
-                               ReadCallback read_callback = {},
+  explicit ImprovSerialService(ReadCallback read_callback = {},
                                WriteCallback write_callback = {});
 
   bool setup(ImprovSerialServiceConfig config);
@@ -55,8 +69,6 @@ class ImprovSerialService {
   bool connected_() const;
   std::string device_url_() const;
 
-  WifiProvisioningService *wifi_provisioning_{nullptr};
-  StandaloneWifiService *wifi_manager_{nullptr};
   ImprovSerialServiceConfig config_{};
   ReadCallback read_callback_{};
   WriteCallback write_callback_{};

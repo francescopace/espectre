@@ -74,7 +74,6 @@
     };
 
     const dependencyPromises = new Map();
-    const browserDependencyPromises = new Map();
 
     function loadScriptOnce(src, { module = false } = {}) {
         if (dependencyPromises.has(src)) return dependencyPromises.get(src);
@@ -99,20 +98,6 @@
         });
         dependencyPromises.set(src, promise);
         promise.catch(() => dependencyPromises.delete(src));
-        return promise;
-    }
-
-    function loadBrowserDependency(localSrc, developmentCdnSrc, options = {}) {
-        if (browserDependencyPromises.has(localSrc)) {
-            return browserDependencyPromises.get(localSrc);
-        }
-        const promise = loadScriptOnce(localSrc, options).catch((error) => {
-            if (!sitePolicy.isLoopbackHostname(location.hostname)) throw error;
-            console.warn(`Local dependency unavailable; using development CDN fallback: ${developmentCdnSrc}`);
-            return loadScriptOnce(developmentCdnSrc, options);
-        });
-        browserDependencyPromises.set(localSrc, promise);
-        promise.catch(() => browserDependencyPromises.delete(localSrc));
         return promise;
     }
 
@@ -323,16 +308,6 @@
                 });
             }
             if (routeAtStart === 'tool-flash') {
-                if (browserSupport.flash) {
-                    loadBrowserDependency(
-                        '/vendor/esp-web-tools-10.4.0-espectre.1/install-button.js',
-                        'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
-                        { module: true }
-                    ).catch((error) => {
-                        console.warn('USB installer could not be loaded:', error);
-                        flashStatus('The USB installer could not be loaded. Refresh the page and try again.', 'is-error');
-                    });
-                }
                 flashRefresh();
             }
             if (focus || anchorAtStart) {
@@ -362,6 +337,13 @@
     function setRoute(next, { force = false, focus = true } = {}) {
         const target = normalizedRouteName(next);
         if (!force && target === route) return;
+        if (route === 'tool-flash' && target !== route
+                && typeof window.flashRouteLeave === 'function' && !window.flashRouteLeave()) {
+            history.replaceState(
+                { espectreRoute: route }, '', routeHistoryUrl(route)
+            );
+            return;
+        }
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
         clearApiReferenceLocation(previousRoute, target);
@@ -697,16 +679,6 @@
     }
 
     function sharedDialogsInit() {
-        $$('.js-matter-close').forEach((button) => {
-            button.addEventListener('click', () => {
-                void runConfigureAction(() => window.matterClose());
-            });
-        });
-        $('.js-matter-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) {
-                void runConfigureAction(() => window.matterClose());
-            }
-        });
         $$('.js-config-clear-cancel').forEach((button) => {
             button.addEventListener('click', () => {
                 void runConfigureAction(() => window.closeConfigClearDialog(false));
@@ -742,9 +714,7 @@
         });
         document.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
-            if (!$('.js-matter-modal').hidden) {
-                void runConfigureAction(() => window.matterClose());
-            } else if (!$('.js-config-clear-modal').hidden) {
+            if (!$('.js-config-clear-modal').hidden) {
                 void runConfigureAction(() => window.closeConfigClearDialog(false));
             } else if (!$('.js-ota-modal').hidden) {
                 void runConfigureAction(() => window.otaClose());
@@ -862,6 +832,7 @@
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;
+        if (typeof window.flashCleanup === 'function') void window.flashCleanup();
         if (typeof window.rawCsiStop === 'function') void window.rawCsiStop('page_exit');
         if (typeof window.reportGameAbandon === 'function') {
             window.reportGameAbandon('page_exit');

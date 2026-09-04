@@ -24,7 +24,7 @@
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
 <style>html[data-frame-guard] { visibility: hidden; }</style>
-<link rel="stylesheet" href="/assets/css/styles.css?v=d71061c7add7">
+<link rel="stylesheet" href="/assets/css/styles.css?v=4031a7d1d420">
 <noscript><style>html[data-frame-guard] { visibility: visible; }</style></noscript>
 <script src="/assets/js/route-bootstrap.js?v=58f6de142a63"></script>
 <script src="/assets/js/espectre-direct.js?v=464223546e92" defer></script>
@@ -32,11 +32,12 @@
 <script src="/assets/js/route-registry.js?v=0e61b3ccecd0" defer></script>
 <script src="/assets/js/navigation.js?v=3ca1a10b4a15" defer></script>
 <script src="/assets/js/analytics.js?v=28ac63c6d3e9" defer></script>
-<script src="/assets/js/device-session.js?v=73e3f4f4ddfd" defer></script>
+<script src="/assets/js/flash-tool.js?v=9868a8e6bb3e" defer></script>
+<script src="/assets/js/device-session.js?v=4af447a6ab1a" defer></script>
 <script src="/assets/js/direct-discovery.js?v=a2bc76585dbc" defer></script>
-<script src="/assets/js/configure-tool.js?v=35f3ea681d82" defer></script>
+<script src="/assets/js/configure-tool.js?v=d11829f1b25d" defer></script>
 <script src="/assets/js/monitor-tool.js?v=f09bf33aa38a" defer></script>
-<script src="/assets/js/app.js?v=a9144779e447" defer></script>
+<script src="/assets/js/app.js?v=593aa2801171" defer></script>
 </head>
 <body>
 
@@ -113,7 +114,7 @@
           <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">IDLE</span></div>
           <div class="meter"><span class="js-energy-fill"></span></div>
         </div>
-        <button class="btn-disconnect js-disconnect">Disconnect</button>
+        <button class="btn-disconnect js-disconnect btn-primary">Disconnect</button>
       </div>
       <div class="connection-callout js-connection-callout" role="status" aria-live="polite" aria-atomic="true" hidden>
         <strong class="js-connection-callout-title">Demo mode</strong>
@@ -624,29 +625,6 @@
     </div>
   </div>
 </footer>
-
-<div class="modal-backdrop js-matter-modal" hidden>
-  <section class="modal-card matter-modal-card" role="dialog" aria-modal="true" aria-labelledby="matter-modal-title" aria-describedby="matter-modal-description" tabindex="-1">
-    <div class="modal-head">
-      <div>
-        <span class="modal-kicker">Matter setup</span>
-        <h2 id="matter-modal-title">Add this device to Matter</h2>
-      </div>
-      <button type="button" class="modal-close js-matter-close" aria-label="Close Matter setup dialog">×</button>
-    </div>
-    <p class="modal-description" id="matter-modal-description">Scan the QR code in your Matter app, or enter the manual setup code.</p>
-    <div class="matter-result js-matter-result" hidden>
-      <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter setup QR code"></div>
-      <dl class="matter-codes">
-        <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
-        <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
-      </dl>
-    </div>
-    <div class="modal-actions matter-modal-actions">
-      <button type="button" class="btn-ghost js-matter-close">Close</button>
-    </div>
-  </section>
-</div>
 
 <div class="modal-backdrop js-config-clear-modal" hidden>
   <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="config-clear-title" aria-describedby="config-clear-description" tabindex="-1">

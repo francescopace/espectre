@@ -33,14 +33,18 @@ The SDK API generator fetches m.css at the revision pinned in `.github/scripts/g
 
 ## Browser dependencies
 
-The production site stages only pinned direct browser assets. `.github/scripts/stage_web_vendor.py` copies each asset together with its upstream license file.
+The production site stages pinned browser assets and the runtime dependencies included in its bundles. `.github/scripts/stage_web_vendor.py` copies each asset together with its upstream license file.
 
 | Package | Version | License |
 | --- | --- | --- |
-| esp-web-tools | 10.4.0 | Apache-2.0 |
+| esptool-js | 0.6.1 | Apache-2.0 |
+| atob-lite | 2.0.0 | MIT |
+| pako | 2.2.0 | MIT and Zlib |
+| improv-wifi-serial-sdk | 2.8.0 | Apache-2.0 |
 | qrcodejs | 1.0.0 | MIT |
+| ansi_up | 6.0.6 | MIT |
 
-The npm lockfile also records transitive build and browser packages under Apache-2.0, BSD-3-Clause, ISC, MIT, 0BSD, and zlib terms. Production deployment uses the staged bundles and does not publish `node_modules`.
+Rollup and its plugins are build-time tooling and are not deployed. The npm lockfile also records transitive build and browser packages under Apache-2.0, BSD-3-Clause, ISC, MIT, 0BSD, and zlib terms. Production deployment uses the staged bundles and does not publish `node_modules`.
 
 ## Host-side Python environment
 
