@@ -40,6 +40,10 @@ char *header_storage(const char *name, size_t *capacity) {
 }
 
 esp_err_t capture_payload(httpd_req_t *request, const char *payload, size_t length, bool chunk) {
+  if (g_httpd_mock.pending_allow_origin != nullptr) {
+    copy_string(g_httpd_mock.allow_origin, sizeof(g_httpd_mock.allow_origin),
+                g_httpd_mock.pending_allow_origin);
+  }
   if (g_httpd_mock.send_result != ESP_OK) return g_httpd_mock.send_result;
   if (chunk) g_httpd_mock.chunk_calls++;
   const int index = g_httpd_mock.send_calls++;
@@ -150,6 +154,7 @@ esp_err_t httpd_resp_set_type(httpd_req_t *request, const char *type) {
 esp_err_t httpd_resp_set_hdr(httpd_req_t *request, const char *name, const char *value) {
   (void) request;
   if (std::strcmp(name, "Access-Control-Allow-Origin") == 0) {
+    g_httpd_mock.pending_allow_origin = value;
     copy_string(g_httpd_mock.allow_origin, sizeof(g_httpd_mock.allow_origin), value);
   } else if (std::strcmp(name, "Access-Control-Allow-Private-Network") == 0) {
     copy_string(g_httpd_mock.allow_private_network,

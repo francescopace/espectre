@@ -102,6 +102,7 @@ typedef struct {
   char authorization[192];
   char request_private_network[16];
   char allow_origin[192];
+  const char *pending_allow_origin;
   char allow_private_network[16];
   char cache_control[64];
   uint8_t incoming_payload[8192];

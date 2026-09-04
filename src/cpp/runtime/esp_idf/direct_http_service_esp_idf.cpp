@@ -982,7 +982,12 @@ bool EspIdfDirectHttpService::validate_origin_(httpd_req_t *request, std::string
 void EspIdfDirectHttpService::set_response_headers_(httpd_req_t *request,
                                                      const std::string &origin) const {
   if (!origin.empty()) {
-    (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Origin", origin.c_str());
+    const auto configured =
+        std::find(config_.allowed_origins.begin(), config_.allowed_origins.end(), origin);
+    const char *response_origin = configured != config_.allowed_origins.end()
+                                      ? configured->c_str()
+                                      : origin.c_str();
+    (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Origin", response_origin);
   }
   (void) httpd_resp_set_hdr(request, "Vary", "Origin");
   std::string private_network;

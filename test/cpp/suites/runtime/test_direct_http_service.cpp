@@ -505,7 +505,7 @@ void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   }
   accept_raw_open(&service, session);
 
-  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_mock_set_header("Origin", "https://test.espectre.dev");
   httpd_req_t raw_request = request_for(2U, 9);
   TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
   service.loop();
@@ -527,6 +527,7 @@ void test_raw_get_opens_automatic_session_and_emits_v2_frame() {
   TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
   service.loop();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL_STRING("https://test.espectre.dev", g_httpd_mock.allow_origin);
   TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[0]);
   TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
                     g_httpd_mock.sent_lengths[0]);
