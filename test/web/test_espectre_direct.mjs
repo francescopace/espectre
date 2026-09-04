@@ -128,6 +128,27 @@ describe('Direct HTTP endpoint policy', () => {
 });
 
 describe('Raw CSI HTTP parser', () => {
+    it('accepts large aggregates with an incomplete frame at either boundary', () => {
+        const frames = Array.from({ length: 220 }, (_, index) => rawFrame({
+            sequence: BigInt(index + 1),
+            fresh: BigInt(index + 1),
+            payload: new Uint8Array(512)
+        }));
+        const bytes = Buffer.concat(frames);
+        const expected = new RawParser();
+        const expectedRecords = frames.flatMap((frame) => expected.append(frame));
+        for (const splitAt of [17, frames[0].length - 1]) {
+            const parser = new RawParser();
+            assert.equal(parser.append(bytes.subarray(0, splitAt)).length, 0);
+            const records = parser.append(bytes.subarray(splitAt, bytes.length - 19));
+            assert.equal(records.length, frames.length - 1);
+            assert.equal(parser.bufferedBytes, frames.at(-1).length - 19);
+            records.push(...parser.append(bytes.subarray(bytes.length - 19)));
+            assert.deepEqual(records, expectedRecords);
+            assert.equal(parser.bufferedBytes, 0);
+        }
+    });
+
     it('reconstructs split and aggregated frames and exposes counters', () => {
         const parser = new RawParser('00112233445566778899aabbccddeeff');
         const first = rawFrame();

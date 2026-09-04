@@ -2212,10 +2212,14 @@ body.modal-open { overflow: hidden; }
   flex-wrap: wrap;
 }
 .theremin-stage .tool-note, .game-stage .tool-note { margin: 0; }
+.demo-mode [data-demo-motion] { touch-action: none; user-select: none; }
+.demo-motion-hint { display: none; }
+.demo-mode .demo-motion-hint { display: block; }
 
 /* Game */
 
 .game-stage {
+  box-sizing: border-box;
   width: 100%;
   max-width: none;
   margin: 0 auto;

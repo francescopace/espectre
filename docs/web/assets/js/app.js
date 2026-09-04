@@ -534,7 +534,7 @@
         if (title) title.textContent = demo ? 'Demo mode' : 'Device connected';
         if (message) {
             message.textContent = demo
-                ? 'Move the pointer to simulate motion.'
+                ? 'Move the pointer, or drag on the chart or pitch display, to simulate motion.'
                 : 'ESPectre is ready to use.';
         }
         el.hidden = (!demo && !direct) || dropdownOpen;
@@ -810,7 +810,11 @@
             event.preventDefault();
             focusRouteContent();
         });
-        document.addEventListener('mousemove', demoTrackMouse, { passive: true });
+        document.addEventListener('pointerdown', demoStartPointer);
+        document.addEventListener('pointermove', demoTrackPointer, { passive: true });
+        document.addEventListener('pointerup', demoEndPointer);
+        document.addEventListener('pointercancel', demoEndPointer);
+        document.addEventListener('lostpointercapture', demoEndPointer);
         window.addEventListener('popstate', onPopState);
         setRoute(initialRoute, { force: true, focus: false });
     }

@@ -78,10 +78,20 @@
         get bufferedBytes() { return this.#buffer.length; }
 
         append(chunk) {
-            if (!(chunk instanceof Uint8Array)
-                || this.#buffer.length + chunk.length > RAW_HTTP_MAX_BUFFER_BYTES) {
-                throw new ESPectreDirectError('Raw HTTP stream exceeded its bounded parser buffer.', 'invalid_raw_frame');
+            if (!(chunk instanceof Uint8Array)) {
+                throw new ESPectreDirectError('Raw HTTP stream requires a byte array.', 'invalid_raw_frame');
             }
+            const records = [];
+            for (let offset = 0; offset < chunk.length;) {
+                const end = Math.min(chunk.length,
+                    offset + RAW_HTTP_MAX_BUFFER_BYTES - this.#buffer.length);
+                records.push(...this.#appendChunk(chunk.subarray(offset, end)));
+                offset = end;
+            }
+            return records;
+        }
+
+        #appendChunk(chunk) {
             const combined = new Uint8Array(this.#buffer.length + chunk.length);
             combined.set(this.#buffer);
             combined.set(chunk, this.#buffer.length);

@@ -133,7 +133,7 @@
     let connectionCalloutTimer = null;
     let directCalloutVisible = false;
     const DIRECT_CALLOUT_DURATION_MS = 4000;
-    const demoPointer = { x: null, y: null, t: 0 };
+    const demoPointer = { id: null, x: null, y: null, t: 0 };
     let route = 'home';
     const LIVE_EXPERIENCE_ROUTES = new Set(['tool-game', 'tool-theremin']);
     let pendingLiveDestination = '';
@@ -871,6 +871,7 @@
 
     function connectDemo(openView = '') {
         if (conn.status !== 'disconnected') return;
+        cancelDirectDiscovery({ clear: true });
         if (openView === 'live') rememberLiveDestination();
         rememberConnectionOrigin();
         track('tool_demo_start', connectionParams());
@@ -958,8 +959,29 @@
         }, 600);
     }
 
-    function demoTrackMouse(event) {
-        if (conn.mode !== 'demo') return;
+    function demoStartPointer(event) {
+        if (conn.mode !== 'demo' || event.pointerType === 'mouse' || !event.isPrimary) return;
+        const surface = event.target.closest('[data-demo-motion]');
+        if (!surface) return;
+        demoPointer.id = event.pointerId;
+        demoPointer.x = event.clientX;
+        demoPointer.y = event.clientY;
+        demoPointer.t = performance.now();
+        surface.setPointerCapture(event.pointerId);
+    }
+
+    function demoEndPointer(event) {
+        if (event.pointerId !== demoPointer.id) return;
+        demoPointer.id = null;
+        demoPointer.x = null;
+        demoPointer.y = null;
+        demoPointer.t = 0;
+    }
+
+    function demoTrackPointer(event) {
+        if (conn.mode !== 'demo' || !event.isPrimary) return;
+        if (event.pointerType !== 'mouse' && event.pointerId !== demoPointer.id) return;
+        if (event.pointerType === 'mouse' && demoPointer.id !== null) return;
         const now = performance.now();
         if (demoPointer.x !== null) {
             const dt = Math.max(16, now - demoPointer.t);
@@ -1039,6 +1061,7 @@
         directClient = null;
         demoSysinfoSnapshot = null;
         demoInputEnergy = 0;
+        demoPointer.id = null;
         demoPointer.x = null;
         demoPointer.y = null;
         demoPointer.t = 0;
@@ -1130,6 +1153,7 @@
 
     function renderConnection() {
         const connected = conn.status === 'connected';
+        document.body.classList.toggle('demo-mode', connected && conn.mode === 'demo');
         const usbConnected = Boolean(flash.usbDialog);
         const displayedConnected = usbConnected || connected;
         const displayedConnecting = !usbConnected && conn.status === 'connecting';

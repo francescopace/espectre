@@ -286,6 +286,7 @@
         const client = directDiscoveryClient;
         directDiscoveryClient = null;
         client?.close();
+        setDirectConnectionStatus();
         $$('.js-direct-discover').forEach((button) => {
             button.disabled = false;
             button.setAttribute('aria-disabled', 'false');
@@ -555,6 +556,7 @@
     }
 
     async function resolveDiscoveredTarget(target, input) {
+        const generation = directDiscoveryGeneration;
         const description = target.deviceId
             ? `device ID ${target.deviceId}`
             : target.shortId ? `device ID …${target.shortId}` : `device name “${target.search}”`;
@@ -565,11 +567,14 @@
         try {
             result = await queryLocalPeers();
         } catch (error) {
+            if (generation !== directDiscoveryGeneration) return null;
             const permissionState = await localNetworkAccessState();
+            if (generation !== directDiscoveryGeneration) return null;
             throw new Error(directDiscoveryFailureMessage(error, permissionState));
         } finally {
-            setDirectConnectionStatus();
+            if (generation === directDiscoveryGeneration) setDirectConnectionStatus();
         }
+        if (generation !== directDiscoveryGeneration) return null;
         const query = target.search.toLowerCase();
         const matches = result.devices.filter((peer) => target.deviceId
             ? peer.device_id === target.deviceId
@@ -596,8 +601,9 @@
     }
 
     async function connectDirect({ endpoint, deviceId, openView } = {}) {
-        cancelDirectDiscovery();
         if (directClient || conn.status !== 'disconnected') return;
+        cancelDirectDiscovery();
+        const generation = directDiscoveryGeneration;
         const input = directEndpointInput();
         let target;
         try {
@@ -614,11 +620,14 @@
                 if (!target) return;
             }
         } catch (error) {
+            if (generation !== directDiscoveryGeneration) return;
             setDirectConnectionHelp(error.message);
             toast(error.message);
             input?.setAttribute('aria-invalid', 'true');
             return;
         }
+        if (generation !== directDiscoveryGeneration
+            || directClient || conn.status !== 'disconnected') return;
         let normalizedEndpoint;
         try {
             normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(target.endpoint);

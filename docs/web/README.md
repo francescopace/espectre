@@ -69,6 +69,8 @@ The SPA uses canonical paths with the History API. Legacy root hash links remain
 
 Device settings and Monitor load with the shared device session. CSI visualizer, Game, and Theremin load their scripts on first use through `data-script-src`. Keep `app.js` last among the core `defer` scripts because it binds their initializers.
 
+In Demo mode, mouse movement simulates motion. Touch and pen users can drag on the Monitor chart or Theremin pitch display; scrolling remains available outside those areas. The Game retains its press-and-hold flight control.
+
 `assets/js/analytics.js` enables GA4 on production and allowlisted debug hosts only after explicit consent. The router sends manual `page_view` events with canonical `page_location`, `page_path`, `page_title`, and `content_group` values. GA4 page changes based on browser history events must remain disabled to avoid duplicate page views.
 
 All website custom events pass through `trackEvent()`. It rejects unregistered events, strips parameters outside the event contract, validates categorical values and numeric bounds, and normalizes error types and public firmware versions before calling `gtag`. Rolling Git versions are reported as `<major>.<minor>.<patch>-dev`; other unrecognized values become `unknown` or are omitted.
@@ -78,6 +80,8 @@ Keep Analytics parameters low-cardinality. They must not include device IDs, net
 ## Direct HTTP
 
 `assets/js/espectre-direct.js` owns resource-oriented Direct HTTP, incremental SSE parsing, abort, and reconnect behavior. Device settings and the live tools share one connection picker with Local connection, Demo, and the planned Remote connection. Relay support is not implemented. The wire contract and capability boundaries are in [API.md](../API.md).
+
+Starting Demo or leaving a route cancels pending device discovery; late results cannot replace the active session. The raw CSI parser accepts split or aggregated HTTP chunks while keeping its working buffer bounded.
 
 `assets/js/browser-support.js` owns the browser matrix and Local Network Access permission checks. The active connection picker reports recovery guidance for permission, Origin, discovery, timeout, protocol, and SSE capacity failures. Direct support does not scan the LAN or relax a global security header.
 

@@ -21,7 +21,8 @@
       <span class="connection-card-eyebrow">USB installer</span>
       <h2 id="flash-wizard-title">Connect your device</h2>
       <p>The installer identifies the board and checks its current firmware.</p>
-      <button type="button" class="btn-primary js-flash-connect">Connect USB device</button>
+      <p id="flash-requirement" class="tool-note js-flash-requirement" role="status">USB flashing requires desktop Chrome or Edge.</p>
+      <button type="button" class="btn-primary js-flash-connect" aria-describedby="flash-requirement">Connect USB device</button>
       <a class="flash-releases-link js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse firmware releases on GitHub</a>
     </section>
 

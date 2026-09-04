@@ -31,6 +31,127 @@ function loadFlashCore(globals = {}) {
 }
 
 describe('website tool contracts', () => {
+    it('simulates motion from captured touch and pen drags while preserving mouse input', () => {
+        let now = 0;
+        const context = vm.createContext({
+            HTMLElement: class {},
+            customElements: { get: () => true },
+            performance: { now: () => now },
+        });
+        vm.runInContext(read('docs/web/assets/js/device-session.js'), context);
+        vm.runInContext("conn.mode = 'demo'", context);
+        let captured = null;
+        const surface = { setPointerCapture: (id) => { captured = id; } };
+        const event = (pointerType, clientX, onSurface = true) => ({
+            pointerType, clientX, clientY: 0, pointerId: 7, isPrimary: true,
+            target: { closest: () => onSurface ? surface : null },
+        });
+        const energy = () => vm.runInContext('demoInputEnergy', context);
+
+        for (const type of ['touch', 'pen']) {
+            vm.runInContext('demoInputEnergy = 0', context);
+            context.demoStartPointer(event(type, 0, false));
+            now += 100;
+            context.demoTrackPointer(event(type, 180, false));
+            assert.equal(energy(), 0);
+
+            context.demoStartPointer(event(type, 0));
+            assert.equal(captured, 7);
+            now += 100;
+            context.demoTrackPointer({ ...event(type, 180), pointerId: 8, isPrimary: false });
+            assert.equal(energy(), 0);
+            context.demoTrackPointer(event(type, 180));
+            assert.equal(energy(), 1);
+            context.demoEndPointer(event(type, 180));
+            vm.runInContext('demoInputEnergy = 0', context);
+            now += 100;
+            context.demoTrackPointer(event(type, 360));
+            assert.equal(energy(), 0);
+        }
+
+        context.demoTrackPointer(event('mouse', 0, false));
+        now += 100;
+        context.demoTrackPointer(event('mouse', 180, false));
+        assert.equal(energy(), 1);
+        vm.runInContext("conn.mode = 'direct'; demoInputEnergy = 0", context);
+        now += 100;
+        context.demoTrackPointer(event('mouse', 360, false));
+        assert.equal(energy(), 0);
+    });
+
+    for (const outcome of ['resolve', 'reject', 'cancel']) {
+        it(`ignores stale name discovery after ${outcome === 'cancel' ? 'navigation' : `Demo starts (${outcome})`}`, async () => {
+            let resolveDiscovery;
+            let rejectDiscovery;
+            let discoveryClosed = false;
+            let connections = 0;
+            const timers = [];
+            const errors = [];
+            const discovery = new Promise((resolve, reject) => {
+                resolveDiscovery = resolve;
+                rejectDiscovery = reject;
+            });
+            const input = {
+                value: 'office', closest: () => null,
+                setAttribute: (...args) => errors.push(args)
+            };
+            const context = {
+                console, URL, HTMLElement: class {},
+                customElements: { get: () => true },
+                document: { querySelector: () => input },
+                $$: () => [], monitor: {},
+                setTimeout: (callback) => { timers.push(callback); return timers.length; },
+                setInterval: () => 1,
+                DirectProtocolClient: {
+                    normalizeEndpoint(value) {
+                        if (value === 'office') throw new Error('Name requires discovery');
+                        return value;
+                    },
+                    createDiscoveryEndpoint: () => 'bootstrap'
+                }
+            };
+            vm.createContext(context);
+            for (const file of ['device-session.js', 'direct-discovery.js']) {
+                vm.runInContext(read(`docs/web/assets/js/${file}`), context);
+            }
+            const state = vm.runInContext('conn', context);
+            Object.assign(context, {
+                track() {}, activeToolName: () => 'monitor',
+                rememberConnectionOrigin() {}, connectionParams: () => ({}),
+                setStatus: (status) => { state.status = status; },
+                syncFirmwareUpdateNotice() {}, markToolReady() {},
+                applySysinfo() {}, monitorResetChart() {},
+                setDirectConnectionHelp: (...args) => { if (args[0]) errors.push(args); },
+                toast: (...args) => errors.push(args),
+                makeDirectClient(endpoint) {
+                    if (endpoint !== 'bootstrap') connections += 1;
+                    return {
+                        discoverPeersBootstrap: () => discovery,
+                        close() { discoveryClosed = true; }
+                    };
+                }
+            });
+            const pending = context.connectDirect();
+            if (outcome === 'cancel') context.cancelDirectDiscovery({ clear: true });
+            else {
+                context.connectDemo();
+                timers.shift()();
+                assert.equal(state.mode, 'demo');
+            }
+            assert.equal(discoveryClosed, true);
+            if (outcome === 'reject') rejectDiscovery(new Error('Discovery aborted'));
+            else resolveDiscovery({ devices: [{
+                name: 'office', device_id: '0011223344556677',
+                endpoints: ['http://192.168.1.10:62587']
+            }], truncated: false });
+            await pending;
+            assert.equal(connections, 0);
+            assert.equal(state.mode, outcome === 'cancel' ? null : 'demo');
+            assert.equal(state.status, outcome === 'cancel' ? 'disconnected' : 'connected');
+            assert.deepEqual(errors, []);
+        });
+    }
+
     it('publishes the firmware and SDK artifact channels', () => {
         const sdk = read('docs/web/content/sdk.html');
         for (const { sdkChannel: channel, path } of routeManifest.sdkChannels) {
@@ -48,6 +169,8 @@ describe('website tool contracts', () => {
 
     it('exposes an accessible Web Serial workflow', () => {
         const flash = toolContent.flash;
+        assert.match(flash, /class="btn-primary js-flash-connect"[^>]+aria-describedby="flash-requirement"/);
+        assert.match(flash, /id="flash-requirement"[^>]+class="[^"]*js-flash-requirement[^"\n]*"[^>]+role="status"/);
         const stages = [...flash.matchAll(/data-flash-step="([^"]+)"/g)]
             .map((match) => match[1]);
         assert.deepEqual(stages.sort(), ['error', 'onboarding', 'review', 'select']);
