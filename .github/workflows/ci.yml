@@ -76,6 +76,7 @@ jobs:
           WEB_COVERAGE_LOG: web-coverage.log
 
       - name: Build web coverage badge
+        if: always() && hashFiles('web-coverage.log') != ''
         run: |
           python .github/scripts/build_coverage_badges.py \
             --kind web \
@@ -84,6 +85,7 @@ jobs:
             --output coverage-web.json
 
       - name: Upload web coverage badge
+        if: always() && hashFiles('coverage-web.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: web-coverage-badge
@@ -116,6 +118,7 @@ jobs:
         run: ./test/cpp/run_coverage.sh --ci
 
       - name: Build C++ coverage badge
+        if: always() && hashFiles('test/cpp/coverage-summary.json') != ''
         run: |
           python .github/scripts/build_coverage_badges.py \
             --kind cpp-runtime \
@@ -124,6 +127,7 @@ jobs:
             --output coverage-cpp-runtime.json
 
       - name: Upload C++ coverage badge
+        if: always() && hashFiles('coverage-cpp-runtime.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: cpp-coverage-badge
@@ -168,6 +172,7 @@ jobs:
           PYTEST_XDIST_AUTO_NUM_WORKERS: '4'
 
       - name: Build Python coverage badge
+        if: always() && hashFiles('python-coverage.json') != ''
         run: |
           python .github/scripts/build_coverage_badges.py \
             --kind python \
@@ -176,6 +181,7 @@ jobs:
             --output coverage-python.json
 
       - name: Upload Python coverage badge
+        if: always() && hashFiles('coverage-python.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: python-coverage-badge

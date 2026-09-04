@@ -141,6 +141,44 @@ void test_runtime_frontend_controller_preserves_staged_fields_across_live_callba
   TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
 }
 
+void test_runtime_frontend_controller_preserves_staged_fields_across_live_setters(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig initial;
+  initial.runtime_detector_selection_enabled = true;
+  controller.set_config(initial);
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  controller.config().detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  controller.config().segmentation_threshold = 0.77f;
+  controller.config().motion_on_hits = 8U;
+  controller.config().motion_off_hits = 6U;
+  controller.config().csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  controller.config().traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
+
+  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.55f));
+  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(5U, 2U));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+
+  TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+
+  controller.shutdown();
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+}
+
 void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -437,6 +475,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks);
+  RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_setters);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_adopts_backend_effective_config);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);

@@ -90,6 +90,8 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 `RuntimeFrontendController` wires configuration, runtime-control persistence, and the runtime backend together. After `setup()`, `config()` reflects the backend's effective configuration, including persisted detector, motion-hit, and traffic overrides; direct writes to `config()` after setup only stage the next setup, while live changes use the capability-gated runtime setters. The Native and Matter frontends are compact reference integrations for this path.
 
+Set `RuntimeConfig::device_id` to `derive_runtime_device_id()` before setup when the integration uses the ESPectre Protocol or CSI streaming. The helper returns a cached pseudonym derived from the station MAC; zero remains an unresolved sentinel and is not replaced by `RuntimeFrontendController`.
+
 ### Core-only
 
 If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
@@ -147,6 +149,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
 | `runtime/csi_raw_record.h` | Transport-neutral CSI V8 record layout and historical V7 capture parsing |
 | `runtime/raw_csi.h` | Optional raw-collection runtime state, session configuration, diagnostics, and Direct binary framing |
+| `runtime/esp_idf/device_identity.h` | Derive the stable device pseudonym used by protocol and CSI surfaces |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |

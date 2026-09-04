@@ -136,5 +136,6 @@
 
 // Recommended entry point. The declaration is portable; linking it requires
 // the ESP-IDF runtime sources.
+#include "runtime/esp_idf/device_identity.h"
 #include "runtime/esp_idf/runtime_frontend_controller.h"
 #include "runtime/esp_idf/runtime_sensing_kconfig.h"

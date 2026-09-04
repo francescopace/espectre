@@ -1,18 +1,9 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
-main: [![CI main][ci-main-badge]][ci-main-runs] [![C++ runtime coverage main][cpp-main-badge]][ci-main-runs] [![Python coverage main][python-main-badge]][ci-main-runs] [![Web coverage main][web-main-badge]][ci-main-runs]
-develop: [![CI develop][ci-develop-badge]][ci-develop-runs] [![C++ runtime coverage develop][cpp-develop-badge]][ci-develop-runs] [![Python coverage develop][python-develop-badge]][ci-develop-runs] [![Web coverage develop][web-develop-badge]][ci-develop-runs]
-
-[ci-main-badge]: https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main
-[ci-main-runs]: https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain
-[cpp-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json
-[python-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json
-[web-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json
-[ci-develop-badge]: https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=develop
-[ci-develop-runs]: https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Adevelop
-[cpp-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-cpp-runtime.json
-[python-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-python.json
-[web-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-web.json
+[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
+[![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![Web coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 
 <h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
@@ -22,7 +13,7 @@ When someone moves through a room, they change the way Wi-Fi signals travel thro
 
 **ESPectre** is an open-source platform that brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
 
-[**Flash from your browser**](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
+[Flash from your browser](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
 ## Applications and integrations
 
@@ -114,9 +105,9 @@ Use ESPectre only in spaces and networks where you have the right to deploy it. 
 
 ## License
 
-ESPectre first-party code is available under GPLv3, and eligible parts are also available under a separate commercial agreement:
+ESPectre first-party code is available under **GPLv3**, and eligible parts are also available under a separate commercial agreement:
 
-- Choose **GPLv3** when your firmware or application can comply with GPLv3, including making the corresponding source available. See [LICENSE](LICENSE).
+- Choose GPLv3 when your firmware or application can comply with GPLv3, including making the corresponding source available. See [LICENSE](LICENSE).
 - If you want to embed ESPectre in **proprietary or closed-source firmware** without GPLv3 source-disclosure obligations, see [LICENSING.md](LICENSING.md) for commercial licensing. The commercial license covers eligible material and does not replace third-party terms; the ESPHome C++ frontend remains GPLv3-only.
 
 Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

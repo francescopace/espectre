@@ -74,6 +74,11 @@ def test_ci_chip_matrices_follow_production_registries() -> None:
     assert "--report test/cpp/coverage-summary.json" in cpp_job
     assert "--output coverage-cpp-runtime.json" in cpp_job
     assert "name: cpp-coverage-badge" in cpp_job
+    assert (
+        "if: always() && hashFiles('test/cpp/coverage-summary.json') != ''"
+        in cpp_job
+    )
+    assert "if: always() && hashFiles('coverage-cpp-runtime.json') != ''" in cpp_job
 
     python_job = _workflow_job(source, "test-python")
     assert "--cov-branch" in python_job
@@ -84,6 +89,8 @@ def test_ci_chip_matrices_follow_production_registries() -> None:
     assert "--report python-coverage.json" in python_job
     assert "--output coverage-python.json" in python_job
     assert "name: python-coverage-badge" in python_job
+    assert "if: always() && hashFiles('python-coverage.json') != ''" in python_job
+    assert "if: always() && hashFiles('coverage-python.json') != ''" in python_job
 
 
 def test_python_coverage_gate_has_fixed_thresholds() -> None:
@@ -163,31 +170,30 @@ def test_web_coverage_gate_uses_canonical_thresholds_and_node_runtime() -> None:
     assert "--report web-coverage.log" in build_site
     assert "--output coverage-web.json" in build_site
     assert "name: web-coverage-badge" in build_site
+    assert "if: always() && hashFiles('web-coverage.log') != ''" in build_site
+    assert "if: always() && hashFiles('coverage-web.json') != ''" in build_site
 
 
 def test_snapshot_publishes_stable_coverage_badge_endpoints() -> None:
     workflow = (WORKFLOWS_DIR / "snapshot.yml").read_text(encoding="utf-8")
+    validator = _workflow_job(workflow, "validate-run")
     release_job = _workflow_job(workflow, "release")
+    publisher = _workflow_job(workflow, "publish-coverage")
 
-    assert "name: cpp-coverage-badge" in release_job
-    assert "name: python-coverage-badge" in release_job
-    assert "name: web-coverage-badge" in release_job
-    assert ".github/scripts/build_coverage_badges.py" not in release_job
-    assert "coverage-artifacts" not in release_job
-    assert "coverage-badges/*.json" in release_job
-    assert "overwrite_files: true" in release_job
-
-
-def test_readme_coverage_badges_use_release_assets_through_badgen() -> None:
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-
-    for tag in ("snapshot", "snapshot-dev"):
-        prefix = (
-            "https://badgen.net/https/github.com/francescopace/espectre/"
-            f"releases/download/{tag}/coverage-"
-        )
-        assert readme.count(prefix) == 3
-    assert "img.shields.io/endpoint" not in readme
+    assert "github.event.workflow_run.conclusion == 'success'" not in validator
+    assert (
+        "context.eventName === 'workflow_dispatch' && conclusion !== 'success'"
+        in validator
+    )
+    assert "core.setOutput('conclusion', conclusion)" in validator
+    assert "coverage-badges/*.json" not in release_job
+    assert "needs.validate-run.outputs.conclusion == 'success'" in release_job
+    assert "always()" in publisher
+    assert "needs.validate-run.outputs.conclusion == 'failure'" in publisher
+    assert "pattern: '*-coverage-badge'" in publisher
+    assert "gh release upload" in publisher
+    assert "--clobber" in publisher
+    assert "Recheck source commit before publishing coverage" in publisher
 
 
 def test_coverage_badge_builder_reads_each_report_format(tmp_path: Path) -> None:
@@ -228,21 +234,31 @@ def test_coverage_badge_builder_reads_each_report_format(tmp_path: Path) -> None
     )
 
     expected_python_badge = {
-        "subject": "Python coverage",
-        "status": "lines 61.00% | branches 51.00%",
+        "subject": "python coverage",
+        "status": "61.00%",
         "color": "4c1",
     }
     assert builder.build_badge(
         "python", python_report, PYTHON_COVERAGE_THRESHOLDS
     ) == expected_python_badge
+    expected_cpp_badge = {
+        "subject": "c++ coverage",
+        "status": "81.00%",
+        "color": "4c1",
+    }
     assert builder.build_badge(
         "cpp-runtime",
         cpp_report,
         REPO_ROOT / "test" / "cpp" / "coverage-thresholds.json",
-    )["status"] == "lines 81.00% | branches 51.00% | functions 86.00%"
+    ) == expected_cpp_badge
+    expected_web_badge = {
+        "subject": "web coverage",
+        "status": "88.98%",
+        "color": "4c1",
+    }
     assert builder.build_badge(
         "web", web_report, WEB_COVERAGE_THRESHOLDS
-    )["status"] == "lines 88.98% | branches 76.25% | functions 74.24%"
+    ) == expected_web_badge
 
     output = tmp_path / "coverage-python.json"
     result = subprocess.run(
@@ -351,6 +367,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
         guide_name = next(name for name in archived if name.endswith("/docs/SDK.md"))
         bundled_guide = archive.read(guide_name).decode("utf-8")
+        facade_name = next(name for name in archived if name.endswith("/src/cpp/espectre_sdk.h"))
+        bundled_facade = archive.read(facade_name).decode("utf-8")
     bundle_root = component_cmake_name.removesuffix("/src/cpp/CMakeLists.txt")
     assert f"{bundle_root}/CMakeLists.txt" not in archived
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
@@ -362,6 +380,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
     assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/docs/ARCHITECTURE.md" in bundled_guide
     assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/LICENSING.md" in bundled_guide
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/docs/SDK.md" in bundled_facade
+    assert "https://github.com/francescopace/espectre/blob/main/docs/SDK.md" not in bundled_facade
     assert re.search(r"\]\((?!https?://|mailto:|#)[^)]+\.md(?:#[^)]+)?\)", bundled_guide) is None
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)

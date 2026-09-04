@@ -153,8 +153,11 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   } else {
     snapshot_.threshold = threshold;
   }
-  config_.segmentation_threshold = threshold;
-  if (runtime_) active_config_.segmentation_threshold = threshold;
+  if (runtime_) {
+    adopt_effective_threshold_(threshold);
+  } else {
+    config_.segmentation_threshold = threshold;
+  }
   snapshot_.threshold = threshold;
   apply_deferred_shutdown_();
   return true;
@@ -167,6 +170,10 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     return false;
   }
+  const bool staged_motion_on_hits =
+      runtime_ && config_.motion_on_hits != active_config_.motion_on_hits;
+  const bool staged_motion_off_hits =
+      runtime_ && config_.motion_off_hits != active_config_.motion_off_hits;
   if (runtime_) {
     if (!capabilities_.supports_runtime_motion_hits_updates ||
         !runtime_->set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
@@ -174,8 +181,8 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
       return false;
     }
   }
-  config_.motion_on_hits = motion_on_hits;
-  config_.motion_off_hits = motion_off_hits;
+  if (!staged_motion_on_hits) config_.motion_on_hits = motion_on_hits;
+  if (!staged_motion_off_hits) config_.motion_off_hits = motion_off_hits;
   if (runtime_) {
     active_config_.motion_on_hits = motion_on_hits;
     active_config_.motion_off_hits = motion_off_hits;
@@ -189,13 +196,15 @@ bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode
   if (!runtime_csi_traffic_mode_valid_for_profile(effective_config.runtime_profile, mode)) {
     return false;
   }
+  const bool staged_for_next_setup =
+      runtime_ && config_.csi_traffic_mode != active_config_.csi_traffic_mode;
   if (runtime_) {
     if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_mode_runtime(mode)) {
       apply_deferred_shutdown_();
       return false;
     }
   }
-  config_.csi_traffic_mode = mode;
+  if (!staged_for_next_setup) config_.csi_traffic_mode = mode;
   if (runtime_) active_config_.csi_traffic_mode = mode;
   apply_deferred_shutdown_();
   return true;
@@ -205,13 +214,15 @@ bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTraffi
   if (!runtime_traffic_mode_valid(mode)) {
     return false;
   }
+  const bool staged_for_next_setup =
+      runtime_ && config_.traffic_generator_mode != active_config_.traffic_generator_mode;
   if (runtime_) {
     if (!capabilities_.supports_traffic_control || !runtime_->set_traffic_generator_mode_runtime(mode)) {
       apply_deferred_shutdown_();
       return false;
     }
   }
-  config_.traffic_generator_mode = mode;
+  if (!staged_for_next_setup) config_.traffic_generator_mode = mode;
   if (runtime_) active_config_.traffic_generator_mode = mode;
   apply_deferred_shutdown_();
   return true;
@@ -236,11 +247,12 @@ bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorit
     snapshot_.threshold = config_.segmentation_threshold;
     snapshot_.detector_name = detection_algorithm_name(algorithm);
   }
-  config_.detection_algorithm = algorithm;
-  config_.segmentation_threshold = snapshot_.threshold;
   if (runtime_) {
-    active_config_.detection_algorithm = algorithm;
-    active_config_.segmentation_threshold = snapshot_.threshold;
+    adopt_effective_detector_(algorithm);
+    adopt_effective_threshold_(snapshot_.threshold);
+  } else {
+    config_.detection_algorithm = algorithm;
+    config_.segmentation_threshold = snapshot_.threshold;
   }
   apply_deferred_shutdown_();
   return true;

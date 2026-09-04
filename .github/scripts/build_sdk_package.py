@@ -347,6 +347,16 @@ def rewrite_bundle_sdk_guide(path: Path, source_ref: str) -> None:
     path.write_text(rewritten, encoding="utf-8")
 
 
+def rewrite_bundle_sdk_facade(path: Path, source_ref: str) -> None:
+    """Pin the generated reference's SDK guide link to the packaged revision."""
+    source = path.read_text(encoding="utf-8")
+    current = "https://github.com/francescopace/espectre/blob/main/docs/SDK.md"
+    replacement = f"https://github.com/francescopace/espectre/blob/{source_ref}/docs/SDK.md"
+    if source.count(current) != 1:
+        raise ValueError(f"Unable to rewrite SDK guide link in {path}")
+    path.write_text(source.replace(current, replacement), encoding="utf-8")
+
+
 def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
                       bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
@@ -362,6 +372,7 @@ def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
     )
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
     rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref)
+    rewrite_bundle_sdk_facade(destination_root / "src" / "cpp" / "espectre_sdk.h", source_ref)
     validate_stamped_sdk_identity(destination_root, version)
     return len(bundle_files)
 

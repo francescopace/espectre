@@ -27,8 +27,7 @@ jobs:
     timeout-minutes: 5
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' &&
        (github.event.workflow_run.head_branch == 'main' ||
         github.event.workflow_run.head_branch == 'develop'))
     outputs:
@@ -37,6 +36,7 @@ jobs:
       head_sha: ${{ steps.current.outputs.head_sha }}
       head_branch: ${{ steps.current.outputs.head_branch }}
       created_at: ${{ steps.current.outputs.created_at }}
+      conclusion: ${{ steps.current.outputs.conclusion }}
     permissions:
       contents: read
       actions: read
@@ -87,7 +87,7 @@ jobs:
               core.setFailed(`Source run ${runId} is ${workflowName}, expected CI`);
               return;
             }
-            if (conclusion !== 'success') {
+            if (context.eventName === 'workflow_dispatch' && conclusion !== 'success') {
               core.setFailed(`Source run ${runId} conclusion is ${conclusion}`);
               return;
             }
@@ -111,14 +111,17 @@ jobs:
             core.setOutput('head_sha', sha);
             core.setOutput('head_branch', branch);
             core.setOutput('created_at', createdAt);
+            core.setOutput('conclusion', conclusion);
             core.info(current
-              ? `Source commit ${sha} is current on ${branch}.`
+              ? `Source commit ${sha} is current on ${branch} with conclusion ${conclusion}.`
               : `Skipping stale source commit ${sha}; ${branch} is now ${response.data.commit.sha}.`);
 
   release:
     name: Create Snapshot Release
     needs: validate-run
-    if: needs.validate-run.outputs.current == 'true'
+    if: >
+      needs.validate-run.outputs.current == 'true' &&
+      needs.validate-run.outputs.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -152,30 +155,6 @@ jobs:
           pattern: sdk-*
           path: sdk
           merge-multiple: true
-
-      - name: Download C++ coverage badge
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.validate-run.outputs.run_id }}
-          name: cpp-coverage-badge
-          path: coverage-badges
-
-      - name: Download Python coverage badge
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.validate-run.outputs.run_id }}
-          name: python-coverage-badge
-          path: coverage-badges
-
-      - name: Download web coverage badge
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.validate-run.outputs.run_id }}
-          name: web-coverage-badge
-          path: coverage-badges
 
       - name: List firmware files
         run: ls -la firmware/
@@ -298,7 +277,6 @@ jobs:
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
-            coverage-badges/*.json
           draft: false
           prerelease: true
           make_latest: false
@@ -340,6 +318,91 @@ jobs:
                 asset_id: asset.id
               });
             }
+
+  publish-coverage:
+    name: Publish Coverage Badges
+    needs: [validate-run, release]
+    if: >
+      always() &&
+      needs.validate-run.result == 'success' &&
+      needs.validate-run.outputs.current == 'true' &&
+      (needs.validate-run.outputs.conclusion == 'success' ||
+       needs.validate-run.outputs.conclusion == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Download available coverage badges
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
+          pattern: '*-coverage-badge'
+          path: coverage-badges
+          merge-multiple: true
+
+      - name: Find available coverage badges
+        id: badges
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          badges=(coverage-badges/*.json)
+          if (( ${#badges[@]} == 0 )); then
+            echo "::warning::The source CI run produced no coverage badge artifacts."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf 'Publishing %s\n' "${badges[@]}"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Select rolling coverage tag
+        if: steps.badges.outputs.available == 'true'
+        id: coverage
+        shell: bash
+        run: |
+          if [ "${{ needs.validate-run.outputs.head_branch }}" = "develop" ]; then
+            echo "tag=snapshot-dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=snapshot" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Recheck source commit before publishing coverage
+        if: steps.badges.outputs.available == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SNAPSHOT_BRANCH: ${{ needs.validate-run.outputs.head_branch }}
+          SNAPSHOT_SHA: ${{ needs.validate-run.outputs.head_sha }}
+        with:
+          script: |
+            const branch = process.env.SNAPSHOT_BRANCH;
+            const expected = process.env.SNAPSHOT_SHA;
+            const response = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch
+            });
+            if (response.data.commit.sha !== expected) {
+              core.setFailed(`Refusing to publish stale coverage for ${expected}; ${branch} is now ${response.data.commit.sha}.`);
+            }
+
+      - name: Update rolling coverage assets
+        if: steps.badges.outputs.available == 'true'
+        shell: bash
+        env:
+          COVERAGE_TAG: ${{ steps.coverage.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$COVERAGE_TAG" >/dev/null 2>&1; then
+            echo "::warning::Release $COVERAGE_TAG does not exist yet; coverage badges were not published."
+            exit 0
+          fi
+          gh release upload "$COVERAGE_TAG" coverage-badges/*.json --clobber
 
   publish-pages:
     name: Publish Website

@@ -117,8 +117,9 @@ struct RuntimeConfig {
   /**
    * Stable device identity used by the ESPectre Protocol and CSI streaming.
    *
-   * Leave at zero to derive it from the Wi-Fi MAC via
-   * `derive_runtime_device_id()`.
+   * Assign `derive_runtime_device_id()` to use the SDK's stable pseudonym from
+   * the Wi-Fi MAC. Zero is an unresolved sentinel; the controller does not
+   * replace it automatically.
    */
   uint64_t device_id{0U};
   /** Detector evaluation cadence in milliseconds. */

@@ -13,9 +13,9 @@ from pathlib import Path
 
 METRIC_ORDER = ("lines", "branches", "functions")
 BADGE_LABELS = {
-    "cpp-runtime": "C++ runtime coverage",
-    "python": "Python coverage",
-    "web": "Web coverage",
+    "cpp-runtime": "c++ coverage",
+    "python": "python coverage",
+    "web": "web coverage",
 }
 WEB_SUMMARY_PATTERN = re.compile(
     r"(?m)^# all files\s*\|\s*(?P<lines>[0-9.]+)\s*"
@@ -74,11 +74,7 @@ def build_badge(kind: str, report_path: Path, thresholds_path: Path) -> dict:
     )
     return {
         "subject": BADGE_LABELS[kind],
-        "status": " | ".join(
-            f"{metric} {metrics[metric]:.2f}%"
-            for metric in METRIC_ORDER
-            if metric in metrics
-        ),
+        "status": f"{metrics['lines']:.2f}%",
         "color": "4c1" if passed else "e05d44",
     }
 

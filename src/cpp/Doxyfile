@@ -60,6 +60,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/direct_http_service.h \
                          src/cpp/runtime/ota_service.h \
                          src/cpp/runtime/firmware_version.h \
+                         src/cpp/runtime/esp_idf/device_identity.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
                          src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
                          src/cpp/core/espectre_log.h \

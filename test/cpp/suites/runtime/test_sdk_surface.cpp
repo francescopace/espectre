@@ -202,6 +202,12 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
   TEST_ASSERT_TRUE(config.device_id == ESPECTRE_DEFAULT_DEVICE_ID);
 }
 
+void test_runtime_device_identity_is_reachable_from_the_facade(void) {
+  TEST_ASSERT_TRUE(derive_runtime_device_id() != ESPECTRE_DEFAULT_DEVICE_ID);
+  TEST_ASSERT_EQUAL_STRING(format_espectre_device_id(derive_runtime_device_id()).c_str(),
+                           derive_runtime_device_id_string().c_str());
+}
+
 void test_kconfig_runtime_config_is_valid_and_ready_for_setup(void) {
   const RuntimeConfig config = make_runtime_sensing_config_from_kconfig();
 
@@ -345,6 +351,7 @@ int process(void) {
   RUN_TEST(test_invalid_log_sink_preserves_registration_and_valid_sink_can_be_replaced);
   RUN_TEST(test_sdk_version_macros_agree_with_each_other);
   RUN_TEST(test_default_runtime_config_is_a_working_sensing_config);
+  RUN_TEST(test_runtime_device_identity_is_reachable_from_the_facade);
   RUN_TEST(test_kconfig_runtime_config_is_valid_and_ready_for_setup);
   RUN_TEST(test_documented_defaults_sit_inside_documented_ranges);
   RUN_TEST(test_default_snapshot_is_not_publishable);
