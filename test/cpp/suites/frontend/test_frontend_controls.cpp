@@ -708,6 +708,52 @@ void test_sensing_switch_and_recalibrate_button_use_the_command_engine(void) {
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
 }
 
+void test_sensing_switch_initial_state_matches_runtime(void) {
+  for (bool direct_api : {true, false}) {
+    for (bool armed : {true, false}) {
+      ESpectreComponentProbe component;
+      SensingSwitchProbe sensing_switch;
+      sensing_switch.set_parent(&component);
+      component.set_sensing_switch(&sensing_switch);
+      component.set_direct_api(direct_api);
+      component.runtime_.set_services_armed(armed);
+
+      component.setup();
+
+      TEST_ASSERT_FALSE(component.is_failed());
+      TEST_ASSERT_EQUAL(armed, component.is_sensing_enabled());
+      TEST_ASSERT_EQUAL(armed, sensing_switch.state);
+    }
+  }
+}
+
+void test_motion_reset_is_published_when_runtime_is_not_ready(void) {
+  for (bool drain_motion_first : {true, false}) {
+    ESpectreComponentProbe component;
+    esphome::binary_sensor::BinarySensor motion_sensor;
+    component.set_motion_binary_sensor(&motion_sensor);
+    component.setup();
+
+    RuntimeSnapshot snapshot{};
+    snapshot.ready_to_publish = true;
+    snapshot.motion_state = MotionState::MOTION;
+    component.on_motion_state_changed(snapshot);
+    if (drain_motion_first) {
+      component.loop();
+      TEST_ASSERT_TRUE(motion_sensor.get_state());
+    }
+
+    // Disarming sensing and restarting CSI both emit this reset snapshot.
+    snapshot.ready_to_publish = false;
+    snapshot.motion_state = MotionState::IDLE;
+    component.on_motion_state_changed(snapshot);
+    component.loop();
+
+    TEST_ASSERT_TRUE(motion_sensor.has_state());
+    TEST_ASSERT_FALSE(motion_sensor.get_state());
+  }
+}
+
 void test_detector_select_switches_and_republishes_runtime_state(void) {
   ESpectreComponentProbe component;
   component.set_detection_algorithm("lightweight");
@@ -811,7 +857,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   component.loop();
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
   TEST_ASSERT_EQUAL_FLOAT(7.25f, movement_sensor.get_state());
-  TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(2, binary_sensor.get_publish_count());
   TEST_ASSERT_TRUE(binary_sensor.get_state());
 
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
@@ -1020,6 +1066,8 @@ int process(void) {
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_sensing_switch_and_recalibrate_button_use_the_command_engine);
+  RUN_TEST(test_sensing_switch_initial_state_matches_runtime);
+  RUN_TEST(test_motion_reset_is_published_when_runtime_is_not_ready);
   RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_traffic_mode_selects_switch_and_republish_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);

@@ -121,14 +121,14 @@ espectre:
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
 | `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0), published every `evaluation_interval_ms` |
-| `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
+| `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state; resets to idle when sensing stops or CSI restarts |
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` selection |
-| `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine |
+| `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine; publishes the runtime state at startup |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Read-only authoritative calibration state |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |

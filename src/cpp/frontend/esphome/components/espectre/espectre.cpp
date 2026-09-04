@@ -127,6 +127,9 @@ void ESpectreComponent::setup() {
     static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
         ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
+  if (this->sensing_switch_ != nullptr) {
+    static_cast<ESpectreSensingSwitch *>(this->sensing_switch_)->republish_state();
+  }
 
   if (!this->direct_api_enabled_) {
     ESP_LOGI(TAG, "Direct API disabled by ESPHome configuration");
@@ -867,9 +870,8 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
   }
-  if (snapshot.ready_to_publish) {
-    (void) this->runtime_events_.post_motion_state(snapshot);
-  }
+  // Runtime stop and CSI restart events reset motion before sensing is ready.
+  (void) this->runtime_events_.post_motion_state(snapshot);
 }
 
 void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
