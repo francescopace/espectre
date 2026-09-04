@@ -203,6 +203,9 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
                                                                                          const DirectRequest &request) {
   if (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid" ||
       request.command == "clear_wifi_credentials") {
+    if (owner_.runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+      return {false, handle_request_(request, connection_token), {}};
+    }
     EspectreCommand command;
     std::string parse_error;
     if (!direct_http_request_to_command(request, &command, &parse_error)) {

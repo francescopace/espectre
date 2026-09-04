@@ -177,7 +177,8 @@ void HomeAssistantMqttFrontend::drain_pending_snapshot() {
     pending_discovery_.clear();
     pending_discovery_index_ = 0U;
   }
-  if (pending_state_ && transport_->diagnostics().queued_publishes == 0U) {
+  if (pending_state_ && owner_.runtime_.snapshot().ready_to_publish &&
+      transport_->diagnostics().queued_publishes == 0U) {
     pending_state_ = false;
     publish_current_state();
   }

@@ -112,6 +112,7 @@ class NativeFrontend : public IRuntimeListener {
   std::unique_ptr<NativeDirectFrontend> direct_frontend_;
   std::unique_ptr<NativeMqttFrontend> mqtt_frontend_;
   bool ota_frontend_quiesced_{false};
+  bool ota_services_were_armed_{false};
   bool wifi_reconfigure_quiesced_{false};
   bool wifi_reconfigure_resume_pending_{false};
   bool protocol_recalibration_command_active_{false};

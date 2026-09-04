@@ -121,6 +121,7 @@ Native uses the shared ESP-IDF HTTPS OTA service. Direct exposes the `ota` resou
 - Clients cannot override the manifest host, image URL, chip, or target version.
 - The HTTPS service downloads only a strictly newer release, prerelease, or rolling `git describe` identity; stale manifests cannot trigger a downgrade.
 - A successful update schedules a reboot into the new OTA slot.
+- A failed update restores Direct HTTP and MQTT; sensing resumes only if it was enabled before the update.
 - Reconnection republishes device identity, online status, and OTA state.
 - USB reflashing with the full factory image remains the recovery path when OTA cannot complete.
 

@@ -471,6 +471,52 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, frontend.runtime_.operation_state());
 }
 
+void test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection(void) {
+  frontend_runtime_shim::state.snapshot = make_ready_snapshot();
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  MockDirectHttpService direct;
+  NativeFrontend frontend(nullptr, nullptr, &direct);
+  EspectreDeviceConfig config;
+  config.device_id = 0x112233445566ULL;
+  frontend.set_device_config(config);
+  EspectreDeviceInfo info;
+  info.chip = "esp32c3";
+  info.network.ip_address = "192.168.1.23";
+  frontend.set_device_info(info);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  frontend.set_wifi_provisioning_info(wifi);
+  int provisioning_calls = 0;
+  frontend.set_provisioning_command_callback(
+      [&provisioning_calls](const std::string &, std::string *) {
+        ++provisioning_calls;
+        return true;
+      });
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(direct.emit_raw_session_request());
+
+  for (const DirectRequest &request : {
+           DirectRequest{"wifi-pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"},
+           DirectRequest{"wifi-unpin", "clear_wifi_bssid", "{}"},
+           DirectRequest{"wifi-clear", "clear_wifi_credentials", "{}"}}) {
+    const auto result = direct.emit_deferred_request(77U, request);
+    TEST_ASSERT_FALSE(result.deferred);
+    TEST_ASSERT_FALSE(static_cast<bool>(result.response_sent_callback));
+    TEST_ASSERT_TRUE(result.response.find("\"accepted\":false") != std::string::npos);
+    TEST_ASSERT_TRUE(result.response.find("\"code\":\"busy_raw_collection\"") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING(direct.emit_request(request).c_str(), result.response.c_str());
+  }
+  TEST_ASSERT_EQUAL(0, provisioning_calls);
+  TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::REQUESTED));
+
+  auto result = direct.emit_deferred_request(77U, DirectRequest{"wifi-unpin", "clear_wifi_bssid", "{}"});
+  TEST_ASSERT_TRUE(result.response.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL(0, provisioning_calls);
+  TEST_ASSERT_TRUE(static_cast<bool>(result.response_sent_callback));
+  result.response_sent_callback(true);
+  TEST_ASSERT_EQUAL(1, provisioning_calls);
+}
+
 void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out(void) {
   MockMqttTransport mqtt;
   MockDirectHttpService direct;
@@ -560,6 +606,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_keeps_direct_available_for_a_legacy_mqtt_endpoint);
   RUN_TEST(test_native_frontend_direct_set_sensing_is_correlated);
   RUN_TEST(test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet);
+  RUN_TEST(test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection);
   RUN_TEST(test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out);
   return UNITY_END();
 }

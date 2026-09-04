@@ -122,6 +122,36 @@ void test_native_frontend_ota_prepare_quiesces_transports_and_recovers_on_error(
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
 }
 
+void test_native_frontend_ota_error_restores_the_previous_sensing_state(void) {
+  MockOtaService ota;
+  MockDirectHttpService direct;
+  NativeFrontend frontend(nullptr, &ota, &direct);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  frontend.set_wifi_provisioning_info(wifi);
+  EspectreDeviceInfo info;
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  for (bool enabled : {false, true, false}) {
+    const std::string response = direct.emit_request(
+        DirectRequest{"sensing", "update_sensing", enabled ? "{\"enabled\":true}" : "{\"enabled\":false}"});
+    TEST_ASSERT_TRUE(response.find("\"accepted\":true") != std::string::npos);
+    TEST_ASSERT_EQUAL(enabled, frontend_runtime_shim::state.services_armed);
+    ota.emit_prepare();
+    ota.emit_prepare();
+    TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+    TEST_ASSERT_FALSE(direct.running());
+
+    EspectreOtaStatus error;
+    error.state = EspectreOtaState::ERROR;
+    ota.emit_status(error);
+    TEST_ASSERT_TRUE(direct.running());
+    TEST_ASSERT_EQUAL(enabled, frontend_runtime_shim::state.services_armed);
+  }
+}
+
 void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
   MockOtaService ota;
   MockDirectHttpService direct;
@@ -181,6 +211,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_mqtt_connect_publishes_current_ota_state);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
   RUN_TEST(test_native_frontend_ota_prepare_quiesces_transports_and_recovers_on_error);
+  RUN_TEST(test_native_frontend_ota_error_restores_the_previous_sensing_state);
   RUN_TEST(test_native_frontend_direct_ota_returns_status_and_streams_updates);
   return UNITY_END();
 }

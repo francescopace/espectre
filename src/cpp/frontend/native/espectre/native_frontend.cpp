@@ -404,6 +404,7 @@ void NativeFrontend::prepare_for_ota_() {
     return;
   }
   ota_frontend_quiesced_ = true;
+  ota_services_were_armed_ = runtime_.services_armed();
   mqtt_frontend_->shutdown();
   direct_frontend_->shutdown();
   runtime_.quiesce_for_ota();
@@ -414,9 +415,10 @@ void NativeFrontend::resume_after_ota_error_() {
     return;
   }
   ota_frontend_quiesced_ = false;
-  if (direct_frontend_->wifi_configured()) {
+  if (ota_services_were_armed_ && direct_frontend_->wifi_configured()) {
     runtime_.set_services_armed(true);
   }
+  ota_services_were_armed_ = false;
   mqtt_frontend_->setup();
   direct_frontend_->refresh();
 }

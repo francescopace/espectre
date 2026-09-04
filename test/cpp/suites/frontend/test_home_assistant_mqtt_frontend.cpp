@@ -395,6 +395,34 @@ void test_native_frontend_retries_the_complete_ha_snapshot_after_queue_backpress
       "homeassistant/sensor/native_0000111122223333_csi_occupancy/config", ""));
 }
 
+void test_native_frontend_defers_initial_ha_state_until_sensing_is_ready(void) {
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000111122223333ULL;
+  config.mqtt_scheme = "mqtt";
+  config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
+
+  NativeFrontend frontend(&mqtt);
+  frontend.set_runtime_config(RuntimeConfig{});
+  frontend.set_device_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.snapshot().ready_to_publish);
+  mqtt.emit_connection(true);
+  frontend.loop();
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/motion_on_hits/state"));
+
+  frontend_runtime_shim::state.last_listener->on_periodic_update(make_ready_snapshot(), 100U);
+  frontend.loop();
+  for (const char *suffix : {"motion", "movement", "threshold", "motion_on_hits", "motion_off_hits",
+                             "calibrate", "detector", "csi_traffic_mode", "traffic_generator_mode"}) {
+    TEST_ASSERT_TRUE(has_mqtt_publish(std::string("espectre/v1/devices/0000111122223333/ha/") + suffix + "/state"));
+  }
+  mqtt_transport_mock::state.publishes.clear();
+  frontend.loop();
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
+}
+
 void test_native_frontend_ha_entities_follow_esphome_cadences(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
   MockMqttTransport mqtt;
@@ -716,6 +744,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_birth_topics);
   RUN_TEST(test_native_frontend_ha_birth_message_republishes_discovery_and_state);
   RUN_TEST(test_native_frontend_retries_the_complete_ha_snapshot_after_queue_backpressure);
+  RUN_TEST(test_native_frontend_defers_initial_ha_state_until_sensing_is_ready);
   RUN_TEST(test_native_frontend_ha_entities_follow_esphome_cadences);
   RUN_TEST(test_native_frontend_ha_threshold_command_updates_runtime);
   RUN_TEST(test_native_frontend_ha_motion_hits_commands_update_runtime);
