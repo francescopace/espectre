@@ -1,0 +1,75 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">CSI visualizer</h1>
+<p class="page-sub">Explore live Wi-Fi Channel State Information through amplitude, phase, and I/Q views. This advanced view pauses normal motion sensing while the signal stream is running.</p>
+
+<section class="tool-static-entry" aria-labelledby="raw-csi-static-title">
+  <h2 id="raw-csi-static-title">Inspect the signal behind detection</h2>
+  <p>The CSI visualizer renders amplitude, change, phase, and I/Q views from a temporary stream produced by compatible firmware. It also reports delivery rate, dropped packets, RSSI, SNR, and capture timing.</p>
+  <p>Starting the stream pauses normal motion sensing until you stop it. Signal data travels directly from the selected device to this browser and is not uploaded or stored by the website.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-raw-csi" class="btn-primary">Open the CSI visualizer</a>
+    <a href="/guides/detection/" class="btn-secondary">Understand CSI detection</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <div class="js-raw-csi-onboarding">
+    <espectre-connection-picker data-surface="raw-csi"></espectre-connection-picker>
+  </div>
+
+  <section class="device-connect-card connection-card empty-state js-raw-csi-unavailable" hidden>
+    <span class="connection-card-eyebrow">Compatible firmware required</span>
+    <h2>This device cannot open the CSI visualizer</h2>
+    <p>The installed firmware does not support the CSI visualizer.</p>
+    <div class="panel-actions">
+      <button type="button" class="btn-primary js-raw-csi-choose-device">Choose another device</button>
+    </div>
+  </section>
+
+  <div class="js-raw-csi-workspace" hidden>
+    <section class="panel raw-csi-visualizer">
+      <div class="raw-csi-visualizer-head">
+        <div>
+          <div class="raw-csi-visualizer-title">
+            <h2 class="js-raw-visualization-title">Subcarrier amplitudes</h2>
+            <span class="chip js-raw-visualization-badge">LIVE</span>
+          </div>
+          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Each line tracks one subcarrier across the rolling time window. Colors distinguish lower, middle, and higher frequencies.</p>
+        </div>
+        <div class="raw-csi-visualization-actions">
+          <button type="button" class="btn-primary btn-sm js-raw-csi-toggle">Start</button>
+          <div class="field raw-csi-visualization-picker">
+            <select id="raw-csi-visualization" class="js-raw-visualization-select" aria-label="Visualization">
+              <option value="subcarrier-amplitudes">Subcarrier amplitudes</option>
+              <option value="csi-amplitude-surface">CSI amplitude surface</option>
+              <option value="channel-profile-deviation">Channel profile deviation</option>
+              <option value="iq-constellation">I/Q constellation</option>
+              <option value="relative-phase-trails">Relative phase trails</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="raw-csi-visualization-stage">
+        <canvas class="js-raw-visualization" width="960" height="420" aria-label="Rolling CSI amplitude traces for each active subcarrier"></canvas>
+      </div>
+      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the temporary signal stream when ready. Nothing is uploaded or stored.</p>
+      <p class="tool-note js-raw-csi-external-hint" hidden>This device is waiting for an external Wi-Fi traffic source. If the view stays empty, <a href="/tools/device-settings/">change the traffic source</a>.</p>
+    </section>
+
+    <details class="device-live-diagnostics raw-csi-diagnostics">
+      <summary><span>Diagnostics</span><small>Stream delivery, signal, and channel health</small></summary>
+      <div class="diag-grid raw-csi-stats">
+        <div class="stat"><div class="stat-label">Packets/s</div><div class="stat-value js-raw-pps">0</div></div>
+        <div class="stat"><div class="stat-label">Fresh</div><div class="stat-value js-raw-fresh">0</div></div>
+        <div class="stat"><div class="stat-label">Dropped</div><div class="stat-value js-raw-dropped">0</div></div>
+        <div class="stat"><div class="stat-label">Backpressure</div><div class="stat-value js-raw-backpressure">0</div></div>
+        <div class="stat"><div class="stat-label">Interval (ms)</div><div class="stat-value js-raw-capture-interval">—</div></div>
+        <div class="stat"><div class="stat-label">RSSI (dBm)</div><div class="stat-value js-raw-rssi">—</div></div>
+        <div class="stat"><div class="stat-label">SNR (dB)</div><div class="stat-value js-raw-snr">—</div></div>
+      </div>
+    </details>
+  </div>
+</div>

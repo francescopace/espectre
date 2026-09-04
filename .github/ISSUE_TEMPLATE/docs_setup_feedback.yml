@@ -1,0 +1,65 @@
+name: Docs, setup, or UX feedback
+description: Report unclear instructions, missing documentation, or setup problems
+title: "[DOCS] "
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Choose the page, tool, or setup step that needs work.
+      options:
+        - README
+        - Setup guide
+        - Firmware README
+        - Web Flash and installation
+        - Web provisioning and Configure
+        - Web Monitor and live detector
+        - Raw CSI and interactive web tools
+        - CLI UX
+        - Website guides, content, or navigation
+        - GitHub templates / CI UX
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      description: Which firmware were you using? Choose all that apply.
+      multiple: true
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Micro-ESPectre
+        - Shared across firmware
+        - Not tied to firmware
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What was confusing or missing?
+      placeholder: "I followed the Matter setup guide but could not tell when the commissioning window should open."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expectation
+    attributes:
+      label: What would have helped?
+      placeholder: "A short note after flashing that explains the expected commissioning behavior."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant context
+      description: Include the page, command, screenshot, or setup step.
+      placeholder: |
+        Page or file:
+        Exact command:
+        Screenshot or log:

@@ -1,0 +1,111 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<div class="licensing-page" data-page-toc>
+  <h1 class="page-title">Commercial licensing</h1>
+  <p class="page-sub">Embed ESPectre’s shared sensing layers in proprietary ESP-IDF firmware under separate commercial terms.</p>
+
+  <section class="docs-start" aria-labelledby="licensing-start-title">
+    <div class="docs-start-copy">
+      <span class="guide-tag">FOR PRODUCT TEAMS</span>
+      <h2 id="licensing-start-title" data-toc-label="Choose a path">Choose the licensing path that fits your firmware.</h2>
+      <p>ESPectre is available under GPLv3 for open-source use. A separate commercial agreement is available when GPLv3 source-disclosure obligations do not fit a proprietary product.</p>
+    </div>
+    <div class="docs-start-actions">
+      <a href="mailto:contact@espectre.dev?subject=Commercial%20licensing%20inquiry" class="btn-primary">Email us</a>
+      <a href="https://github.com/francescopace/espectre/blob/main/LICENSING.md" target="_blank" rel="noopener" class="btn-secondary">Read full licensing terms ↗</a>
+    </div>
+  </section>
+
+  <section class="docs-section" aria-labelledby="licensing-paths-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">TWO PATHS</span>
+      <h2 id="licensing-paths-title" data-toc-label="Licensing paths">Open source or proprietary.</h2>
+      <p>The sensing engine is the same; the obligations and permitted distribution model differ.</p>
+    </div>
+    <div class="docs-paths">
+      <article class="docs-path">
+        <span class="docs-path-label">GPLv3</span>
+        <h3>Open-source firmware</h3>
+        <p>Use, study, modify, and redistribute ESPectre while complying with GPLv3, including the corresponding-source obligations that apply to firmware and applications containing it.</p>
+        <span class="docs-path-meta">Public license · source-disclosure obligations</span>
+      </article>
+      <article class="docs-path docs-path-recommended">
+        <span class="docs-path-label">COMMERCIAL</span>
+        <h3>Proprietary firmware</h3>
+        <p>Discuss separate terms for embedding eligible ESPectre core, runtime, Native, or Matter material without applying GPLv3 source-disclosure obligations to your proprietary integration.</p>
+        <span class="docs-path-meta">Separate agreement · product-specific scope</span>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">BOUNDARY</span>
+        <h3>ESPHome remains GPLv3</h3>
+        <p>The ESPHome C++ frontend combines with the GPLv3-only ESPHome runtime and is not part of the commercial firmware SDK path.</p>
+        <span class="docs-path-meta">Third-party terms continue to apply</span>
+      </article>
+    </div>
+  </section>
+
+  <section class="docs-section" aria-labelledby="licensing-scope-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">INTEGRATION SCOPE</span>
+      <h2 id="licensing-scope-title" data-toc-label="Integration boundary">Add sensing without handing over your product architecture.</h2>
+      <p>Your firmware can keep ownership of product behavior while ESPectre supplies the reusable sensing path.</p>
+    </div>
+    <div class="docs-paths">
+      <article class="docs-path">
+        <span class="docs-path-label">ESPectre</span>
+        <h3>Sensing engine</h3>
+        <p>CSI capture, calibration, detection, runtime events, and the supported shared integration layers.</p>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">YOUR PRODUCT</span>
+        <h3>Product behavior</h3>
+        <p>Boot, networking, storage, OTA, UI, application logic, and the way motion events affect the product.</p>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">TERMS</span>
+        <h3>Defined agreement</h3>
+        <p>Commercial coverage is limited to material the maintainer can license and does not replace third-party license, trademark, or media terms.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="docs-section" aria-labelledby="licensing-services-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">ENGINEERING SERVICES</span>
+      <h2 id="licensing-services-title" data-toc-label="Engineering support">Integration support for product firmware.</h2>
+      <p>Optional engineering services can help product teams integrate, validate, and adapt ESPectre within an existing ESP-IDF firmware architecture.</p>
+    </div>
+    <div class="docs-paths">
+      <article class="docs-path">
+        <span class="docs-path-label">PLAN</span>
+        <h3>Architecture review</h3>
+        <p>Identify the appropriate SDK boundary, detector profile, resource budget, and ownership split for the product.</p>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">INTEGRATE</span>
+        <h3>Firmware integration</h3>
+        <p>Support CSI capture, runtime lifecycle, event mapping, build integration, and adaptation to product-specific services.</p>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">VALIDATE</span>
+        <h3>Validation and tuning</h3>
+        <p>Evaluate CPU and memory use, reconnect behavior, sensing performance, calibration, and deployment-specific constraints.</p>
+      </article>
+    </div>
+    <p>Engineering services are scoped and quoted separately. A commercial license does not include support, maintenance, or service-level commitments unless they are expressly included in a written agreement.</p>
+  </section>
+
+  <section class="docs-start" aria-labelledby="licensing-contact-title">
+    <div class="docs-start-copy">
+      <span class="guide-tag">NEXT STEP</span>
+      <h2 id="licensing-contact-title" data-toc-label="Contact">Tell us what you are building.</h2>
+      <p>Share the ESP32 target, the ESPectre layers you expect to use, whether the firmware will remain proprietary, and any integration support you need. Do not include credentials, pairing codes, or device secrets.</p>
+    </div>
+    <div class="docs-start-actions">
+      <a href="mailto:contact@espectre.dev?subject=Commercial%20licensing%20and%20firmware%20integration%20inquiry" class="btn-primary">Email us</a>
+      <a href="/sdk/" class="btn-secondary">Explore the SDK</a>
+    </div>
+  </section>
+</div>

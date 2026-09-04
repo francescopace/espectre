@@ -1,493 +1,113 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![ESPHome](https://img.shields.io/badge/ESPHome-Component-blue.svg)](https://esphome.io/)
 [![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
-[![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
+[![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![Web coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 
-# 🛜 ESPectre 👻
+<h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
-**Motion detection system based on Wi-Fi spectre analysis (CSI), with native Home Assistant integration via ESPHome.**
+**Turn an ESP32 into a private, local Wi-Fi motion sensor.**
 
-> [!TIP]
-> **New ML Detector**: Neural network-based motion detection. No calibration required, runs on-device. This is an experimental feature, and feedback is welcome in the dedicated [ML detector discussion](https://github.com/francescopace/espectre/discussions/126). A [snapshot build](https://github.com/francescopace/espectre/releases/tag/snapshot) with the latest changes is also available (use `-ml` assets for the machine learning based detector), or follow [Setup guide](SETUP.md#choosing-detection-algorithm) for custom configuration.
+When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes and reports motion in real time. No camera, no microphone, no wearable, and no dedicated radar hardware: just a supported ESP32 and the Wi-Fi network already in the room.
 
----
+**ESPectre** is an open-source platform that brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
 
-## Table of Contents
+[Flash from your browser](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
-- [In 3 Points](#in-3-points)
-- [What You Need](#what-you-need)
-- [Quick Start](#quick-start)
-- [How It Works](#how-it-works-simple-version)
-- [What You Can Do With It](#what-you-can-do-with-it)
-- [Sensor Placement Guide](#where-to-place-the-sensor)
-- [System Architecture](#system-architecture)
-- [FAQ](#faq-for-beginners)
-- [Security and Privacy](#security-and-privacy)
-- [Technical Deep Dive](#technical-deep-dive)
-- [Two-Platform Strategy](#two-platform-strategy)
-- [Future Evolution](#future-evolution)
-- [Documentation](#documentation)
-- [Media](#media)
-- [Related Projects](#related-projects)
-- [Acknowledgments](#acknowledgments)
-- [License](#license)
-- [Author](#author)
+## Applications and integrations
 
----
+ESPectre can turn on a display or lights when it detects motion, adjust heating and cooling in response to room activity, trigger an alarm or notification when movement occurs in an area that should be empty, and drive other room automations. It connects to Home Assistant through ESPHome or MQTT, exposes a standard Matter occupancy sensor and a local Direct HTTP API, and can be embedded in custom ESP32 firmware through the C++ SDK.
 
-## In 3 Points
+ESPectre processes CSI on the device and reports a motion state and movement score. Applications can react without sending raw sensing data to a cloud service. One board covers one sensing area; room-level coverage normally requires one board per room.
 
-1. **What it does**: Detects movement using Wi-Fi (no cameras, no microphones)
-2. **What you need**: A ~€10 ESP32 device (S3 and C6 recommended, other variants supported)
-3. **Setup time**: 10-15 minutes
+ESPectre detects changes in the radio environment. It does not identify people, count them, prove that a room is empty, or replace a safety-certified security, medical, or emergency system.
 
----
+## Supported hardware
 
-## What You Need
+- ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, ESP32-S2, and classic ESP32
+- a normal Wi-Fi 4 (802.11n) network on 2.4 GHz
 
-### Hardware
+## Choose a firmware path
 
-- **2.4GHz Wi-Fi Router** - the one you already have at home works fine
-- **ESP32 with CSI support** - ESP32-C6, ESP32-S3, ESP32-C3, ESP32 (original) or other variants. See [SETUP.md](SETUP.md) for the complete platform comparison table.
+| Path | Best for | Start here |
+|---|---|---|
+| **Native** | Standalone sensors, MQTT integrations, including Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
+| **ESPHome** | Home Assistant users who want native entities, ESPHome provisioning, and Device Builder updates | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
+| **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
+| **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
-![3 x ESP32-S3 DevKit bundle with external antennas](images/home_lab.jpg)
-*ESP32-S3 DevKit with external antennas*
+Native, ESPHome, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profile-availability), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
 
-### Software (All Free)
+## Quick start
 
-- **Home Assistant** (on Raspberry Pi, PC, NAS, or cloud)
-- **ESPHome** (integrated in Home Assistant or standalone)
+The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Device settings and Monitor is not guaranteed:
 
-### Required Skills
+1. Open [Flash](https://espectre.dev/tools/flash/) in desktop Chrome or Edge.
+2. Connect a [supported ESP32](#supported-hardware) over USB, then choose a firmware and release channel.
+3. Complete on-screen Wi-Fi provisioning, or commission Matter with a supported controller.
+4. Optionally, open [Device settings](https://espectre.dev/tools/device-settings/) to pin a preferred access point or set up MQTT.
+5. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
 
-- **Basic YAML knowledge** for configuration
-- **Home Assistant familiarity** (optional but recommended)
-- **NO** programming required
-- **NO** router configuration needed
+![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
 
----
+> **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.
+> See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
 
-## Quick Start
+## Local setup
 
-**Setup time**: ~10-15 minutes  
-**Difficulty**: Easy (YAML configuration only)
+For local builds, flashing from this repository, and the rest of the operator path, start with [SETUP.md](docs/SETUP.md). The repository wrapper exposes the available workflows through:
 
-1. **Setup & Installation**: Follow the complete guide in [SETUP.md](SETUP.md)
-2. **Tuning**: Optimize for your environment with [TUNING.md](TUNING.md)
-
-![ESPectre Home Assistant Dashboard](images/espectre-home-assistant.png)
-*Home Assistant dashboard with real-time motion detection, threshold control, and debug sensors*
-
----
-
-## How It Works
-
-When someone moves in a room, they "disturb" the Wi-Fi waves traveling between the router and the sensor. It's like when you move your hand in front of a flashlight and see the shadow change.
-
-The ESP32 device "listens" to these changes and understands if there's movement.
-
-### Advantages
-
-- **No cameras** (total privacy)
-- **No wearables needed** (no bracelets or sensors to wear)
-- **Works through walls** (Wi-Fi passes through walls)
-- **Very cheap** (~€10 total)
-
-Want to understand the technical details? See [ALGORITHMS.md](micro-espectre/ALGORITHMS.md) for CSI explanation and signal processing documentation.
-
----
-
-## What You Can Do With It
-
-### Practical Examples
-
-- **Home security**: Get an alert if someone enters while you're away
-- **Elderly care**: Monitor activity to detect falls or prolonged inactivity
-- **Smart automation**: Turn on lights/heating only when someone is present
-- **Energy saving**: Automatically turn off devices in empty rooms
-- **Child monitoring**: Alert if they leave the room during the night
-- **Climate control**: Heat/cool only occupied zones
-
----
-
-## Where to Place the Sensor
-
-Optimal sensor placement is crucial for reliable movement detection.
-
-### Recommended Distance from Router
-
-**Optimal range: 3-8 meters**
-
-| Distance | Signal | Multipath | Sensitivity | Noise | Recommendation |
-|----------|--------|-----------|-------------|-------|----------------|
-| < 2m | Too strong | Minimal | Low | Low | ❌ Too close |
-| 3-8m | Strong | Good | High | Low | ✅ **Optimal** |
-| > 10-15m | Weak | Variable | Low | High | ❌ Too far |
-
-### Placement Tips
-
-**Do:**
-- Position sensor in the area to monitor (not necessarily in direct line with router)
-- Height: 1-1.5 meters from ground (desk/table height)
-- External antenna: Use IPEX connector for better reception
-
-**Don't:**
-- Avoid metal obstacles between router and sensor (refrigerators, metal cabinets)
-- Avoid corners or enclosed spaces (reduces multipath diversity)
-
----
-
-## System Architecture
-
-### Processing Pipeline
-
-ESPectre uses a focused processing pipeline for motion detection:
-
+```bash
+./espectre --help
 ```
-┌─────────────┐
-│  CSI Data   │  Raw Wi-Fi Channel State Information
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Gain Lock  │  AGC/FFT stabilization (~3 seconds)
-│             │  Locks hardware gain for stable measurements
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│    Auto     │  Automatic subcarrier selection (once at boot)
-│ Calibration │  Selects optimal 12 subcarriers (NBVI)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Adaptive   │  auto: P95 × 1.1 | min: P100
-│  Threshold  │  or fixed manual value
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│   Hampel    │  Turbulence outlier removal
-│   Filter    │  (enabled by default)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Low-pass   │  Noise reduction (smoothing)
-│   Filter    │  (optional, disabled by default)
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Detection   │  MVS or ML score
-│ Evaluation  │  every evaluation_interval packets
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Hit Filter  │  motion_on_hits / motion_off_hits
-│             │  edge-driven IDLE ↔ MOTION
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ Home        │  Edge-driven motion binary +
-│ Assistant   │  periodic Movement Score / Threshold
-└─────────────┘
-```
-
-### Single or Multiple Sensors
-
-```
-┌─────────┐  ┌─────────┐  ┌─────────┐
-│ ESP32   │  │ ESP32   │  │ ESP32   │
-│ Room 1  │  │ Room 2  │  │ Room 3  │
-└────┬────┘  └────┬────┘  └────┬────┘
-     │            │            │
-     └────────────┴────────────┘
-                  │
-                  │ ESPHome Native API
-                  ▼
-         ┌────────────────────┐
-         │   Home Assistant   │
-         │   (Auto-discovery) │
-         └────────────────────┘
-```
-
-Each sensor is automatically discovered by Home Assistant with:
-- Binary sensor for motion detection, published immediately on state edges
-- Movement score sensor, published on the periodic cadence
-- Adjustable threshold (number entity)
-
-### Automatic Subcarrier Selection
-
-ESPectre implements **NBVI** (Normalized Band Variance Index) for automatic subcarrier selection, achieving near-optimal performance (F1>96%) with **zero manual configuration**. The algorithm selects 12 non-consecutive subcarriers based on stability metrics and spectral diversity.
-
-> ⚠️ **IMPORTANT** (MVS mode): Keep the room **quiet and still** for 10 seconds after device boot. The auto-calibration runs during this time and movement will affect detection accuracy. ML mode skips calibration.
-
-For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#subcarrier-selection-nbvi).
-
----
-
-## FAQ for Beginners
-
-<details>
-<summary>Click to expand FAQ</summary>
-
-**Q: Do I need programming knowledge to use it?**  
-A: No! ESPectre uses YAML configuration files. Just download the example, flash it, and configure WiFi via the ESPHome app or web interface.
-
-**Q: Does it work with my router?**  
-A: Yes, if your router has 2.4GHz Wi-Fi (virtually all modern routers have it).
-
-**Q: How much does it cost in total?**  
-A: Hardware: ~€10 for an ESP32 device (S3/C6 recommended, other variants also work). Software: All free and open source. You'll also need Home Assistant running somewhere (Raspberry Pi ~€35-50, or any existing PC/NAS).
-
-**Q: Do I need to modify anything on the router?**  
-A: No! The router works normally. The sensor "listens" to Wi-Fi signals without modifying anything.
-
-**Q: Does it work through walls?**  
-A: Yes, the 2.4GHz Wi-Fi signal penetrates drywall. Reinforced concrete walls reduce sensitivity but detection remains possible at reduced distances.
-
-**Q: How many sensors are needed for a house?**  
-A: It depends on size. One sensor can monitor ~50 m². For larger homes, use multiple sensors (1 sensor every 50-70 m² for optimal coverage).
-
-**Q: Can it distinguish between people and pets?**  
-A: The system uses a 2-state segmentation model (IDLE/MOTION) that identifies generic movement without distinguishing between people, pets, or other moving objects. For more sophisticated classification (people vs pets, activity recognition, gesture detection), trained AI/ML models would be required (see [Future Evolution](#future-evolution) section).
-
-**Q: Does it work with mesh Wi-Fi networks?**  
-A: Yes, it works normally. Make sure the ESP32 connects to the 2.4 GHz band.
-
-**Q: How accurate is the detection?**  
-A: Detection accuracy is highly environment-dependent and requires proper tuning. Factors affecting performance include: room layout, wall materials, furniture placement, distance from router (optimal: 3-8m), and interference levels. In optimal conditions with proper tuning, the system provides reliable movement detection. Adjust the `segmentation_threshold` parameter to tune sensitivity for your specific environment.
-
-**Q: What's the power consumption?**  
-A: ~500mW typical during continuous operation. The firmware includes support for power optimization, and deep sleep modes can be implemented for battery-powered deployments, though this would require custom modifications to the code.
-
-**Q: If it doesn't work, can I get help?**  
-A: Yes, open an [Issue on GitHub](https://github.com/francescopace/espectre/issues) or contact me via email.
-
-</details>
-
----
-
-## Security and Privacy
-
-<details>
-<summary>Privacy, Security & Ethical Considerations (click to expand)</summary>
-
-### Nature of Collected Data
-
-The system collects **anonymous data** related to the physical characteristics of the Wi-Fi radio channel:
-- Amplitudes and phases of OFDM subcarriers
-- Statistical signal variances
-- **NOT collected**: personal identities, communication contents, images, audio
-
-CSI data represents only the properties of the transmission medium and does not contain direct identifying information.
-
-### Privacy Advantages
-
-- **No cameras**: Respect for visual privacy
-- **No microphones**: No audio recording
-- **No wearables**: Doesn't require wearable devices
-- **Aggregated data**: Only statistical metrics, not raw identifying data
-
-### ⚠️ Disclaimer and Ethical Considerations
-
-**WARNING**: Despite the intrinsic anonymity of CSI data, this system can be used for:
-
-- **Non-consensual monitoring**: Detecting presence/movement of people without their explicit consent
-- **Behavioral profiling**: With advanced AI models, inferring daily life patterns
-- **Domestic privacy violation**: Tracking activities inside private homes
-
-### Usage Responsibility
-
-**The user is solely responsible for using this system and must:**
-
-1. **Obtain explicit consent** from all monitored persons
-2. **Respect local regulations** (GDPR in EU, local privacy laws)
-3. **Clearly inform** about the presence of the sensing system
-4. **Limit use** to legitimate purposes (home security, personal home automation)
-5. **Protect data** with encryption and controlled access
-6. **DO NOT use** for illegal surveillance, stalking, or violation of others' privacy
-
-</details>
-
----
-
-## Technical Deep Dive
-
-For algorithm details (MVS, NBVI calibration, Hampel filter), see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md).
-
-For performance metrics (confusion matrix, F1-score, benchmarks), see [PERFORMANCE.md](PERFORMANCE.md).
-
----
-
-## Two-Platform Strategy
-
-This project follows a **dual-platform approach** to balance innovation speed with production stability:
-
-### ESPectre (This Repository) - Production Platform
-
-**Target**: End users, smart home enthusiasts, Home Assistant users
-
-- **ESPHome component** with native Home Assistant integration
-- **YAML configuration** - no programming required
-- **Auto-discovery** - devices appear automatically in Home Assistant
-- **Production-ready** - stable, tested, easy to deploy
-- **Demonstrative** - showcases research results in a user-friendly package
-
-### [Micro-ESPectre](micro-espectre/) - R&D Platform
-
-**Target**: Researchers, developers, academic/industrial applications
-
-- **Python/MicroPython** implementation for rapid prototyping
-- **MQTT-based** - flexible integration (not limited to Home Assistant)
-- **Fast iteration** - test new algorithms in seconds, not minutes
-- **Analysis tools** - comprehensive suite for CSI data analysis
-- **Use cases**: Academic research, industrial sensing, algorithm development
-
-Micro-ESPectre gives you the fundamentals for:
-- **People counting**
-- **Activity recognition** (walking, falling, sitting, sleeping)
-- **Localization and tracking**
-- **Gesture recognition**
-
-### Development Flow
-
-```
-┌─────────────────────┐     Validated      ┌──────────────────────┐
-│   Micro-ESPectre    │ ─────────────────► │      ESPectre        │
-│   (R&D Platform)    │    algorithms      │ (Production Platform)│
-│                     │                    │                      │
-│ • Fast prototyping  │                    │ • ESPHome component  │
-│ • Algorithm testing │                    │ • Home Assistant     │
-│ • Data analysis     │                    │ • End-user ready     │
-│ • MQTT flexibility  │                    │ • Native API         │
-└─────────────────────┘                    └──────────────────────┘
-```
-
-**Innovation cycle**: New features and algorithms are first developed and validated in Micro-ESPectre (Python), then ported to ESPectre (C++) once proven effective.
-
----
-
-## Future Evolution
-
-While ESPectre v2.x focuses on **motion detection** (MVS + automatic subcarrier selection), the project is exploring machine learning capabilities for advanced applications:
-
-| Capability | Status | Description |
-|------------|--------|-------------|
-| **ML Detector** | Experimental | Neural network (MLP 9→32→16→1)|
-| **Gesture Recognition** | Planned | Detect hand gestures (swipe, push, circle) for smart home control |
-| **Human Activity Recognition** | Planned | Identify activities (sitting, walking, falling) |
-| **People Counting** | Planned | Estimate number of people in a room |
-| **3D Localization** | Research | Indoor positioning (30-50cm accuracy) via phase-coherent antenna array |
-
-The ML Detector is already available with `detection_algorithm: ml` in your YAML configuration. For algorithm details, see [ALGORITHMS.md](micro-espectre/ALGORITHMS.md#ml-neural-network-detector) and `PERFORMANCE.md` for current metrics  
-The ML data collection and training infrastructure is documented in [ML_DATA_COLLECTION.md](micro-espectre/ML_DATA_COLLECTION.md).
-
-See [ROADMAP.md](ROADMAP.md) for detailed plans, timelines, and how to contribute.
-
----
 
 ## Documentation
 
-### ESPectre (Production)
+| Topic | What it covers | Guides |
+|---|---|---|
+| **Install and operate** | Device setup, CLI workflows, and detector tuning | [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), [TUNING.md](docs/TUNING.md) |
+| **Understand and integrate** | Runtime architecture, API, discovery, algorithms, and the C++ SDK | [ARCHITECTURE.md](docs/ARCHITECTURE.md), [API.md](docs/API.md), [DISCOVERY.md](docs/DISCOVERY.md), [ALGORITHMS.md](docs/ALGORITHMS.md), [SDK.md](docs/SDK.md) |
+| **Collect and train** | CSI collection, model training, feature history, performance, and literature | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), [performance report](docs/performance/README.md), [LITERATURE.md](docs/LITERATURE.md) |
+| **Research and direction** | Roadmap, architecture decisions, and release history | [ROADMAP.md](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [CHANGELOG.md](docs/CHANGELOG.md) |
+| **Frontend reference** | Firmware-path READMEs for ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
+| **Contributing** | How to contribute and where to discuss the project | [CONTRIBUTING.md](CONTRIBUTING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
 
-| Document | Description |
-|----------|-------------|
-| [Intro](README.md) | (This file) Project overview, quick start, FAQ |
-| [Setup Guide](SETUP.md) | Installation and configuration with ESPHome |
-| [Tuning Guide](TUNING.md) | Parameter tuning for optimal detection |
-| [Performance](PERFORMANCE.md) | Benchmarks, confusion matrix, F1-score |
-| [The Game](docs/game/README.md) | Browser game, USB streaming API, interactive threshold tuning |
-| [Test Suite](test/README.md) | PlatformIO Unity test documentation |
+## Datasets, models, and validation
 
-### Micro-ESPectre (R&D)
+ESPectre publishes the research assets and validation evidence behind its detectors:
 
-| Document | Description |
-|----------|-------------|
-| [Intro](micro-espectre/README.md) | R&D platform overview, CLI, MQTT, Web Monitor |
-| [Algorithms](micro-espectre/ALGORITHMS.md) | Scientific documentation of MVS, NBVI calibration, Hampel filter |
-| [Analysis Tools](micro-espectre/tools/README.md) | CSI analysis and optimization scripts |
-| [ML Data Collection](micro-espectre/ML_DATA_COLLECTION.md) | Building labeled datasets for machine learning |
-| [References](micro-espectre/README.md#references) | Academic papers and research resources |
+| Asset | What it gives you | Start here |
+|---|---|---|
+| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [data/](data/) |
+| **Model weights** | Trained weights in [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), plus the training, export, and validation workflow | [ML_TRAINING.md](docs/ML_TRAINING.md) |
+| **Feature ledger** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [FEATURES.md](docs/FEATURES.md) |
+| **Algorithms and reports** | Detector behavior, the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) | [ALGORITHMS.md](docs/ALGORITHMS.md) |
+| **Literature and direction** | External research, [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) | [LITERATURE.md](docs/LITERATURE.md) |
 
-### Project
+## Security, privacy, and transparency
 
-| Document | Description |
-|----------|-------------|
-| [Roadmap](ROADMAP.md) | Project vision and ML plans |
-| [Contributing](CONTRIBUTING.md) | How to contribute (code, data, docs) |
-| [Changelog](CHANGELOG.md) | Version history and release notes |
-| [Security](SECURITY.md) | Security policy and vulnerability reporting |
-| [Code of Conduct](CODE_OF_CONDUCT.md) | Community guidelines |
+A sensor that can reveal presence should not be a black box. Wi-Fi sensing avoids images and audio, but motion and occupancy data can still reveal routines, sleep, or absence from home. ESPectre treats that risk as part of the engineering work:
 
----
+- motion detection is local, and cloud connectivity is not required;
+- raw CSI collection is optional and intended for defined research and debugging needs;
+- the [security and responsible-use guide](https://espectre.dev/security/) documents deployment boundaries, consent, data minimization, abuse reporting, and private vulnerability reporting;
+- firmware releases include build-specific SBOMs, notices, and license archives so their contents can be inspected;
+- the public website and every browser tool are part of this repository under [docs/web](docs/web/README.md), including their source, privacy rules, analytics contract, and pinned browser dependencies;
+- protocols, algorithms, performance evidence, limitations, roadmap decisions, and known validation boundaries are documented in public.
 
-## Media
-
-| Articles | Title |
-|-------------|-------|
-| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 1](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-61a631a9b4ec?sk=c7f79130d78b0545fce4a228a6a79af3&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
-| Medium | [How I Turned My Wi-Fi Into a Motion Sensor - Part 2](https://medium.com/@francesco.pace/how-i-turned-my-wi-fi-into-a-motion-sensor-part-2-62038130e530?sk=7c8b6f11cf3fcb8d279648016ebff72a&utm_source=github&utm_medium=readme&utm_campaign=espectre) |
-| IoT For All | [How I Turned My Wi-Fi Into a Motion Sensor](https://www.iotforall.com/wifi-motion-sensor-iot) |
-| Hackaday | [Make Your Own ESP32-Based Person Sensor, No Special Hardware Needed](https://hackaday.com/2026/01/28/make-your-own-esp32-based-person-sensor-no-special-hardware-needed/) |
-| Adafruit Learn | [ESPectre Human Detector for Feather](https://learn.adafruit.com/espectre-human-detector-for-feather) |
-| Seeed Studio Wiki | [Deploying Espectre on Seeed Studio XIAO ESP32 Series with ESPHome](https://wiki.seeedstudio.com/xiao-esp32--series-espresense/) |
-
-| Blog | Discussion |
-|----------|------------|
-| Home Assistant | [ESPectre - Wi-Fi Motion Detection for Home Assistant](https://community.home-assistant.io/t/espectre-wi-fi-motion-detection-for-home-assistant/961251) |
-
-| Videos | Video |
-|---------|-------|
-| @GithubAwesome | [ESPectre](https://www.youtube.com/shorts/iQ_DPHLn8ms) |
-
-| Podcasts | Episode |
-|-------------|---------|
-| Hackaday | [Podcast Episode 355: Person Detectors, Walkie Talkies, Open Smartphones...](https://hackaday.com/2026/01/30/hackaday-podcast-episode-355-person-detectors-walkie-talkies-open-smartphones-and-a-wifi-traffic-light/) |
-
----
-
-## Related Projects
-
-- [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner): complementary presence-sensing project focused on BLE radio observations from host devices (Python), with optional HTTP dashboard.
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): custom MicroPython fork exposing ESP32 CSI APIs, used as the firmware foundation for rapid CSI prototyping in the Micro-ESPectre workflow.
-
----
+Use ESPectre only in spaces and networks where you have the right to deploy it. Inform affected people, obtain consent where required, protect access to the device and its data, and follow applicable privacy laws.
 
 ## Acknowledgments
 
-ESPectre leverages the native Wi-Fi CSI capabilities of ESP32 chips. Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in the ESP-IDF framework and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in their [esp-csi](https://github.com/espressif/esp-csi) repository.
-
----
+- Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's CSI contribution](https://github.com/micropython/micropython/pull/18460), which added direct CSI methods to mainline `network.WLAN`. 
 
 ## License
 
-This project is released under the **GNU General Public License v3.0 (GPLv3)**.
+ESPectre first-party code is available under **GPLv3**, and eligible parts are also available under a separate commercial agreement:
 
-GPLv3 ensures that:
-- The software remains free and open source
-- Anyone can use, study, modify, and distribute it
-- Modifications must be shared under the same license
-- Protects end-user rights and software freedom
+- Choose GPLv3 when your firmware or application can comply with GPLv3, including making the corresponding source available. See [LICENSE](LICENSE).
+- If you want to embed ESPectre in **proprietary or closed-source firmware** without GPLv3 source-disclosure obligations, see [LICENSING.md](LICENSING.md) for commercial licensing. The commercial license covers eligible material and does not replace third-party terms; the ESPHome C++ frontend remains GPLv3-only.
 
-See [LICENSE](LICENSE) for the full license text.
-
-Contributions are submitted under GPLv3 and must include a DCO
-`Signed-off-by` trailer on each commit (`git commit -s`).
-
-## Author
-
-**Francesco Pace**  
-Email: [francesco.pace@espectre.dev](mailto:francesco.pace@espectre.dev)  
-LinkedIn: [linkedin.com/in/francescopace](https://www.linkedin.com/in/francescopace/)
-
-If you find ESPectre useful and want to support its development, you can buy me a coffee. It's completely optional.
-I work on this project because I'm passionate about it. Contributions help me buy new hardware to expand the list of tested and supported devices, and dedicate more time to new features.
-
-<a href="https://www.buymeacoffee.com/espectre" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

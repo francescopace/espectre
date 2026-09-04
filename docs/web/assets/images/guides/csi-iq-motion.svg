@@ -1,0 +1,72 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1068" height="400" viewBox="0 62 1068 400" role="img" aria-labelledby="title description">
+  <title id="title">CSI in a quiet room and during movement</title>
+  <desc id="description">A simplified comparison of I and Q subcarrier measurements. Each dot is one measurement, and dots of the same color are successive measurements of the same subcarrier. At 100 packets per second, each colored orbit gains about 100 dots per second. Samples from a quiet room form dense, narrow circular orbits whose radii represent subcarrier amplitudes. During movement, changing amplitudes make the orbits thicker and overlap. Changes from multiple subcarriers are combined into one movement score.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect y="62" width="1068" height="400" rx="24" fill="#f5f7fb"/>
+  <g font-family="Inter, Arial, sans-serif">
+    <rect x="48" y="76" width="454" height="372" rx="18" fill="#ffffff" stroke="#dce3ed"/>
+    <text x="275" y="112" text-anchor="middle" font-size="19" font-weight="700" fill="#172033">Quiet room</text>
+    <text x="275" y="136" text-anchor="middle" font-size="14" fill="#64748b">Repeated measurements remain comparatively stable</text>
+    <line x1="105" y1="288" x2="445" y2="288" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="275" y1="412" x2="275" y2="158" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="453" y="294" font-size="16" font-weight="700" fill="#475569">I</text>
+    <text x="282" y="164" font-size="16" font-weight="700" fill="#475569">Q</text>
+    <g fill="none">
+      <circle cx="275" cy="288" r="52" stroke="#22a6b3" stroke-width="1.5" opacity="0.35"/>
+      <circle cx="275" cy="288" r="88" stroke="#4c7cf3" stroke-width="1.5" opacity="0.35"/>
+      <circle cx="275" cy="288" r="122" stroke="#8b5cf6" stroke-width="1.5" opacity="0.35"/>
+      <g stroke-linecap="round" stroke-width="5" stroke-dasharray="0.1 8">
+        <circle cx="275" cy="288" r="52" stroke="#22a6b3"/>
+        <circle cx="275" cy="288" r="88" stroke="#4c7cf3" stroke-dashoffset="2"/>
+        <circle cx="275" cy="288" r="122" stroke="#8b5cf6" stroke-dashoffset="4"/>
+      </g>
+    </g>
+    <rect x="566" y="76" width="454" height="372" rx="18" fill="#ffffff" stroke="#dce3ed"/>
+    <text x="793" y="112" text-anchor="middle" font-size="19" font-weight="700" fill="#172033">Movement</text>
+    <text x="793" y="136" text-anchor="middle" font-size="14" fill="#64748b">Amplitude changes thicken and overlap the orbits</text>
+    <line x1="623" y1="288" x2="963" y2="288" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="793" y1="412" x2="793" y2="158" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="971" y="294" font-size="16" font-weight="700" fill="#475569">I</text>
+    <text x="800" y="164" font-size="16" font-weight="700" fill="#475569">Q</text>
+    <g fill="none">
+      <circle cx="793" cy="288" r="63" stroke="#22a6b3" stroke-width="31" opacity="0.13"/>
+      <circle cx="793" cy="288" r="86" stroke="#4c7cf3" stroke-width="37" opacity="0.13"/>
+      <circle cx="793" cy="288" r="108" stroke="#8b5cf6" stroke-width="39" opacity="0.13"/>
+      <g stroke="#22a6b3" stroke-linecap="round" stroke-width="4.5" stroke-dasharray="0.1 7" opacity="0.75">
+        <circle cx="793" cy="288" r="48"/>
+        <circle cx="793" cy="288" r="53" stroke-dashoffset="1"/>
+        <circle cx="793" cy="288" r="58" stroke-dashoffset="2"/>
+        <circle cx="793" cy="288" r="63" stroke-dashoffset="3"/>
+        <circle cx="793" cy="288" r="68" stroke-dashoffset="4"/>
+        <circle cx="793" cy="288" r="73" stroke-dashoffset="5"/>
+        <circle cx="793" cy="288" r="78" stroke-dashoffset="6"/>
+      </g>
+      <g stroke="#4c7cf3" stroke-linecap="round" stroke-width="4.5" stroke-dasharray="0.1 7" opacity="0.7">
+        <circle cx="793" cy="288" r="68" stroke-dashoffset="0.5"/>
+        <circle cx="793" cy="288" r="74" stroke-dashoffset="1.5"/>
+        <circle cx="793" cy="288" r="80" stroke-dashoffset="2.5"/>
+        <circle cx="793" cy="288" r="86" stroke-dashoffset="3.5"/>
+        <circle cx="793" cy="288" r="92" stroke-dashoffset="4.5"/>
+        <circle cx="793" cy="288" r="98" stroke-dashoffset="5.5"/>
+        <circle cx="793" cy="288" r="104" stroke-dashoffset="6.5"/>
+      </g>
+      <g stroke="#8b5cf6" stroke-linecap="round" stroke-width="4.5" stroke-dasharray="0.1 7" opacity="0.68">
+        <circle cx="793" cy="288" r="92"/>
+        <circle cx="793" cy="288" r="97" stroke-dashoffset="1"/>
+        <circle cx="793" cy="288" r="102" stroke-dashoffset="2"/>
+        <circle cx="793" cy="288" r="107" stroke-dashoffset="3"/>
+        <circle cx="793" cy="288" r="112" stroke-dashoffset="4"/>
+        <circle cx="793" cy="288" r="118" stroke-dashoffset="5"/>
+        <circle cx="793" cy="288" r="124" stroke-dashoffset="6"/>
+      </g>
+    </g>
+  </g>
+</svg>

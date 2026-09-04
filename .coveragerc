@@ -1,0 +1,20 @@
+[run]
+source_dirs =
+    src/python/micro_espectre
+    src/python/espectre_cli
+omit =
+    # MicroPython-only modules that require hardware/specific runtime
+    src/python/micro_espectre/main.py
+    src/python/micro_espectre/config_local.py
+
+[report]
+exclude_also =
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run
+    if __name__ == ["']__main__["']:
+
+    # Don't complain about abstract methods
+    @abstractmethod

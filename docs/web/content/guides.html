@@ -1,0 +1,144 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Guides</h1>
+<p class="page-sub">Learn the basics, build a working sensor, then tune it or explore how ESPectre fits into a larger product.</p>
+<section class="guide-section" aria-labelledby="official-guides">
+  <div class="guide-section-head">
+    <h2 id="official-guides">Official guides</h2>
+    <p>Guides maintained by the ESPectre team.</p>
+  </div>
+  <div class="guides-grid">
+    <a href="/guides/detection/" class="guide-card">
+      <img src="/assets/images/guides/csi-multipath-room.avif" alt="Furnished room with fixed blue Wi-Fi paths and an amber path reflected by a walking person before reaching an ESP32" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">THEORY</span>
+        <h3>How Wi-Fi sensing detects movement</h3>
+        <p>Packets, CSI, multipath, and how movement changes the radio channel.</p>
+        <span class="guide-meta">3 min read</span>
+      </div>
+    </a>
+    <a href="/guides/hardware/" class="guide-card">
+      <img src="/assets/images/guides/esp32-chip-family-card.avif"
+        alt="Six supported ESP32 boards arranged in a row" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">HARDWARE</span>
+        <h3>Choose your hardware</h3>
+        <p>How to choose a compact board, antenna, and power supply.</p>
+        <span class="guide-meta">3 min read</span>
+      </div>
+    </a>
+    <a href="/guides/setup/" class="guide-card">
+      <img src="/assets/images/guides/flash-connect-usb-card.avif" alt="An ESP32 board connected to a laptop for browser flashing" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">SETUP</span>
+        <h3>Flash and set up your device</h3>
+        <p>Browser flashing, provisioning, and Home Assistant setup through ESPHome or Native MQTT Discovery.</p>
+        <span class="guide-meta">8 min read</span>
+      </div>
+    </a>
+    <a href="/guides/placement/" class="guide-card">
+      <img src="/assets/images/guides/sensor-placement-card.avif" alt="Top-down room showing a router, an ESP32, a walking person, and reflected Wi-Fi paths" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">INSTALLATION</span>
+        <h3>Place your ESPectre sensor</h3>
+        <p>Distance, antenna orientation, obstacles, and a repeatable room test.</p>
+        <span class="guide-meta">5 min read</span>
+      </div>
+    </a>
+    <a href="/guides/home-assistant/" class="guide-card">
+      <img src="/assets/images/guides/home-assistant-dashboard-card.avif" alt="An ESP32 sending sensing data to the ESPectre dashboard in Home Assistant" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">HOME ASSISTANT</span>
+        <h3>Build your Home Assistant dashboard</h3>
+        <p>Create the two-column motion, history, controls, and diagnostics view for ESPHome or MQTT Discovery.</p>
+        <span class="guide-meta">6 min read</span>
+      </div>
+    </a>
+    <a href="/guides/detectors/" class="guide-card">
+      <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">DETECTION</span>
+        <h3>Choose your detection profile</h3>
+        <p>Compare resource cost, detection quality, startup behavior, and product fit.</p>
+        <span class="guide-meta">4 min read</span>
+      </div>
+    </a>
+    <a href="/guides/micropython/" class="guide-card">
+      <img src="/assets/images/guides/micropython-csi-runtime-card.avif" alt="A Python snake mascot perched on an Espressif board connected to a laptop displaying CSI traces" width="534" height="300" loading="lazy">
+      <div class="guide-body">
+        <span class="guide-tag">DEVELOPMENT</span>
+        <h3>Run ESPectre on MicroPython</h3>
+        <p>Use the upstream ESP32 CSI support contributed by ESPectre and run motion detection directly on the device.</p>
+        <span class="guide-meta">4 min read</span>
+      </div>
+    </a>
+    <a href="/guides/future-wifi-sensing/" class="guide-card">
+      <img src="/assets/images/guides/future-wifi-sensing-card.avif" alt="Two Wi-Fi devices coordinating a sensing measurement around a person" width="534" height="300">
+      <div class="guide-body">
+        <span class="guide-tag">STANDARDS</span>
+        <h3>The future of Wi-Fi sensing</h3>
+        <p>How ESPectre's multi-runtime architecture prepares today's CSI work for standards-backed sensing.</p>
+        <span class="guide-meta">5 min read</span>
+      </div>
+    </a>
+  </div>
+</section>
+
+<section class="guide-section" aria-labelledby="external-guides">
+  <div class="guide-section-head">
+    <h2 id="external-guides">External guides &amp; integrations</h2>
+    <p>Resources maintained outside ESPectre and based on ESPectre 2.x.</p>
+  </div>
+  <div class="guides-grid">
+    <a class="guide-card" href="https://www.youtube.com/watch?v=JDopYzPLhmw" target="_blank" rel="noopener">
+      <img src="/assets/images/guides/youtube-jdopYzPLhmw-card.avif" alt="YouTube thumbnail for the ESPectre Wi-Fi motion sensing tutorial" width="534" height="300" loading="lazy">
+      <div class="guide-body">
+        <span class="guide-tag">YOUTUBE</span>
+        <h3>ESPectre - Bewegungserkennung nur mit WLAN und ESP32</h3>
+        <p>A German-language video tutorial covering ESPectre motion sensing with an ESP32 and standard Wi-Fi hardware.</p>
+        <span class="guide-compat">Based on ESPectre 2.8</span>
+        <span class="guide-meta">Jun 19, 2026 · German ↗</span>
+      </div>
+    </a>
+    <a class="guide-card" href="https://learn.adafruit.com/espectre-human-detector-for-feather" target="_blank" rel="noopener">
+      <img src="/assets/images/guides/adafruit-feather-card.avif" alt="Adafruit Feather ESPectre detector showing motion on its display" width="534" height="300" loading="lazy">
+      <div class="guide-body">
+        <span class="guide-tag">ADAFRUIT LEARN</span>
+        <h3>ESPectre Human Detector for Feather</h3>
+        <p>An independent Arduino experiment inspired by ESPectre for the Adafruit Feather ESP32-S3.</p>
+        <span class="guide-compat">Based on ESPectre 2.7</span>
+        <span class="guide-meta">Mar 25, 2026 · English ↗</span>
+      </div>
+    </a>
+    <a class="guide-card" href="https://wiki.seeedstudio.com/xiao-esp32--series-espresense/" target="_blank" rel="noopener">
+      <img src="/assets/images/guides/seeed-xiao-card.avif" alt="Seeed Studio ESPectre ghost illustration" width="534" height="300" loading="lazy">
+      <div class="guide-body">
+        <span class="guide-tag">SEEED STUDIO WIKI</span>
+        <h3>Deploying ESPectre on XIAO ESP32 with ESPHome</h3>
+        <p>A XIAO ESP32 setup written for the pre-v3 ESPHome workflow.</p>
+        <span class="guide-compat">Based on ESPectre 2.4</span>
+        <span class="guide-meta">Jan 26, 2026 · English ↗</span>
+      </div>
+    </a>
+    <a class="guide-card" href="https://www.teachmemicro.com/espectre-tutorial-motion-detection-using-wi-fi-signals-esp32-home-assistant/" target="_blank" rel="noopener">
+      <img src="/assets/images/media/teachmemicro-site-card.avif" alt="TeachMeMicro article image" width="534" height="300" loading="lazy">
+      <div class="guide-body">
+        <span class="guide-tag">TEACHMEMICRO</span>
+        <h3>ESPectre Tutorial: Motion Detection Using Wi-Fi Signals (ESP32 + Home Assistant)</h3>
+        <p>A community tutorial for an earlier ESPectre workflow.</p>
+        <span class="guide-compat">Based on ESPectre 2.3</span>
+        <span class="guide-meta">Jan 5, 2026 · English ↗</span>
+      </div>
+    </a>
+  </div>
+</section>
+
+<aside class="media-submit">
+  <div>
+    <span class="guide-tag">SEEN SOMETHING NEW?</span>
+    <h2>Help us keep this page current.</h2>
+  </div>
+  <a href="mailto:contact@espectre.dev?subject=ESPectre%20guide%20link">Share a link →</a>
+</aside>

@@ -1,0 +1,52 @@
+name: Other
+description: Use this for reports that do not fit the bug, feature, or documentation forms
+title: "[OTHER] "
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Area
+      description: Where does this apply? Choose all that apply.
+      multiple: true
+      options:
+        - Detector or on-device runtime
+        - Firmware installation or provisioning
+        - Website or web tools
+        - ESPectre CLI or host tools
+        - Home Assistant or controller integration
+        - SDK, research, or data tooling
+        - Documentation
+        - CI, builds, or releases
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      description: Which firmware does this involve? Choose all that apply.
+      multiple: true
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Micro-ESPectre
+        - Shared across firmware
+        - Not tied to firmware
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what you want to report.
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: Add links, related issues, logs, or other relevant context.

@@ -1,0 +1,112 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article" data-page-toc data-page-path="sdk">
+  <h1>Integrate a product frontend</h1>
+  <p class="article-lead">Start with the smallest supported runtime adapter, then inspect the shipped frontend whose lifecycle and product boundary most closely match your firmware.</p>
+
+  <h2 data-toc-label="Minimal component">Minimal ESP-IDF component</h2>
+  <p>Extract the release bundle, then vendor the bundle's <code>src/cpp/</code> directory as <code>components/espectre/</code>. Keep the product adapter in your application component so it can use product-owned services without adding upward dependencies to the SDK.</p>
+  <pre class="code"><code>product-firmware/
+├── components/
+│   └── espectre/          # contents of the bundle's src/cpp directory
+└── main/
+    ├── CMakeLists.txt
+    ├── main.cpp
+    └── product_frontend.h</code></pre>
+
+  <p>Declare the component dependency from the application:</p>
+  <pre class="code"><code># main/CMakeLists.txt
+idf_component_register(
+  SRCS "main.cpp"
+  INCLUDE_DIRS "."
+  REQUIRES espectre
+)</code></pre>
+
+  <h2 data-toc-label="Logging">Choose the logging backend</h2>
+  <p>The shared SDK has no default logger and does not require ESP-IDF's <code>log</code> component. If the product needs shared messages, register a complete sink before runtime setup:</p>
+  <pre class="code"><code>espectre::LogSink sink{
+    product_log_context,
+    &amp;product_log_enabled,
+    &amp;product_log_write,
+};
+if (!espectre::set_log_sink(sink)) return false;</code></pre>
+  <p>The enabled callback receives the level and tag before message arguments are evaluated. The write callback receives the source line, format string, and a bounded-lifetime <code>va_list</code>. Keep both callbacks thread-safe, non-blocking, and non-reentrant, and clear the sink only after runtime shutdown.</p>
+
+  <h2 data-toc-label="Runtime task">Own the runtime from one task</h2>
+  <p>This adapter uses menuconfig-backed sensing defaults, gates product output on readiness, and keeps publication outside the listener callback:</p>
+  <pre class="code"><code>#include "espectre_sdk.h"
+
+class ProductFrontend : public espectre::IRuntimeListener {
+ public:
+  bool setup() {
+    runtime_.set_config(
+        espectre::make_runtime_sensing_config_from_kconfig());
+    return runtime_.setup(this);
+  }
+
+  void loop() {
+    runtime_.loop();
+    if (!motion_changed_) return;
+    motion_changed_ = false;
+    publish_motion(latest_motion_);  // product-owned, may queue more work
+  }
+
+  void shutdown() { runtime_.shutdown(); }
+
+  void on_motion_state_changed(
+      const espectre::RuntimeSnapshot&amp; snapshot) override {
+    if (!snapshot.ready_to_publish) return;
+    latest_motion_ =
+        snapshot.motion_state == espectre::MotionState::MOTION;
+    motion_changed_ = true;
+  }
+
+  void on_runtime_fault(const char* message) override {
+    record_runtime_fault(message);  // copy if retained after this call
+  }
+
+ private:
+  void publish_motion(bool motion);
+  void record_runtime_fault(const char* message);
+  espectre::RuntimeFrontendController runtime_;
+  bool latest_motion_{false};
+  bool motion_changed_{false};
+};</code></pre>
+  <div class="note"><strong>The placeholder functions belong to the product.</strong> <code>publish_motion()</code> should hand potentially blocking I/O to another task. <code>record_runtime_fault()</code> must copy the message if it retains it because the pointer is valid only during the callback.</div>
+
+  <h2 data-toc-label="Lifecycle">Handle startup, steady state, and shutdown</h2>
+  <ol class="steps-list compact-steps">
+    <li><h3>Create the station before setup</h3><p>Call setup after the default station and event loop exist. Prefer setup before association so the CSI radio policy is applied at station start; if the product is already connected, the runtime restores the current IPv4 state.</p></li>
+    <li><h3>Check the setup result</h3><p>A failed <code>setup()</code> leaves the controller un-setup. Correct the configuration or link state before retrying.</p></li>
+    <li><h3>Call loop continuously</h3><p><code>loop()</code> drains deferred CSI work and delivers listener events. Slow product callbacks can fill the bounded mailbox and drop incoming frames.</p></li>
+    <li><h3>Shut down from the owner task</h3><p>Call <code>shutdown()</code> before tearing down Wi-Fi or the application services used by the adapter.</p></li>
+  </ol>
+
+  <h2 data-toc-label="Reference frontends">Choose a reference frontend</h2>
+  <p>The shipped frontends demonstrate integration patterns, but they are not a supported API to link against. Copy the pattern that matches your product and keep the SDK facade as the dependency boundary.</p>
+  <div class="example-picker">
+    <article>
+      <span class="docs-path-label">HOME ASSISTANT</span>
+      <h2 data-toc-exclude>ESPHome</h2>
+      <p>Reference for ESPHome lifecycle, YAML configuration, Home Assistant entities, dashboard controls, and ESPHome-managed OTA. This frontend remains GPLv3-only.</p>
+      <a href="https://github.com/francescopace/espectre/tree/main/src/cpp/frontend/esphome" target="_blank" rel="noopener">Browse ESPHome frontend ↗</a>
+    </article>
+    <article>
+      <span class="docs-path-label">DIRECT + MQTT</span>
+      <h2 data-toc-exclude>Native</h2>
+      <p>Best reference for a custom ESP-IDF product: Wi-Fi provisioning, Direct HTTP, optional MQTT, OTA, diagnostics, and queued stack callbacks.</p>
+      <a href="https://github.com/francescopace/espectre/tree/main/src/cpp/frontend/native" target="_blank" rel="noopener">Browse Native frontend ↗</a>
+    </article>
+    <article>
+      <span class="docs-path-label">MATTER</span>
+      <h2 data-toc-exclude>Matter</h2>
+      <p>The Matter frontend keeps Wi-Fi state under Matter ownership and delays ESPectre runtime startup until commissioning completes. It publishes motion as a standard occupancy sensor.</p>
+      <a href="https://github.com/francescopace/espectre/tree/main/src/cpp/frontend/matter" target="_blank" rel="noopener">Browse Matter frontend ↗</a>
+    </article>
+  </div>
+
+  <div class="note"><strong>Need only the detector?</strong> Include <code>espectre_core_sdk.h</code>. The core-only path must reproduce normalization, evaluation cadence, readiness, gap reset, and hit filtering. Follow <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>csi_pipeline.cpp</code></a> before replacing the runtime.</div>
+
+</article>

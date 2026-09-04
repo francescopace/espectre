@@ -1,0 +1,54 @@
+# ESPectre - ESP32-S2 Configuration
+# WiFi CSI-based motion detection with Home Assistant integration
+#
+# ESP32-S2 has no Bluetooth radio. Provision it through Improv Serial with
+# `./espectre provision --ssid MyNetwork` or any Improv Serial-compatible web
+# flasher, such as https://espectre.dev/tools/flash/, or use the fallback access point.
+
+substitutions:
+  component_source: github # github or local
+  example_config: espectre-s2.yaml
+
+packages:
+  component_source: !include espectre-source-${component_source}.yaml
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre
+  min_version: 2026.7.0
+  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
+  # name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: ${project_version}
+
+esp32:
+  variant: ESP32S2
+  framework:
+    type: esp-idf
+
+espectre:
+  id: espectre_csi
+  detection_algorithm: lightweight # lightweight (default) or high_accuracy
+  csi_traffic_mode: internal # internal (default) or external
+  traffic_generator_mode: ping # ping (default), dns (UDP), or dns_tcp; used in internal mode
+  evaluation_interval_ms: 250 # 250-1000 recommended; detector and live telemetry interval
+  direct_api: true # Set false to disable Direct HTTP, SSE, raw CSI, and Direct mDNS discovery
+
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# ESP32-S2 supports standard Improv provisioning through the serial port.
+improv_serial:
+  next_url: "https://espectre.dev/tools/device-settings/?target={{ip_address}}"
+
+logger:
+  level: INFO
+
+api:
+
+ota:
+  - platform: esphome

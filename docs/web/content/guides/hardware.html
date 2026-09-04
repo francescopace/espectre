@@ -1,0 +1,37 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+    <span class="guide-tag">HARDWARE · 3 MIN READ</span>
+    <h1>Choose your hardware</h1>
+    <p class="article-lead">ESPectre supports six ESP32 chip families. A compact board is usually enough for a dedicated sensor.</p>
+    <figure>
+      <img src="/assets/images/guides/esp32-chip-family-card.avif" alt="Six supported ESP32 boards arranged in a row" width="1068" height="600" loading="eager">
+      <figcaption>Choose the smallest board that provides the radio, antenna, power, and programming connection your installation needs.</figcaption>
+    </figure>
+
+    <h2 id="hardware-chips">Supported chips</h2>
+    <div class="table-wrap"><table class="hardware-chip-table">
+      <caption class="sr-only">Supported ESP32 chip families, Espressif CSI performance ranking, receiver sensitivity, and hardware characteristics</caption>
+      <thead><tr><th scope="col">Chip</th><th scope="col">CSI performance</th><th scope="col">RX sensitivity</th><th scope="col">Hardware notes</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32-c5" target="_blank" rel="noopener noreferrer"><strong>ESP32-C5</strong></a></td><td>1st</td><td>2.4&nbsp;GHz: &minus;95.0&nbsp;dBm<br>5&nbsp;GHz: &minus;94.0&nbsp;dBm</td><td>A 240&nbsp;MHz single-core RISC-V design with 384&nbsp;KB of SRAM and support for external PSRAM. The radio covers 2.4 and 5&nbsp;GHz Wi-Fi&nbsp;6, Bluetooth&nbsp;5 LE, and IEEE&nbsp;802.15.4 for Thread and Zigbee.</td></tr>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32-c6" target="_blank" rel="noopener noreferrer"><strong>ESP32-C6</strong></a></td><td>2nd</td><td>&minus;93.6&nbsp;dBm</td><td>Its main RISC-V core runs at 160&nbsp;MHz, and its low-power RISC-V core runs at 20&nbsp;MHz. The chip has 512&nbsp;KB of SRAM, 2.4&nbsp;GHz Wi-Fi&nbsp;6, Bluetooth&nbsp;5 LE, and IEEE&nbsp;802.15.4.</td></tr>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32-c3" target="_blank" rel="noopener noreferrer"><strong>ESP32-C3</strong></a></td><td>≈ 3rd</td><td>&minus;93.6&nbsp;dBm</td><td>A compact 160&nbsp;MHz single-core RISC-V chip with 400&nbsp;KB of internal RAM. It supports 2.4&nbsp;GHz Wi-Fi&nbsp;4 and Bluetooth&nbsp;5 LE, but has no 5&nbsp;GHz or IEEE&nbsp;802.15.4 radio.</td></tr>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32-s3" target="_blank" rel="noopener noreferrer"><strong>ESP32-S3</strong></a></td><td>≈ 3rd</td><td>&minus;92.6&nbsp;dBm</td><td>The S3 has two 240&nbsp;MHz Xtensa LX7 cores and 512&nbsp;KB of SRAM. Its vector instructions accelerate signal processing and neural-network workloads; the radios support 2.4&nbsp;GHz Wi-Fi&nbsp;4 and Bluetooth&nbsp;5 LE.</td></tr>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32" target="_blank" rel="noopener noreferrer"><strong>ESP32</strong></a></td><td>5th</td><td>&minus;93.0&nbsp;dBm</td><td>Depending on the variant, the original ESP32 has one or two 240&nbsp;MHz Xtensa LX6 cores and 520&nbsp;KB of SRAM. It supports 2.4&nbsp;GHz Wi-Fi&nbsp;4, Bluetooth LE&nbsp;4.2, and Bluetooth Classic; later chips in this table omit Bluetooth Classic.</td></tr>
+        <tr><td><a href="https://www.espressif.com/en/products/socs/esp32-s2" target="_blank" rel="noopener noreferrer"><strong>ESP32-S2</strong></a></td><td>6th</td><td>&minus;92.0&nbsp;dBm</td><td>A 240&nbsp;MHz single-core Xtensa LX7 chip with 320&nbsp;KB of SRAM, 43 programmable GPIOs, and full-speed USB OTG. The radio supports 2.4&nbsp;GHz Wi-Fi&nbsp;4 only; there is no Bluetooth.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="article-footnote"><a href="https://docs.espressif.com/projects/esp-techpedia/en/latest/esp-friends/solution-introduction/esp-csi/esp-csi-solution.html#chip-csi-performance-ranking" target="_blank" rel="noopener noreferrer">Espressif publishes the CSI performance order</a> C5 &gt; C6 &gt; C3 ≈ S3 &gt; ESP32, but does not define the score or test method behind it. S2 is shown sixth to complete this table, although Espressif does not include it in the published ranking. Treat the order as a vendor ranking, not a measured precision value. RX sensitivity is a separate receiver specification: values shown are typical at HT20 MCS0, except for the C5 5&nbsp;GHz value at VHT20 MCS0. The module, antenna, RF layout, band, and installation still affect measured sensing performance.</p>
+
+    <h2 id="hardware-details">What matters</h2>
+    <ul class="checklist">
+      <li><strong>The antenna:</strong> an external antenna connector (U.FL/IPEX) lets you choose and position the antenna independently of the board. This can help when the enclosure, mounting position, or link distance makes the built-in PCB antenna difficult to place.</li>
+      <li><strong>The power supply:</strong> use a stable supply rated for the board; USB-powered boards normally expect 5&nbsp;V. If readings remain erratic in an otherwise good position, compare them with another power adapter.</li>
+      <li><strong>The placement:</strong> keep the sensor out of metal cabinets and, when the room allows it, start 3–8&nbsp;m from the access point. The <a href="/guides/placement/">placement guide</a> covers distance, orientation, obstacles, and room testing in detail.</li>
+      <li><strong>The programming connection:</strong> if the board exposes USB, use a data cable for flashing. Smaller boards may instead require a compatible serial or JTAG adapter.</li>
+    </ul>
+    
+  </article>

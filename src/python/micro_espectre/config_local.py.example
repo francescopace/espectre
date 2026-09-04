@@ -1,0 +1,15 @@
+"""
+Micro-ESPectre - Local Configuration
+
+Copy this file to config_local.py and update with your settings.
+config_local.py overrides defaults from config.py and is gitignored for security.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+License: GPLv3
+"""
+
+# WiFi Configuration
+WIFI_SSID = "YourSSID"
+WIFI_PASSWORD = "YourPassword"
+# Optional AP lock (helps on mesh networks)
+# WIFI_BSSID = "AA:BB:CC:DD:EE:FF"

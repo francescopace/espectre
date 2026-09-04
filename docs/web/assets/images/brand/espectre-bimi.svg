@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 32 32" width="96" height="96">
+  <title>ESPectre</title>
+  <desc>A stylized ghost with a Wi-Fi signal.</desc>
+  <rect width="32" height="32" fill="#ffffff"/>
+  <path d="M16 3.25c-6.57 0-11 4.83-11 11.22v12.79c0 .68.78 1.08 1.33.68l2.42-1.76a1.4 1.4 0 0 1 1.64 0l2.43 1.76a1.4 1.4 0 0 0 1.64 0l.72-.52a1.4 1.4 0 0 1 1.64 0l.72.52a1.4 1.4 0 0 0 1.64 0l2.43-1.76a1.4 1.4 0 0 1 1.64 0l2.42 1.76c.55.4 1.33 0 1.33-.68V14.47C27 8.08 22.57 3.25 16 3.25Z" fill="#4b7bee" stroke="#b8c8ff" stroke-width="2.8" stroke-linejoin="round"/>
+  <ellipse cx="12.25" cy="12.5" rx="1.75" ry="2" fill="#ffffff"/>
+  <ellipse cx="19.75" cy="12.5" rx="1.75" ry="2" fill="#ffffff"/>
+  <path d="M10.75 18.25Q16 14.25 21.25 18.25M13 20.5Q16 18 19 20.5" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="16" cy="22.5" r="1" fill="#ffffff"/>
+</svg>

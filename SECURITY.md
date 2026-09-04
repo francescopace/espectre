@@ -1,13 +1,6 @@
 # Security Policy
 
-## Supported Versions
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 2.x.x   | :white_check_mark: |
-| 1.x.x   | :x:                |
-
-Only the latest major version receives security updates. We recommend always using the latest release.
+For responsible deployment guidance or to report suspected abuse of ESPectre or related Wi-Fi sensing, see [Security and responsible use](https://espectre.dev/security/). The process below is for product and project vulnerabilities.
 
 ## Reporting a Vulnerability
 
@@ -21,7 +14,7 @@ Use GitHub's private vulnerability reporting:
 2. Click "Report a vulnerability"
 3. Fill in the details
 
-This allows private discussion, coordinated disclosure, and automatic CVE assignment.
+This allows private discussion and coordinated disclosure. When a CVE is appropriate, the maintainers can request one through the advisory or provide an existing identifier.
 
 ### Information to Include
 - Description of the vulnerability
@@ -31,7 +24,7 @@ This allows private discussion, coordinated disclosure, and automatic CVE assign
 
 ### Alternative Contact
 
-If you cannot use GitHub Security Advisories, email security@espectre.dev.
+If you cannot use GitHub Security Advisories, email <security@espectre.dev>.
 
 ### What to Expect
 
@@ -42,14 +35,15 @@ If you cannot use GitHub Security Advisories, email security@espectre.dev.
 ### Scope
 
 Security issues relevant to ESPectre include:
-- WiFi/CSI data exposure
+- Wi-Fi/CSI data exposure
 - MQTT authentication bypass
 - ESPHome/Home Assistant integration vulnerabilities
 - Firmware vulnerabilities on ESP32
+- Vulnerable dependency versions or configurations distributed by ESPectre
 
 ### Out of Scope
 
-- Vulnerabilities in dependencies (report to upstream projects)
+- Vulnerabilities that exist only in an upstream dependency and do not affect any version or configuration distributed by ESPectre; report those to the upstream project
 - Issues requiring physical access to the device
 - Social engineering attacks
 

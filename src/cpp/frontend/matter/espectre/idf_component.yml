@@ -1,0 +1,9 @@
+dependencies:
+  idf:
+    version: ">=5.5.0"
+  espressif/mdns:
+    version: "^1.9.0"
+  espressif/esp_tinyusb:
+    version: "^2.0.0"
+    rules:
+      - if: "target == esp32s3"

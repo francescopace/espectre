@@ -1,0 +1,154 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<div class="roadmap-page" data-page-toc>
+  <div class="roadmap-heading">
+    <h1 class="page-title">Roadmap</h1>
+    <a href="/tools/flash/" class="release-badge page-release-badge roadmap-published-version">
+      <span class="dot dot-ok" aria-hidden="true"></span>
+      <span data-published-release-tag>Release unavailable</span>
+    </a>
+  </div>
+  <p class="page-sub">Follow ESPectre from one node sensing platform to multi-node orchestration.</p>
+
+  <section class="roadmap-vision">
+    <picture>
+      <source srcset="/assets/images/roadmap/roadmap-multi-node-lifestyle.avif" type="image/avif">
+      <img src="/assets/images/roadmap/roadmap-multi-node-lifestyle.jpg" alt="" width="1672" height="941">
+    </picture>
+    <div class="roadmap-vision-scrim" aria-hidden="true"></div>
+    <div class="roadmap-vision-copy">
+      <span class="roadmap-vision-kicker">Roadmap · Project direction</span>
+      <h2 class="page-title" data-toc-exclude>From a single sensing node to a coordinated local platform.</h2>
+      <p class="page-sub">ESPectre is evolving toward a shared platform for broader integrations, new sensing capabilities, and coordination between nearby nodes. Local operation remains the baseline, while new capabilities enter the product only after hardware support and sensing evidence are in place.</p>
+      <div class="roadmap-principles" aria-label="Project principles">
+        <span>Local by default</span>
+        <span>Motion, not media</span>
+        <span>Built to embed</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="roadmap-release-horizons">
+    <section class="roadmap-foundation" aria-labelledby="roadmap-foundation-title">
+      <div class="roadmap-foundation-head">
+        <div>
+          <span class="release-badge page-release-badge roadmap-status status-progress">
+            <span class="dot" aria-hidden="true"></span>
+            <span>Planned · September 2026</span>
+          </span>
+          <span class="roadmap-release-version">v3.0.0</span>
+        </div>
+        <div>
+          <span class="roadmap-eyebrow">A shared foundation for product integration</span>
+          <h2 id="roadmap-foundation-title" data-toc-label="v3.0.0">Make the sensing layer dependable and easy to carry into products.</h2>
+          <p>Version 3.0.0 is planned as the shared baseline for ESPectre as a reusable platform. One shared sensing core supports several firmware paths, so product teams can add local motion sensing without maintaining a separate implementation for each integration.</p>
+        </div>
+      </div>
+      <dl class="roadmap-foundation-grid">
+        <div><dt>Shared architecture</dt><dd>The sensing core and shared runtime intended for the stable v3 baseline.</dd></div>
+        <div><dt>Runtime contracts</dt><dd>Runtime behavior and protocol services frozen as one platform contract.</dd></div>
+        <div><dt>Supported frontends</dt><dd>ESPHome, Native, and Matter included in the candidate scope.</dd></div>
+        <div><dt>Release surfaces</dt><dd>Release artifacts and the embeddable SDK included in whole-platform validation.</dd></div>
+      </dl>
+      <div class="roadmap-v3-line">
+        <div class="roadmap-v3-line-copy">
+          <h3>Put private sensing inside real products.</h3>
+          <p>The v3 line brings ESPectre closer to real products with broader integrations, SDK support, and new sensing capabilities.</p>
+        </div>
+        <ol class="roadmap-release-sequence" aria-label="Version 3 minor release sequence">
+          <li id="roadmap-v3-1"><strong>v3.1.0</strong><span>Expand Matter support and validate it across more controllers.</span></li>
+          <li><strong>v3.2.0</strong><span>Bring ESPectre to Arduino projects through a supported SDK runtime.</span></li>
+          <li><strong>v3.3.0</strong><span>Bring ESPectre into Apple Home with a dedicated HomeKit frontend.</span></li>
+          <li><strong>v3.4.0</strong><span>Recognize stationary presence, even when no movement is visible.</span></li>
+          <li><strong>v3.5.0</strong><span>Explore gesture control and breathing-related micro-motion.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="roadmap-direction" aria-label="Future product releases">
+      <div class="roadmap-chapters">
+        <article class="roadmap-chapter roadmap-chapter-with-media">
+          <figure class="roadmap-chapter-media">
+            <picture>
+              <source srcset="/assets/images/roadmap/roadmap-home-mesh.avif" type="image/avif">
+              <img src="/assets/images/roadmap/roadmap-home-mesh.jpg" alt="" width="1024" height="1536" loading="lazy">
+            </picture>
+          </figure>
+          <div class="roadmap-chapter-copy">
+            <div class="roadmap-chapter-meta">
+              <span class="release-badge page-release-badge roadmap-status status-planned">
+                <span class="dot" aria-hidden="true"></span>
+                <span>Planned · 2027</span>
+              </span>
+              <span class="roadmap-release-version">v4.0.0</span>
+            </div>
+            <h2 id="roadmap-v4-title" data-toc-label="v4.0.0">Accelerate sensing and let nearby nodes work as one system.</h2>
+            <p>The planned v4 platform combines local node coordination, hardware-accelerated sensing, and an optional, self-hostable WebSocket relay. Devices connect outward through authenticated WSS, browsers use WSS to the same service, and local Direct HTTP remains the independent default.</p>
+            <ul class="roadmap-chapter-points">
+              <li>Discover peers, coordinate traffic, and degrade cleanly when a node disappears.</li>
+              <li>Use hardware acceleration to process more CSI, run more detectors at once, and preserve headroom for networking and coordination.</li>
+              <li>Claim and manage rooms and devices, view live and historical state, and configure alerts.</li>
+              <li>Choose local, self-hosted, or managed <code>relay.espectre.dev</code> deployment without exporting raw CSI.</li>
+              <li>Gate relay launch on pairing, per-device credentials, revocation, tenant isolation, bounded queues, heartbeat, reconnect, rate limits, and a reviewed threat model.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="roadmap-chapter roadmap-chapter-with-media roadmap-chapter-reverse">
+          <figure class="roadmap-chapter-media">
+            <picture>
+              <source srcset="/assets/images/roadmap/roadmap-80211bf-chip.avif" type="image/avif">
+              <img src="/assets/images/roadmap/roadmap-80211bf-chip.jpg" alt="" width="1024" height="1536" loading="lazy">
+            </picture>
+          </figure>
+          <div class="roadmap-chapter-copy">
+            <div class="roadmap-chapter-meta">
+              <span class="release-badge page-release-badge roadmap-status status-research">
+                <span class="dot" aria-hidden="true"></span>
+                <span>Subject to hardware availability</span>
+              </span>
+              <span class="roadmap-release-version">v5.0.0</span>
+            </div>
+            <h2 id="roadmap-v5-title" data-toc-label="v5.0.0">Build on Wi-Fi hardware designed for sensing.</h2>
+            <p>v5 starts when practical embedded hardware exposes IEEE 802.11bf or equivalent measurements. Deliberate sensing procedures could make radio data more repeatable, improve coordination between nodes, and open a path to richer presence and motion capabilities.</p>
+            <ul class="roadmap-chapter-points">
+              <li>Qualify the first supported radio, driver, and measurement API on practical embedded hardware.</li>
+              <li>Add a standards-backed sensing backend and validate every detector against new datasets.</li>
+              <li>Measure calibration, false positives, stationary presence, and multi-node fusion from scratch.</li>
+              <li>Let existing products adopt the new backend through the same SDK and protocol, with a documented migration path from ESP32 CSI.</li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <section class="roadmap-research" aria-labelledby="roadmap-research-title">
+    <div class="roadmap-section-head">
+      <span class="guide-tag">RESEARCH TRACKS</span>
+      <h2 id="roadmap-research-title" data-toc-label="Research">Research areas under evaluation.</h2>
+      <p>Research does not reserve release scope. The tracks are listed in dependency order, and each may become a product, remain a host-side experiment, or end with a measured rejection.</p>
+    </div>
+    <div class="roadmap-research-list">
+      <article><span>01</span><div><h3>HE20 and HT40 sensing profiles</h3><p>Map both layouts onto canonical detector inputs, compare their benefits and costs, and select any profile that earns promotion.</p></div></article>
+      <article><span>02</span><div><h3>Higher CSI rate</h3><p>Select the highest useful sustained rate within declared limits for loss, jitter, compute, memory, and transport load.</p></div></article>
+      <article><span>03</span><div><h3>Longer and multi-scale windows</h3><p>Test slow micro-motion over longer windows while preserving the current movement response.</p></div></article>
+      <article><span>04</span><div><h3>Stationary presence</h3><p>Use the selected capture profile to test whether an occupied quiet room can be distinguished from an empty one.</p></div></article>
+      <article><span>05</span><div><h3>Breathing-related motion</h3><p>Explore non-medical breathing-related micro-motion after stationary presence and longer windows are validated.</p></div></article>
+      <article><span>06</span><div><h3>Brief gestures</h3><p>Build a gesture-specific corpus after the higher-rate path preserves the necessary short-timescale information.</p></div></article>
+    </div>
+  </section>
+
+  <aside class="roadmap-source" aria-label="Roadmap status and project links">
+    <div>
+      <strong>A direction, not a promise.</strong>
+      <p>Priorities can change as hardware support, sensing quality, and product evidence evolve. <br>The maintained project roadmap owns release gates and implementation sequencing.</p>
+    </div>
+    <div class="roadmap-source-links">
+      <a href="https://github.com/francescopace/espectre/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">Read the maintained roadmap ↗</a>
+      <a href="https://github.com/francescopace/espectre/discussions" target="_blank" rel="noopener">Join GitHub Discussions ↗</a>
+    </div>
+  </aside>
+</div>

@@ -1,0 +1,1731 @@
+/*
+ * ESPectre - CSI Test Data Loader
+ *
+ * Loads real CSI data from NPZ files for C++ tests using cnpy library.
+ * Provides the same interface as the old static arrays for backward compatibility.
+ *
+ * Usage:
+ *   #include "csi_test_data.h"
+ *
+ *   // In test setup:
+ *   csi_test_data::load();
+ *
+ *   // Access data (same interface as before):
+ *   const int8_t** static_presence_packets = csi_test_data::static_presence_packets();
+ *   const int8_t** motion_packets = csi_test_data::motion_packets();
+ *   int num_static_presence = csi_test_data::num_static_presence();
+ *   int num_motion = csi_test_data::num_motion();
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
+ */
+#ifndef CSI_TEST_DATA_H
+#define CSI_TEST_DATA_H
+
+// Include cnpy declarations; implementation is linked from espectre_test_support.
+#include "cnpy.h"
+#include "csi_format.h"
+#include "runtime/csi_raw_record.h"
+
+#include <array>
+#include <vector>
+#include <string>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <stdexcept>
+#include <ctime>
+#include <cmath>
+#include <fstream>
+#include <cstring>
+#include <regex>
+#include <unordered_map>
+#include <algorithm>
+#include <ArduinoJson.h>
+#include "utils.h"
+
+using namespace ArduinoJson;
+
+namespace csi_test_data {
+
+// ============================================================================
+// NPZ Loading
+// ============================================================================
+
+/**
+ * CSI data loaded from NPZ file
+ */
+struct CsiData {
+    std::vector<std::vector<int8_t>> packets;  // [num_packets][packet_size]
+    std::vector<int8_t> rssi_dbm;              // [num_packets]
+    std::vector<uint32_t> stream_seq_num;      // [num_packets]
+    std::vector<uint64_t> device_ticks_us;     // [num_packets]
+    std::vector<uint32_t> wifi_rx_ts_us;       // [num_packets]
+    uint32_t csi_target_pps{0};                // Dataset temporal-admission provenance
+    int num_packets;
+    int packet_size;      // bytes per packet (num_subcarriers * 2)
+    int num_subcarriers;
+};
+
+/**
+ * Read one fixed-width NumPy string (bytes or UTF-32 code units) from an NPZ array.
+ */
+inline std::string npy_string_at(const cnpy::NpyArray& arr, size_t index) {
+    if (arr.num_vals == 0 || arr.word_size == 0) {
+        return {};
+    }
+    if (index >= arr.num_vals) {
+        return {};
+    }
+
+    const char* base = arr.data<char>() + index * arr.word_size;
+    std::string out;
+    if ((arr.word_size % 4U) == 0U) {
+        // NumPy unicode arrays (`<U*` / `>U*`) store UCS-4 code points.
+        const size_t nchars = arr.word_size / 4U;
+        const auto* codepoints = reinterpret_cast<const uint32_t*>(base);
+        out.reserve(nchars);
+        for (size_t i = 0; i < nchars; ++i) {
+            const uint32_t cp = codepoints[i];
+            if (cp == 0U) {
+                break;
+            }
+            if (cp < 128U) {
+                out.push_back(static_cast<char>(cp));
+            }
+        }
+        return out;
+    }
+
+    const size_t len = ::strnlen(base, arr.word_size);
+    return std::string(base, len);
+}
+
+inline bool is_ht20_phy(const std::string& phy_mode,
+                        const std::string& channel_width,
+                        const std::string& ltf_type = "ht-ltf") {
+    return phy_mode == "ht" && channel_width == "20" && ltf_type == "ht-ltf";
+}
+
+/**
+ * Load CSI data from NPZ file.
+ *
+ * When per-record PHY metadata is present, prefer HT20 packets
+ * (`phy_mode=ht`, `channel_width=20`) so C++ tests match the Python loaders.
+ * Captures without PHY metadata are treated as already-HT20.
+ */
+inline CsiData load_npz(const std::string& filepath) {
+    CsiData result;
+    
+    cnpy::npz_t npz = cnpy::npz_load(filepath);
+    
+    if (npz.find("csi_data") == npz.end()) {
+        throw std::runtime_error("NPZ file missing 'csi_data' field: " + filepath);
+    }
+    
+    cnpy::NpyArray& csi_arr = npz["csi_data"];
+    
+    if (csi_arr.shape.size() != 2) {
+        throw std::runtime_error("csi_data should be 2D array");
+    }
+    
+    const int raw_num_packets = static_cast<int>(csi_arr.shape[0]);
+    result.packet_size = static_cast<int>(csi_arr.shape[1]);
+    result.num_subcarriers = result.packet_size / 2;
+    
+    // Load num_subcarriers if available
+    if (npz.find("num_subcarriers") != npz.end()) {
+        cnpy::NpyArray& ns_arr = npz["num_subcarriers"];
+        if (ns_arr.word_size == 8) {
+            result.num_subcarriers = static_cast<int>(*ns_arr.data<int64_t>());
+        } else if (ns_arr.word_size == 4) {
+            result.num_subcarriers = static_cast<int>(*ns_arr.data<int32_t>());
+        }
+    }
+    const bool has_phy_mode = npz.find("phy_mode") != npz.end();
+    const bool has_ltf_type = npz.find("ltf_type") != npz.end();
+    const bool has_channel_width = npz.find("channel_width") != npz.end();
+    const cnpy::NpyArray* phy_modes = has_phy_mode ? &npz["phy_mode"] : nullptr;
+    const cnpy::NpyArray* ltf_types = has_ltf_type ? &npz["ltf_type"] : nullptr;
+    const cnpy::NpyArray* channel_widths =
+        has_channel_width ? &npz["channel_width"] : nullptr;
+
+    std::vector<int> keep_indices;
+    keep_indices.reserve(static_cast<size_t>(raw_num_packets));
+    if (!has_phy_mode && !has_ltf_type && !has_channel_width) {
+        for (int i = 0; i < raw_num_packets; ++i) {
+            keep_indices.push_back(i);
+        }
+    } else {
+        for (int i = 0; i < raw_num_packets; ++i) {
+            const std::string phy_mode =
+                has_phy_mode ? npy_string_at(*phy_modes, static_cast<size_t>(i)) : "ht";
+            const std::string ltf_type =
+                has_ltf_type ? npy_string_at(*ltf_types, static_cast<size_t>(i))
+                             : "ht-ltf";
+            const std::string channel_width =
+                has_channel_width ? npy_string_at(*channel_widths, static_cast<size_t>(i))
+                                  : "20";
+            if (is_ht20_phy(phy_mode, channel_width, ltf_type)) {
+                keep_indices.push_back(i);
+            }
+        }
+    }
+
+    result.num_packets = static_cast<int>(keep_indices.size());
+    const int8_t* data = csi_arr.data<int8_t>();
+    result.packets.resize(static_cast<size_t>(result.num_packets));
+    if (npz.find("rssi_dbm") != npz.end()) {
+        cnpy::NpyArray& rssi_arr = npz["rssi_dbm"];
+        result.rssi_dbm.resize(static_cast<size_t>(result.num_packets), static_cast<int8_t>(-120));
+        for (int out_i = 0; out_i < result.num_packets; ++out_i) {
+            const int src_i = keep_indices[static_cast<size_t>(out_i)];
+            if (rssi_arr.word_size == 1) {
+                result.rssi_dbm[static_cast<size_t>(out_i)] = rssi_arr.data<int8_t>()[src_i];
+            } else if (rssi_arr.word_size == 2) {
+                result.rssi_dbm[static_cast<size_t>(out_i)] =
+                    static_cast<int8_t>(rssi_arr.data<int16_t>()[src_i]);
+            } else if (rssi_arr.word_size == 4) {
+                result.rssi_dbm[static_cast<size_t>(out_i)] =
+                    static_cast<int8_t>(rssi_arr.data<int32_t>()[src_i]);
+            } else if (rssi_arr.word_size == 8) {
+                result.rssi_dbm[static_cast<size_t>(out_i)] =
+                    static_cast<int8_t>(rssi_arr.data<int64_t>()[src_i]);
+            }
+        }
+    }
+
+    auto load_uint32_series = [&](const char* key, std::vector<uint32_t>& out) {
+        auto it = npz.find(key);
+        if (it == npz.end()) {
+            return;
+        }
+        cnpy::NpyArray& arr = it->second;
+        out.resize(static_cast<size_t>(result.num_packets), 0U);
+        for (int out_i = 0; out_i < result.num_packets; ++out_i) {
+            const int src_i = keep_indices[static_cast<size_t>(out_i)];
+            if (arr.word_size == 1) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint32_t>(arr.data<uint8_t>()[src_i]);
+            } else if (arr.word_size == 2) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint32_t>(arr.data<uint16_t>()[src_i]);
+            } else if (arr.word_size == 4) {
+                out[static_cast<size_t>(out_i)] = arr.data<uint32_t>()[src_i];
+            } else if (arr.word_size == 8) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint32_t>(arr.data<uint64_t>()[src_i]);
+            }
+        }
+    };
+    auto load_uint64_series = [&](const char* key, std::vector<uint64_t>& out) {
+        auto it = npz.find(key);
+        if (it == npz.end()) {
+            return;
+        }
+        cnpy::NpyArray& arr = it->second;
+        out.resize(static_cast<size_t>(result.num_packets), 0U);
+        for (int out_i = 0; out_i < result.num_packets; ++out_i) {
+            const int src_i = keep_indices[static_cast<size_t>(out_i)];
+            if (arr.word_size == 1) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint64_t>(arr.data<uint8_t>()[src_i]);
+            } else if (arr.word_size == 2) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint64_t>(arr.data<uint16_t>()[src_i]);
+            } else if (arr.word_size == 4) {
+                out[static_cast<size_t>(out_i)] = static_cast<uint64_t>(arr.data<uint32_t>()[src_i]);
+            } else if (arr.word_size == 8) {
+                out[static_cast<size_t>(out_i)] = arr.data<uint64_t>()[src_i];
+            }
+        }
+    };
+    load_uint32_series("stream_seq_num", result.stream_seq_num);
+    load_uint64_series("device_ticks_us", result.device_ticks_us);
+    load_uint32_series("wifi_rx_ts_us", result.wifi_rx_ts_us);
+    auto target_pps_it = npz.find("csi_target_pps");
+    if (target_pps_it != npz.end() && target_pps_it->second.num_vals > 0U) {
+        const cnpy::NpyArray& arr = target_pps_it->second;
+        if (arr.word_size == 1U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint8_t>()[0]);
+        } else if (arr.word_size == 2U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint16_t>()[0]);
+        } else if (arr.word_size == 4U) {
+            result.csi_target_pps = arr.data<uint32_t>()[0];
+        } else if (arr.word_size == 8U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint64_t>()[0]);
+        }
+    }
+    
+    for (int out_i = 0; out_i < result.num_packets; ++out_i) {
+        const int src_i = keep_indices[static_cast<size_t>(out_i)];
+        result.packets[static_cast<size_t>(out_i)].resize(static_cast<size_t>(result.packet_size));
+        for (int j = 0; j < result.packet_size; ++j) {
+            result.packets[static_cast<size_t>(out_i)][static_cast<size_t>(j)] =
+                data[src_i * result.packet_size + j];
+        }
+    }
+
+    // Recordings predating the firmware bin rotation stored classic-MAC captures
+    // in Espressif's native "0~31, -32~-1" order. The host loader corrects them on
+    // read, so replay here has to apply the same correction or the two stacks
+    // would evaluate different physical subcarriers from the same file.
+    if (result.packet_size == static_cast<int>(espectre::HT20_CSI_LEN)) {
+        int classic_layout_votes = 0;
+        for (const std::vector<int8_t>& packet : result.packets) {
+            if (espectre::detect_ht20_bin_layout(packet.data(), espectre::HT20_CSI_LEN) ==
+                espectre::Ht20BinLayout::CLASSIC) {
+                classic_layout_votes++;
+            }
+        }
+        if (classic_layout_votes * 2 > result.num_packets) {
+            std::vector<int8_t> rotated(espectre::HT20_CSI_LEN);
+            for (std::vector<int8_t>& packet : result.packets) {
+                espectre::rotate_ht20_classic_to_centered(packet.data(), rotated.data());
+                packet = rotated;
+            }
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Build array of packet pointers for compatibility with existing tests
+ */
+inline std::vector<const int8_t*> get_packet_pointers(const CsiData& csi_data) {
+    std::vector<const int8_t*> ptrs(csi_data.num_packets);
+    for (int i = 0; i < csi_data.num_packets; i++) {
+        ptrs[i] = csi_data.packets[i].data();
+    }
+    return ptrs;
+}
+
+
+// ============================================================================
+// Dataset Configuration
+// ============================================================================
+
+using ChipType = espectre::RawCsiChipType;
+
+static constexpr size_t CHIP_COUNT = 6;
+
+inline int chip_index(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return 0;
+        case ChipType::C5: return 1;
+        case ChipType::C6: return 2;
+        case ChipType::ESP32: return 3;
+        case ChipType::S2: return 4;
+        case ChipType::S3: return 5;
+        default: return -1;
+    }
+}
+
+inline bool chip_from_string(const char* text, ChipType& out_chip) {
+    if (text == nullptr) {
+        return false;
+    }
+    if (std::strcmp(text, "C3") == 0) {
+        out_chip = ChipType::C3;
+        return true;
+    }
+    if (std::strcmp(text, "C5") == 0) {
+        out_chip = ChipType::C5;
+        return true;
+    }
+    if (std::strcmp(text, "C6") == 0) {
+        out_chip = ChipType::C6;
+        return true;
+    }
+    if (std::strcmp(text, "ESP32") == 0) {
+        out_chip = ChipType::ESP32;
+        return true;
+    }
+    if (std::strcmp(text, "S2") == 0) {
+        out_chip = ChipType::S2;
+        return true;
+    }
+    if (std::strcmp(text, "S3") == 0) {
+        out_chip = ChipType::S3;
+        return true;
+    }
+    return false;
+}
+
+inline const char* chip_name(ChipType chip) {
+    switch (chip) {
+        case ChipType::C3: return "C3";
+        case ChipType::C5: return "C5";
+        case ChipType::C6: return "C6";
+        case ChipType::ESP32: return "ESP32";
+        case ChipType::S2: return "S2";
+        case ChipType::S3: return "S3";
+        default: return "Unknown";
+    }
+}
+
+inline bool is_admitted_dataset_role(const char* role) {
+    return role != nullptr &&
+           (std::strcmp(role, "train") == 0 ||
+            std::strcmp(role, "selection") == 0 ||
+            std::strcmp(role, "holdout") == 0);
+}
+
+inline bool readable_dataset_file(const std::string& path) {
+    std::ifstream input(path, std::ios::binary);
+    return input.good();
+}
+
+inline bool load_tuning_cache();
+inline const char* static_presence_file_for_chip(ChipType chip);
+inline const char* motion_file_for_chip(ChipType chip);
+inline std::vector<ChipType> get_supported_chips();
+inline std::vector<ChipType> get_available_chips();
+inline int get_available_pair_count();
+inline ChipType pair_chip(int pair_index);
+inline const char* pair_label(int pair_index);
+inline const char* pair_dataset_role(int pair_index);
+inline bool pair_is_low_rssi(int pair_index);
+inline bool pair_is_synthetic(int pair_index);
+inline bool switch_dataset_pair(int pair_index);
+inline int get_available_low_rssi_pair_count();
+inline ChipType low_rssi_pair_chip(int pair_index);
+inline const char* low_rssi_pair_label(int pair_index);
+inline bool switch_low_rssi_dataset_pair(int pair_index);
+inline int get_available_long_recording_count();
+inline ChipType long_recording_chip(int recording_index);
+inline const char* long_recording_label(int recording_index);
+inline bool switch_long_recording_dataset_by_index(int recording_index);
+inline int get_available_empty_room_count();
+inline ChipType empty_room_chip(int empty_index);
+inline const char* empty_room_label(int empty_index);
+inline bool switch_empty_room_dataset(int empty_index);
+inline const struct LowRssiDatasetSelection* real_low_rssi_pair_for_chip(ChipType chip);
+inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm);
+inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds);
+
+// ============================================================================
+// Global Data Storage
+// ============================================================================
+
+enum class DatasetMode {
+    StandardPair,
+    LongRecording
+};
+
+static CsiData g_static_presence_data;
+static CsiData g_motion_data;
+static std::vector<const int8_t*> g_static_presence_ptrs;
+static std::vector<const int8_t*> g_motion_ptrs;
+static bool g_loaded = false;
+static ChipType g_current_chip = ChipType::C6;
+static DatasetMode g_dataset_mode = DatasetMode::StandardPair;
+static bool g_tuning_cache_loaded = false;
+static bool g_long_recording_cache_loaded = false;
+struct ChipDatasetSelection {
+    ChipType chip = ChipType::C6;
+    std::string static_presence_filename;
+    std::string motion_filename;
+    std::string static_presence_path;
+    std::string motion_path;
+    std::string environment;
+    std::string dataset_role;
+    bool synthetic = false;
+    bool low_rssi = false;
+    bool valid = false;
+};
+static std::array<ChipDatasetSelection, CHIP_COUNT> g_selected_by_chip;
+static std::vector<ChipDatasetSelection> g_pair_selections;
+static int g_current_pair_index = -1;
+struct LowRssiDatasetSelection {
+    ChipType chip = ChipType::C6;
+    std::string static_presence_filename;
+    std::string motion_filename;
+    std::string static_presence_path;
+    std::string motion_path;
+    std::string environment;
+    bool valid = false;
+};
+static bool g_low_rssi_cache_loaded = false;
+static std::array<LowRssiDatasetSelection, CHIP_COUNT> g_low_rssi_selected_by_chip;
+static std::vector<LowRssiDatasetSelection> g_low_rssi_pair_selections;
+static int g_current_low_rssi_pair_index = -1;
+
+struct LongRecordingSelection {
+    ChipType chip = ChipType::C6;
+    std::string filename;
+    std::string path;
+    std::string collected_at;
+    int motion_start_packet = 0;
+    int num_packets = 0;
+    bool valid = false;
+};
+static std::array<LongRecordingSelection, CHIP_COUNT> g_long_selected_by_chip;
+static std::vector<LongRecordingSelection> g_long_recording_selections;
+static int g_current_long_recording_index = -1;
+
+// Empty-room recordings are the only streams in the corpus with nobody in the
+// room, which makes them the reference for "nothing is moving". They are kept
+// separate from the static-presence baselines on purpose: a stationary person
+// still breathes and shifts, and that is real channel motion.
+struct EmptyRoomSelection {
+    ChipType chip = ChipType::C6;
+    std::string filename;
+    std::string path;
+    std::string environment;
+    bool valid = false;
+};
+static bool g_empty_room_cache_loaded = false;
+static std::vector<EmptyRoomSelection> g_empty_room_selections;
+static CsiData g_empty_data;
+static std::vector<const int8_t*> g_empty_ptrs;
+static int g_current_empty_index = -1;
+
+inline bool extract_motion_start_from_description(const std::string& description, int& out_motion_start) {
+    static const std::regex kMotionStartPattern(
+        "motion\\s+starts\\s+at\\s+packet(?:\\s+index)?(?:\\s+n\\.)?\\s+(\\d+)",
+        std::regex_constants::icase);
+    std::smatch match;
+    if (!std::regex_search(description, match, kMotionStartPattern) || match.size() < 2) {
+        return false;
+    }
+    out_motion_start = std::atoi(match[1].str().c_str());
+    return out_motion_start > 0;
+}
+
+inline CsiData slice_packets(const CsiData& source, int start_idx, int end_idx) {
+    CsiData result;
+    const int clamped_start = std::max(0, start_idx);
+    const int clamped_end = std::min(end_idx, source.num_packets);
+    if (clamped_start >= clamped_end) {
+        result.num_packets = 0;
+        result.packet_size = source.packet_size;
+        result.num_subcarriers = source.num_subcarriers;
+        return result;
+    }
+
+    result.packet_size = source.packet_size;
+    result.num_subcarriers = source.num_subcarriers;
+    result.csi_target_pps = source.csi_target_pps;
+    result.packets.assign(source.packets.begin() + clamped_start, source.packets.begin() + clamped_end);
+    if (!source.rssi_dbm.empty()) {
+        result.rssi_dbm.assign(source.rssi_dbm.begin() + clamped_start,
+                               source.rssi_dbm.begin() + clamped_end);
+    }
+    if (!source.stream_seq_num.empty()) {
+        result.stream_seq_num.assign(source.stream_seq_num.begin() + clamped_start,
+                                     source.stream_seq_num.begin() + clamped_end);
+    }
+    if (!source.device_ticks_us.empty()) {
+        result.device_ticks_us.assign(source.device_ticks_us.begin() + clamped_start,
+                                      source.device_ticks_us.begin() + clamped_end);
+    }
+    if (!source.wifi_rx_ts_us.empty()) {
+        result.wifi_rx_ts_us.assign(source.wifi_rx_ts_us.begin() + clamped_start,
+                                    source.wifi_rx_ts_us.begin() + clamped_end);
+    }
+    result.num_packets = static_cast<int>(result.packets.size());
+    return result;
+}
+
+inline bool load_real_low_rssi_cache() {
+    if (g_low_rssi_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../../data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    struct PairFile {
+        std::string filename;
+        std::string path;
+        std::string environment;
+        bool valid = false;
+    };
+    std::unordered_map<std::string, PairFile> motion_by_filename;
+
+    for (auto& selected : g_low_rssi_selected_by_chip) {
+        selected = LowRssiDatasetSelection{};
+    }
+    g_low_rssi_pair_selections.clear();
+    g_current_low_rssi_pair_index = -1;
+
+    JsonArray motion_entries = doc["files"]["motion"].as<JsonArray>();
+    for (JsonObject entry : motion_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool low_rssi = entry["low_rssi"] | false;
+        const bool synthetic = entry["synthetic"] | false;
+        if (filename == nullptr || chip_text == nullptr || subcarriers != 64 ||
+            !low_rssi || synthetic || !is_admitted_dataset_role(dataset_role)) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        PairFile candidate{};
+        candidate.filename = filename;
+        candidate.path = std::string("../../data/motion/") + filename;
+        candidate.environment = entry["environment"] | "";
+        candidate.valid = true;
+        motion_by_filename[candidate.filename] = candidate;
+    }
+
+    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
+    for (JsonObject entry : static_presence_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool low_rssi = entry["low_rssi"] | false;
+        const bool synthetic = entry["synthetic"] | false;
+        if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr ||
+            subcarriers != 64 || !low_rssi || synthetic || !is_admitted_dataset_role(dataset_role)) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        auto motion_it = motion_by_filename.find(optimal_pair_motion_file);
+        if (motion_it == motion_by_filename.end()) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Broken low-RSSI pair for %s\n", filename);
+            return false;
+        }
+
+        LowRssiDatasetSelection candidate{};
+        candidate.chip = chip;
+        candidate.static_presence_filename = filename;
+        candidate.motion_filename = motion_it->second.filename;
+        candidate.static_presence_path = std::string("../../data/static_presence/") + filename;
+        candidate.motion_path = motion_it->second.path;
+        candidate.environment = entry["environment"] | "";
+        candidate.valid = true;
+        if (!readable_dataset_file(candidate.static_presence_path) ||
+            !readable_dataset_file(candidate.motion_path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Low-RSSI pair file is missing for %s\n",
+                         filename);
+            return false;
+        }
+        g_low_rssi_pair_selections.push_back(candidate);
+
+        LowRssiDatasetSelection& selected = g_low_rssi_selected_by_chip[idx];
+        if (!selected.valid) {
+            selected = candidate;
+        }
+    }
+
+    std::sort(g_low_rssi_pair_selections.begin(), g_low_rssi_pair_selections.end(),
+              [](const LowRssiDatasetSelection& a, const LowRssiDatasetSelection& b) {
+                  const int a_idx = chip_index(a.chip);
+                  const int b_idx = chip_index(b.chip);
+                  if (a_idx != b_idx) {
+                      return a_idx < b_idx;
+                  }
+                  if (a.environment != b.environment) {
+                      return a.environment < b.environment;
+                  }
+                  return a.static_presence_filename < b.static_presence_filename;
+              });
+
+    g_low_rssi_cache_loaded = true;
+    return true;
+}
+
+inline bool load_tuning_cache() {
+    if (g_tuning_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../../data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    struct PairFile {
+        std::string filename;
+        std::string path;
+        std::string environment;
+        std::string optimal_pair_motion_file;
+        std::string dataset_role;
+        bool synthetic = false;
+        bool low_rssi = false;
+        bool valid = false;
+    };
+    std::array<std::vector<PairFile>, CHIP_COUNT> static_presence_candidates{};
+    std::unordered_map<std::string, PairFile> motion_by_filename;
+
+    JsonArray static_presence_entries = doc["files"]["static_presence"].as<JsonArray>();
+    for (JsonObject entry : static_presence_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        int subcarriers = entry["subcarriers"] | 0;
+        const char* environment = entry["environment"] | "";
+        const char* optimal_pair_motion_file = entry["optimal_pair_motion_file"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        if (filename == nullptr || chip_text == nullptr || optimal_pair_motion_file == nullptr) {
+            continue;
+        }
+        if (!is_admitted_dataset_role(dataset_role)) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        if (subcarriers == 64) {
+            PairFile candidate{};
+            candidate.filename = filename;
+            candidate.path = std::string("../../data/static_presence/") + filename;
+            candidate.environment = environment;
+            candidate.optimal_pair_motion_file = optimal_pair_motion_file;
+            candidate.dataset_role = dataset_role;
+            candidate.synthetic = entry["synthetic"] | false;
+            candidate.low_rssi = entry["low_rssi"] | false;
+            candidate.valid = true;
+            static_presence_candidates[idx].push_back(candidate);
+        }
+
+    }
+
+    JsonArray motion_entries = doc["files"]["motion"].as<JsonArray>();
+    for (JsonObject entry : motion_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        int subcarriers = entry["subcarriers"] | 0;
+        ChipType chip{};
+        if (filename != nullptr && chip_from_string(chip_text, chip)) {
+            if (!is_admitted_dataset_role(dataset_role)) {
+                continue;
+            }
+            if (subcarriers == 64) {
+                const int idx = chip_index(chip);
+                if (idx >= 0) {
+                    PairFile candidate{};
+                    candidate.filename = filename;
+                    candidate.path = std::string("../../data/motion/") + filename;
+                    candidate.environment = entry["environment"] | "";
+                    candidate.dataset_role = dataset_role;
+                    candidate.synthetic = entry["synthetic"] | false;
+                    candidate.low_rssi = entry["low_rssi"] | false;
+                    candidate.valid = true;
+                    motion_by_filename[candidate.filename] = candidate;
+                }
+            }
+        }
+    }
+
+    for (auto& selected : g_selected_by_chip) {
+        selected = ChipDatasetSelection{};
+    }
+    g_pair_selections.clear();
+    g_current_pair_index = -1;
+
+    // Load every explicit static-presence/motion pair from dataset_info.json.
+    for (ChipType chip : get_supported_chips()) {
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        for (const auto& static_presence : static_presence_candidates[idx]) {
+            auto motion_it = motion_by_filename.find(static_presence.optimal_pair_motion_file);
+            if (motion_it == motion_by_filename.end()) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Broken pair for %s\n",
+                             static_presence.filename.c_str());
+                return false;
+            }
+
+            const PairFile& motion = motion_it->second;
+            if (static_presence.synthetic != motion.synthetic) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair synthetic flags differ for %s\n",
+                             static_presence.filename.c_str());
+                return false;
+            }
+            if (static_presence.dataset_role != motion.dataset_role) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair roles differ for %s\n",
+                             static_presence.filename.c_str());
+                return false;
+            }
+            ChipDatasetSelection selected{};
+            selected.chip = chip;
+            selected.static_presence_filename = static_presence.filename;
+            selected.motion_filename = motion.filename;
+            selected.static_presence_path = static_presence.path;
+            selected.motion_path = motion.path;
+            selected.environment = static_presence.environment;
+            selected.dataset_role = static_presence.dataset_role;
+            selected.synthetic = static_presence.synthetic;
+            selected.low_rssi = static_presence.low_rssi || motion.low_rssi;
+            selected.valid = true;
+            if (!readable_dataset_file(selected.static_presence_path) ||
+                !readable_dataset_file(selected.motion_path)) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Pair file is missing for %s\n",
+                             static_presence.filename.c_str());
+                return false;
+            }
+            g_pair_selections.push_back(selected);
+
+            ChipDatasetSelection& selected_by_chip = g_selected_by_chip[idx];
+            if (!selected_by_chip.valid) {
+                selected_by_chip = selected;
+            }
+        }
+    }
+
+    std::sort(g_pair_selections.begin(), g_pair_selections.end(),
+              [](const ChipDatasetSelection& a, const ChipDatasetSelection& b) {
+                  const int a_idx = chip_index(a.chip);
+                  const int b_idx = chip_index(b.chip);
+                  if (a_idx != b_idx) {
+                      return a_idx < b_idx;
+                  }
+                  if (a.environment != b.environment) {
+                      return a.environment < b.environment;
+                  }
+                  return a.static_presence_filename < b.static_presence_filename;
+              });
+
+    if (g_pair_selections.empty()) {
+        std::fprintf(stderr,
+            "[CSI Test Data] ERROR: No complete 64SC static-presence/motion dataset pairs found\n");
+        return false;
+    }
+
+    g_tuning_cache_loaded = true;
+    return true;
+}
+
+inline bool load_long_recording_cache() {
+    if (g_long_recording_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../../data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    for (auto& selected : g_long_selected_by_chip) {
+        selected = LongRecordingSelection{};
+    }
+    g_long_recording_selections.clear();
+
+    JsonArray empty_entries = doc["files"]["empty"].as<JsonArray>();
+    bool loaded_explicit_long_recordings = false;
+    for (JsonObject entry : empty_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* collected_at = entry["collected_at"];
+        const char* description = entry["description"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool long_recording = entry["long_recording"] | false;
+        const int num_packets = entry["num_packets"] | 0;
+        if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
+            continue;
+        }
+        if (!long_recording || !is_admitted_dataset_role(dataset_role)) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+
+        int motion_start_packet = 0;
+        if (description == nullptr || !extract_motion_start_from_description(description, motion_start_packet)) {
+            motion_start_packet = num_packets;
+        }
+
+        if (num_packets <= 1 || motion_start_packet <= 0 || motion_start_packet > num_packets) {
+            continue;
+        }
+
+        LongRecordingSelection candidate{};
+        candidate.chip = chip;
+        candidate.filename = filename;
+        candidate.path = std::string("../../data/empty/") + filename;
+        if (!readable_dataset_file(candidate.path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Long-recording file is missing: %s\n",
+                         candidate.path.c_str());
+            return false;
+        }
+        candidate.collected_at = collected_at;
+        candidate.motion_start_packet = motion_start_packet;
+        candidate.num_packets = num_packets;
+        candidate.valid = true;
+        g_long_recording_selections.push_back(candidate);
+        loaded_explicit_long_recordings = true;
+
+        LongRecordingSelection& selected = g_long_selected_by_chip[idx];
+        if (!selected.valid || candidate.collected_at > selected.collected_at) {
+            selected = candidate;
+        }
+    }
+
+    if (!loaded_explicit_long_recordings) {
+        JsonArray test_entries = doc["files"]["test"].as<JsonArray>();
+        for (JsonObject entry : test_entries) {
+            const char* filename = entry["filename"];
+            const char* chip_text = entry["chip"];
+            const char* collected_at = entry["collected_at"];
+            const char* description = entry["description"];
+            const char* dataset_role = entry["dataset_role"] | "exclude";
+            const int subcarriers = entry["subcarriers"] | 0;
+            const int num_packets = entry["num_packets"] | 0;
+            if (filename == nullptr || chip_text == nullptr || collected_at == nullptr || subcarriers != 64) {
+                continue;
+            }
+            if (!is_admitted_dataset_role(dataset_role)) {
+                continue;
+            }
+
+            ChipType chip{};
+            if (!chip_from_string(chip_text, chip)) {
+                continue;
+            }
+            const int idx = chip_index(chip);
+            if (idx < 0) {
+                continue;
+            }
+
+            int motion_start_packet = 0;
+            if (description == nullptr || !extract_motion_start_from_description(description, motion_start_packet)) {
+                motion_start_packet = num_packets;
+            }
+
+            if (num_packets <= 1 || motion_start_packet <= 0 || motion_start_packet > num_packets) {
+                continue;
+            }
+
+            LongRecordingSelection candidate{};
+            candidate.chip = chip;
+            candidate.filename = filename;
+            candidate.path = std::string("../../data/test/") + filename;
+            if (!readable_dataset_file(candidate.path)) {
+                std::fprintf(stderr, "[CSI Test Data] ERROR: Long-recording file is missing: %s\n",
+                             candidate.path.c_str());
+                return false;
+            }
+            candidate.collected_at = collected_at;
+            candidate.motion_start_packet = motion_start_packet;
+            candidate.num_packets = num_packets;
+            candidate.valid = true;
+            g_long_recording_selections.push_back(candidate);
+
+            LongRecordingSelection& selected = g_long_selected_by_chip[idx];
+            if (!selected.valid || candidate.collected_at > selected.collected_at) {
+                selected = candidate;
+            }
+        }
+    }
+
+    std::stable_sort(
+        g_long_recording_selections.begin(),
+        g_long_recording_selections.end(),
+        [](const LongRecordingSelection& a, const LongRecordingSelection& b) {
+            const int a_idx = chip_index(a.chip);
+            const int b_idx = chip_index(b.chip);
+            return a_idx < b_idx;
+        });
+
+    for (ChipType chip : get_supported_chips()) {
+        const int idx = chip_index(chip);
+        if (idx < 0) {
+            continue;
+        }
+        if (!g_long_selected_by_chip[idx].valid) {
+            continue;
+        }
+    }
+
+    g_long_recording_cache_loaded = true;
+    return true;
+}
+
+inline bool load_empty_room_cache() {
+    if (g_empty_room_cache_loaded) {
+        return true;
+    }
+
+    const std::string dataset_info_path = "../../data/dataset_info.json";
+    std::ifstream in(dataset_info_path);
+    if (!in.is_open()) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Cannot open %s\n", dataset_info_path.c_str());
+        return false;
+    }
+
+    DynamicJsonDocument doc(128 * 1024);
+    auto err = deserializeJson(doc, in);
+    if (err) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Failed parsing dataset_info.json: %s\n", err.c_str());
+        return false;
+    }
+
+    g_empty_room_selections.clear();
+
+    JsonArray empty_entries = doc["files"]["empty"].as<JsonArray>();
+    for (JsonObject entry : empty_entries) {
+        const char* filename = entry["filename"];
+        const char* chip_text = entry["chip"];
+        const char* environment = entry["environment"];
+        const char* dataset_role = entry["dataset_role"] | "exclude";
+        const int subcarriers = entry["subcarriers"] | 0;
+        const bool long_recording = entry["long_recording"] | false;
+        if (filename == nullptr || chip_text == nullptr || subcarriers != 64) {
+            continue;
+        }
+        if (long_recording || !is_admitted_dataset_role(dataset_role)) {
+            continue;
+        }
+
+        ChipType chip{};
+        if (!chip_from_string(chip_text, chip)) {
+            continue;
+        }
+
+        EmptyRoomSelection candidate{};
+        candidate.chip = chip;
+        candidate.filename = filename;
+        candidate.path = std::string("../../data/empty/") + filename;
+        candidate.environment = environment == nullptr ? "" : environment;
+        candidate.valid = true;
+        if (!readable_dataset_file(candidate.path)) {
+            std::fprintf(stderr, "[CSI Test Data] ERROR: Empty-room file is missing: %s\n",
+                         candidate.path.c_str());
+            return false;
+        }
+        g_empty_room_selections.push_back(candidate);
+    }
+
+    std::stable_sort(
+        g_empty_room_selections.begin(),
+        g_empty_room_selections.end(),
+        [](const EmptyRoomSelection& a, const EmptyRoomSelection& b) {
+            const int a_idx = chip_index(a.chip);
+            const int b_idx = chip_index(b.chip);
+            if (a_idx != b_idx) {
+                return a_idx < b_idx;
+            }
+            return a.filename < b.filename;
+        });
+
+    g_empty_room_cache_loaded = true;
+    return true;
+}
+
+inline int get_available_empty_room_count() {
+    if (!load_empty_room_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_empty_room_selections.size());
+}
+
+inline const EmptyRoomSelection* empty_room_selection(int empty_index) {
+    if (!load_empty_room_cache()) {
+        return nullptr;
+    }
+    if (empty_index < 0 || empty_index >= static_cast<int>(g_empty_room_selections.size())) {
+        return nullptr;
+    }
+    return &g_empty_room_selections[empty_index];
+}
+
+inline ChipType empty_room_chip(int empty_index) {
+    const EmptyRoomSelection* selected = empty_room_selection(empty_index);
+    return selected == nullptr ? ChipType::C6 : selected->chip;
+}
+
+inline const char* empty_room_label(int empty_index) {
+    const EmptyRoomSelection* selected = empty_room_selection(empty_index);
+    return selected == nullptr ? "" : selected->filename.c_str();
+}
+
+inline bool switch_empty_room_dataset(int empty_index) {
+    const EmptyRoomSelection* selected = empty_room_selection(empty_index);
+    if (selected == nullptr || !selected->valid) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid empty-room index %d\n", empty_index);
+        return false;
+    }
+
+    try {
+        printf("\n[CSI Test Data] Loading %s empty room #%d (%s)...\n",
+               chip_name(selected->chip), empty_index, selected->environment.c_str());
+        printf("[CSI Test Data] Empty: %s\n", selected->path.c_str());
+        g_empty_data = load_npz(selected->path);
+        g_empty_ptrs = get_packet_pointers(g_empty_data);
+        printf("[CSI Test Data] Loaded %d empty-room packets (%d bytes each)\n",
+               g_empty_data.num_packets, g_empty_data.packet_size);
+        g_current_empty_index = empty_index;
+        return true;
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load NPZ file: %s\n", e.what());
+        return false;
+    }
+}
+
+inline const char* static_presence_file_for_chip(ChipType chip) {
+    if (!load_tuning_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_selected_by_chip[idx].static_presence_path.c_str();
+}
+
+inline const char* motion_file_for_chip(ChipType chip) {
+    if (!load_tuning_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_selected_by_chip[idx].motion_path.c_str();
+}
+
+inline const char* long_recording_file_for_chip(ChipType chip) {
+    if (!load_long_recording_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_long_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_long_selected_by_chip[idx].path.c_str();
+}
+
+inline int long_recording_motion_start_for_chip(ChipType chip) {
+    if (!load_long_recording_cache()) {
+        return 0;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_long_selected_by_chip[idx].valid) {
+        return 0;
+    }
+    return g_long_selected_by_chip[idx].motion_start_packet;
+}
+
+inline const char* long_recording_name_for_chip(ChipType chip) {
+    if (!load_long_recording_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_long_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return g_long_selected_by_chip[idx].filename.c_str();
+}
+
+inline const LowRssiDatasetSelection* real_low_rssi_pair_for_chip(ChipType chip) {
+    if (!load_real_low_rssi_cache()) {
+        return nullptr;
+    }
+    const int idx = chip_index(chip);
+    if (idx < 0 || !g_low_rssi_selected_by_chip[idx].valid) {
+        return nullptr;
+    }
+    return &g_low_rssi_selected_by_chip[idx];
+}
+
+inline const LowRssiDatasetSelection* low_rssi_pair_selection(int pair_index) {
+    if (!load_real_low_rssi_cache()) {
+        return nullptr;
+    }
+    if (pair_index < 0 || pair_index >= static_cast<int>(g_low_rssi_pair_selections.size())) {
+        return nullptr;
+    }
+    return &g_low_rssi_pair_selections[static_cast<size_t>(pair_index)];
+}
+
+inline const LongRecordingSelection* long_recording_selection(int recording_index) {
+    if (!load_long_recording_cache()) {
+        return nullptr;
+    }
+    if (recording_index < 0 || recording_index >= static_cast<int>(g_long_recording_selections.size())) {
+        return nullptr;
+    }
+    return &g_long_recording_selections[recording_index];
+}
+
+/**
+ * Load CSI test data from NPZ files for a specific chip.
+ * Static-presence data is loaded from packet 0 so threshold calibration matches
+ * live startup behavior.
+ * @param chip Chip type (C3, C6, ESP32, or S3)
+ */
+inline bool load(ChipType chip = ChipType::C6) {
+    // If already loaded with same chip, skip
+    if (g_loaded && chip == g_current_chip && g_dataset_mode == DatasetMode::StandardPair &&
+        g_current_pair_index < 0) {
+        return true;
+    }
+    
+    const char* static_presence_file = static_presence_file_for_chip(chip);
+    const char* motion_file = motion_file_for_chip(chip);
+    if (static_presence_file == nullptr || motion_file == nullptr) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Unknown chip type in load()\n");
+        return false;
+    }
+    
+    try {
+        printf("\n[CSI Test Data] Loading %s 64 SC dataset (HT20)...\n", chip_name(chip));
+        printf("[CSI Test Data] Static presence: %s\n", static_presence_file);
+        g_static_presence_data = load_npz(static_presence_file);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, from packet 0)\n",
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size);
+        
+        printf("[CSI Test Data] Motion: %s\n", motion_file);
+        g_motion_data = load_npz(motion_file);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+        printf("[CSI Test Data] Loaded %d motion packets (%d bytes each)\n", 
+               g_motion_data.num_packets, g_motion_data.packet_size);
+        
+        g_loaded = true;
+        g_current_chip = chip;
+        g_dataset_mode = DatasetMode::StandardPair;
+        g_current_pair_index = -1;
+        g_current_low_rssi_pair_index = -1;
+        return true;
+        
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load NPZ files: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool load_pair(int pair_index) {
+    if (!load_tuning_cache()) {
+        return false;
+    }
+    if (pair_index < 0 || pair_index >= static_cast<int>(g_pair_selections.size())) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid pair index %d\n", pair_index);
+        return false;
+    }
+    if (g_loaded && pair_index == g_current_pair_index && g_dataset_mode == DatasetMode::StandardPair) {
+        return true;
+    }
+
+    const ChipDatasetSelection& selected = g_pair_selections[pair_index];
+    try {
+        printf("\n[CSI Test Data] Loading %s 64 SC pair #%d (%s)...\n",
+               chip_name(selected.chip), pair_index, selected.environment.c_str());
+        printf("[CSI Test Data] Static presence: %s\n", selected.static_presence_path.c_str());
+        g_static_presence_data = load_npz(selected.static_presence_path);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, from packet 0)\n",
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size);
+
+        printf("[CSI Test Data] Motion: %s\n", selected.motion_path.c_str());
+        g_motion_data = load_npz(selected.motion_path);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+        printf("[CSI Test Data] Loaded %d motion packets (%d bytes each)\n",
+               g_motion_data.num_packets, g_motion_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = selected.chip;
+        g_dataset_mode = DatasetMode::StandardPair;
+        g_current_pair_index = pair_index;
+        g_current_low_rssi_pair_index = -1;
+        return true;
+
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load NPZ files: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool load_long_recording(ChipType chip = ChipType::C6) {
+    if (g_loaded && chip == g_current_chip && g_dataset_mode == DatasetMode::LongRecording) return true;
+
+    const char* long_recording_file = long_recording_file_for_chip(chip);
+    const int motion_start_packet = long_recording_motion_start_for_chip(chip);
+    if (long_recording_file == nullptr || motion_start_packet <= 0) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Missing long recording metadata for chip %s\n", chip_name(chip));
+        return false;
+    }
+
+    try {
+        printf("\n[CSI Test Data] Loading %s long recording dataset...\n", chip_name(chip));
+        printf("[CSI Test Data] Test: %s\n", long_recording_file);
+        CsiData full_data = load_npz(long_recording_file);
+        if (motion_start_packet >= full_data.num_packets) {
+            std::fprintf(stderr,
+                         "[CSI Test Data] ERROR: Invalid motion_start_packet=%d for %s (%d packets)\n",
+                         motion_start_packet, long_recording_file, full_data.num_packets);
+            return false;
+        }
+
+        g_static_presence_data = slice_packets(full_data, 0, motion_start_packet);
+        g_motion_data = slice_packets(full_data, motion_start_packet, full_data.num_packets);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+
+        printf("[CSI Test Data] Split at packet %d -> static_presence=%d, motion=%d (%d bytes each)\n",
+               motion_start_packet, g_static_presence_data.num_packets, g_motion_data.num_packets,
+               g_static_presence_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = chip;
+        g_dataset_mode = DatasetMode::LongRecording;
+        g_current_pair_index = -1;
+        g_current_long_recording_index = -1;
+        g_current_low_rssi_pair_index = -1;
+        return true;
+
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load long NPZ file: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool load_long_recording_by_index(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr || !selected->valid) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid long recording index %d\n", recording_index);
+        return false;
+    }
+
+    const ChipType chip = selected->chip;
+
+    try {
+        printf("\n[CSI Test Data] Loading %s long recording #%d...\n", chip_name(chip), recording_index);
+        printf("[CSI Test Data] Test: %s\n", selected->path.c_str());
+        CsiData full_data = load_npz(selected->path);
+        if (selected->motion_start_packet > full_data.num_packets) {
+            std::fprintf(stderr,
+                         "[CSI Test Data] ERROR: Invalid motion_start_packet=%d for %s (%d packets)\n",
+                         selected->motion_start_packet, selected->path.c_str(), full_data.num_packets);
+            return false;
+        }
+
+        g_static_presence_data = slice_packets(full_data, 0, selected->motion_start_packet);
+        g_motion_data = slice_packets(full_data, selected->motion_start_packet, full_data.num_packets);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+
+        printf("[CSI Test Data] Split at packet %d -> static_presence=%d, motion=%d (%d bytes each)\n",
+               selected->motion_start_packet, g_static_presence_data.num_packets, g_motion_data.num_packets,
+               g_static_presence_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = chip;
+        g_dataset_mode = DatasetMode::LongRecording;
+        g_current_pair_index = -1;
+        g_current_long_recording_index = recording_index;
+        g_current_low_rssi_pair_index = -1;
+        return true;
+
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load long NPZ file: %s\n", e.what());
+        return false;
+    }
+}
+
+/**
+ * Switch to a different dataset.
+ * Forces reload even if already loaded.
+ */
+inline bool switch_dataset(ChipType chip) {
+    g_loaded = false;  // Force reload
+    return load(chip);
+}
+
+inline bool switch_dataset_pair(int pair_index) {
+    g_loaded = false;
+    return load_pair(pair_index);
+}
+
+inline bool load_low_rssi_pair(int pair_index) {
+    const LowRssiDatasetSelection* selected = low_rssi_pair_selection(pair_index);
+    if (selected == nullptr || !selected->valid) {
+        std::fprintf(stderr, "[CSI Test Data] ERROR: Invalid low-RSSI pair index %d\n", pair_index);
+        return false;
+    }
+
+    try {
+        printf("\n[CSI Test Data] Loading %s low-RSSI pair #%d (%s)...\n",
+               chip_name(selected->chip), pair_index, selected->environment.c_str());
+        printf("[CSI Test Data] Static presence: %s\n", selected->static_presence_path.c_str());
+        g_static_presence_data = load_npz(selected->static_presence_path);
+        g_static_presence_ptrs = get_packet_pointers(g_static_presence_data);
+        printf("[CSI Test Data] Loaded %d static-presence packets (%d bytes each, from packet 0)\n",
+               g_static_presence_data.num_packets, g_static_presence_data.packet_size);
+
+        printf("[CSI Test Data] Motion: %s\n", selected->motion_path.c_str());
+        g_motion_data = load_npz(selected->motion_path);
+        g_motion_ptrs = get_packet_pointers(g_motion_data);
+        printf("[CSI Test Data] Loaded %d motion packets (%d bytes each)\n",
+               g_motion_data.num_packets, g_motion_data.packet_size);
+
+        g_loaded = true;
+        g_current_chip = selected->chip;
+        g_dataset_mode = DatasetMode::StandardPair;
+        g_current_pair_index = -1;
+        g_current_long_recording_index = -1;
+        g_current_low_rssi_pair_index = pair_index;
+        return true;
+
+    } catch (const std::exception& e) {
+        printf("[CSI Test Data] ERROR: Failed to load NPZ files: %s\n", e.what());
+        return false;
+    }
+}
+
+inline bool switch_low_rssi_dataset_pair(int pair_index) {
+    g_loaded = false;
+    return load_low_rssi_pair(pair_index);
+}
+
+inline bool switch_long_recording_dataset(ChipType chip) {
+    g_loaded = false;
+    return load_long_recording(chip);
+}
+
+inline bool switch_long_recording_dataset_by_index(int recording_index) {
+    g_loaded = false;
+    return load_long_recording_by_index(recording_index);
+}
+
+inline std::vector<ChipType> get_available_long_recording_chips() {
+    std::vector<ChipType> chips;
+    if (!load_long_recording_cache()) {
+        return chips;
+    }
+    for (ChipType chip : get_supported_chips()) {
+        const int idx = chip_index(chip);
+        if (idx >= 0 && g_long_selected_by_chip[idx].valid) {
+            chips.push_back(chip);
+        }
+    }
+    return chips;
+}
+
+inline int get_available_long_recording_count() {
+    if (!load_long_recording_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_long_recording_selections.size());
+}
+
+inline ChipType long_recording_chip(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr) {
+        return ChipType::C6;
+    }
+    return selected->chip;
+}
+
+inline const char* long_recording_label(int recording_index) {
+    const LongRecordingSelection* selected = long_recording_selection(recording_index);
+    if (selected == nullptr) {
+        return "unknown_long_recording";
+    }
+    return selected->filename.c_str();
+}
+
+/**
+ * Get list of supported chip configurations.
+ */
+inline std::vector<ChipType> get_supported_chips() {
+    return {
+        ChipType::C3,
+        ChipType::C5,
+        ChipType::C6,
+        ChipType::ESP32,
+        ChipType::S2,
+        ChipType::S3,
+    };
+}
+
+/**
+ * Get list of chip configurations with complete static-presence/motion pairs.
+ */
+inline std::vector<ChipType> get_available_chips() {
+    std::vector<ChipType> chips;
+    if (!load_tuning_cache()) {
+        return chips;
+    }
+    for (ChipType chip : get_supported_chips()) {
+        const int idx = chip_index(chip);
+        if (idx >= 0 && g_selected_by_chip[idx].valid) {
+            chips.push_back(chip);
+        }
+    }
+    return chips;
+}
+
+inline int get_available_pair_count() {
+    if (!load_tuning_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_pair_selections.size());
+}
+
+inline int get_available_low_rssi_pair_count() {
+    if (!load_real_low_rssi_cache()) {
+        return 0;
+    }
+    return static_cast<int>(g_low_rssi_pair_selections.size());
+}
+
+inline ChipType pair_chip(int pair_index) {
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return ChipType::C6;
+    }
+    return g_pair_selections[pair_index].chip;
+}
+
+inline ChipType low_rssi_pair_chip(int pair_index) {
+    const LowRssiDatasetSelection* selected = low_rssi_pair_selection(pair_index);
+    if (selected == nullptr) {
+        return ChipType::C6;
+    }
+    return selected->chip;
+}
+
+inline const char* pair_label(int pair_index) {
+    static std::string label;
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        label = "unknown_pair";
+        return label.c_str();
+    }
+
+    const ChipDatasetSelection& selected = g_pair_selections[pair_index];
+    label = std::string(chip_name(selected.chip)) + ":" + selected.environment + ":" +
+            selected.static_presence_filename;
+    return label.c_str();
+}
+
+inline const char* pair_dataset_role(int pair_index) {
+    if (!load_tuning_cache() || pair_index < 0 ||
+        pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return "exclude";
+    }
+    return g_pair_selections[pair_index].dataset_role.c_str();
+}
+
+inline bool pair_is_low_rssi(int pair_index) {
+    return load_tuning_cache() && pair_index >= 0 &&
+           pair_index < static_cast<int>(g_pair_selections.size()) &&
+           g_pair_selections[pair_index].low_rssi;
+}
+
+inline bool pair_is_synthetic(int pair_index) {
+    return load_tuning_cache() && pair_index >= 0 &&
+           pair_index < static_cast<int>(g_pair_selections.size()) &&
+           g_pair_selections[pair_index].synthetic;
+}
+
+inline const char* low_rssi_pair_label(int pair_index) {
+    static std::string label;
+    const LowRssiDatasetSelection* selected = low_rssi_pair_selection(pair_index);
+    if (selected == nullptr) {
+        label = "unknown_low_rssi_pair";
+        return label.c_str();
+    }
+
+    label = std::string(chip_name(selected->chip)) + ":" + selected->environment + ":" +
+            selected->static_presence_filename;
+    return label.c_str();
+}
+
+inline int current_pair_index() {
+    return g_current_pair_index;
+}
+
+inline const char* current_pair_label() {
+    return pair_label(g_current_pair_index);
+}
+
+inline bool current_pair_is_synthetic() {
+    if (!load_tuning_cache() || g_current_pair_index < 0 ||
+        g_current_pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return false;
+    }
+    return g_pair_selections[g_current_pair_index].synthetic;
+}
+
+inline bool current_pair_is_report_reserved() {
+    if (!load_tuning_cache() || g_current_pair_index < 0 ||
+        g_current_pair_index >= static_cast<int>(g_pair_selections.size())) {
+        return false;
+    }
+    const std::string& role = g_pair_selections[g_current_pair_index].dataset_role;
+    return role == "selection" || role == "holdout";
+}
+
+// ============================================================================
+// Accessors (compatible with old static array interface)
+// ============================================================================
+
+inline bool is_loaded() { return g_loaded; }
+inline const int8_t** static_presence_packets() { return g_static_presence_ptrs.data(); }
+inline const int8_t** motion_packets() { return g_motion_ptrs.data(); }
+inline const int8_t* static_presence_rssi_dbm() {
+    return g_static_presence_data.rssi_dbm.empty() ? nullptr : g_static_presence_data.rssi_dbm.data();
+}
+inline const int8_t* motion_rssi_dbm() {
+    return g_motion_data.rssi_dbm.empty() ? nullptr : g_motion_data.rssi_dbm.data();
+}
+inline const uint32_t* static_presence_stream_seq_num() {
+    return g_static_presence_data.stream_seq_num.empty() ? nullptr : g_static_presence_data.stream_seq_num.data();
+}
+inline const uint32_t* motion_stream_seq_num() {
+    return g_motion_data.stream_seq_num.empty() ? nullptr : g_motion_data.stream_seq_num.data();
+}
+inline const uint64_t* static_presence_device_ticks_us() {
+    return g_static_presence_data.device_ticks_us.empty() ? nullptr : g_static_presence_data.device_ticks_us.data();
+}
+inline const uint64_t* motion_device_ticks_us() {
+    return g_motion_data.device_ticks_us.empty() ? nullptr : g_motion_data.device_ticks_us.data();
+}
+inline const uint32_t* static_presence_wifi_rx_ts_us() {
+    return g_static_presence_data.wifi_rx_ts_us.empty() ? nullptr : g_static_presence_data.wifi_rx_ts_us.data();
+}
+inline const uint32_t* motion_wifi_rx_ts_us() {
+    return g_motion_data.wifi_rx_ts_us.empty() ? nullptr : g_motion_data.wifi_rx_ts_us.data();
+}
+inline uint32_t static_presence_csi_target_pps() { return g_static_presence_data.csi_target_pps; }
+inline uint32_t motion_csi_target_pps() { return g_motion_data.csi_target_pps; }
+inline int num_static_presence() { return g_static_presence_data.num_packets; }
+inline int num_motion() { return g_motion_data.num_packets; }
+inline int num_subcarriers() { return g_static_presence_data.num_subcarriers; }
+inline int packet_size() { return g_static_presence_data.packet_size; }
+inline ChipType current_chip() { return g_current_chip; }
+inline bool is_long_recording_mode() { return g_dataset_mode == DatasetMode::LongRecording; }
+inline const char* current_long_recording_name() {
+    if (!is_long_recording_mode()) {
+        return nullptr;
+    }
+    if (g_current_long_recording_index >= 0) {
+        return long_recording_label(g_current_long_recording_index);
+    }
+    return long_recording_name_for_chip(g_current_chip);
+}
+inline int current_motion_start_packet() {
+    if (!is_long_recording_mode()) {
+        return 0;
+    }
+    if (g_current_long_recording_index >= 0) {
+        const LongRecordingSelection* selected = long_recording_selection(g_current_long_recording_index);
+        return selected != nullptr ? selected->motion_start_packet : 0;
+    }
+    return long_recording_motion_start_for_chip(g_current_chip);
+}
+
+inline bool parse_iso8601_datetime(const std::string& text, std::tm& out_tm) {
+    // Expected examples:
+    // 2025-12-12T14:24:43.381306
+    // 2026-03-07T19:01:52.250007+00:00
+    if (text.size() < 19) {
+        return false;
+    }
+    int y = 0, mo = 0, d = 0, hh = 0, mm = 0, ss = 0;
+    int matched = std::sscanf(text.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d",
+                              &y, &mo, &d, &hh, &mm, &ss);
+    if (matched != 6) {
+        return false;
+    }
+    std::tm tm_val{};
+    tm_val.tm_year = y - 1900;
+    tm_val.tm_mon = mo - 1;
+    tm_val.tm_mday = d;
+    tm_val.tm_hour = hh;
+    tm_val.tm_min = mm;
+    tm_val.tm_sec = ss;
+    out_tm = tm_val;
+    return true;
+}
+
+inline bool parse_iso8601_epoch_seconds(const std::string& text, double& out_epoch_seconds) {
+    std::tm tm_val{};
+    if (!parse_iso8601_datetime(text, tm_val)) {
+        return false;
+    }
+
+    std::time_t epoch = std::mktime(&tm_val);
+    if (epoch == static_cast<std::time_t>(-1)) {
+        return false;
+    }
+
+    double fractional_seconds = 0.0;
+    const size_t frac_pos = text.find('.', 19);
+    if (frac_pos != std::string::npos) {
+        size_t frac_end = frac_pos + 1;
+        while (frac_end < text.size() && text[frac_end] >= '0' && text[frac_end] <= '9') {
+            frac_end++;
+        }
+        if (frac_end > frac_pos + 1) {
+            const std::string frac_digits = text.substr(frac_pos + 1, frac_end - frac_pos - 1);
+            fractional_seconds = std::strtod(("0." + frac_digits).c_str(), nullptr);
+        }
+    }
+
+    out_epoch_seconds = static_cast<double>(epoch) + fractional_seconds;
+    return true;
+}
+
+} // namespace csi_test_data
+
+#endif // CSI_TEST_DATA_H

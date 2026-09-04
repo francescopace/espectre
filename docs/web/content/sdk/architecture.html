@@ -1,0 +1,96 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article" data-page-toc data-page-path="sdk">
+  <h1>Reference architecture</h1>
+  <p class="article-lead">The runtime fits inside an ESP-IDF product. Your firmware owns the product lifecycle and ESPectre owns the sensing path.</p>
+
+  <h2>Product and runtime ownership</h2>
+  <div class="ownership-grid">
+    <section>
+      <span class="docs-path-label">YOUR FIRMWARE</span>
+      <h3>Product lifecycle</h3>
+      <p>Boot, Wi-Fi provisioning, connectivity policy, storage, OTA, logging, UI, and the action taken when sensing state changes.</p>
+    </section>
+    <section>
+      <span class="docs-path-label">ESPECTRE</span>
+      <h3>Sensing lifecycle</h3>
+      <p>CSI capture, temporal admission, calibration, detector evaluation, readiness, snapshots, diagnostics, and runtime events.</p>
+    </section>
+    <section>
+      <span class="docs-path-label">BOUNDARY</span>
+      <h3>One controller and one listener</h3>
+      <p><code>RuntimeFrontendController</code> accepts configuration and controls. <code>IRuntimeListener</code> delivers state changes and faults.</p>
+    </section>
+  </div>
+
+  <h2>Lifecycle and task ownership</h2>
+  <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
+    <div><strong>Create station</strong><span>interface + event loop</span></div>
+    <div><strong><code>setup(listener)</code></strong><span>apply CSI policy</span></div>
+    <div><strong>Join Wi-Fi</strong><span>product connects</span></div>
+    <div><strong><code>loop()</code></strong><span>deliver events</span></div>
+    <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
+  </div>
+  <p>Create the default station and event loop first. If the product controls the connection order, call <code>setup()</code> before association so the runtime can apply its CSI radio policy when the station starts. Keep <code>setup()</code>, <code>loop()</code>, runtime controls, and <code>shutdown()</code> on one owner task. Listener callbacks run on that same task and must remain bounded; queue network publication, NVS writes, and other blocking work for another task.</p>
+  <p>A failed <code>setup()</code> leaves the controller unconfigured so the product can correct the configuration and retry. Control calls return <code>false</code> when a value is invalid, a capability is unavailable, or the backend refuses the change. Asynchronous runtime failures arrive through <code>on_runtime_fault()</code>.</p>
+
+  <h2>Three-layer architecture</h2>
+  <p>Dependencies point in one direction: frontend → runtime → core. A product normally replaces the frontend and reuses the lower two layers.</p>
+  <div class="arch-stack">
+    <div class="arch-layer">
+      <div class="arch-name">Frontend <span class="mono-sub">src/cpp/frontend/</span></div>
+      <div class="arch-desc">Maps sensing into product behavior, protocols, logging, and ecosystem APIs. ESPHome, Native, and Matter are maintained references, not a supported library surface.</div>
+    </div>
+    <div class="arch-layer arch-layer-mid">
+      <div class="arch-name">Runtime <span class="mono-sub">src/cpp/runtime/</span></div>
+      <div class="arch-desc">Defines lifecycle, calibration, snapshots, events, diagnostics, capabilities, and controls. ESP-IDF implementations live under <code>runtime/esp_idf/</code>.</div>
+    </div>
+    <div class="arch-layer arch-layer-core">
+      <div class="arch-name">Core <span class="mono-sub">src/cpp/core/</span></div>
+      <div class="arch-desc">Owns CSI format, conditioning, features, and the Lightweight and High Accuracy detectors. It is portable C++17 and requires no ESP-IDF runtime.</div>
+    </div>
+  </div>
+
+  <p>Micro-ESPectre is another SDK consumer: its core-only and focused traffic components remain independent of ESP-IDF logging, while its native MicroPython frontend registers one sink shared by both.</p>
+
+  <h2>Runtime data flow</h2>
+  <div class="pipeline">
+    <div><strong>Wi-Fi traffic</strong><span>product environment</span></div>
+    <div><strong>CSI capture</strong><span>runtime/esp_idf</span></div>
+    <div><strong>Features</strong><span>core</span></div>
+    <div><strong>Detection</strong><span>core</span></div>
+    <div><strong>Product event</strong><span>frontend</span></div>
+  </div>
+
+  <div class="note"><strong>Optional transports stay outside the sensing model.</strong> Direct HTTP, MQTT, provisioning, and OTA source groups are disabled until selected. A product can use the provided adapters, implement the boundary interfaces, or omit those capabilities. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional component groups</a>.</div>
+
+  <div class="note"><strong>Logging follows the same ownership direction.</strong> Core and runtime emit through a portable sink. The frontend can connect ESPHome, <code>esp_log</code>, or another backend before setup, while a product that does not register a sink keeps the shared SDK silent.</div>
+
+  <details class="article-disclosure">
+    <summary>Extending the source tree or porting another platform</summary>
+    <div class="article-disclosure-body">
+      <h2>Where new code belongs</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>If the code…</th><th>Put it in…</th></tr></thead>
+        <tbody>
+          <tr><td>Changes CSI processing or detector behavior</td><td><code>core/</code>, with matching Python behavior</td></tr>
+          <tr><td>Defines a reusable lifecycle, event, snapshot, or transport contract</td><td><code>runtime/</code></td></tr>
+          <tr><td>Calls ESP-IDF, FreeRTOS, Wi-Fi, NVS, or lwIP</td><td><code>runtime/esp_idf/</code></td></tr>
+          <tr><td>Maps sensing into a protocol, ecosystem, or product UI</td><td><code>frontend/</code></td></tr>
+        </tbody>
+      </table></div>
+
+      <h2 id="custom-runtime" data-toc-label="Custom runtime">Building a runtime for another platform</h2>
+      <p>A platform port implements <code>IEspectreRuntime</code>, feeds normalized CSI into the shared core, preserves evaluation and readiness semantics, and delivers listener events from its owner task. The shipped <code>RuntimeFrontendController</code> currently constructs ESP-IDF backends directly, so a new platform also needs its own controller or factory.</p>
+      <div class="runtime-port-notes">
+        <div><strong>Arduino on ESP32</strong><span>Feasible as a new adapter over Arduino-ESP32 and its ESP-IDF CSI facilities when the build provides C++17. No Arduino runtime is shipped today.</span></div>
+        <div><strong>Raspberry Pi / Linux</strong><span>Requires a Wi-Fi chipset, firmware, and driver that expose usable CSI. Standard Linux Wi-Fi connectivity alone is not enough.</span></div>
+      </div>
+    </div>
+  </details>
+
+  <div class="note">The complete ownership rules and design rationale live in <a href="https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">ARCHITECTURE.md</a>. Durable decisions are recorded in <a href="https://github.com/francescopace/espectre/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a>.</div>
+
+</article>

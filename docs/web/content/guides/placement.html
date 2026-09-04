@@ -1,0 +1,83 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+    <span class="guide-tag">INSTALLATION · 5 MIN READ</span>
+    <h1>Place your ESPectre sensor</h1>
+    <p class="article-lead">Distance, antenna orientation, obstacles, and a room test for finding a placement that detects movement without chasing noise.</p>
+    <figure>
+      <img src="/assets/images/guides/sensor-placement-card.avif" alt="Top-down room showing a router, an ESP32, a walking person, and reflected Wi-Fi paths" width="1068" height="600" loading="eager">
+      <figcaption>A useful starting geometry: keep the endpoints apart, the antenna clear, and normal movement crossing several radio paths.</figcaption>
+    </figure>
+
+    <details class="page-toc">
+      <summary>Sections</summary>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#placement-link">The sensing link</a><a href="#placement-start">Starting position</a><a href="#placement-distance">Distance and RSSI</a><a href="#placement-orientation">Orientation</a><a href="#placement-layouts">Room layouts</a><a href="#placement-avoid">Placements to avoid</a><a href="#placement-test">Ten-minute test</a></nav>
+    </details>
+
+    <h2 id="placement-link">Think of a radio link, not a detection cone</h2>
+    <p>ESPectre does not watch a circular area around the board. The access point sends Wi-Fi packets to the ESP32 over a direct path and many reflections from walls, furniture, and people. Motion is easiest to distinguish when it changes several of those paths, so the access point, the sensor, and the route people take through the room all matter.</p>
+    <div class="note">Placement changes the radio baseline more than a small threshold adjustment does. Find a stable location first, then calibrate and tune.</div>
+
+    <h2 id="placement-start">A good starting placement</h2>
+    <ul class="checklist">
+      <li>Put the ESP32 in the room or area you want to monitor, with the access point roughly 3–8&nbsp;m away when the layout allows it.</li>
+      <li>Choose a position where normal movement crosses the space between the access point and the sensor, rather than staying entirely behind one endpoint.</li>
+      <li>Keep the antenna end of the board exposed to the room, clear of metal, dense electronics, and large obstacles.</li>
+      <li>Mount it on a stable surface. A board or cable that swings, vibrates, or is moved during cleaning changes the channel by itself.</li>
+      <li>Give the sensor steady packet traffic, and judge placement before changing detector parameters.</li>
+    </ul>
+
+    <h2 id="placement-distance">Distance: use RSSI as the final check</h2>
+    <p>Metres are only a starting point: walls, access-point power, antennas, and furniture change the link. When the installed firmware exposes Wi-Fi RSSI, use it to confirm the result. ESPHome publishes a diagnostic <strong>WiFi RSSI</strong> sensor, and Live motion displays the value in Diagnostics.</p>
+    <div class="table-wrap"><table>
+      <caption class="sr-only">How to interpret the Wi-Fi RSSI observed at the sensor</caption>
+      <thead><tr><th scope="col">Observed RSSI</th><th scope="col">What it suggests</th><th scope="col">What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Above <code>-40 dBm</code></td><td>The receiver may be too close to the access point.</td><td>Move the sensor farther away before raising thresholds.</td></tr>
+        <tr><td><code>-40</code> to <code>-70 dBm</code></td><td>Good CSI headroom for a first installation.</td><td>Run the quiet-and-motion test below.</td></tr>
+        <tr><td><code>-70</code> to <code>-80 dBm</code></td><td>The link is weaker and placement effects become more important.</td><td>Test carefully, and prefer a clearer path if results vary.</td></tr>
+        <tr><td>Below <code>-80 dBm</code></td><td>The signal is weak and more noise is likely.</td><td>Move the sensor or access point, or remove a heavy obstacle.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Do not optimize for the strongest possible RSSI. A very short link can be less useful than a moderate, stable link that crosses the occupied part of the room.</p>
+
+    <h2 id="placement-orientation">Angle and antenna orientation</h2>
+    <p>There is no universal best angle for every ESP32 board and access point. PCB antennas, external whip antennas, enclosures, and nearby materials all change the pattern. Use the following as a controlled starting test:</p>
+    <ol class="steps-list">
+      <li><h3>Start clear and facing the link</h3><p>Keep the antenna end away from the wall or enclosure and start with the device facing the access point. For an external whip antenna, start with it vertical.</p></li>
+      <li><h3>Record one quiet baseline</h3><p>Keep the room empty and still long enough to see whether the score remains stable.</p></li>
+      <li><h3>Walk the real route</h3><p>Use the doorway, corridor, or path the installation is meant to detect; do not test only by waving a hand next to the board.</p></li>
+      <li><h3>Rotate by 90 degrees</h3><p>Change only the orientation, recalibrate when using Lightweight, and repeat the same walk. Keep the orientation with the clearer separation between quiet and motion.</p></li>
+    </ol>
+    <p>The comparison matters more than the nominal angle. Avoid making several changes at once, or you will not know which one improved the link.</p>
+
+    <h2 id="placement-layouts">Room layouts</h2>
+    <div class="mini-cards">
+      <article><h3>Single room</h3><ul><li>Place the endpoints apart.</li><li>Let common walking routes cross the link.</li><li>Keep the sensor out of cabinets and from behind furniture.</li></ul></article>
+      <article><h3>Doorway or corridor</h3><ul><li>Put the link across, or diagonally across, the route.</li><li>Test the whole approach, not only the doorway.</li><li>Watch for motion leaking in from adjacent rooms.</li></ul></article>
+      <article><h3>One per floor or apartment</h3><ul><li>Use one sensor per floor or apartment as a practical starting point.</li><li>Add another when tests reveal blind areas or you need room-level state.</li><li>Label and tune each sensing link independently.</li></ul></article>
+    </div>
+
+    <h2 id="placement-avoid">Placements to avoid</h2>
+    <ul class="checklist">
+      <li>Inside a metal cabinet, behind a television, or pressed against a large metal surface.</li>
+      <li>Immediately beside the access point, where the link is strong but spans little useful space.</li>
+      <li>At the edge of coverage with intermittent traffic or RSSI below roughly <code>-80 dBm</code>.</li>
+      <li>Next to moving fans, curtains in airflow, vibrating appliances, or other motion you do not want to detect.</li>
+      <li>In a position where people can easily move the board, antenna, power cable, or access point.</li>
+    </ul>
+
+    <h2 id="placement-test">A repeatable ten-minute test</h2>
+    <ol class="steps-list">
+      <li><h3>Check the link</h3><p>Confirm steady packet traffic and, when available, an RSSI in the preferred range.</p></li>
+      <li><h3>Establish quiet</h3><p>With Lightweight, boot or recalibrate with the room still during the startup calibration. Then observe an empty room for one or two minutes; the live threshold may still come down if the opening was noisier than the rest of the session.</p></li>
+      <li><h3>Exercise the target area</h3><p>Walk the routes that should trigger motion, including the farthest and weakest-looking part of the room.</p></li>
+      <li><h3>Check unwanted areas</h3><p>Move in adjacent spaces that should remain ignored, and run any fans or appliances normally present.</p></li>
+      <li><h3>Change one thing</h3><p>Move or rotate the sensor, recalibrate Lightweight, and repeat the same sequence. With High Accuracy, repeat the empty-and-motion comparison after every move even though it does not run the Lightweight startup bootstrap.</p></li>
+      <li><h3>Tune only after placement</h3><p>Once the best physical position is stable, make small threshold or filtering changes if they are still needed.</p></li>
+    </ol>
+    <div class="note">ESPectre detects changes in the radio environment. It does not identify people, guarantee an exact boundary, or replace a safety-certified presence sensor.</div>
+
+  </article>

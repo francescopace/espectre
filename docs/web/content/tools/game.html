@@ -1,0 +1,60 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Run with the Spectre</h1>
+<p class="page-sub">Move to fly, stay quiet to descend, and steer the Spectre through the course.</p>
+
+<section class="tool-static-entry" aria-labelledby="game-static-title">
+  <h2 id="game-static-title">Control the game with motion</h2>
+  <p>The game turns ESPectre’s motion state into a simple flight control: movement sends the Spectre upward, and a still room lets it descend. Distance earns points, and collected orbs add bonuses.</p>
+  <p>Connect a device on the local network, or start in demo mode and use the pointer, Space, or Arrow Up. The movement threshold on this page affects only the game.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-game" class="btn-primary">Open the motion game</a>
+    <a href="/tools/monitor/" class="btn-secondary">View live motion</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <espectre-connection-picker class="js-needs-live" data-surface="game" data-open-view="live"></espectre-connection-picker>
+
+  <div class="js-has-live" hidden>
+    <div class="game-stage panel">
+      <div class="game-screen">
+        <canvas class="game-canvas js-game-canvas" width="840" height="340" tabindex="0" role="img" aria-label="The Spectre flies through a course with high and low obstacles and collectible golden orbs. In demo mode, hold Space, Arrow Up, or press and hold the game to fly."></canvas>
+        <div class="game-status" role="group" aria-label="Game status">
+          <div class="game-status-head">
+            <div class="game-screen-badge js-game-badge">READY</div>
+            <div class="game-score"><span>Score</span><strong class="js-game-score">0</strong></div>
+          </div>
+          <div class="game-status-row">
+            <div><span>Orbs</span><strong class="js-game-orbs">0</strong></div>
+            <div><span>Distance</span><strong class="js-game-distance">0 m</strong></div>
+            <div><span>Best</span><strong class="js-game-best">0</strong></div>
+          </div>
+        </div>
+        <div class="game-motion-gauge js-game-motion-gauge">
+          <div class="game-motion-track">
+            <span class="game-motion-fill js-game-motion-fill"></span>
+            <span class="game-motion-threshold js-game-motion-threshold"></span>
+          </div>
+          <span class="game-motion-label">Movement</span>
+          <input type="range" id="game-fullscreen-threshold" class="game-motion-threshold-input js-game-fullscreen-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Movement needed to fly" aria-valuetext="0.50">
+        </div>
+        <div class="game-screen-controls">
+          <button type="button" class="game-sound js-game-sound" aria-label="Mute game audio" aria-pressed="true">Sound on</button>
+          <button type="button" class="game-fullscreen js-game-fullscreen" aria-label="Enter fullscreen" aria-pressed="false">Full screen</button>
+        </div>
+        <button type="button" class="game-play js-game-start">Start game</button>
+      </div>
+      <div class="game-msg js-game-msg" aria-live="polite">Move to fly. Stay quiet to descend. Distance earns points, and orbs add bonuses.</div>
+      <div class="game-meter-block">
+        <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
+        <div class="game-threshold-control">
+          <input type="range" id="game-threshold" class="game-threshold-slider js-game-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Movement needed to fly" aria-valuetext="0.50">
+          <p class="tool-note">Movement needed to fly: <strong class="js-game-threshold-value">0.50</strong>. Raise it if the Spectre flies too easily, or lower it if the Spectre will not take off. This setting affects only the game.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

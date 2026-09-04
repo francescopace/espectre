@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
+"""
+ESPectre - Stage Web SDK
+
+Stage same-origin SDK metadata pages that point to GitHub release assets.
+
+Author: Francesco Pace <francesco.pace@gmail.com>
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from html import escape
+from pathlib import Path
+from urllib.parse import urlparse
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from web_asset_versions import asset_version
+from web_page_shell import render_consent_banner, render_footer, render_header
+from web_routes import load_manifest
+from validate_release import SEMVER_PATTERN
+
+WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
+ROUTE_MANIFEST = load_manifest()
+SITE_ORIGIN = ROUTE_MANIFEST["siteOrigin"]
+SDK_CHANNELS = tuple(sdk_channel["sdkChannel"] for sdk_channel in ROUTE_MANIFEST["sdkChannels"])
+SDK_MANIFEST_SCHEMA_VERSION = 2
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Stage web SDK metadata pages.")
+    parser.add_argument("--sdk-dir", required=True, help="Directory containing SDK release assets and manifest.")
+    parser.add_argument("--output-dir", required=True, help="Directory where staged web SDK files should be written.")
+    parser.add_argument("--channel", choices=SDK_CHANNELS, required=True, help="Website SDK channel.")
+    return parser.parse_args()
+
+
+def clean_output_dir(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for path in output_dir.iterdir():
+        if path.is_file() and (path.suffix == ".json" or path.name == "index.html"):
+            path.unlink()
+
+
+def load_sdk_manifest(sdk_dir: Path) -> dict:
+    matches = sorted(sdk_dir.glob("sdk-manifest-*.json"))
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one SDK manifest in {sdk_dir}, found {len(matches)}")
+    return json.loads(matches[0].read_text(encoding="utf-8"))
+
+
+def normalize_sdk_manifest(manifest: dict) -> dict:
+    normalized = dict(manifest)
+    if normalized.get("schema_version") != 1:
+        return normalized
+
+    version = normalized.get("version")
+    aliases = {
+        field: normalized.get(field)
+        for field in ("package_version", "sdk_version")
+        if field in normalized
+    }
+    mismatched = {field: value for field, value in aliases.items() if value != version}
+    if mismatched:
+        raise ValueError(
+            f"Legacy SDK version aliases disagree with version {version!r}: {mismatched}"
+        )
+    for field in aliases:
+        normalized.pop(field)
+    normalized["schema_version"] = SDK_MANIFEST_SCHEMA_VERSION
+    return normalized
+
+
+def validate_sdk_manifest(manifest: dict, channel: str) -> None:
+    if manifest.get("channel") != channel:
+        raise ValueError(
+            f"SDK manifest channel mismatch: expected {channel!r}, "
+            f"found {manifest.get('channel')!r}"
+        )
+    if manifest.get("schema_version") != SDK_MANIFEST_SCHEMA_VERSION:
+        raise ValueError(
+            f"SDK manifest schema must be {SDK_MANIFEST_SCHEMA_VERSION}, "
+            f"found {manifest.get('schema_version')!r}"
+        )
+    redundant = {"package_version", "sdk_version"}.intersection(manifest)
+    if redundant:
+        raise ValueError(f"SDK manifest contains redundant version fields: {sorted(redundant)}")
+    if channel == "release" and manifest.get("version") != manifest.get("release_tag"):
+        raise ValueError("Release SDK version and release tag must match")
+
+    for field in ("version", "release_tag", "protocol_version", "supported_esp_idf"):
+        if not isinstance(manifest.get(field), str) or not manifest[field]:
+            raise ValueError(f"SDK manifest has no valid {field}")
+    if manifest.get("commit") is not None and not isinstance(manifest["commit"], str):
+        raise ValueError("SDK manifest commit must be a string or null")
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("SDK manifest artifacts must be a non-empty array")
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise ValueError("SDK manifest artifacts must be objects")
+        filename = artifact.get("filename")
+        if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+            raise ValueError(f"Invalid SDK artifact filename: {filename!r}")
+        if artifact.get("format") not in {"tar.gz", "zip"}:
+            raise ValueError(f"Invalid SDK artifact format: {artifact.get('format')!r}")
+        url = artifact.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError("SDK artifact URL must be a non-empty string")
+        parsed = urlparse(url)
+        root_relative = not parsed.scheme and not parsed.netloc and url.startswith("/")
+        https_url = parsed.scheme == "https" and bool(parsed.netloc)
+        if not (root_relative or https_url):
+            raise ValueError(f"SDK artifact URL must be root-relative or HTTPS: {url!r}")
+
+    install_surfaces = manifest.get("install_surfaces")
+    if not isinstance(install_surfaces, dict):
+        raise ValueError("SDK manifest install_surfaces must be an object")
+    cmake = install_surfaces.get("cmake")
+    component = install_surfaces.get("esp_idf_component")
+    if not isinstance(cmake, dict) or not isinstance(component, dict):
+        raise ValueError("SDK manifest install surfaces are incomplete")
+    if not isinstance(cmake.get("entrypoint"), str) or not cmake["entrypoint"]:
+        raise ValueError("SDK manifest CMake entrypoint is invalid")
+    optional_groups = cmake.get("optional_source_groups")
+    if not isinstance(optional_groups, list) or not all(
+        isinstance(group, str) and group for group in optional_groups
+    ):
+        raise ValueError("SDK manifest optional source groups are invalid")
+    for field in ("component_root", "cmake", "kconfig"):
+        if not isinstance(component.get(field), str) or not component[field]:
+            raise ValueError(f"SDK manifest ESP-IDF component {field} is invalid")
+
+
+def release_is_final(manifest: dict) -> bool:
+    match = SEMVER_PATTERN.fullmatch(str(manifest.get("version", "")))
+    return match is not None and match.group("prerelease") is None
+
+
+def sdk_stability(manifest: dict, channel: str) -> str:
+    if channel == "release":
+        return "final" if release_is_final(manifest) else "prerelease"
+    return "rolling"
+
+
+def channel_copy(manifest: dict, channel: str) -> tuple[str, str]:
+    if channel == "release":
+        if not release_is_final(manifest):
+            return (
+                "SDK Prerelease",
+                "Official prerelease SDK bundle for compatibility evaluation before the final release.",
+            )
+        return (
+            "Latest SDK Release",
+            "Official SDK bundle for open-source and commercial embedding workflows.",
+        )
+    if channel == "preview":
+        return (
+            "SDK Release Preview",
+            "Rolling SDK preview built from main. Use it to validate upcoming source changes before the next release.",
+        )
+    return (
+        "SDK Development",
+        "Rolling SDK bundle built from develop. Use it to validate in-progress source changes before they reach main.",
+    )
+
+
+def channel_note(manifest: dict, channel: str) -> str:
+    if channel == "develop":
+        return (
+            '<div class="note">This is a rolling development bundle from <code>develop</code>, not a production SDK. '
+            'Use a final numeric version from <a href="/artifacts/sdk/release/">release</a> for production integrations, or '
+            '<a href="/artifacts/sdk/preview/">preview</a> to validate <code>main</code>.</div>'
+        )
+    if channel == "preview":
+        return (
+            '<div class="note">Rolling preview from <code>main</code>. '
+            'Use a final numeric version from <a href="/artifacts/sdk/release/">release</a> for production, or '
+            '<a href="/artifacts/sdk/develop/">develop</a> for pre-main validation.</div>'
+        )
+    if not release_is_final(manifest):
+        return (
+            '<div class="note" data-sdk-production-ready="false">This tagged SDK is a prerelease evaluation build. '
+            'Its source-compatibility promise begins with the corresponding final numeric release.</div>'
+        )
+    return (
+        '<div class="note">Looking for a rolling bundle? See '
+        '<a href="/artifacts/sdk/preview/">preview</a> from <code>main</code>, or '
+        '<a href="/artifacts/sdk/develop/">develop</a> from <code>develop</code>.</div>'
+    )
+
+
+def render_page(manifest: dict, channel: str) -> str:
+    title, description = channel_copy(manifest, channel)
+    stability = sdk_stability(manifest, channel)
+    commit = escape(str(manifest.get("commit") or "n/a"))
+    artifact_links = "\n".join(
+        f'      <li><a href="{escape(artifact["url"], quote=True)}" data-sdk-channel="{escape(channel, quote=True)}" '
+        f'data-sdk-format="{escape(artifact["format"], quote=True)}"><code>{escape(artifact["filename"])}</code></a> '
+        f'(<span>{escape(artifact["format"])}</span>)</li>'
+        for artifact in manifest["artifacts"]
+    )
+    optional_groups = escape(", ".join(manifest["install_surfaces"]["cmake"]["optional_source_groups"]))
+    manifest_text = {
+        field: escape(str(manifest[field]))
+        for field in ("channel", "version", "release_tag", "protocol_version", "supported_esp_idf")
+    }
+    cmake_entrypoint = escape(manifest["install_surfaces"]["cmake"]["entrypoint"])
+    component = {
+        field: escape(manifest["install_surfaces"]["esp_idf_component"][field])
+        for field in ("component_root", "cmake", "kconfig")
+    }
+    styles_version = asset_version("assets/css/styles.css")
+    route_registry_version = asset_version("assets/js/route-registry.js")
+    navigation_version = asset_version("assets/js/navigation.js")
+    analytics_version = asset_version("assets/js/analytics.js")
+    logo_version = asset_version("assets/images/brand/espectre-logo.svg")
+    header = render_header(ROUTE_MANIFEST, logo_version=logo_version, active="sdk")
+    footer = render_footer(ROUTE_MANIFEST, logo_version=logo_version)
+    consent_banner = render_consent_banner()
+    return f"""<!DOCTYPE html>
+<html lang="en" data-theme="light" data-static-page data-site-section="documentation" data-sdk-stability="{stability}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} | ESPectre</title>
+<meta name="description" content="{description}">
+<link rel="canonical" href="{SITE_ORIGIN}/artifacts/sdk/{channel}/">
+<link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
+<link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
+<script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
+<script src="/assets/js/navigation.js?v={navigation_version}" defer></script>
+<script src="/assets/js/analytics.js?v={analytics_version}" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+{header}
+<main class="page-narrow page-article" id="main-content" tabindex="-1">
+  <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
+  <article class="article">
+    <h1>{title}</h1>
+    <p class="article-lead">{description}</p>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Channel</td><td><code>{manifest_text["channel"]}</code></td></tr>
+        <tr><td>Version label</td><td><code>{manifest_text["version"]}</code></td></tr>
+        <tr><td>Release tag</td><td><code>{manifest_text["release_tag"]}</code></td></tr>
+        <tr><td>Protocol version</td><td><code>{manifest_text["protocol_version"]}</code></td></tr>
+        <tr><td>ESP-IDF baseline</td><td><code>{manifest_text["supported_esp_idf"]}</code></td></tr>
+        <tr><td>Commit</td><td><code>{commit}</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h2>Downloads</h2>
+    <ul class="checklist">
+{artifact_links}
+    </ul>
+
+    <h2>Install surfaces</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Surface</th><th>Bundle anchor</th></tr></thead>
+      <tbody>
+        <tr><td>CMake / ESP-IDF</td><td><code>{cmake_entrypoint}</code> plus optional groups <code>{optional_groups}</code></td></tr>
+        <tr><td>ESP-IDF component layout</td><td><code>{component["component_root"]}</code>, <code>{component["cmake"]}</code>, and <code>{component["kconfig"]}</code></td></tr>
+      </tbody>
+    </table></div>
+
+      {channel_note(manifest, channel)}
+  </article>
+</main>
+{footer}
+{consent_banner}
+</body>
+</html>
+"""
+
+
+def stage_web_sdk(args: argparse.Namespace) -> Path:
+    sdk_dir = Path(args.sdk_dir)
+    output_dir = Path(args.output_dir)
+    manifest = normalize_sdk_manifest(load_sdk_manifest(sdk_dir))
+    validate_sdk_manifest(manifest, args.channel)
+
+    clean_output_dir(output_dir)
+
+    manifest_path = output_dir / f"sdk-manifest-{args.channel}.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    page = render_page(manifest, args.channel)
+    (output_dir / "index.html").write_text(page, encoding="utf-8")
+    return manifest_path
+
+
+def main() -> int:
+    stage_web_sdk(parse_args())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

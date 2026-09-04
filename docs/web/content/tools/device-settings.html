@@ -1,0 +1,133 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Device settings</h1>
+<p class="page-sub">Connect to an ESPectre on the same Wi-Fi network to rename it, pin to an access point, or set up Home Assistant.</p>
+
+<section class="tool-static-entry" aria-labelledby="configure-static-title">
+  <h2 id="configure-static-title">Manage a device on your local network</h2>
+  <p>Device settings connects directly to a compatible ESPectre. From one page you can rename the sensor, inspect its current Wi-Fi link, choose a preferred mesh access point, configure MQTT, and check for firmware updates.</p>
+  <p>Configuration requests travel between this browser and the device. Saved MQTT credentials remain write-only: the page can replace or remove them, but it does not read the stored values back.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-configure" class="btn-primary">Open device settings</a>
+    <a href="/guides/setup/#setup-native-discovery" class="btn-secondary">Read connection help</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <div class="js-configure-onboarding">
+    <espectre-connection-picker data-surface="configure"></espectre-connection-picker>
+  </div>
+
+  <div class="js-configure-workspace" hidden>
+    <div class="device-banner device-console-banner">
+      <div class="device-banner-id">
+        <div>
+          <h2 class="device-banner-name-editor js-configure-name-editor">
+            <button type="button" class="device-banner-name-trigger js-configure-name-trigger" aria-label="Set device name">
+              <span class="js-configure-name-display">ESPectre</span>
+              <svg class="device-banner-name-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 21l3.75-.75L19.5 7.5a2.12 2.12 0 0 0-3-3L3.75 17.25 3 21zM14.5 6.5l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <input type="text" class="device-banner-name-input js-configure-name-input" aria-label="Device name" maxlength="32" autocomplete="off" hidden>
+          </h2>
+          <div class="mono-sub device-banner-identity">
+            <span class="js-configure-device-banner-sub">—</span>
+            <button type="button" class="device-firmware-update js-firmware-update-notice"
+              data-ota-status="idle" aria-label="Open firmware update">
+              <span class="js-firmware-update-copy">Checking for updates…</span>
+            </button>
+          </div>
+          <p class="device-name-availability js-configure-name-unavailable" hidden></p>
+        </div>
+      </div>
+      <div class="device-banner-actions">
+        <button class="btn-primary btn-sm js-start-detection">Start sensing</button>
+      </div>
+    </div>
+
+    <section class="device-view" data-device-view="connectivity">
+      <div class="config-grid connectivity-grid js-connectivity-setup" hidden>
+      <section class="panel">
+        <div class="panel-heading">
+          <div><span class="panel-eyebrow">Device connection</span><h2>Wi-Fi</h2></div>
+          <span class="config-status js-wifi-status" role="status" data-capability="supports_wifi_status"><span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span><span class="js-wifi-status-text">Checking…</span></span>
+        </div>
+        <div data-capability="supports_wifi_status">
+        <p class="panel-intro">Reconnect over <a href="/tools/flash/">USB</a> to change Wi-Fi network.</p>
+        <div class="fields">
+          <div class="field"><label for="cfg-ssid">Wi-Fi network</label><input type="text" id="cfg-ssid" readonly></div>
+          <div class="field-row wifi-link-row">
+            <div class="field"><label for="cfg-channel">Channel</label><input type="text" id="cfg-channel" readonly></div>
+            <div class="field"><label for="cfg-wifi-band">Band</label><input type="text" id="cfg-wifi-band" readonly></div>
+            <div class="field"><label for="cfg-wifi-phy">PHY</label><input type="text" id="cfg-wifi-phy" readonly></div>
+          </div>
+
+          <div class="field" data-capability="supports_wifi_bssid">
+            <label for="cfg-bssid">Preferred access point</label>
+            <div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Scan for access points" title="Scan for access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 15.74-6L21 9M21 3v6h-6M21 12a9 9 0 0 1-15.74 6L3 15M9 15H3v6"/></svg></button></div>
+            <small class="field-help" id="cfg-bssid-help" aria-live="polite">If several access points share this network, choose the one ESPectre should stay connected to.</small>
+          </div>
+        </div>
+        <div class="panel-actions wifi-panel-actions">
+          <button class="btn-primary btn-sm js-wifi-save" data-capability="supports_wifi_bssid">Save Wi-Fi preference</button>
+          <button class="btn-danger-ghost btn-sm js-wifi-clear" data-capability="supports_wifi_clear" hidden>Reset Wi-Fi</button>
+        </div>
+        </div>
+        <p class="config-unavailable js-wifi-unavailable" data-capability-unavailable="supports_wifi_status" hidden></p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div><span class="panel-eyebrow">Optional integration</span><h2>MQTT</h2></div>
+          <span class="config-status js-mqtt-status" role="status" data-capability="supports_mqtt_config"><span class="dot dot-idle js-mqtt-status-dot" aria-hidden="true"></span><span class="js-mqtt-status-text">Checking…</span></span>
+        </div>
+        <div data-capability="supports_mqtt_config">
+        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system.</p>
+        <div class="fields">
+          <div class="field-row mqtt-endpoint-row">
+            <div class="field">
+              <label for="cfg-mqtt-preset">Provider</label>
+              <select id="cfg-mqtt-preset">
+                <option value="home_assistant" selected>Home Assistant</option>
+                <option value="lan_broker">Local broker</option>
+                <option value="emqx_cloud">EMQX Cloud</option>
+                <option value="hivemq_cloud">HiveMQ Cloud</option>
+                <option value="flespi">Flespi</option>
+                <option value="cloud_broker">Custom broker</option>
+              </select>
+            </div>
+            <div class="field"><label for="cfg-mqtt-scheme">Scheme</label><select id="cfg-mqtt-scheme"><option value="mqtt" selected>mqtt</option><option value="mqtts">mqtts</option></select></div>
+            <div class="field">
+              <label for="cfg-mqtt-host">Broker host</label>
+              <input type="text" id="cfg-mqtt-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field"><label for="cfg-mqtt-port">Port</label><input type="number" id="cfg-mqtt-port" value="1883" placeholder="1883"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="cfg-mqtt-user">New username <span class="opt">(optional)</span></label><input type="text" id="cfg-mqtt-user" placeholder="Keep saved username" autocomplete="off" aria-describedby="cfg-mqtt-credentials-help"></div>
+            <div class="field"><label for="cfg-mqtt-pass">New password <span class="opt">(optional)</span></label><input type="password" id="cfg-mqtt-pass" placeholder="Keep saved password" autocomplete="new-password" spellcheck="false" aria-describedby="cfg-mqtt-credentials-help"></div>
+          </div>
+          <small class="field-help" id="cfg-mqtt-credentials-help">Leave blank to keep each saved credential.</small>
+          <label class="check credential-clear-control" for="cfg-mqtt-credentials-clear"><input type="checkbox" id="cfg-mqtt-credentials-clear"> Connect without a username or password</label>
+          <details class="config-advanced">
+            <summary>Advanced MQTT settings</summary>
+            <div class="config-advanced-body fields">
+              <div class="field"><label for="cfg-topic-prefix">Topic prefix</label><input type="text" id="cfg-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
+            </div>
+          </details>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-primary btn-sm js-mqtt-save">Save MQTT settings</button>
+          <button class="btn-danger-ghost btn-sm js-mqtt-clear">Remove MQTT configuration</button>
+        </div>
+        </div>
+        <p class="config-unavailable js-mqtt-unavailable" data-capability-unavailable="supports_mqtt_config" hidden></p>
+      </section>
+
+      </div>
+    </section>
+  </div>
+</div>

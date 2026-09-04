@@ -6,7 +6,6 @@
 #   - github-actions: Workflow action versions
 #
 # Not supported by Dependabot:
-#   - PlatformIO: No native support (libraries managed via platformio.ini)
 #   - C/C++: No standard package manager
 
 version: 2
@@ -14,7 +13,7 @@ updates:
   # Python dependencies (micro-espectre)
   # Includes: numpy, scipy, matplotlib, pytest, paho-mqtt, etc.
   - package-ecosystem: "pip"
-    directory: "/micro-espectre"
+    directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
@@ -35,7 +34,7 @@ updates:
         update-types: ["version-update:semver-major"]
 
   # GitHub Actions
-  # Monitors: actions/checkout, actions/setup-python, codecov/codecov-action, etc.
+  # Monitors: actions/checkout, actions/setup-python, actions/upload-artifact, etc.
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "develop"
@@ -52,4 +51,3 @@ updates:
       github-actions:
         patterns:
           - "*"
-          

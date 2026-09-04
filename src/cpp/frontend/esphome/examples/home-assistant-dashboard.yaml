@@ -1,0 +1,110 @@
+# ESPectre - Home Assistant Dashboard
+#
+# How to use:
+# 1. Go to Settings → Dashboards → Add Dashboard
+# 2. Open the new dashboard and click "Edit" (pencil icon)
+# 3. Click the three dots menu → "Raw configuration editor"
+# 4. Replace ALL content with this YAML (delete the default content first)
+# 5. Click "Save"
+#
+# Note: Entity-ID suffixes match ESPHome. If you changed the device name
+# from "espectre", replace the `espectre_` prefix. 
+# Check Settings → Devices & services → Entities for the exact IDs.
+#
+# ⚠️ Multiple devices? If you uncommented "name_add_mac_suffix: true" in your
+# device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
+# Replace "espectre_" with "espectre_XXXXXX_" where XXXXXX is your MAC suffix.
+
+views:
+  - title: ESPectre
+    type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: tile
+            grid_options:
+              columns: 12
+              rows: 1
+            entity: binary_sensor.espectre_motion_detected
+            name: Motion
+            show_entity_picture: false
+            hide_state: false
+            state_content:
+              - state
+              - last_changed
+            vertical: false
+            features_position: bottom
+          - type: tile
+            grid_options:
+              columns: 12
+              rows: 2
+            entity: sensor.espectre_movement_score
+            name:
+              type: entity
+            icon: mdi:motion
+            show_entity_picture: false
+            hide_state: true
+            vertical: false
+            features:
+              - type: bar-gauge
+                max: 1
+                min: 0
+            features_position: bottom
+          - type: history-graph
+            grid_options:
+              columns: 12
+              rows: 5
+            entities:
+              - entity: sensor.espectre_movement_score
+                name: Movement
+              - entity: number.espectre_threshold
+                name: Threshold
+            hours_to_show: 0.5
+            show_names: true
+            logarithmic_scale: false
+            expand_legend: false
+      - type: grid
+        cards:
+          - color: none
+            type: entities
+            entities:
+              - entity: select.espectre_detection_profile
+                secondary_info: none
+              - entity: number.espectre_threshold
+                icon: mdi:tune-vertical-variant
+                name:
+                  type: entity
+                secondary_info: none
+              - entity: button.espectre_recalibrate
+                icon: mdi:tune-vertical
+                name:
+                  type: entity
+              - entity: binary_sensor.espectre_calibration_active
+                icon: mdi:tune-vertical
+                name:
+                  type: entity
+            show_header_toggle: false
+            grid_options:
+              columns: 12
+              rows: auto
+          - color: none
+            type: entities
+            entities:
+              - entity: button.espectre_refresh_diagnostics
+                name:
+                  type: entity
+              - entity: sensor.espectre_traffic_tx_rate
+                secondary_info: none
+                name:
+                  type: entity
+              - entity: sensor.espectre_csi_admitted_rate
+                name:
+                  type: entity
+              - entity: sensor.espectre_wifi_rssi
+                name:
+                  type: entity
+              - entity: sensor.espectre_wifi_channel
+                name:
+                  type: entity
+            show_header_toggle: false
+    cards: []

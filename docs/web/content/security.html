@@ -1,0 +1,114 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<div class="security-page" data-page-toc>
+  <h1 class="page-title">Security and responsible use</h1>
+  <p class="page-sub">Wi-Fi sensing avoids collecting images or audio, but presence and movement data can still expose people’s routines. Use ESPectre only with proper authority, clear notice, and a proportionate purpose.</p>
+
+  <section class="docs-section" aria-labelledby="security-model-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">SECURITY MODEL</span>
+      <h2 id="security-model-title" data-toc-label="Security model">Built to sense on a network you control.</h2>
+      <p>ESPectre deliberately keeps the supported sensing path associated with a Wi-Fi network and limits normal operation to derived motion information.</p>
+    </div>
+    <div class="docs-paths">
+      <article class="docs-path docs-path-recommended">
+        <span class="docs-path-label">ASSOCIATED WI-FI</span>
+        <h3>No promiscuous capture</h3>
+        <p>Supported first-party firmware operates as an associated Wi-Fi station and does not enable Wi-Fi promiscuous mode. A deployment must join a network; protected networks require valid credentials.</p>
+        <span class="docs-path-meta">Intentional barrier against casual passive collection</span>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">ON-DEVICE</span>
+        <h3>Derive motion locally</h3>
+        <p>Normal sensing frontends process CSI on the ESP32 and expose derived movement, motion state, and limited diagnostics. Raw CSI export is an explicit local research workflow: ESPectre uses a single connection-bound <code>GET /espectre/v1/csi</code> response carrying CSI V8 records.</p>
+        <span class="docs-path-meta">Local-first sensing boundary</span>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">MINIMIZATION</span>
+        <h3>Limit what leaves the device</h3>
+        <p>Canonical MQTT sensing messages omit raw CSI, Wi-Fi names, BSSIDs, local IP and MAC addresses, packet captures, and serial logs. The device ID is a stable SHA-256-derived pseudonym instead of the raw MAC, but messages still include that linkable ID, user-provided labels, movement data, and operational diagnostics.</p>
+        <span class="docs-path-meta">Minimized does not mean anonymous</span>
+      </article>
+    </div>
+    <div class="note"><strong>Important limitation:</strong> association is a deliberate safeguard, not proof of consent or authority. Open networks do not require a password, authorized credentials can be misused, and open-source software can be modified. The operator remains responsible for every deployment.</div>
+  </section>
+
+  <section class="docs-section" aria-labelledby="local-access-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">LOCAL ACCESS</span>
+      <h2 id="local-access-title" data-toc-label="Local access">Direct HTTP stays inside the trusted LAN.</h2>
+      <p>The hosted portal uses HTTP POST and streaming <code>fetch()</code> to the selected local device with <code>targetAddressSpace: "local"</code>. Chrome prompts before a public site can reach a local address. Allow that permission only when you intend to manage a device on the current network. If Chrome reports that access is denied, enable Local network access in the site's settings; on operating systems with an app-level Local Network privacy control, Chrome must be allowed there too.</p>
+    </div>
+    <div class="security-guidelines">
+      <ul>
+        <li><strong>Browser support:</strong> the hosted Direct workflow is validated with Chrome 151 or later on macOS. Chrome 151 or later on Windows and native Linux is the target path, but physical coverage is still pending, and automatic discovery depends on the operating system's mDNS configuration. Compatibility with Firefox, Safari, Edge, mobile Chrome, and WSL browser environments is not guaranteed. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> owns the current compatibility and validation matrix.</li>
+        <li><strong>Origin check:</strong> published Native firmware accepts only the production ESPectre portal origins. An opted-in development build accepts HTTP on any port only for exact <code>localhost</code>, <code>127.0.0.1</code>, or <code>[::1]</code> hosts; host lookalikes remain rejected.</li>
+        <li><strong>Embedding:</strong> the interactive portal stays hidden and does not initialize when another site embeds it in a frame. Standalone documentation remains readable without JavaScript, but device controls require a top-level ESPectre page.</li>
+        <li><strong>Addressing:</strong> the portal accepts a private IP, device name, full device ID, or 6-character ID suffix. It keeps mDNS endpoint syntax out of the connection form and shows every candidate when a name or suffix has multiple matches.</li>
+        <li><strong>Auto-discovery:</strong> Web Crypto generates a fresh 96-bit nonce for each optional attempt and contacts only <code>espectre-devices-&lt;24 hex&gt;.local</code>. Compatible firmware answers without registering or retaining the nonce, performs one bounded DNS-SD browse, and returns validated HTTP endpoints at their advertised ports. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> documents the exchange.</li>
+        <li><strong>Capability checks:</strong> after selection, the portal negotiates the device's exact Direct capabilities and hides unsupported configuration and runtime actions.</li>
+        <li><strong>Discovery data:</strong> the portal does not scan address ranges, keep a peer inventory, or send device IDs, IPs, hostnames, local URLs, nonces, discovery payloads, or raw CSI to analytics.</li>
+        <li><strong>Host discovery:</strong> from a repository checkout, use <code>./espectre devices</code> for deterministic results.</li>
+        <li><strong>Connection failures:</strong> allow Local network access in site settings, confirm the current IP, close other ESPectre tabs if the device's two Direct client slots are occupied, and retry. If mDNS is disabled or filtered, use the private IPv4 address returned by Improv Serial or shown by the router; device IDs and names still require mDNS. A protocol error requires matching portal and firmware releases. If hosted Direct is unsupported, use a supported desktop browser.</li>
+        <li><strong>No Internet exposure:</strong> do not port-forward the Direct endpoint, publish it through UPnP, or treat the local service as remotely authenticated.</li>
+      </ul>
+    </div>
+    <p class="docs-step-note">Browser policy reference: <a href="https://developer.chrome.com/release-notes/147/" target="_blank" rel="noopener">Chrome 147 Local Network Access</a>.</p>
+  </section>
+
+  <section class="docs-section" aria-labelledby="responsible-deployment-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">RESPONSIBLE DEPLOYMENT</span>
+      <h2 id="responsible-deployment-title" data-toc-label="Responsible deployment">Use the minimum sensing needed.</h2>
+      <p>Before deploying ESPectre, consider the people, place, purpose, and data path involved.</p>
+    </div>
+    <div class="security-guidelines">
+      <ul>
+        <li><strong>Have authority:</strong> use ESPectre only in spaces and on networks where you have the right to install and operate it.</li>
+        <li><strong>Inform affected people:</strong> provide clear notice and obtain consent where required by law or appropriate to the context.</li>
+        <li><strong>Minimize collection:</strong> prefer derived motion state, avoid raw CSI unless a defined research need justifies it, and keep retention short.</li>
+        <li><strong>Protect access:</strong> secure Wi-Fi and MQTT, use TLS and per-device credentials where available, restrict broker access, and do not commit secrets.</li>
+        <li><strong>Maintain the deployment:</strong> apply security updates, review integrations, remove abandoned devices, and delete data that is no longer needed.</li>
+        <li><strong>Do not treat motion as identity or safety evidence:</strong> ESPectre does not identify people, count them, or replace a safety-certified presence sensor.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="docs-start" aria-labelledby="abuse-title">
+    <div class="docs-start-copy">
+      <span class="guide-tag">ABUSE</span>
+      <h2 id="abuse-title" data-toc-label="Abuse prevention">Illegal or unethical use is not acceptable.</h2>
+      <p>ESPectre rejects covert surveillance, stalking, coercion, discrimination, monitoring without legitimate authority, using occupancy patterns to facilitate intrusion, and any other illegal or unethical use of Wi-Fi sensing.</p>
+      <p>If you believe ESPectre or related Wi-Fi sensing is being used to harm people or violate the law, report the concern to us and, when appropriate, to the competent law enforcement, regulatory, or data protection authority. Contact local emergency services when someone may be in immediate danger.</p>
+      <p>Do not obtain evidence unlawfully or publish credentials, private telemetry, personal data, or details that could put someone at further risk. Reporting to the project does not replace reporting to the competent authorities.</p>
+    </div>
+    <div class="docs-start-actions">
+      <a href="mailto:contact@espectre.dev?subject=Responsible%20use%20or%20abuse%20report" class="btn-primary">Report a concern</a>
+      <a href="/privacy/" class="btn-secondary">Read the privacy notice</a>
+    </div>
+  </section>
+
+  <section class="docs-section" aria-labelledby="vulnerability-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">VULNERABILITIES</span>
+      <h2 id="vulnerability-title" data-toc-label="Report a vulnerability">Report security issues privately.</h2>
+      <p>Do not disclose suspected vulnerabilities in public issues. Use GitHub’s private reporting flow, or email the security address if you cannot use GitHub Security Advisories.</p>
+    </div>
+    <div class="docs-paths security-reporting-paths">
+      <article class="docs-path docs-path-recommended">
+        <span class="docs-path-label">PREFERRED</span>
+        <h3>Private vulnerability report</h3>
+        <p>Share the affected version, a clear description, reproduction steps, potential impact, and any suggested mitigation. Do not include credentials or other people’s data.</p>
+        <a href="https://github.com/francescopace/espectre/security" target="_blank" rel="noopener" class="btn-primary">Open private reporting ↗</a>
+      </article>
+      <article class="docs-path">
+        <span class="docs-path-label">EMAIL</span>
+        <h3>Contact the security team</h3>
+        <p>Use email when GitHub private reporting is unavailable. Give us reasonable time to assess and coordinate a fix before public disclosure.</p>
+        <a href="mailto:security@espectre.dev" class="btn-secondary">security@espectre.dev</a>
+      </article>
+    </div>
+  </section>
+</div>

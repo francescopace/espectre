@@ -1,0 +1,33 @@
+menu "Micro-ESPectre"
+
+config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
+    bool "Allow loopback development portal origins"
+    default n
+    help
+        Allow HTTP Origins on any port only when the host is exactly
+        localhost, 127.0.0.1, or [::1]. Published firmware must leave
+        this disabled.
+
+menu "Advanced task scheduling"
+
+config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY
+    int "Direct HTTPD task priority"
+    range 1 10
+    default 1
+    help
+        FreeRTOS priority for the native Direct HTTP server task. Raising it
+        can reduce HTTP latency but can starve the MicroPython VM that drains
+        CSI records, especially on single-core targets.
+
+config ESPECTRE_TRAFFIC_TASK_PRIORITY
+    int "Managed traffic generator task priority"
+    range 1 10
+    default 1
+    help
+        FreeRTOS priority for the native managed traffic task. This work is
+        best effort; raising it can starve the MicroPython VM while Wi-Fi and
+        lwIP drain bursts.
+
+endmenu
+
+endmenu

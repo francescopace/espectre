@@ -1,0 +1,8 @@
+{
+  "minimums": {
+    "branches": 70.0,
+    "functions": 70.0,
+    "lines": 85.0
+  },
+  "version": 1
+}

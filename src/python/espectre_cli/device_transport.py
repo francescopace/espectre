@@ -1,0 +1,753 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
+"""Bounded Improv Serial and Direct HTTP clients shared by the CLI."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import IntEnum
+import http.client
+import ipaddress
+import json
+import socket
+import threading
+import time
+from typing import Callable, Protocol, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
+
+from .device_discovery import ESPECTRE_DIRECT_PORT
+IMPROV_HEADER = b"IMPROV"
+IMPROV_VERSION = 1
+IMPROV_MAX_FRAME_SIZE = 265
+DIRECT_PATH = "/espectre/v1"
+DIRECT_EVENTS_PATH = "/espectre/v1/events"
+DIRECT_PROTOCOL_VERSION = "1.0"
+DIRECT_MAX_REQUEST_FRAME_SIZE = 2048
+DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
+DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
+DEFAULT_DIRECT_ORIGIN = "https://test.espectre.dev"
+
+
+class ImprovPacketType(IntEnum):
+    CURRENT_STATE = 0x01
+    ERROR_STATE = 0x02
+    RPC = 0x03
+    RPC_RESPONSE = 0x04
+
+
+class ImprovCommand(IntEnum):
+    WIFI_SETTINGS = 0x01
+    GET_CURRENT_STATE = 0x02
+    GET_DEVICE_INFO = 0x03
+
+
+class ImprovState(IntEnum):
+    STOPPED = 0x00
+    AWAITING_AUTHORIZATION = 0x01
+    AUTHORIZED = 0x02
+    PROVISIONING = 0x03
+    PROVISIONED = 0x04
+
+
+class ImprovProtocolError(RuntimeError):
+    """Raised when the device emits an invalid or rejected Improv frame."""
+
+
+class DirectProtocolError(RuntimeError):
+    """Raised when the Direct peer violates the canonical message contract."""
+
+
+class DirectEventStreamTransportError(DirectProtocolError):
+    """Raised when the Direct SSE stream is lost at the transport boundary."""
+
+
+class DirectRequestError(RuntimeError):
+    """Raised when firmware returns a correlated Direct error response."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"Direct request failed ({code}): {message}")
+        self.code = code
+        self.message = message
+
+
+@dataclass(frozen=True)
+class ImprovFrame:
+    packet_type: ImprovPacketType
+    data: bytes
+
+
+@dataclass(frozen=True)
+class ImprovProvisioningResult:
+    endpoint: str
+    states: tuple[str, ...]
+    device_info: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DirectEvent:
+    name: str
+    data: dict[str, object]
+    host_elapsed_seconds: float
+
+
+class SerialTransport(Protocol):
+    dtr: bool
+    rts: bool
+
+    def read(self, size: int = 1) -> bytes: ...
+    def write(self, data: bytes) -> int: ...
+    def close(self) -> None: ...
+
+
+class HttpResponse(Protocol):
+    status: int
+
+    def read(self, size: int = -1) -> bytes: ...
+    def readline(self, size: int = -1) -> bytes: ...
+    def close(self) -> None: ...
+
+
+class ImprovFrameParser:
+    """Incrementally recover Improv frames from an ESP-IDF console byte stream."""
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+
+    def feed(self, chunk: bytes) -> list[ImprovFrame]:
+        self._buffer.extend(chunk)
+        frames: list[ImprovFrame] = []
+        while True:
+            header_at = self._buffer.find(IMPROV_HEADER)
+            if header_at < 0:
+                keep = min(len(self._buffer), len(IMPROV_HEADER) - 1)
+                if keep:
+                    self._buffer[:] = self._buffer[-keep:]
+                else:
+                    self._buffer.clear()
+                break
+            if header_at:
+                del self._buffer[:header_at]
+            if len(self._buffer) < 9:
+                break
+            data_length = self._buffer[8]
+            frame_length = 10 + data_length
+            if frame_length > IMPROV_MAX_FRAME_SIZE:
+                raise ImprovProtocolError("Improv frame exceeds the size limit")
+            if len(self._buffer) < frame_length:
+                break
+            raw = bytes(self._buffer[:frame_length])
+            del self._buffer[:frame_length]
+            if raw[6] != IMPROV_VERSION:
+                raise ImprovProtocolError(f"unsupported Improv version {raw[6]}")
+            if sum(raw[:-1]) & 0xFF != raw[-1]:
+                raise ImprovProtocolError("invalid Improv frame checksum")
+            try:
+                packet_type = ImprovPacketType(raw[7])
+            except ValueError as exc:
+                raise ImprovProtocolError(f"unknown Improv packet type {raw[7]}") from exc
+            frames.append(ImprovFrame(packet_type, raw[9:-1]))
+        return frames
+
+
+def encode_improv_frame(packet_type: ImprovPacketType, data: bytes = b"") -> bytes:
+    if len(data) > 0xFF:
+        raise ValueError("Improv frame data exceeds 255 bytes")
+    frame = bytearray((*IMPROV_HEADER, IMPROV_VERSION, int(packet_type), len(data)))
+    frame.extend(data)
+    frame.append(sum(frame) & 0xFF)
+    # Both ESPHome and the Native service use LF to leave the completed frame
+    # state before the next RPC arrives.
+    frame.append(0x0A)
+    return bytes(frame)
+
+
+def encode_improv_rpc(command: ImprovCommand, values: Sequence[str] = ()) -> bytes:
+    encoded_values = [value.encode("utf-8") for value in values]
+    if any(len(value) > 0xFF for value in encoded_values):
+        raise ValueError("Improv RPC string exceeds 255 bytes")
+    payload = bytearray((int(command), sum(len(value) + 1 for value in encoded_values)))
+    for value in encoded_values:
+        payload.append(len(value))
+        payload.extend(value)
+    return encode_improv_frame(ImprovPacketType.RPC, bytes(payload))
+
+
+def parse_improv_rpc_response(data: bytes) -> tuple[ImprovCommand, tuple[str, ...]]:
+    if len(data) < 2:
+        raise ImprovProtocolError("invalid Improv RPC response length")
+    declared_length = data[1]
+    actual_length = len(data) - 2
+    if declared_length + 1 == actual_length and data[-1] == 0:
+        # Improv SDK 1.2.x reserves an inner checksum byte even when
+        # add_checksum=false. ESPHome includes that zero byte in the outer
+        # serial frame, while the Native frontend removes it.
+        data = data[:-1]
+    elif declared_length != actual_length:
+        raise ImprovProtocolError("invalid Improv RPC response length")
+    try:
+        command = ImprovCommand(data[0])
+    except ValueError as exc:
+        raise ImprovProtocolError(f"unknown Improv RPC response command {data[0]}") from exc
+    values: list[str] = []
+    offset = 2
+    while offset < len(data):
+        length = data[offset]
+        offset += 1
+        end = offset + length
+        if end > len(data):
+            raise ImprovProtocolError("truncated Improv RPC response string")
+        try:
+            values.append(data[offset:end].decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise ImprovProtocolError("invalid UTF-8 in Improv RPC response") from exc
+        offset = end
+    return command, tuple(values)
+
+
+class ImprovSerialClient:
+    """Minimal Improv v1 client used only until Wi-Fi provisioning completes."""
+
+    def __init__(
+        self,
+        port: str,
+        *,
+        serial_factory: Callable[..., SerialTransport] | None = None,
+        baudrate: int = 115200,
+    ) -> None:
+        if serial_factory is None:
+            from serial import Serial
+
+            serial_factory = Serial
+        self._serial = serial_factory(port=port, baudrate=baudrate, timeout=0.1, write_timeout=2.0)
+        self._parser = ImprovFrameParser()
+        self._pending_frames: list[ImprovFrame] = []
+
+    def close(self) -> None:
+        self._serial.close()
+
+    def __enter__(self) -> "ImprovSerialClient":
+        return self
+
+    def __exit__(self, _type, _value, _traceback) -> None:
+        self.close()
+
+    def _send_rpc(self, command: ImprovCommand, values: Sequence[str] = ()) -> None:
+        frame = encode_improv_rpc(command, values)
+        if self._serial.write(frame) != len(frame):
+            raise ImprovProtocolError("short write while sending Improv request")
+
+    def _read_until(
+        self,
+        predicate: Callable[[ImprovFrame], object | None],
+        deadline: float,
+    ) -> object:
+        while time.monotonic() < deadline:
+            if not self._pending_frames:
+                chunk = self._serial.read(IMPROV_MAX_FRAME_SIZE)
+                if not chunk:
+                    continue
+                self._pending_frames.extend(self._parser.feed(chunk))
+            while self._pending_frames:
+                frame = self._pending_frames.pop(0)
+                if frame.packet_type == ImprovPacketType.ERROR_STATE:
+                    code = frame.data[0] if len(frame.data) == 1 else -1
+                    if code:
+                        raise ImprovProtocolError(f"Improv device reported error {code}")
+                result = predicate(frame)
+                if result is not None:
+                    return result
+        raise TimeoutError("timed out waiting for Improv response")
+
+    def _rpc(self, command: ImprovCommand, deadline: float) -> tuple[str, ...]:
+        self._send_rpc(command)
+
+        def matching_response(frame: ImprovFrame) -> tuple[str, ...] | None:
+            if frame.packet_type != ImprovPacketType.RPC_RESPONSE:
+                return None
+            response_command, values = parse_improv_rpc_response(frame.data)
+            if response_command == ImprovCommand.GET_CURRENT_STATE and command != response_command:
+                # A provisioned device emits its URL immediately after the
+                # current-state frame. That response belongs to the preceding
+                # state query and may still be queued when the next RPC starts.
+                return None
+            if response_command != command:
+                raise ImprovProtocolError(
+                    f"unexpected Improv RPC response {response_command.name}; expected {command.name}"
+                )
+            return values
+
+        return self._read_until(matching_response, deadline)  # type: ignore[return-value]
+
+    def provision(self, ssid: str, password: str, *, timeout: float) -> ImprovProvisioningResult:
+        deadline = time.monotonic() + timeout
+        states: list[str] = []
+
+        def current_state(frame: ImprovFrame) -> str | None:
+            if frame.packet_type != ImprovPacketType.CURRENT_STATE:
+                return None
+            if len(frame.data) != 1:
+                raise ImprovProtocolError("invalid Improv current-state payload")
+            try:
+                state = ImprovState(frame.data[0])
+            except ValueError as exc:
+                raise ImprovProtocolError(f"unknown Improv state {frame.data[0]}") from exc
+            states.append(state.name.lower())
+            return state.name.lower()
+
+        while True:
+            self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
+            try:
+                self._read_until(
+                    current_state,
+                    min(deadline, time.monotonic() + 2.0),
+                )
+                break
+            except TimeoutError:
+                if time.monotonic() >= deadline:
+                    raise
+                # The firmware service may not answer the first query while it
+                # starts. Retry this idempotent protocol request within the
+                # caller's provisioning deadline.
+        device_info = self._rpc(ImprovCommand.GET_DEVICE_INFO, deadline)
+        self._send_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
+
+        endpoint: str | None = None
+
+        def provisioning_result(frame: ImprovFrame) -> str | None:
+            nonlocal endpoint
+            state = current_state(frame)
+            if state is not None:
+                return endpoint if state == ImprovState.PROVISIONED.name.lower() and endpoint else None
+            if frame.packet_type != ImprovPacketType.RPC_RESPONSE:
+                return None
+            response_command, values = parse_improv_rpc_response(frame.data)
+            if response_command not in {
+                ImprovCommand.WIFI_SETTINGS,
+                ImprovCommand.GET_CURRENT_STATE,
+            }:
+                raise ImprovProtocolError(
+                    f"unexpected Improv RPC response {response_command.name}; expected WIFI_SETTINGS or GET_CURRENT_STATE"
+                )
+            if len(values) != 1 or not values[0]:
+                raise ImprovProtocolError("Improv Wi-Fi response did not contain one device URL")
+            endpoint = values[0]
+            return endpoint if ImprovState.PROVISIONED.name.lower() in states else None
+
+        while endpoint is None and time.monotonic() < deadline:
+            retry_deadline = min(deadline, time.monotonic() + 2.0)
+            try:
+                endpoint = self._read_until(provisioning_result, retry_deadline)  # type: ignore[assignment]
+            except TimeoutError:
+                if time.monotonic() >= deadline:
+                    raise
+                # Recover when the one-shot WIFI_SETTINGS completion was lost
+                # while the interface associated or the USB console reset.
+                self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
+        if endpoint is None:
+            raise TimeoutError("timed out waiting for Improv provisioning result")
+        return ImprovProvisioningResult(endpoint, tuple(states), device_info)
+
+
+def direct_endpoint_from_device_url(device_url: str) -> str:
+    parsed = urlsplit(device_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Improv returned an invalid device URL")
+    target_values = parse_qs(parsed.query, strict_parsing=False).get("target", [])
+    if target_values:
+        if len(target_values) != 1:
+            raise ValueError("Improv returned multiple device targets")
+        target = target_values[0]
+        port = ESPECTRE_DIRECT_PORT
+        try:
+            address = ipaddress.ip_address(target)
+        except ValueError:
+            try:
+                parsed_target = urlsplit(f"//{target}")
+                if not parsed_target.hostname or parsed_target.path:
+                    raise ValueError
+                address = ipaddress.ip_address(parsed_target.hostname)
+                port = parsed_target.port or ESPECTRE_DIRECT_PORT
+            except ValueError as error:
+                raise ValueError("Improv returned an invalid device target") from error
+        host = f"[{address}]" if address.version == 6 else str(address)
+        return urlunsplit(("http", f"{host}:{port}", DIRECT_PATH, "", ""))
+    return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_PATH, "", ""))
+
+
+class DirectClient:
+    """Resource-oriented Direct HTTP and event client."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        origin: str = DEFAULT_DIRECT_ORIGIN,
+        timeout: float = 8.0,
+        urlopen_factory: Callable[..., HttpResponse] | None = None,
+        persistent_requests: bool = False,
+        minimum_request_interval_seconds: float = 0.0,
+    ) -> None:
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.path != DIRECT_PATH
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+        ):
+            raise ValueError("Direct endpoint must be an HTTP URL ending in /espectre/v1")
+        if minimum_request_interval_seconds < 0:
+            raise ValueError("Direct request interval must not be negative")
+        self.endpoint = endpoint
+        self.origin = origin
+        self.timeout = timeout
+        self.events: list[DirectEvent] = []
+        self._urlopen = urlopen if urlopen_factory is None else urlopen_factory
+        self._use_persistent_requests = persistent_requests and urlopen_factory is None
+        self._request_connection: http.client.HTTPConnection | None = None
+        self._request_lock = threading.Lock()
+        self._minimum_request_interval_seconds = float(minimum_request_interval_seconds)
+        self._last_request_started_at: float | None = None
+        self._request_pacing_lock = threading.Lock()
+        self._events_response: HttpResponse | None = None
+        self._events_socket: socket.socket | None = None
+        self._events_thread: threading.Thread | None = None
+        self._events_stop = threading.Event()
+        self._events_ready = threading.Event()
+        self._events_error: Exception | None = None
+        self.capabilities: dict[str, object] | None = None
+
+    def negotiate(self) -> dict[str, object]:
+        """Read and validate the capability resource once for this client."""
+        capabilities = self.request("get", "capabilities")
+        if capabilities.get("protocol_version") != DIRECT_PROTOCOL_VERSION:
+            raise DirectProtocolError("Direct capabilities use an unsupported protocol version")
+        if not isinstance(capabilities.get("resources"), list) or not isinstance(
+            capabilities.get("operations"), list
+        ):
+            raise DirectProtocolError("Direct capabilities are missing resources or operations")
+        self.capabilities = capabilities
+        return capabilities
+
+    def close(self) -> None:
+        self.stop_events()
+        self._close_request_connection()
+        self.capabilities = None
+
+    def _close_request_connection(self) -> None:
+        connection = self._request_connection
+        self._request_connection = None
+        if connection is not None:
+            connection.close()
+
+    def _persistent_request(
+        self,
+        method: str,
+        path: str,
+        encoded: bytes,
+        headers: dict[str, str],
+        *,
+        timeout: float,
+    ) -> tuple[int, bytes]:
+        parsed = urlsplit(self.endpoint)
+        connection_type = (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
+        with self._request_lock:
+            for attempt in range(2):
+                try:
+                    connection = self._request_connection
+                    if connection is None:
+                        connection = connection_type(parsed.hostname, parsed.port, timeout=timeout)
+                        self._request_connection = connection
+                    else:
+                        connection.timeout = timeout
+                        if connection.sock is not None:
+                            connection.sock.settimeout(timeout)
+                    connection.request(method, path, body=encoded or None, headers=headers)
+                    response = connection.getresponse()
+                    status = response.status
+                    raw = response.read(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+                    return status, raw
+                except (OSError, TimeoutError, http.client.HTTPException):
+                    self._close_request_connection()
+                    if attempt == 1:
+                        raise
+        raise RuntimeError("unreachable Direct request retry state")
+
+    def _events_endpoint(self) -> str:
+        parsed = urlsplit(self.endpoint)
+        return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_EVENTS_PATH, "", ""))
+
+    def _pace_request(self) -> None:
+        if self._minimum_request_interval_seconds <= 0:
+            return
+        with self._request_pacing_lock:
+            now = time.monotonic()
+            if self._last_request_started_at is not None:
+                remaining = (
+                    self._minimum_request_interval_seconds
+                    - (now - self._last_request_started_at)
+                )
+                if remaining > 0:
+                    time.sleep(remaining)
+                    now = time.monotonic()
+            self._last_request_started_at = now
+
+    def _consume_events(self, started: float) -> None:
+        request = Request(
+            self._events_endpoint(),
+            headers={
+                "Accept": "text/event-stream",
+                "Cache-Control": "no-store",
+                "Origin": self.origin,
+            },
+            method="GET",
+        )
+        response: HttpResponse | None = None
+        try:
+            response = self._urlopen(request, timeout=max(self.timeout, 15.0))
+            self._events_response = response
+            status = int(getattr(response, "status", 200))
+            if status != 200:
+                raise DirectProtocolError(f"Direct event stream returned status {status}")
+            raw_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+            if raw_socket is not None:
+                raw_socket.settimeout(None)
+                self._events_socket = raw_socket
+            self._events_ready.set()
+            event_name = "message"
+            data_lines: list[str] = []
+            while not self._events_stop.is_set():
+                raw_line = response.readline(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+                if not raw_line:
+                    if not self._events_stop.is_set():
+                        raise DirectEventStreamTransportError(
+                            "Direct event stream closed unexpectedly"
+                        )
+                    break
+                if len(raw_line) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
+                    raise DirectProtocolError("Direct event stream line exceeds the size limit")
+                try:
+                    line = raw_line.decode("utf-8").rstrip("\r\n")
+                except UnicodeDecodeError as exc:
+                    raise DirectProtocolError("Direct event stream sent invalid UTF-8") from exc
+                if not line:
+                    if data_lines:
+                        try:
+                            data = json.loads("\n".join(data_lines))
+                        except json.JSONDecodeError as exc:
+                            raise DirectProtocolError("Direct event stream sent invalid JSON") from exc
+                        if not isinstance(data, dict):
+                            raise DirectProtocolError("Direct event stream payload must be an object")
+                        self.events.append(
+                            DirectEvent(event_name, data, time.monotonic() - started)
+                        )
+                    event_name = "message"
+                    data_lines = []
+                    continue
+                if line.startswith(":"):
+                    continue
+                field, separator, value = line.partition(":")
+                if separator and value.startswith(" "):
+                    value = value[1:]
+                if field == "event":
+                    event_name = value
+                elif field == "data":
+                    data_lines.append(value)
+        except (
+            HTTPError,
+            TimeoutError,
+            URLError,
+            OSError,
+            http.client.IncompleteRead,
+            http.client.RemoteDisconnected,
+            ValueError,
+            AttributeError,
+            DirectProtocolError,
+        ) as exc:
+            if not self._events_stop.is_set():
+                if isinstance(exc, DirectProtocolError):
+                    self._events_error = exc
+                elif isinstance(exc, HTTPError):
+                    self._events_error = DirectProtocolError(
+                        f"Direct event stream HTTP {exc.code}: {exc.reason}"
+                    )
+                elif isinstance(
+                    exc,
+                    (
+                        TimeoutError,
+                        URLError,
+                        OSError,
+                        http.client.IncompleteRead,
+                        http.client.RemoteDisconnected,
+                    ),
+                ):
+                    self._events_error = DirectEventStreamTransportError(
+                        f"Direct event stream failed: {exc}"
+                    )
+                else:
+                    self._events_error = DirectProtocolError(
+                        f"Direct event stream failed: {exc}"
+                    )
+                self._events_ready.set()
+        finally:
+            if response is not None:
+                response.close()
+            self._events_response = None
+            self._events_socket = None
+            self._events_ready.set()
+
+    def start_events(self, *, timeout: float | None = None) -> None:
+        """Open the Direct SSE stream and begin collecting canonical events."""
+        if self._events_thread is not None and self._events_thread.is_alive():
+            return
+        self._events_stop.clear()
+        self._events_ready.clear()
+        self._events_error = None
+        started = time.monotonic()
+        self._events_thread = threading.Thread(
+            target=self._consume_events,
+            args=(started,),
+            name="espectre-direct-events",
+            daemon=True,
+        )
+        self._events_thread.start()
+        if not self._events_ready.wait(self.timeout if timeout is None else timeout):
+            self.stop_events()
+            raise DirectProtocolError("timed out opening the Direct event stream")
+        if self._events_error is not None:
+            error = self._events_error
+            self._events_thread = None
+            raise error
+
+    def stop_events(self) -> None:
+        """Close the Direct SSE stream and surface collection failures."""
+        thread = self._events_thread
+        if thread is None:
+            return
+        self._events_stop.set()
+        event_socket = self._events_socket
+        if event_socket is not None:
+            try:
+                event_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        response = self._events_response
+        if response is not None:
+            response.close()
+        thread.join(timeout=min(max(self.timeout, 1.0), 5.0))
+        self._events_thread = None
+        if thread.is_alive():
+            raise DirectProtocolError("timed out closing the Direct event stream")
+        if self._events_error is not None:
+            error = self._events_error
+            self._events_error = None
+            raise error
+
+    def __enter__(self) -> "DirectClient":
+        return self
+
+    def __exit__(self, _type, _value, _traceback) -> None:
+        self.close()
+
+    def _decode(self, raw: bytes) -> dict[str, object]:
+        if len(raw) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
+            raise DirectProtocolError("Direct response exceeds the size limit")
+        try:
+            envelope = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DirectProtocolError("Direct endpoint sent invalid JSON") from exc
+        if not isinstance(envelope, dict):
+            raise DirectProtocolError("Direct endpoint response must be an object")
+        return envelope
+
+    def request(
+        self,
+        method: str,
+        resource: str,
+        data: dict[str, object] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, object]:
+        self._pace_request()
+        http_method = method.upper()
+        if http_method not in {"GET", "PATCH", "POST", "PUT", "DELETE"}:
+            raise ValueError("Direct method must be get, patch, post, put, or delete")
+        normalized_resource = resource.strip("/")
+        if not normalized_resource or ".." in normalized_resource.split("/"):
+            raise ValueError("Direct resource must be a non-empty relative path")
+        arguments = data or {}
+        message = "" if not arguments else json.dumps(arguments, separators=(",", ":"))
+        if len(message.encode("utf-8")) > DIRECT_MAX_REQUEST_FRAME_SIZE:
+            raise ValueError("Direct request exceeds the size limit")
+        encoded = message.encode("utf-8")
+        parsed = urlsplit(self.endpoint)
+        path = f"{parsed.path}/{normalized_resource}"
+        headers = {
+            "Accept": "application/json",
+            "Cache-Control": "no-store",
+            "Origin": self.origin,
+        }
+        if encoded:
+            headers["Content-Type"] = "application/json"
+        if self._use_persistent_requests:
+            headers["Connection"] = "keep-alive"
+            try:
+                status, raw = self._persistent_request(
+                    http_method,
+                    path,
+                    encoded,
+                    headers,
+                    timeout=self.timeout if timeout is None else timeout,
+                )
+            except (OSError, TimeoutError, http.client.HTTPException) as exc:
+                raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+            if status not in {200, 202}:
+                detail = raw[:512].decode("utf-8", errors="replace").strip()
+                raise DirectProtocolError(f"Direct HTTP {status}: {detail or 'request failed'}")
+            envelope = self._decode(raw)
+            return self._validate_response(envelope, http_method)
+
+        endpoint = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+        request = Request(endpoint, data=encoded or None, headers=headers, method=http_method)
+        response: HttpResponse | None = None
+        try:
+            response = self._urlopen(request, timeout=self.timeout if timeout is None else timeout)
+            status = int(getattr(response, "status", 200))
+            raw = response.read(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+        except HTTPError as exc:
+            detail = exc.read(512).decode("utf-8", errors="replace").strip()
+            raise DirectProtocolError(f"Direct HTTP {exc.code}: {detail or exc.reason}") from exc
+        except (TimeoutError, URLError) as exc:
+            raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+        finally:
+            if response is not None:
+                response.close()
+        if status not in {200, 202}:
+            raise DirectProtocolError(f"Direct HTTP returned status {status}")
+        envelope = self._decode(raw)
+        return self._validate_response(envelope, http_method)
+
+    def _validate_response(
+        self,
+        envelope: dict[str, object],
+        method: str,
+    ) -> dict[str, object]:
+        if method == "GET":
+            return envelope
+        accepted = envelope.get("accepted")
+        if not isinstance(accepted, bool):
+            raise DirectProtocolError("Direct response is missing its boolean result status")
+        code = envelope.get("code")
+        error_message = envelope.get("message")
+        if not isinstance(code, str) or not isinstance(error_message, str):
+            raise DirectProtocolError("Direct result code and message must be strings")
+        if accepted:
+            return envelope
+        raise DirectRequestError(code, error_message)

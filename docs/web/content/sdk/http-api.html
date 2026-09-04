@@ -1,0 +1,74 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article" data-page-toc data-page-path="sdk">
+  <h1>Direct HTTP API</h1>
+  <p class="article-lead">Use Direct HTTP to read a device's state, change its configuration, stream motion events, or collect raw CSI on the local network.</p>
+
+  <div class="note"><strong>Direct HTTP uses the shared device protocol.</strong> MQTT uses the same resources, operations, validation rules, and result codes. Framing and delivery differ. Read the capability catalog to learn what the connected firmware supports.</div>
+
+  <h2 data-toc-label="Connect">Connect to a device</h2>
+  <p>Direct HTTP listens on TCP port <code>62587</code> and uses the versioned base path <code>/espectre/v1</code>. The stable mDNS hostname is <code>espectre-&lt;device-id&gt;.local</code>. Clients can also connect to the device's private IP address.</p>
+  <pre class="code"><code>curl http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/capabilities</code></pre>
+  <p>After connecting, read <code>capabilities.protocol_version</code>, <code>resources</code>, <code>operations</code>, and <code>events</code>. Treat the returned catalog as authoritative. Firmware compatible with <code>v1</code> may add fields and capabilities, so clients must ignore additions they do not understand.</p>
+
+  <h2 data-toc-label="Resources">Read resources</h2>
+  <p>A successful <code>GET</code> returns the resource object directly. Frontends and custom builds can expose different resource sets; check <code>capabilities</code> before requesting one.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>/health</code></td><td>Online state, uptime, and monotonic timestamp</td></tr>
+      <tr><td><code>/device</code></td><td>Stable identity, label, frontend, firmware, chip, and CSI profile</td></tr>
+      <tr><td><code>/capabilities</code></td><td>Negotiated resources, operations, events, and CSI support</td></tr>
+      <tr><td><code>/sensing</code></td><td>Detector state, readiness, profile, threshold, filtering, and traffic mode</td></tr>
+      <tr><td><code>/wifi</code></td><td>Connection and radio state without stored credentials</td></tr>
+      <tr><td><code>/wifi/access-points</code></td><td>Wi-Fi scan progress and the latest access-point results</td></tr>
+      <tr><td><code>/mqtt</code></td><td>Redacted Native MQTT configuration</td></tr>
+      <tr><td><code>/ota</code></td><td>Firmware update state and resolved release information</td></tr>
+      <tr><td><code>/diagnostics</code></td><td>On-demand runtime, CSI, memory, and transport diagnostics</td></tr>
+      <tr><td><code>/devices</code></td><td>Nearby ESPectre devices found through mDNS and DNS-SD</td></tr>
+    </tbody>
+  </table></div>
+  <p>Add <code>/espectre/v1</code> before each path in the table. The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md#resources" target="_blank" rel="noopener">application contract</a> defines every field and lists the resources supported by each frontend.</p>
+
+  <h2 data-toc-label="Operations">Run operations</h2>
+  <p>Send a JSON object for requests with a body and set <code>Content-Type: application/json</code>. The device rejects unknown fields. A completed mutation returns HTTP <code>200</code>; queued or disruptive work returns <code>202</code> after dispatch.</p>
+  <pre class="code"><code>curl -X PATCH \
+  -H 'Content-Type: application/json' \
+  -d '{"detector":"high_accuracy","threshold":0.5}' \
+  http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/sensing</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Method and path</th><th>Operation</th></tr></thead>
+    <tbody>
+      <tr><td><code>PATCH /device</code></td><td>Set or clear the device label</td></tr>
+      <tr><td><code>PATCH /sensing</code></td><td>Update supported detector and traffic settings</td></tr>
+      <tr><td><code>POST /sensing/calibrations</code></td><td>Start recalibration</td></tr>
+      <tr><td><code>POST /wifi/scans</code></td><td>Start an access-point scan</td></tr>
+      <tr><td><code>PUT</code> or <code>DELETE /wifi/bssid</code></td><td>Set or clear the preferred access point</td></tr>
+      <tr><td><code>DELETE /wifi/credentials</code></td><td>Return Native firmware to provisioning</td></tr>
+      <tr><td><code>PATCH</code> or <code>DELETE /mqtt</code></td><td>Set or clear the Native broker configuration</td></tr>
+      <tr><td><code>POST /ota/checks</code></td><td>Check a firmware channel</td></tr>
+      <tr><td><code>POST /ota/updates</code></td><td>Start an update from a firmware channel</td></tr>
+    </tbody>
+  </table></div>
+  <p>Every mutation returns a result object. Some operations also return output in <code>data</code>.</p>
+  <pre class="code"><code>{"accepted":true,"code":"ok","message":"operation accepted","data":{}}</code></pre>
+
+  <h2 data-toc-label="Live events">Follow live events</h2>
+  <p><code>GET /espectre/v1/events</code> opens the JSON Server-Sent Events stream. It publishes the resource snapshots and events listed in <code>capabilities</code>, which can include <code>health</code>, <code>device</code>, <code>sensing</code>, <code>wifi</code>, <code>ota</code>, <code>motion</code>, and <code>fault</code>. The stream has no replay. After reconnecting, read the resources again to refresh local state.</p>
+  <pre class="code"><code>curl -N http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/events</code></pre>
+  <p>A motion payload contains the monotonic evaluation timestamp, state, and detector score:</p>
+  <pre class="code"><code>{"timestamp_ms":42000,"state":"motion","score":0.7312}</code></pre>
+
+  <h2 data-toc-label="Raw CSI">Collect raw CSI</h2>
+  <p><code>GET /espectre/v1/csi</code> opens one exclusive binary CSI collection session when <code>capabilities.features.csi</code> is true. Closing the response ends collection. While the stream is active, sensing readiness is false and derived events are paused. Conflicting mutations return HTTP <code>409</code>.</p>
+  <div class="note"><strong>CSI uses binary framing.</strong> The response contains ordered CSI V8 records with the established 60-byte little-endian HTTP prefix. Follow the framing contract when parsing or storing records.</div>
+
+  <h2 data-toc-label="Errors and security">Handle errors and security</h2>
+  <p>Check the HTTP status and <code>Content-Type</code> before parsing a response. Application errors use the JSON result object. Malformed framing, Origin rejection, oversized bodies, rate limiting, and service saturation can return plain text before application dispatch.</p>
+  <p>Direct HTTP is a trusted-LAN interface. Firmware binds it to the station network, enforces exact browser Origin allowlists and bounded resources, and never returns stored Wi-Fi or MQTT passwords. Keep the service off the public internet.</p>
+
+  <h2 data-toc-label="Protocol references">Protocol references</h2>
+  <p><a href="https://github.com/francescopace/espectre/blob/main/docs/API.md" target="_blank" rel="noopener"><code>API.md</code></a> defines every payload field, limit, status mapping, and versioning rule. <a href="https://github.com/francescopace/espectre/blob/main/docs/DISCOVERY.md" target="_blank" rel="noopener"><code>DISCOVERY.md</code></a> defines mDNS, DNS-SD, browser discovery, and the <code>/devices</code> resource.</p>
+</article>

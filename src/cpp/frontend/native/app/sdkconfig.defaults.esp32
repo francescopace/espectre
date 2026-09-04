@@ -1,0 +1,10 @@
+# ESP32-specific product overrides.
+#
+# Classic ESP32 does not provide a native USB console. Keep lwIP IRAM
+# optimization disabled for parity with the established target profile and
+# use UART0 as the primary console.
+
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64

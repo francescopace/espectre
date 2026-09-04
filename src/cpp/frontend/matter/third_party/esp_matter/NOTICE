@@ -1,0 +1,47 @@
+Espressif’s SDK for Matter is an open source development framework for Matter
+Specification. It is built on top of the open source Matter SDK. It is developed
+and maintained by Espressif Systems and licensed under Apache License 2.0.
+
+The following content is copied from the Matter SDK NOTICE file.
+
+If there are any updates, the latest copy can be found at
+https://github.com/project-chip/connectedhomeip/blob/master/NOTICE
+
+The Matter SDK is an open source implementation of the Matter Specification
+(Matter). Matter is developed by members of the Connectivity Standards Alliance
+(Alliance) and promulgated by the Alliance.
+
+LIMITED RIGHTS TO THE MATTER SDK: Your rights to the Matter SDK are described in
+the LICENSE. No warranty or assurance is made with respect to additional rights
+that may be required to implement the Matter SDK. Use of the Matter SDK does not
+assure compliance with Matter and does not convey the right to identify any
+device, software, product or service as Matter compliant, certified or similar.
+
+CERTIFICATION REQUIRES MEMBERSHIP IN THE ALLIANCE: Certification by the Alliance
+of any device, software, product or service is limited to members of the
+Alliance, and requires compliance with applicable Alliance policies.
+
+USE OF ALLIANCE TRADEMARKS AND LOGOS REQUIRES MEMBERSHIP IN THE ALLIANCE: Only
+the Alliance and its members may use Alliance trademarks and logos, including,
+without limitation, the Matter trademarks and logos. All Alliance trademarks and
+logos must be used in accordance with the Connectivity Standards Alliance
+Trademark and Logo Usage Guidelines and Terms, a copy of which can be found at
+www.csa-iot.org/resources/governing-documents.
+
+JOINING CONNECTIVITY STANDARDS ALLIANCE: For information on how to become a
+member of Connectivity Standards Alliance please visit
+www.csa-iot.org/become-member.
+
+DISCLAIMER: Elements of the Matter SDK may be subject to third party
+intellectual property rights, including without limitation, patent, copyright or
+trademark rights (such third party may or may not be a member of the Alliance).
+The Alliance is not responsible and shall not be held responsible in any manner
+for identifying or failing to identify any or all such third party intellectual
+property rights.
+
+Members of the Alliance may own intellectual property rights in Matter which
+rights are subject to the Alliance's Intellectual Property Rights Policy, which
+can be found at www.csa-iot.org/resources/governing-documents, and not the
+LICENSE.
+
+This NOTICE must be included on all copies of the Matter SDK.

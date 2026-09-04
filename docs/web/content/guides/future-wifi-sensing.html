@@ -1,0 +1,71 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+  <span class="guide-tag">FUTURE OF SENSING · 5 MIN READ</span>
+  <h1>The future of Wi-Fi sensing</h1>
+  <p class="article-lead">IEEE 802.11bf adds explicit WLAN sensing mechanisms to the Wi-Fi standard. ESPectre is already architected for that transition: measurement capture is separated from detector logic, runtime contracts, protocol, and frontends, so a suitable 802.11bf backend can join the existing product stack.</p>
+  <figure>
+    <img src="/assets/images/guides/future-wifi-sensing-card.avif" alt="Two Wi-Fi devices coordinating a sensing measurement around a person" width="1068" height="600" loading="eager">
+    <figcaption>ESPectre uses the measurements available on current ESP32 hardware while keeping the radio boundary open to standards-backed sensing hardware.</figcaption>
+  </figure>
+
+  <details class="page-toc">
+    <summary>Sections</summary>
+    <nav aria-label="Guide sections"><strong>On this page</strong><a href="#future-origin">Why it matters</a><a href="#future-sensing">Communication and sensing</a><a href="#future-standard">What the standard changes</a><a href="#future-not-algorithm">What it does not define</a><a href="#future-today">Backend integration</a><a href="#future-next">What comes next</a><a href="#future-bridge">What ESPectre can do now</a></nav>
+  </details>
+
+  <h2 id="future-origin">Why IEEE 802.11bf matters to ESPectre</h2>
+  <p>Wi-Fi radios already estimate how a signal changes between transmitter and receiver so they can communicate reliably. IEEE 802.11bf adds procedures that let devices coordinate those measurements for sensing.</p>
+  <p>ESPectre uses the CSI exposed by supported ESP32 devices to build and validate the parts above measurement capture: algorithms, runtime behavior, stable events, and product integration. That work is useful now and carries forward when practical embedded 802.11bf targets expose documented sensing APIs.</p>
+  <div class="note"><strong>ESPectre is ready at the architecture boundary.</strong> Current devices obtain measurements through ESP32 CSI, while detector logic, runtime events, protocol, and frontends remain separate from that capture path. A standards-backed backend becomes targeted implementation and validation work, not a second product architecture.</div>
+
+  <h2 id="future-sensing">From communication to sensing</h2>
+  <p>A Wi-Fi receiver does not observe only the data sent by a router. It also observes the radio channel through which that data arrived. Walls, furniture, people, and movement alter the paths taken by the signal. Channel State Information, or CSI, captures part of that channel response across the Wi-Fi subcarriers.</p>
+  <p>Most Wi-Fi systems use channel measurements internally to communicate reliably. Sensing asks a different question: what can changes in those measurements reveal about range, velocity, angle, motion, or other properties of objects in an area of interest?</p>
+  <p>That is the conceptual shift behind WLAN sensing. The network is no longer only carrying an application’s information; the behavior of the radio channel can become an input to the application.</p>
+
+  <h2 id="future-standard">What IEEE 802.11bf changes</h2>
+  <p><a href="https://standards.ieee.org/ieee/802.11bf/11574/" target="_blank" rel="noopener">IEEE 802.11bf-2025</a>, published in September 2025 as Amendment 4 to the IEEE 802.11 standard, adds enhancements for WLAN sensing. It modifies the MAC and selected PHY service interfaces for sensing in license-exempt bands between 1 GHz and 7.125 GHz, and above 45 GHz.</p>
+  <p>The main practical change is coordination. According to the <a href="https://www.ieee802.org/11/Reports/tgbf_update.htm" target="_blank" rel="noopener">IEEE 802.11 WLAN Sensing Task Group</a>, the standard provides mechanisms that let stations:</p>
+  <ul class="checklist">
+    <li>Advertise their WLAN sensing capabilities.</li>
+    <li>Request and set up transmissions used to obtain sensing measurements.</li>
+    <li>Exchange sensing feedback and information.</li>
+  </ul>
+  <p>These mechanisms let Wi-Fi devices schedule sensing exchanges and report the resulting measurements. Current ESP32 CSI sensing instead depends on ordinary network traffic and the diagnostic data exposed by the chipset.</p>
+
+  <h2 id="future-not-algorithm">A standard for measurements, not meaning</h2>
+  <p>IEEE 802.11bf does not define a universal motion detector, presence detector, activity classifier, or room model. It standardizes mechanisms that help devices arrange and report sensing measurements. Turning those measurements into a trustworthy application result remains a separate signal-processing, machine-learning, and validation problem.</p>
+  <p>It also does not guarantee that every future Wi-Fi device will support sensing, that every chipset will expose the same developer API, or that an application can reuse today’s CSI algorithms unchanged. Implementations will still differ in antennas, bandwidth, timing, feedback format, calibration, and access policy.</p>
+  <p>Interoperable measurement procedures are only one layer of a sensing product. Useful results still depend on the radio, driver, data model, detector, product integration, and validation in representative environments.</p>
+
+  <h2 id="future-today">Where an 802.11bf backend fits</h2>
+  <div class="table-wrap"><table>
+    <caption class="sr-only">Comparison between current ESPectre sensing and a possible standards-backed implementation</caption>
+    <thead><tr><th scope="col">Layer</th><th scope="col">ESPectre today</th><th scope="col">Standards-backed direction</th></tr></thead>
+    <tbody>
+      <tr><td>Measurements</td><td>CSI exposed by supported ESP32 devices from ordinary Wi-Fi traffic</td><td>Measurements obtained through deliberate sensing procedures and feedback</td></tr>
+      <tr><td>Platform boundary</td><td>ESP-IDF CSI capture APIs and current ESP32 radio behavior</td><td>A practical chipset and driver API exposing 802.11bf, or equivalent documented sensing data</td></tr>
+      <tr><td>Sensing logic</td><td>ESPectre features, detectors, readiness, calibration, and events</td><td>The same product contracts where measurement semantics permit, with algorithms revalidated or adapted as needed</td></tr>
+      <tr><td>Status</td><td>Implemented and tested on supported hardware</td><td>Integration boundary and product contracts are ready; backend work starts when a suitable embedded target exposes documented measurements</td></tr>
+    </tbody>
+  </table></div>
+  <p>The separation already exists in production code. A standards-backed measurement backend has a defined place below the runtime-facing contract, while compatible runtime events, protocol messages, and frontend integrations can remain stable where the new measurement semantics permit.</p>
+  <p>This readiness is architectural, not an untested compatibility claim. A real backend still requires documented hardware access, a precise mapping of measurement semantics, new datasets, detector validation, resource measurements, and parity checks before it can be called supported.</p>
+
+  <h2 id="future-next">What has to happen next</h2>
+  <ol class="steps-list">
+    <li><h3>An embedded target must expose useful sensing measurements</h3><p>The standard has been published. ESPectre still needs practical hardware and firmware that expose those measurements through a documented developer API.</p></li>
+    <li><h3>Drivers must expose stable measurement APIs</h3><p>A capability hidden inside closed firmware cannot become an open sensing backend. Developers need documented access, timing, metadata, and failure behavior.</p></li>
+    <li><h3>Algorithms must be validated against the new measurements</h3><p>Better coordination may improve consistency, but it does not automatically preserve the statistics of current CSI features or the quality of existing detectors.</p></li>
+    <li><h3>Products must make sensing visible and proportionate</h3><p>Wi-Fi sensing avoids images and audio, but presence and movement data can still reveal routines. Standards, products, and deployments all need clear authorization, transparency, and security boundaries.</p></li>
+  </ol>
+
+  <h2 id="future-bridge">What ESPectre can do now</h2>
+  <p>Current ESP32 hardware is enough to develop open algorithms, run reproducible tests, and integrate local motion events into existing products. This work also exposes the limits of traffic-dependent CSI, vendor-specific capture APIs, and measurements that were not designed as a sensing interface.</p>
+  <p>Standards-backed measurements could support more repeatable research and better coordination between devices, but those benefits must be tested on real implementations. ESPectre's multi-runtime architecture already isolates radio capture from detector behavior and product-facing contracts, so adopting another backend does not require redesigning the platform around it.</p>
+  <p>The <a href="/roadmap/">ESPectre roadmap</a> therefore treats IEEE 802.11bf support as hardware-triggered implementation and validation work. It begins when a suitable embedded platform provides documented access to the required measurements.</p>
+
+</article>

@@ -1,0 +1,45 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+    <span class="guide-tag">THEORY · 3 MIN READ</span>
+    <h1>How Wi-Fi sensing detects movement</h1>
+    <p class="article-lead">Wi-Fi signals do more than carry data. As they cross a room, their reflections change whenever people move. ESPectre measures those changes with a low-cost ESP32, without cameras, microphones, or cloud processing.</p>
+    <figure class="multipath-sequence-figure">
+      <div class="multipath-sequence">
+        <div class="multipath-frame">
+          <img src="/assets/images/guides/csi-multipath-room.avif" alt="Furnished room with fixed blue Wi-Fi paths and an amber path reflected by a person left of center before reaching an ESP32" width="1068" height="600" loading="eager">
+          <strong>1 · First position</strong>
+        </div>
+        <div class="multipath-frame">
+          <img src="/assets/images/guides/csi-multipath-room-moved.avif" alt="The same room and fixed blue Wi-Fi paths after the person moves right and changes the amber reflected path to the ESP32" width="1068" height="600" loading="eager">
+          <strong>2 · A moment later</strong>
+        </div>
+      </div>
+      <figcaption>The blue paths remain fixed in both frames. When the person moves, the amber path still leaves the same access point and reaches the same ESP32, but its reflection point and total length change. The ESP32 detects the resulting change in the arriving radio signal.</figcaption>
+    </figure>
+
+    <h2 id="detection-room">The room becomes part of the signal</h2>
+    <p>A Wi-Fi signal rarely follows one straight route from the access point to the receiver. It also bounces off walls, furniture, objects, and people. These copies arrive together and combine with one another, sometimes reinforcing the signal and sometimes cancelling part of it. This is called <strong>multipath</strong>.</p>
+    <p>In a quiet room, the paths and the way they combine remain comparatively stable. When somebody moves, reflections from their body move too: some paths become longer, shorter, stronger, or weaker. The radio signal reaching the ESP32 changes as a result.</p>
+
+    <h2 id="detection-csi">From a Wi-Fi packet to CSI</h2>
+    <p>The access point begins each Wi-Fi transmission with a known preamble that helps receivers synchronize and decode the packet. Because the ESP32 knows what this reference signal should look like, its Wi-Fi hardware can estimate how the room changed it along the way. That estimate is called <strong>Channel State Information</strong>, or <strong>CSI</strong>: a snapshot of the radio channel at that moment.</p>
+    <p>Wi-Fi divides its channel into many closely spaced frequencies called <strong>subcarriers</strong>. CSI describes how each one was attenuated and shifted before it reached the ESP32. Each subcarrier measurement has two components, I and Q, which together capture both the strength and phase of that part of the signal.</p>
+
+    <h2 id="detection-motion">From channel changes to movement</h2>
+    <p>ESPectre follows CSI over a sequence of packets. A quiet room produces a comparatively repeatable pattern; movement produces wider, coordinated changes across several subcarriers. The detector filters ordinary radio noise, combines the useful changes over time, and turns them into a movement score and a motion state. The score describes how strongly the channel is changing in that room; it is not a physical unit or a universal measurement.</p>
+    <p>Supported ESP32 chips expose CSI through their Wi-Fi stack and have enough processing capacity to run the detector locally. ESPectre can therefore add Wi-Fi motion sensing without a separate radar module or a service that receives raw measurements.</p>
+
+    <figure>
+      <img src="/assets/images/guides/csi-iq-motion.svg" alt="Simplified I and Q plots showing dense, narrow subcarrier orbits in a quiet room and thicker, overlapping orbits during movement" width="1068" height="400" loading="lazy">
+      <figcaption>Each dot is one I/Q measurement for one subcarrier, and dots of the same color are successive measurements of that same subcarrier. Every CSI packet adds one dot to each colored orbit: at 100 packets per second, each orbit gains about 100 dots in one second. A dot’s distance from the center is the subcarrier amplitude. In a quiet room, repeated samples form dense, narrow orbits. During movement, the amplitudes oscillate, so those orbits become thicker and can overlap. ESPectre combines that evidence across selected subcarriers and over time instead of relying on a single point.</figcaption>
+    </figure>
+
+    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor.</div>
+
+    <h2 id="detection-deeper">Going deeper</h2>
+    <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> documents the signal processing, feature definitions, and detector behavior in detail.</p>
+
+  </article>

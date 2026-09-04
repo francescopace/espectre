@@ -1,0 +1,107 @@
+name: Feature request
+description: Propose a new capability or improvement
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you start
+      options:
+        - label: I searched existing issues for related requests.
+          required: true
+        - label: I checked `docs/ROADMAP.md` to see whether this is already planned.
+          required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Area
+      description: Where would this change apply? Choose all that apply.
+      multiple: true
+      options:
+        - Detector or on-device runtime
+        - Firmware installation or provisioning
+        - Web Flash and firmware catalog
+        - Web Configure and device discovery
+        - Web Monitor and live detector
+        - Raw CSI or interactive web tools
+        - ESPectre CLI or host tools
+        - Home Assistant or controller integration
+        - SDK or embedding
+        - Research, data, or ML tooling
+        - Documentation or website content
+        - CI, builds, or releases
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      description: Which firmware would this affect? Choose all that apply.
+      multiple: true
+      options:
+        - ESPHome
+        - Matter
+        - Native
+        - Micro-ESPectre
+        - Shared across firmware
+        - Not tied to firmware
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A concise description of the feature.
+      placeholder: "Add a guided Wi-Fi provisioning flow for Native in the web tools."
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what prevents you from doing it today?
+      placeholder: |
+        I want to ...
+        Today I cannot ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Suggested behavior
+      description: If you have a preferred behavior or interface, describe it here. A technical design is not required.
+      placeholder: |
+        ESPectre could ...
+        Users would ...
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, rejected ideas, or competing approaches.
+      placeholder: "I also considered ..."
+
+  - type: textarea
+    id: implementation_notes
+    attributes:
+      label: Implementation notes
+      description: Optional technical context such as affected modules or constraints.
+      placeholder: |
+        Affected modules:
+        Constraints:
+        Related docs or issues:
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help implement this feature.

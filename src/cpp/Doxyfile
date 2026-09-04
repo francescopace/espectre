@@ -1,0 +1,121 @@
+# ESPectre - Doxygen configuration for the embeddable C++ SDK
+#
+# Generates XML for the supported integration surface only. The repository
+# generator renders that XML through m.css into fragments owned by the SPA.
+# Internal headers are excluded on purpose: shipping them in the reference
+# would present the whole bundle as public API, which is the opposite of the
+# stability tiers documented in docs/SDK.md.
+#
+# Usage, from the repository root:
+#   python3 .github/scripts/generate_sdk_api.py
+#
+# That script stamps PROJECT_NUMBER from git describe, the same identity as
+# SDK bundles, and writes SPA fragments under docs/web/artifacts/sdk/api/.
+# The committed PROJECT_NUMBER is a placeholder and is not current.
+#
+# SDK bundles rewrite OUTPUT_DIRECTORY to output and stamp PROJECT_NUMBER, so
+# `doxygen src/cpp/Doxyfile` from an unpacked bundle emits matching XML without
+# the website tree; see .github/scripts/build_sdk_package.py.
+
+PROJECT_NAME           = "ESPectre SDK"
+PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
+PROJECT_NUMBER         = UNSTAMPED
+
+# The repository generator replaces this with an isolated temporary directory.
+# Direct Doxygen runs write ignored XML under the website artifact tree.
+OUTPUT_DIRECTORY       = docs/web/artifacts/sdk
+HTML_OUTPUT            = rendered
+XML_OUTPUT             = xml
+CREATE_SUBDIRS         = NO
+# Portal links and the website verifier pin the underscore-separated IDs
+# Doxygen emits when this is NO. The Unix default keeps mixed-case names
+# (`classespectre_1_1RuntimeFrontendController`), which breaks those links
+# on Linux CI.
+CASE_SENSE_NAMES       = NO
+GENERATE_HTML          = NO
+GENERATE_XML           = YES
+GENERATE_LATEX         = NO
+XML_PROGRAMLISTING     = NO
+
+# The landing page lives in espectre_sdk.h itself, so the entry point of the
+# reference is the entry point of the code. docs/SDK.md is deliberately
+# not an input: its links are repository-relative and only resolve on GitHub.
+INPUT                  = src/cpp/espectre_sdk.h \
+                         src/cpp/espectre_core_sdk.h \
+                         src/cpp/runtime/espectre_sdk_version.h \
+                         src/cpp/runtime/csi_raw_record.h \
+                         src/cpp/runtime/runtime_interface.h \
+                         src/cpp/runtime/raw_csi.h \
+                         src/cpp/runtime/runtime_events.h \
+                         src/cpp/runtime/csi_capture_profile.h \
+                         src/cpp/runtime/runtime_snapshot.h \
+                         src/cpp/runtime/runtime_capabilities.h \
+                         src/cpp/runtime/runtime_sensing_schema.h \
+                         src/cpp/runtime/runtime_config_utils.h \
+                         src/cpp/runtime/runtime_diagnostics.h \
+                         src/cpp/runtime/csi_traffic_types.h \
+                         src/cpp/runtime/espectre_protocol.h \
+                         src/cpp/runtime/mqtt_transport.h \
+                         src/cpp/runtime/direct_http_protocol.h \
+                         src/cpp/runtime/direct_http_service.h \
+                         src/cpp/runtime/ota_service.h \
+                         src/cpp/runtime/firmware_version.h \
+                         src/cpp/runtime/esp_idf/device_identity.h \
+                         src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
+                         src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
+                         src/cpp/core/espectre_log.h \
+                         src/cpp/core/base_detector.h \
+                         src/cpp/core/detector_types.h \
+                         src/cpp/core/filter_config.h \
+                         src/cpp/core/csi_types.h \
+                         src/cpp/core/lightweight_detector.h \
+                         src/cpp/core/high_accuracy_detector.h \
+                         src/cpp/core/csi_format.h \
+                         src/cpp/core/temporal_csi_sampler.h \
+                         src/cpp/core/detector_limits.h
+
+# Render consumer-facing include paths relative to the published SDK root.
+STRIP_FROM_INC_PATH    = src/cpp
+
+FILE_PATTERNS          = *.h
+RECURSIVE              = NO
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+
+JAVADOC_AUTOBRIEF      = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+# Members are documented in a deliberate reading order. Full source listings
+# are excluded from the published reference; the SDK bundle contains them.
+SOURCE_BROWSER         = NO
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = NO
+
+# A partially documented member is worse than an undocumented one, because it
+# reads as complete. WARN_NO_PARAMDOC is the gate that catches it, and
+# WARN_AS_ERROR makes CI fail on it instead of printing into a log nobody reads.
+#
+# EXTRACT_ALL stays YES deliberately. Turning it off would make
+# WARN_IF_UNDOCUMENTED live, which sounds stricter but demands @param and
+# @return on every one-line accessor: 210 warnings today, almost all of them
+# asking to restate a brief that is already clear.
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = YES
+
+QUIET                  = YES
+
+# Host builds and ESP-IDF builds see different declarations; document the
+# ESP-IDF view, which is the one integrators ship.
+PREDEFINED             = ESP_PLATFORM=1
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES

@@ -1,0 +1,193 @@
+menu "ESPectre Sensing"
+
+config ESPECTRE_TINYUSB_PRIMARY_CONSOLE
+    bool "Use TinyUSB CDC as the primary console"
+    depends on SOC_USB_OTG_SUPPORTED
+    default n
+    help
+        Install a TinyUSB CDC ACM device and redirect stdin, stdout, and
+        stderr to it. Enable this on USB-OTG boards whose ROM USB CDC console
+        is not a reliable bidirectional application transport. Leave it
+        disabled for UART and USB Serial/JTAG consoles.
+
+choice ESPECTRE_WIFI_BAND_POLICY
+    prompt "Wi-Fi band policy"
+    default ESPECTRE_WIFI_BAND_AUTO if SOC_WIFI_SUPPORT_5G
+    default ESPECTRE_WIFI_BAND_2G
+    help
+        Choose which radio band may be used. Dual-band targets default to
+        automatic selection; 5 GHz and automatic selection require dual-band
+        silicon.
+
+    config ESPECTRE_WIFI_BAND_2G
+        bool "2.4 GHz only"
+
+    config ESPECTRE_WIFI_BAND_5G
+        bool "5 GHz only"
+        depends on SOC_WIFI_SUPPORT_5G
+
+    config ESPECTRE_WIFI_BAND_AUTO
+        bool "Automatic 2.4/5 GHz selection"
+        depends on SOC_WIFI_SUPPORT_5G
+endchoice
+
+choice ESPECTRE_DETECTION_ALGORITHM
+    prompt "Detection profile"
+    default ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
+    help
+        Select the detector used by the shared ESPectre sensing runtime.
+
+    config ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
+        bool "Lightweight Detection"
+        help
+            Lower active CPU and working-memory cost, with quiet-room startup
+            threshold calibration.
+
+    config ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY
+        bool "High-Accuracy Detection"
+        help
+            Stronger detection quality and generalization, with additional
+            feature state and neural-inference work. No threshold calibration.
+endchoice
+
+config ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
+    int "Segmentation window duration (milliseconds)"
+    range 1000 2000
+    default 1000
+    help
+        Detector window in elapsed time. The runtime combines this duration
+        with the configured CSI target to build a fixed temporal slot grid.
+
+config ESPECTRE_CSI_TARGET_PPS
+    int "Target CSI sensing cadence (pps)"
+    range 1 500
+    default 100
+    help
+        Defines the detector's temporal sampling grid and the target used by
+        managed traffic. Select the CSI traffic mode separately; zero is not a
+        disable sentinel.
+
+choice ESPECTRE_CSI_TRAFFIC_MODE
+    prompt "CSI traffic ownership"
+    default ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
+    help
+        Select who supplies CSI-bearing traffic. This is independent of the
+        positive sensing target configured above.
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
+        bool "Internal generator"
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
+        bool "External source"
+
+endchoice
+
+config ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
+    string "External traffic multicast group"
+    default "239.255.0.1"
+    help
+        IPv4 multicast group the UDP listener joins in external mode. Empty
+        disables the join. Unicast to the device IP still works.
+        Subnet and limited broadcast do not produce reliable CSI.
+
+choice ESPECTRE_TRAFFIC_GENERATOR_MODE
+    prompt "Traffic generator mode"
+    default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
+        bool "PING"
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
+        bool "DNS over UDP"
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP
+        bool "DNS over TCP"
+endchoice
+
+config ESPECTRE_EVALUATION_INTERVAL_MS
+    int "Evaluation interval (milliseconds)"
+    range 10 10000
+    default 250
+
+config ESPECTRE_MOTION_ON_HITS
+    int "Motion-on hits"
+    range 1 20
+    default 4
+
+config ESPECTRE_MOTION_OFF_HITS
+    int "Motion-off hits"
+    range 1 20
+    default 3
+
+config ESPECTRE_LOWPASS_ENABLED
+    bool "Enable low-pass filter"
+    default n
+
+config ESPECTRE_LOWPASS_CUTOFF
+    string "Low-pass cutoff (Hz)"
+    default "11.0"
+    depends on ESPECTRE_LOWPASS_ENABLED
+    help
+        Low-pass cutoff frequency as a decimal string in the 5.0-20.0 range.
+
+config ESPECTRE_HAMPEL_ENABLED
+    bool "Enable Hampel filter"
+    default y
+
+config ESPECTRE_HAMPEL_WINDOW
+    int "Hampel window"
+    range 3 11
+    default 7
+    depends on ESPECTRE_HAMPEL_ENABLED
+
+config ESPECTRE_HAMPEL_THRESHOLD
+    string "Hampel threshold (MAD)"
+    default "5.0"
+    depends on ESPECTRE_HAMPEL_ENABLED
+    help
+        Hampel threshold as a decimal string in the 1.0-10.0 range.
+
+menu "Advanced task scheduling"
+
+config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY
+    int "Direct HTTPD task priority"
+    range 1 10
+    default 4 if IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2
+    default 1
+    help
+        FreeRTOS priority for the ESP-IDF HTTP server task used by Direct.
+        Classic ESP32 and ESP32-S2 builds keep it above best-effort managed
+        traffic so Direct control remains responsive under CSI load. Other
+        targets retain the ESPectre default. Higher values preempt
+        lower-priority ESPectre work; excessive values can starve sensing,
+        transport workers, and system networking.
+
+config ESPECTRE_DIRECT_WORKER_TASK_PRIORITY
+    int "Direct response and SSE worker priority"
+    range 1 10
+    default 2
+    help
+        FreeRTOS priority for completed Direct responses and SSE delivery.
+        Raising it can reduce response latency but can starve sensing and
+        increase concurrent pressure on lwIP buffers.
+
+config ESPECTRE_RAW_WORKER_TASK_PRIORITY
+    int "Direct raw CSI worker priority"
+    range 1 10
+    default 3
+    help
+        FreeRTOS priority for raw CSI HTTP streaming. Raising it can starve
+        the frontend loop or Direct control traffic when a raw client is slow.
+
+config ESPECTRE_TRAFFIC_TASK_PRIORITY
+    int "Managed traffic generator priority"
+    range 1 10
+    default 1
+    help
+        FreeRTOS priority for managed PING or DNS sensing traffic. This task
+        is best effort; raising it can starve single-core frontend loops while
+        Wi-Fi and lwIP drain bursts.
+
+endmenu
+
+endmenu

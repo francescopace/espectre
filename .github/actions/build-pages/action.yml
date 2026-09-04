@@ -1,0 +1,82 @@
+name: Build and verify Pages tree
+description: Build the generated website, SDK API reference, and channel artifacts consistently.
+
+inputs:
+  require-preview:
+    description: Require the rolling preview firmware and SDK channels.
+    required: false
+    default: "false"
+  require-release:
+    description: Require the release firmware and SDK channels.
+    required: false
+    default: "false"
+  require-develop:
+    description: Require the rolling develop firmware channel.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Stage browser dependencies
+      shell: bash
+      run: |
+        npm --prefix docs/web ci --ignore-scripts
+        npm --prefix docs/web run stage:vendor
+
+    - name: Test web client
+      shell: bash
+      run: ./test/web/run_coverage.sh
+
+    - name: Build static pages
+      shell: bash
+      run: python3 .github/scripts/build_static_pages.py
+
+    - name: Install Doxygen
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="1.17.0"
+        archive="doxygen-${version}.linux.bin.tar.gz"
+        url="https://github.com/doxygen/doxygen/releases/download/Release_${version//./_}/${archive}"
+        tmp="$(mktemp -d)"
+        curl -fsSL -o "${tmp}/${archive}" "$url"
+        tar -xzf "${tmp}/${archive}" -C "$tmp"
+        binary="$(find "$tmp" -type f -path '*/bin/doxygen' -print -quit)"
+        test -n "$binary"
+        sudo install -m 0755 "$binary" /usr/local/bin/doxygen
+        installed="$(doxygen -v | awk '{print $1}')"
+        test "$installed" = "$version"
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends graphviz
+
+    - name: Install SDK API renderer dependencies
+      shell: bash
+      run: python3 -m pip install Jinja2==3.1.6 Pygments==2.20.0
+
+    - name: Generate SDK API reference
+      shell: bash
+      run: python3 .github/scripts/generate_sdk_api.py
+
+    - name: Generate sitemap lastmod values
+      shell: bash
+      run: python3 .github/scripts/build_sitemap.py
+
+    - name: Verify website
+      shell: bash
+      env:
+        REQUIRE_PREVIEW: ${{ inputs.require-preview }}
+        REQUIRE_RELEASE: ${{ inputs.require-release }}
+        REQUIRE_DEVELOP: ${{ inputs.require-develop }}
+      run: |
+        args=()
+        if [[ "${REQUIRE_PREVIEW}" == "true" ]]; then
+          args+=(--require-preview)
+        fi
+        if [[ "${REQUIRE_RELEASE}" == "true" ]]; then
+          args+=(--require-release)
+        fi
+        if [[ "${REQUIRE_DEVELOP}" == "true" ]]; then
+          args+=(--require-develop)
+        fi
+        python3 .github/scripts/verify_web_build.py "${args[@]}"

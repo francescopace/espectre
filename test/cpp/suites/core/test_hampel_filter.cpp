@@ -1,0 +1,390 @@
+/*
+ * ESPectre - Hampel Filter Unit Tests
+ *
+ * Unit tests for Hampel outlier removal filter used in shared turbulence preprocessing
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
+ */
+#include "test_harness.h"
+#include <cmath>
+#include "filters.h"
+#include "l1_delta_tracker.h"
+#include "csi_format.h"
+#include "utils.h"
+#include "esphome/core/log.h"
+
+using namespace espectre;
+
+static const char *TAG = "test_hampel";
+
+void setUp(void) {}
+void tearDown(void) {}
+
+// ============================================================================
+// INITIALIZATION TESTS
+// ============================================================================
+
+void test_hampel_init_default_values(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, HAMPEL_TURBULENCE_WINDOW_DEFAULT, 
+                          HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, true);
+    
+    TEST_ASSERT_EQUAL(HAMPEL_TURBULENCE_WINDOW_DEFAULT, state.window_size);
+    TEST_ASSERT_EQUAL_FLOAT(HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, state.threshold);
+    TEST_ASSERT_TRUE(state.enabled);
+    TEST_ASSERT_EQUAL(0, state.count);
+    TEST_ASSERT_EQUAL(0, state.index);
+}
+
+void test_hampel_init_minimum_window(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, HAMPEL_TURBULENCE_WINDOW_MIN, 3.0f, true);
+    
+    TEST_ASSERT_EQUAL(HAMPEL_TURBULENCE_WINDOW_MIN, state.window_size);
+}
+
+void test_hampel_init_maximum_window(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, HAMPEL_TURBULENCE_WINDOW_MAX, 3.0f, true);
+    
+    TEST_ASSERT_EQUAL(HAMPEL_TURBULENCE_WINDOW_MAX, state.window_size);
+}
+
+void test_hampel_init_invalid_window_uses_default(void) {
+    hampel_turbulence_state_t state;
+    
+    // Too small
+    hampel_turbulence_init(&state, 1, 3.0f, true);
+    TEST_ASSERT_EQUAL(HAMPEL_TURBULENCE_WINDOW_DEFAULT, state.window_size);
+    
+    // Too large
+    hampel_turbulence_init(&state, 20, 3.0f, true);
+    TEST_ASSERT_EQUAL(HAMPEL_TURBULENCE_WINDOW_DEFAULT, state.window_size);
+}
+
+void test_hampel_init_disabled(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 7, 3.0f, false);
+    
+    TEST_ASSERT_FALSE(state.enabled);
+}
+
+// ============================================================================
+// FILTER BEHAVIOR TESTS
+// ============================================================================
+
+void test_hampel_disabled_returns_raw_value(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 7, 3.0f, false);  // disabled
+    
+    float result = hampel_filter_turbulence(&state, 100.0f);
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, result);
+    
+    result = hampel_filter_turbulence(&state, 999.0f);
+    TEST_ASSERT_EQUAL_FLOAT(999.0f, result);
+}
+
+void test_hampel_returns_raw_until_buffer_fills(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 5, 3.0f, true);
+    
+    // First 2 values should be returned as-is (need 3 for filtering)
+    float result1 = hampel_filter_turbulence(&state, 10.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, result1);
+    TEST_ASSERT_EQUAL(1, state.count);
+    
+    float result2 = hampel_filter_turbulence(&state, 11.0f);
+    TEST_ASSERT_EQUAL_FLOAT(11.0f, result2);
+    TEST_ASSERT_EQUAL(2, state.count);
+}
+
+void test_hampel_passes_normal_values(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 5, 3.0f, true);
+    
+    // Fill buffer with stable values
+    hampel_filter_turbulence(&state, 10.0f);
+    hampel_filter_turbulence(&state, 10.0f);
+    hampel_filter_turbulence(&state, 10.0f);
+    hampel_filter_turbulence(&state, 10.0f);
+    
+    // Normal value within threshold should pass through
+    float result = hampel_filter_turbulence(&state, 10.5f);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.5f, result);
+}
+
+void test_hampel_replaces_outlier(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 5, 3.0f, true);
+    
+    // Fill buffer with stable, non-degenerate values around 10.
+    hampel_filter_turbulence(&state, 10.0f);
+    hampel_filter_turbulence(&state, 10.1f);
+    hampel_filter_turbulence(&state, 9.9f);
+    hampel_filter_turbulence(&state, 10.2f);
+    hampel_filter_turbulence(&state, 9.8f);
+    
+    // Extreme outlier should be replaced with median
+    float result = hampel_filter_turbulence(&state, 1000.0f);
+    
+    // Result should be close to median (10.0), not the outlier (1000.0)
+    TEST_ASSERT_FLOAT_WITHIN(5.0f, 10.0f, result);
+}
+
+void test_hampel_circular_buffer_wraps(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 5, 3.0f, true);
+    
+    // Fill buffer completely
+    for (int i = 0; i < 5; i++) {
+        hampel_filter_turbulence(&state, 10.0f);
+    }
+    TEST_ASSERT_EQUAL(5, state.count);
+    
+    // Add more values - buffer should wrap
+    for (int i = 0; i < 10; i++) {
+        hampel_filter_turbulence(&state, 11.0f);
+    }
+    
+    // Count should stay at window_size
+    TEST_ASSERT_EQUAL(5, state.count);
+}
+
+// ============================================================================
+// STANDALONE HAMPEL_FILTER FUNCTION TESTS
+// ============================================================================
+
+void test_hampel_filter_with_null_window(void) {
+    float result = hampel_filter(NULL, 5, 10.0f, 3.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, result);  // Returns input unchanged
+}
+
+void test_hampel_filter_with_small_window(void) {
+    float window[] = {10.0f, 11.0f};
+    float result = hampel_filter(window, 2, 10.5f, 3.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.5f, result);  // Returns input unchanged (window < 3)
+}
+
+void test_hampel_filter_detects_outlier(void) {
+    float window[] = {9.8f, 9.9f, 10.0f, 10.1f, 10.2f};
+    
+    // Extreme outlier
+    float result = hampel_filter(window, 5, 100.0f, 3.0f);
+    
+    // Should return median (10.0), not the outlier
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.0f, result);
+}
+
+void test_hampel_filter_passes_normal_value(void) {
+    float window[] = {9.0f, 10.0f, 11.0f, 10.0f, 10.0f};
+    
+    // Normal value close to median (with some variance in window)
+    float result = hampel_filter(window, 5, 10.5f, 3.0f);
+    
+    // Should pass through unchanged (within tolerance of median)
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.5f, result);
+}
+
+void test_hampel_filter_zero_mad_matches_stateful_behavior(void) {
+    const float window[] = {10.0f, 10.0f, 10.0f, 10.0f, 10.0f};
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, hampel_filter(window, 5, 100.0f, 3.0f));
+}
+
+void test_l1_delta_tracker_filters_outlier(void) {
+    L1DeltaTracker enabled;
+    L1DeltaTracker disabled;
+    enabled.configure(16U);
+    disabled.configure(16U);
+    enabled.configure_hampel(true, 5U, 3.0f);
+    disabled.configure_hampel(false, 5U, 3.0f);
+
+    const float baseline[] = {1.0f, 1.0f};
+    for (uint8_t i = 0U; i < L1_DELTA_LAG; i++) {
+        enabled.process(baseline, 2U);
+        disabled.process(baseline, 2U);
+    }
+
+    const float normal_deltas[] = {0.08f, 0.09f, 0.10f, 0.11f, 0.12f};
+    for (float delta : normal_deltas) {
+        const float profile[] = {1.0f + delta, 1.0f - delta};
+        enabled.process(profile, 2U);
+        disabled.process(profile, 2U);
+    }
+    const float outlier[] = {2.0f, 0.0f};
+    enabled.process(outlier, 2U);
+    disabled.process(outlier, 2U);
+
+    float enabled_series[16]{};
+    float disabled_series[16]{};
+    const uint16_t enabled_count = enabled.build_series(enabled_series);
+    const uint16_t disabled_count = disabled.build_series(disabled_series);
+    TEST_ASSERT_EQUAL(6U, enabled_count);
+    TEST_ASSERT_EQUAL(6U, disabled_count);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.11f, enabled_series[enabled_count - 1U]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, disabled_series[disabled_count - 1U]);
+}
+
+// ============================================================================
+// EDGE CASES
+// ============================================================================
+
+void test_hampel_with_all_same_values(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 5, 3.0f, true);
+    
+    // All same values - MAD will be 0
+    for (int i = 0; i < 5; i++) {
+        hampel_filter_turbulence(&state, 10.0f);
+    }
+    
+    // Any different value might be considered outlier when MAD=0
+    // Implementation should handle this gracefully
+    float result = hampel_filter_turbulence(&state, 10.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, result);
+}
+
+void test_hampel_with_varying_values(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 7, 3.0f, true);
+    
+    // Natural variation
+    float values[] = {10.0f, 11.0f, 9.5f, 10.5f, 10.2f, 9.8f, 10.3f};
+    for (int i = 0; i < 7; i++) {
+        hampel_filter_turbulence(&state, values[i]);
+    }
+    
+    // Value within normal range should pass
+    float result = hampel_filter_turbulence(&state, 10.1f);
+    TEST_ASSERT_FLOAT_WITHIN(2.0f, 10.1f, result);
+}
+
+// ============================================================================
+// REAL CSI DATA TESTS
+// ============================================================================
+
+// Include CSI data loader (loads from NPZ files)
+#include "csi_test_data.h"
+
+// Compatibility macros for existing test code
+#define static_presence_packets csi_test_data::static_presence_packets()
+#define num_static_presence csi_test_data::num_static_presence()
+#define packet_size csi_test_data::packet_size()
+
+// Using calculate_spatial_turbulence_from_csi from csi_format.h
+
+static const uint8_t NUM_SC = 12;
+
+void test_hampel_with_real_static_presence_turbulence(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 7, 4.0f, true);
+    
+    // Process 100 static-presence packets
+    float raw_values[100];
+    float filtered_values[100];
+    
+    for (int i = 0; i < 100; i++) {
+        float turb = calculate_spatial_turbulence_from_csi(static_presence_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
+        raw_values[i] = turb;
+        filtered_values[i] = hampel_filter_turbulence(&state, turb);
+    }
+    
+    // Calculate variance of raw vs filtered
+    float raw_mean = 0.0f, filtered_mean = 0.0f;
+    for (int i = 0; i < 100; i++) {
+        raw_mean += raw_values[i];
+        filtered_mean += filtered_values[i];
+    }
+    raw_mean /= 100;
+    filtered_mean /= 100;
+    
+    float raw_var = 0.0f, filtered_var = 0.0f;
+    for (int i = 0; i < 100; i++) {
+        raw_var += (raw_values[i] - raw_mean) * (raw_values[i] - raw_mean);
+        filtered_var += (filtered_values[i] - filtered_mean) * (filtered_values[i] - filtered_mean);
+    }
+    raw_var /= 100;
+    filtered_var /= 100;
+    
+    ESP_LOGI(TAG, "Static-presence turbulence - Raw variance: %.4f, Filtered variance: %.4f",
+             raw_var, filtered_var);
+    
+    // Filtered variance should be <= raw variance (outliers removed)
+    TEST_ASSERT_TRUE(filtered_var <= raw_var * 1.1f);  // Allow small tolerance
+}
+
+void test_hampel_outlier_detection_on_real_data(void) {
+    hampel_turbulence_state_t state;
+    hampel_turbulence_init(&state, 7, 3.0f, true);
+    
+    // Fill with static-presence turbulence values
+    for (int i = 0; i < 20; i++) {
+        float turb = calculate_spatial_turbulence_from_csi(static_presence_packets[i], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
+        hampel_filter_turbulence(&state, turb);
+    }
+    
+    // Now inject a synthetic outlier (10x normal value)
+    float normal_turb = calculate_spatial_turbulence_from_csi(static_presence_packets[20], packet_size, DEFAULT_SUBCARRIERS, NUM_SC);
+    float outlier = normal_turb * 10.0f;
+    
+    float filtered = hampel_filter_turbulence(&state, outlier);
+    
+    ESP_LOGI(TAG, "Outlier test - Normal: %.4f, Outlier: %.4f, Filtered: %.4f",
+             normal_turb, outlier, filtered);
+    
+    // Filtered value should be much closer to normal than to outlier
+    float dist_to_normal = std::abs(filtered - normal_turb);
+    float dist_to_outlier = std::abs(filtered - outlier);
+    
+    TEST_ASSERT_TRUE_MESSAGE(dist_to_normal < dist_to_outlier,
+        "Filtered value should be closer to normal than to outlier");
+}
+
+int process(void) {
+    // Load CSI test data from NPZ files
+    if (!csi_test_data::load()) {
+        printf("ERROR: Failed to load CSI test data from NPZ files\n");
+        return 1;
+    }
+    
+    UNITY_BEGIN();
+    
+    // Initialization tests
+    RUN_TEST(test_hampel_init_default_values);
+    RUN_TEST(test_hampel_init_minimum_window);
+    RUN_TEST(test_hampel_init_maximum_window);
+    RUN_TEST(test_hampel_init_invalid_window_uses_default);
+    RUN_TEST(test_hampel_init_disabled);
+    
+    // Filter behavior tests
+    RUN_TEST(test_hampel_disabled_returns_raw_value);
+    RUN_TEST(test_hampel_returns_raw_until_buffer_fills);
+    RUN_TEST(test_hampel_passes_normal_values);
+    RUN_TEST(test_hampel_replaces_outlier);
+    RUN_TEST(test_hampel_circular_buffer_wraps);
+    
+    // Standalone function tests
+    RUN_TEST(test_hampel_filter_with_null_window);
+    RUN_TEST(test_hampel_filter_with_small_window);
+    RUN_TEST(test_hampel_filter_detects_outlier);
+    RUN_TEST(test_hampel_filter_passes_normal_value);
+    RUN_TEST(test_hampel_filter_zero_mad_matches_stateful_behavior);
+    RUN_TEST(test_l1_delta_tracker_filters_outlier);
+    
+    // Edge cases
+    RUN_TEST(test_hampel_with_all_same_values);
+    RUN_TEST(test_hampel_with_varying_values);
+    
+    // Real CSI data tests
+    RUN_TEST(test_hampel_with_real_static_presence_turbulence);
+    RUN_TEST(test_hampel_outlier_detection_on_real_data);
+    
+    return UNITY_END();
+}
+
+#if defined(ESP_PLATFORM)
+extern "C" void app_main(void) { process(); }
+#else
+int main(int argc, char **argv) { return process(); }
+#endif

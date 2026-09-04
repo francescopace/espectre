@@ -1,0 +1,9 @@
+# Use the USB-OTG peripheral through TinyUSB. The S2 ROM USB CDC implementation
+# is not a reliable bidirectional application console on every host, while the
+# shared TinyUSB console preserves the same stdin/stdout contract used by
+# Improv Serial.
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE=y
+CONFIG_TINYUSB_CDC_ENABLED=y
+# Match the ESP32-S2 ROM CDC serial so macOS preserves the device path after reset.
+CONFIG_TINYUSB_DESC_SERIAL_STRING="0"

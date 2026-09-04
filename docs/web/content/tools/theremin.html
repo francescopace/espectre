@@ -1,0 +1,42 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Motion theremin</h1>
+<p class="page-sub">Connect a device and turn movement into sound, or try the instrument in demo mode.</p>
+
+<section class="tool-static-entry" aria-labelledby="theremin-static-title">
+  <h2 id="theremin-static-title">Turn movement into sound</h2>
+  <p>The theremin maps the current movement score to pitch. Larger changes in the Wi-Fi channel raise the note, while a still room becomes quiet. You can connect a local ESPectre device or use simulated motion in demo mode.</p>
+  <p>Sound is generated only after you press the start button. The tool offers sine, triangle, and sawtooth waveforms and does not need a microphone.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-theremin" class="btn-primary">Open the motion theremin</a>
+    <a href="/guides/detection/" class="btn-secondary">How Wi-Fi sensing works</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <espectre-connection-picker class="js-needs-live" data-surface="theremin" data-open-view="live"></espectre-connection-picker>
+
+  <div class="js-has-live" hidden>
+    <div class="theremin-stage panel">
+      <div class="theremin-readout">
+        <div class="theremin-freq"><span class="js-th-freq">—</span><span class="theremin-unit">Hz</span></div>
+        <div class="mono-sub">move to raise the pitch · stay still for silence</div>
+      </div>
+      <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
+      <div class="theremin-controls">
+        <button class="btn-primary js-th-toggle">▶ Start sound</button>
+        <div class="field field-inline">
+          <label for="th-wave">Waveform</label>
+          <select id="th-wave">
+            <option value="sine">Sine</option>
+            <option value="triangle">Triangle</option>
+            <option value="sawtooth">Sawtooth</option>
+          </select>
+        </div>
+      </div>
+      <p class="tool-note">Audio starts only after you press play.</p>
+    </div>
+  </div>
+</div>

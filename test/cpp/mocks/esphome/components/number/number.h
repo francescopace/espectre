@@ -1,0 +1,79 @@
+/*
+ * ESPectre - Mock number.h
+ *
+ * Host-side mock of number.h for native C++ tests.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
+ */
+#pragma once
+
+// Mock ESPHome Number for host tests
+
+#include <string>
+#include <cstdint>
+
+// Mock LOG_NUMBER macro
+#define LOG_NUMBER(tag, name, obj) do {} while(0)
+
+namespace esphome {
+namespace number {
+
+class NumberTraits {
+public:
+    void set_min_value(float min) { min_ = min; }
+    void set_max_value(float max) { max_ = max; }
+    void set_step(float step) { step_ = step; }
+    float get_max_value() const { return max_; }
+    float get_step() const { return step_; }
+private:
+    float min_{0.0f};
+    float max_{100.0f};
+    float step_{1.0f};
+};
+
+// Mock Number class
+class Number {
+public:
+    NumberTraits traits;
+    void publish_state(float state) {
+        state_ = state;
+        has_state_ = true;
+        publish_count_++;
+    }
+    
+    void set_name(const std::string& name) {}
+    std::string get_name() const { return ""; }
+    
+    void set_unit_of_measurement(const std::string& unit) {}
+    void set_icon(const std::string& icon) {}
+    
+    float get_state() const { return state_; }
+    bool has_state() const { return has_state_; }
+    
+    void set_min_value(float min) { min_ = min; }
+    void set_max_value(float max) { max_ = max; }
+    void set_step(float step) { step_ = step; }
+    
+    float get_min_value() const { return min_; }
+    float get_max_value() const { return max_; }
+    float get_step() const { return step_; }
+    unsigned int get_publish_count() const { return publish_count_; }
+
+protected:
+    virtual void control(float value) {
+        state_ = value;
+        has_state_ = true;
+    }
+    
+    float state_{0.0f};
+    bool has_state_{false};
+    float min_{0.0f};
+    float max_{100.0f};
+    float step_{1.0f};
+    unsigned int publish_count_{0};
+};
+
+} // namespace number
+} // namespace esphome
