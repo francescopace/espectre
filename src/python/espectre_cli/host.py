@@ -1066,7 +1066,7 @@ def _run_live_collect(args) -> None:
         start_time = state["capture_started_at"] if save_enabled else state["session_started_at"]
         if live_duration is None or start_time is None:
             return False
-        if (now - start_time) <= live_duration:
+        if (now - start_time) < live_duration:
             return False
         if save_enabled:
             state["capture_completed"] = True
@@ -1428,6 +1428,7 @@ def _run_live_collect(args) -> None:
             if supports_socket_rcvbuf_announcement:
                 run_kwargs["announce_socket_rcvbuf"] = announce_socket_rcvbuf
             receiver.run(**run_kwargs)
+            maybe_stop_live_session(time.monotonic())
             if announce_socket_rcvbuf and receiver.effective_socket_rcvbuf_bytes is not None:
                 state["socket_rcvbuf_reported"] = True
         flush_temporal_devices(time.monotonic())

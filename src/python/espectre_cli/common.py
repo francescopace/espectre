@@ -156,8 +156,9 @@ def resolve_serial_port(
             frontend=frontend,
             purpose=purpose,
         )
-        if port_arg is None or any(
-            _serial_ports_match(port_arg, candidate) for candidate in ports
+        if (port_arg is None and ports) or (
+            port_arg is not None
+            and any(_serial_ports_match(port_arg, candidate) for candidate in ports)
         ):
             break
         remaining = deadline - time.monotonic()

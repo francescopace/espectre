@@ -403,7 +403,8 @@ def test_resolve_serial_port_rejects_explicit_incompatible_port(monkeypatch) -> 
         )
 
 
-def test_resolve_serial_port_waits_for_explicit_port_reenumeration(monkeypatch) -> None:
+@pytest.mark.parametrize("port", [None, "/dev/cu.usbmodem01"])
+def test_resolve_serial_port_waits_for_port_reenumeration(monkeypatch, port) -> None:
     attempts = iter([[], ["/dev/cu.usbmodem01"]])
     clock = [0.0]
     monkeypatch.setattr(
@@ -419,12 +420,29 @@ def test_resolve_serial_port_waits_for_explicit_port_reenumeration(monkeypatch) 
     )
 
     assert common.resolve_serial_port(
-        "/dev/cu.usbmodem01",
+        port,
         chip="s2",
         frontend="native",
         purpose="improv",
         wait_timeout_s=10.0,
     ) == "/dev/cu.usbmodem01"
+    assert clock[0] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize("port", [None, "/dev/cu.usbmodem01"])
+def test_resolve_serial_port_stops_waiting_at_deadline(monkeypatch, port) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: [])
+    monkeypatch.setattr(common.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(common.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    with pytest.raises(SystemExit) as exc:
+        common.resolve_serial_port(
+            port, chip="s2", frontend="micro", purpose="deploy", wait_timeout_s=0.25,
+        )
+
+    assert exc.value.code == 1
+    assert clock[0] == pytest.approx(0.25)
 
 
 def test_resolve_serial_port_uses_metadata_without_opening_devices(monkeypatch) -> None:
@@ -1166,7 +1184,13 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     assert exc.value.code == 7
 
 
-def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_path: Path) -> None:
+@pytest.fixture
+def idf_publication_stub(monkeypatch):
+    """Isolate launcher and cleanup tests whose fake compilers produce no files."""
+    monkeypatch.setattr(idf, "publish_idf_build", lambda *_args: None)
+
+
+def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")
@@ -1196,7 +1220,7 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
     ]
 
 
-def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
@@ -1228,6 +1252,7 @@ def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_
 def test_run_idf_command_build_uses_explicit_sdkconfig_when_missing(
     monkeypatch,
     tmp_path: Path,
+    idf_publication_stub,
 ) -> None:
     app_dir = tmp_path / "app"
     build_dir = app_dir / "build-esp32c3"
@@ -1259,7 +1284,7 @@ def test_run_idf_command_build_uses_explicit_sdkconfig_when_missing(
     ]
 
 
-def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     calls: list[dict[str, object]] = []
@@ -1479,7 +1504,7 @@ def test_idf_subprocess_env_inherits_shell_when_already_configured(monkeypatch) 
     assert idf.idf_subprocess_env(env) is None
 
 
-def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig.defaults.esp32").write_text("CONFIG_TEST=y\n", encoding="utf-8")
@@ -1510,7 +1535,7 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
     ]
 
 
-def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     build_dir = app_dir / "build-esp32c3"
@@ -1555,7 +1580,7 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
     ]
 
 
-def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     build_dir = app_dir / "build-esp32c3"
@@ -1593,7 +1618,7 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     ]
 
 
-def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     isolated_sdkconfig = app_dir / ".benchmark.sdkconfig"
@@ -1628,10 +1653,10 @@ def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Pa
     ]
 
 
-def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
-    for build_dir_name in ("build", "build-esp32", "build-esp32c3"):
+    for build_dir_name in ("build", "build-esp32", "build-esp32c3", "build-flash-esp32c3"):
         build_dir = app_dir / build_dir_name
         build_dir.mkdir()
         (build_dir / "artifact.bin").write_text("bin", encoding="utf-8")
@@ -1658,6 +1683,7 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
     assert not (app_dir / "build").exists()
     assert not (app_dir / "build-esp32").exists()
     assert not (app_dir / "build-esp32c3").exists()
+    assert not (app_dir / "build-flash-esp32c3").exists()
     assert not (app_dir / "sdkconfig").exists()
     assert not (app_dir / "sdkconfig.old").exists()
     assert not (app_dir / "dependencies.lock").exists()
@@ -1680,6 +1706,8 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
 
 def _write_flasher_args(build_dir: Path) -> None:
     build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "app.bin").write_bytes(b"application")
+    (build_dir / "bootloader.bin").write_bytes(b"bootloader")
     (build_dir / "flasher_args.json").write_text(
         json.dumps(
             {
@@ -1699,6 +1727,132 @@ def _write_flasher_args(build_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize("frontend, chip", [("native", "c3"), ("matter", "s3")])
+def test_idf_flash_uses_last_successful_build_across_backends(monkeypatch, tmp_path, frontend, chip):
+    app_dir = tmp_path / frontend
+    app_dir.mkdir()
+    idf_target = targets.IDF_TARGET_BY_CHIP[chip]
+    monkeypatch.delenv("ESPECTRE_IDF_BUILD_DIR", raising=False)
+    monkeypatch.setitem(idf.IDF_FRONTENDS, frontend, {"app_dir": app_dir, "targets": {chip: idf_target}})
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
+    monkeypatch.setattr(idf, "read_matter_onboarding_for_command", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        idf, "resolve_idf_build_backend",
+        lambda backend, _pull: idf.ResolvedIdfBuildBackend(
+            mode=backend,
+            idf_environment=idf.ResolvedIdfEnvironment(mode="path", source="test"),
+            docker="docker",
+        ),
+    )
+    payload = b""
+    fail_build = False
+
+    def compile_firmware(command, *, cwd):
+        build_dir = Path(cwd) / command[command.index("-B") + 1]
+        _write_flasher_args(build_dir)
+        (build_dir / "app.bin").write_bytes(payload)
+        if fail_build:
+            raise subprocess.CalledProcessError(7, command)
+
+    def compile_container(**kwargs):
+        try:
+            compile_firmware(kwargs["commands"][0], cwd=kwargs["app_path"])
+        except subprocess.CalledProcessError as exc:
+            raise idf_container.DockerBackendError("build failed") from exc
+
+    monkeypatch.setattr(idf, "run_idf_subprocess", lambda command, _env, *, cwd: compile_firmware(command, cwd=cwd))
+    monkeypatch.setattr(idf, "run_idf_container", compile_container)
+    flashed = []
+
+    def flash(command, *, cwd):
+        offset = command.index("0x10000")
+        flashed.append((Path(cwd), (Path(cwd) / command[offset + 1]).read_bytes()))
+
+    monkeypatch.setattr(esptool_runner, "run_esptool", flash)
+    previous_payload = None
+    for index, backend in enumerate(("local", "docker", "local")):
+        payload = f"firmware-{index}-{backend}".encode()
+        build_args = app.build_parser().parse_args([frontend, "build", "--chip", chip, "--backend", backend])
+        idf.run_idf_command(frontend, build_args)
+        flash_args = app.build_parser().parse_args([frontend, "flash", "--chip", chip, "--port", "/dev/test"])
+        idf.run_idf_command(frontend, flash_args)
+        assert flashed[-1] == (app_dir / f"build-flash-{idf_target}", payload)
+        assert flashed[-1][1] != previous_payload
+        previous_payload = payload
+
+        fail_build = True
+        payload = b"incomplete build"
+        with pytest.raises(SystemExit):
+            idf.run_idf_command(frontend, build_args)
+        idf.run_idf_command(frontend, flash_args)
+        assert flashed[-1][1] == previous_payload
+        fail_build = False
+
+
+def test_idf_flash_preserves_explicit_build_directory_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "custom-build")
+    assert idf.resolve_flash_idf_selection("native", tmp_path, "c3") == ("esp32c3", "custom-build")
+
+
+@pytest.mark.parametrize("failure", ["missing_binary", "manifest_replace"])
+def test_idf_publication_keeps_previous_image_on_failure(monkeypatch, tmp_path, failure):
+    build_dir = tmp_path / "build"
+    published = tmp_path / "published"
+    _write_flasher_args(build_dir)
+    build_artifacts.publish_idf_flash_artifacts(build_dir, published)
+    original = (published / "flasher_args.json").read_bytes()
+    (build_dir / "app.bin").write_bytes(b"new firmware")
+    if failure == "missing_binary":
+        (build_dir / "bootloader.bin").unlink()
+    else:
+        replace = os.replace
+
+        def fail_manifest(source, destination):
+            if Path(destination).name == "flasher_args.json":
+                raise OSError("publication interrupted")
+            replace(source, destination)
+
+        monkeypatch.setattr(build_artifacts.os, "replace", fail_manifest)
+    with pytest.raises(OSError):
+        build_artifacts.publish_idf_flash_artifacts(build_dir, published)
+    assert (published / "flasher_args.json").read_bytes() == original
+    for name in json.loads(original)["flash_files"].values():
+        assert (published / name).is_file()
+
+
+def test_idf_publication_is_self_contained_and_preserves_active_flash_files(monkeypatch, tmp_path):
+    build_dir = tmp_path / "build"
+    published = tmp_path / "published"
+    _write_flasher_args(build_dir)
+    metadata = esptool_runner.read_idf_flash_metadata(build_dir)
+    (build_dir / "nested").mkdir()
+    (build_dir / "app.bin").rename(build_dir / "nested" / "app.bin")
+    metadata["flash_files"]["0x10000"] = "nested/app.bin"
+    metadata["flash_files"]["0x0"] = str(build_dir / "bootloader.bin")
+    # A second offset may legitimately contain the same bytes.
+    metadata["flash_files"]["0x20000"] = "nested/app.bin"
+    (build_dir / "flasher_args.json").write_text(json.dumps(metadata))
+    build_artifacts.publish_idf_flash_artifacts(build_dir, published)
+    previous = esptool_runner.read_idf_flash_metadata(published)
+    (build_dir / "nested" / "app.bin").write_bytes(b"new firmware")
+    replace = os.replace
+
+    def check_commit(source, destination):
+        if Path(destination).name == "flasher_args.json":
+            assert esptool_runner.read_idf_flash_metadata(published) == previous
+            for name in json.loads(Path(source).read_text())["flash_files"].values():
+                assert (published / name).is_file()
+        replace(source, destination)
+
+    monkeypatch.setattr(build_artifacts.os, "replace", check_commit)
+    build_artifacts.publish_idf_flash_artifacts(build_dir, published)
+    current = esptool_runner.read_idf_flash_metadata(published)
+    assert current["write_flash_args"] == metadata["write_flash_args"]
+    assert (published / current["flash_files"]["0x10000"]).read_bytes() == b"new firmware"
+    assert (published / previous["flash_files"]["0x10000"]).read_bytes() == b"application"
+    assert all(Path(name).name == name for name in current["flash_files"].values())
 
 
 @pytest.mark.parametrize(
@@ -1849,7 +2003,7 @@ def test_factory_flash_and_application_start_use_public_esptool_commands(
 
 def test_run_idf_flash_delegates_existing_build(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
-    build_dir = app_dir / "build-esp32s3"
+    build_dir = app_dir / "build-flash-esp32s3"
     _write_flasher_args(build_dir)
     calls: list[tuple[object, ...]] = []
     monkeypatch.setitem(
@@ -1889,7 +2043,7 @@ def test_matter_flash_fails_when_startup_codes_are_not_captured(
     tmp_path: Path,
 ) -> None:
     app_dir = tmp_path / "app"
-    _write_flasher_args(app_dir / "build-esp32c3")
+    _write_flasher_args(app_dir / "build-flash-esp32c3")
     monkeypatch.setitem(
         idf.IDF_FRONTENDS,
         "matter",
@@ -2376,7 +2530,7 @@ def test_native_build_parser_accepts_ota_channel() -> None:
     assert args.ota_channel == "develop"
 
 
-def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Path) -> None:
+def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     calls: list[tuple[list[str], Path]] = []
@@ -2598,7 +2752,7 @@ def test_resolve_idf_environment_repairs_incomplete_esphome_python_env(
     assert env.process_env == process_env
 
 
-def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
@@ -2709,7 +2863,7 @@ def test_prepare_idf_subprocess_command_sequence_combines_exported_build_steps(
     assert used_export == export_script
 
 
-def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_path: Path) -> None:
+def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig.wifi").write_text("", encoding="utf-8")

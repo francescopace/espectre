@@ -20,7 +20,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .build_artifacts import print_build_artifact_metadata
+from .build_artifacts import print_build_artifact_metadata, publish_idf_flash_artifacts
 from .common import (
     Fore,
     REPO_ROOT,
@@ -188,7 +188,7 @@ def resolve_flash_idf_selection(
         raise SystemExit(1) from exc
     if env_build_dir:
         return idf_target, env_build_dir
-    return idf_target, resolve_idf_build_dir_name(app_path, idf_target)
+    return idf_target, f"build-flash-{idf_target}"
 
 
 def prebuilt_idf_flash_metadata_path(app_path: Path, build_dir_name: str | None) -> Path | None:
@@ -729,6 +729,18 @@ def print_idf_build_metadata(
     )
 
 
+def publish_idf_build(app_path: Path, build_dir_name: str, idf_target: str) -> None:
+    """Publish the last successful build for backend-independent flashing."""
+    try:
+        publish_idf_flash_artifacts(
+            app_path / build_dir_name,
+            app_path / f"build-flash-{idf_target}",
+        )
+    except (OSError, ValueError) as exc:
+        print(f"{Fore.RED}❌ Cannot publish flash artifacts: {exc}{Style.RESET_ALL}")
+        raise SystemExit(1) from exc
+
+
 def run_idf_command(frontend: str, args) -> None:
     """Run an IDF workflow for the given frontend."""
     chip = getattr(args, "chip", None)
@@ -869,6 +881,8 @@ def run_idf_command(frontend: str, args) -> None:
         except DockerBackendError as exc:
             print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
             raise SystemExit(1)
+        assert build_dir_name is not None and idf_target is not None
+        publish_idf_build(app_path, build_dir_name, idf_target)
         if bool(getattr(args, "json", False)):
             assert chip is not None and build_dir_name is not None
             print_idf_build_metadata(frontend, chip, app_path, build_dir_name)
@@ -909,6 +923,9 @@ def run_idf_command(frontend: str, args) -> None:
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ idf.py command failed with exit code {e.returncode}{Style.RESET_ALL}")
         raise SystemExit(e.returncode)
+    if args.idf_command == "build":
+        assert build_dir_name is not None and idf_target is not None
+        publish_idf_build(app_path, build_dir_name, idf_target)
     if args.idf_command == "build" and bool(getattr(args, "json", False)):
         assert chip is not None and build_dir_name is not None
         print_idf_build_metadata(frontend, chip, app_path, build_dir_name)

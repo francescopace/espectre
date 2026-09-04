@@ -64,13 +64,15 @@ def esptool_flash_command(*, chip: str, idf_target: str, port: str) -> list[str]
     return args
 
 
-def idf_flash_arguments(build_dir: Path) -> list[str]:
-    """Load canonical esptool arguments from ESP-IDF build metadata."""
+def read_idf_flash_metadata(build_dir: Path) -> dict:
+    """Load and validate the ESP-IDF metadata consumed by esptool."""
     metadata_path = build_dir / "flasher_args.json"
     if not metadata_path.is_file():
         raise FileNotFoundError(f"Flash metadata not found: {metadata_path}")
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Invalid flash metadata in {metadata_path}")
     write_args = metadata.get("write_flash_args")
     flash_files = metadata.get("flash_files")
     if not isinstance(write_args, list) or not all(isinstance(arg, str) for arg in write_args):
@@ -80,6 +82,14 @@ def idf_flash_arguments(build_dir: Path) -> list[str]:
         for address, filename in flash_files.items()
     ):
         raise ValueError(f"Invalid flash_files in {metadata_path}")
+    return metadata
+
+
+def idf_flash_arguments(build_dir: Path) -> list[str]:
+    """Load canonical esptool arguments from ESP-IDF build metadata."""
+    metadata = read_idf_flash_metadata(build_dir)
+    write_args = metadata["write_flash_args"]
+    flash_files = metadata["flash_files"]
 
     args = [IDF_FLASH_OPTION_NAMES.get(arg, arg) for arg in write_args]
     for address, filename in sorted(flash_files.items(), key=lambda item: int(item[0], 0)):

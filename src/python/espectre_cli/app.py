@@ -392,7 +392,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
 
     for command_name, help_text in {
         "build": "Configure target and build firmware",
-        "flash": "Flash firmware with the auto-detected ESP-IDF setup",
+        "flash": "Flash the last successfully published firmware",
         **({"qr": "Read the device-specific Matter onboarding QR"} if frontend == "matter" else {}),
     }.items():
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
@@ -427,7 +427,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 "--chip",
                 required=True,
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
-                help="Target chip whose existing build directory should be flashed",
+                help="Target chip whose last successfully published firmware should be flashed",
             )
             command_parser.add_argument(
                 "--erase",

@@ -78,7 +78,7 @@ The Native and Matter namespaces expose `build` and `flash`:
 | Command | Purpose |
 |---------|---------|
 | `build` | Configure the chip target and build the firmware |
-| `flash` | Flash the frontend with the detected ESP-IDF environment |
+| `flash` | Flash the last successfully published firmware using host esptool |
 
 For `build`, cleanup flags are:
 
@@ -100,9 +100,11 @@ Local builds enable `ccache` automatically when the binary is on `PATH`. Docker 
 
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` uses the host esptool installation and serial port.
 
-For `flash`, the required `--chip` selects that chip's existing build directory, such as `build-esp32c5` for `--chip c5`. The CLI reads ESP-IDF's generated `flasher_args.json` metadata and passes its flash settings and files to one esptool operation using esptool 5 option names. `--erase` adds `write-flash --erase-all`. The verified image starts through `--after watchdog-reset`, except on classic ESP32, where esptool requires `--after hard-reset`. On Matter, erasing also removes the persisted onboarding identity, so the next boot generates new onboarding codes.
+After a successful local or Docker build, the CLI copies all flash binaries into a shared directory for that frontend and chip, such as `build-flash-esp32c5`. Files are named by their content hash, and `flasher_args.json` is replaced atomically only after all files are ready. A failed build or publication leaves the previous image selected. Older binaries remain available to a flash already in progress; `--clean-all` explicitly removes published images as well as compilation caches.
 
-`flash` never configures or rebuilds firmware. If the selected build does not contain `flasher_args.json`, it fails and directs the operator to run the matching `build` command first.
+For `flash`, the required `--chip` selects the last successfully published firmware in that shared directory, regardless of its build backend. The CLI reads the published `flasher_args.json` metadata and passes its flash settings and files to one esptool operation using esptool 5 option names. `--erase` adds `write-flash --erase-all`. The verified image starts through `--after watchdog-reset`, except on classic ESP32, where esptool requires `--after hard-reset`. On Matter, erasing also removes the persisted onboarding identity, so the next boot generates new onboarding codes.
+
+`flash` never configures or rebuilds firmware, and it does not require Docker or ESP-IDF to be available. If no published image exists, it directs the operator to run the matching `build` command first. `ESPECTRE_IDF_BUILD_DIR` remains an explicit override for the compilation directory and the directory read by `flash`.
 
 Matter also exposes:
 
@@ -267,6 +269,8 @@ When `--label` is set, saved collection waits for the detector to stay below thr
 After saving each capture, the collector runs the validator's canonical per-file integrity, signal-quality, temporal-occupancy, and stream-continuity checks. Temporal occupancy is measured on complete production detector windows, warns below 85%, and fails below the shared 70% admission floor. The post-collect summary does not use average packet rate as a quality proxy because excess same-slot records do not improve detector occupancy. A failed capture remains saved for diagnosis, but `collect` exits unsuccessfully.
 
 When `--start-delay` is set, `--duration` is required. The collector waits first, then starts the ordinary generator and capture flow.
+
+The duration is measured from the first received packet for live inspection, or from the start of recording when saving a dataset. Once started, the deadline is checked even when no further packets arrive, with up to one second of polling delay.
 
 For discovery-selected targets, the collector also validates that CSI records carry the same `device_id` announced over mDNS. If an address was reused by another device, collection aborts instead of saving mixed data under the wrong identity.
 

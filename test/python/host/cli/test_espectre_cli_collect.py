@@ -8,11 +8,13 @@ import argparse
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from espectre_cli.app import build_parser
 from espectre_cli import device_discovery, host
 from espectre_cli.device_discovery import DiscoveredDevice, ESPECTRE_DIRECT_PORT, ESPECTRE_SERVICE_TYPE
 from tools.espectre_traffic_generator import ExternalTrafficGenerator
+from tools.lib import csi_io
 
 
 def discovered_device(
@@ -113,6 +115,76 @@ def test_collect_allows_live_inspection_without_label(monkeypatch) -> None:
     host.collect_csi_data(args)
 
     assert calls == ["resolve", "run"]
+
+
+@pytest.mark.parametrize("label", [None, "capture"])
+def test_collect_duration_expires_after_packets_stop(monkeypatch, tmp_path, label):
+    clock = [0.0]
+    saved_packets = []
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(host, "_run_post_collect_quality_checks", lambda _paths: True)
+    # Exercise the recording deadline independently of startup calibration.
+    monkeypatch.setattr("detector_interface.detector_needs_startup_calibration", lambda _kind: False)
+    packet = csi_io.CSIPacket(
+        timestamp=20.0,
+        seq_num=0,
+        num_subcarriers=64,
+        iq_raw=np.ones(128, dtype=np.int8),
+        device_id=1,
+        device_ticks_us=10000,
+        source_ip="192.0.2.1",
+    )
+
+    class Receiver:
+        effective_socket_rcvbuf_bytes = None
+        calls = 0
+        stopped = False
+
+        def add_callback(self, callback):
+            self.callback = callback
+
+        def run(self, **_kwargs):
+            self.calls += 1
+            assert self.calls <= 2, "collection exceeded its deadline without new packets"
+            if self.calls == 1:
+                # Waiting for the first packet does not consume recording time.
+                clock[0] = 20.0
+                self.callback(packet)
+            else:
+                clock[0] += 1.0
+
+        def stop(self):
+            self.stopped = True
+
+    class Writer:
+        def __init__(self, **_kwargs):
+            pass
+
+        def save_samples_by_device(self, packets):
+            saved_packets.extend(packets)
+            return [tmp_path / "capture.npz"]
+
+    receiver = Receiver()
+    generator_stops = []
+    generator = SimpleNamespace(stop=lambda: generator_stops.append(True))
+    monkeypatch.setattr(host, "_prepare_raw_http_collection", lambda *_args: (receiver, generator, 5555))
+    monkeypatch.setattr(host, "_start_raw_http_collection", lambda *_args: None)
+    monkeypatch.setattr(csi_io, "CSICollector", Writer)
+    args = build_parser().parse_args([
+        "collect", "--target", "192.0.2.1", "--duration", "1",
+        "--ready-stable-seconds", "0",
+    ])
+    args.label = label
+    args.direct_endpoint = "http://192.0.2.1:8080/espectre/v1"
+    args.traffic_target = "192.0.2.1"
+
+    host._run_live_collect(args)
+
+    assert receiver.calls == 2
+    assert receiver.stopped
+    assert generator_stops
+    assert saved_packets == ([packet] if label else [])
 
 
 def test_discovery_frontends_exclude_streamer() -> None:
