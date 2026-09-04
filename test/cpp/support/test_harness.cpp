@@ -21,6 +21,11 @@ void tearDown(void) {}
 namespace espectre::test {
 namespace {
 
+static_assert(detail::values_equal(1, 1U));
+static_assert(detail::values_equal(0, 0U));
+static_assert(!detail::values_equal(-1, 1U));
+static_assert(!detail::values_equal(-1, static_cast<unsigned int>(-1)));
+
 struct TestSuiteState {
   int total{0};
   int failed{0};

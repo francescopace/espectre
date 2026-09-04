@@ -8,7 +8,6 @@
 # Usage:
 #   ./run_coverage.sh           # Local run (prints summary)
 #   ./run_coverage.sh --ci      # CI run (writes coverage artifacts)
-#   ./run_coverage.sh --update-baseline
 #   CTEST_PARALLEL_LEVEL=2 ./run_coverage.sh
 
 set -euo pipefail
@@ -17,18 +16,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build-coverage"
 LCOV_OUTPUT="$SCRIPT_DIR/coverage.lcov"
-XML_OUTPUT="$SCRIPT_DIR/coverage.xml"
 TMP_LCOV="$SCRIPT_DIR/.coverage.tmp.lcov"
 SUMMARY_OUTPUT="$SCRIPT_DIR/coverage-summary.json"
-BASELINE_FILE="$SCRIPT_DIR/coverage-baseline.json"
+THRESHOLDS_FILE="$SCRIPT_DIR/coverage-thresholds.json"
 
 CI_MODE=false
-UPDATE_BASELINE=false
 case "${1:-}" in
     "") ;;
     --ci) CI_MODE=true ;;
-    --update-baseline) UPDATE_BASELINE=true ;;
-    *) echo "error: expected --ci or --update-baseline" >&2; exit 2 ;;
+    *) echo "error: expected --ci" >&2; exit 2 ;;
 esac
 
 detect_parallel_jobs() {
@@ -63,7 +59,7 @@ detect_compiler() {
 }
 
 summarize_lcov() {
-    python3 - "$1" "$WORKSPACE_ROOT" "$SUMMARY_OUTPUT" "$BASELINE_FILE" "$CI_MODE" "$UPDATE_BASELINE" <<'PY'
+    python3 - "$1" "$WORKSPACE_ROOT" "$SUMMARY_OUTPUT" "$THRESHOLDS_FILE" "$CI_MODE" <<'PY'
 import collections
 import json
 import os
@@ -72,9 +68,8 @@ import sys
 lcov_path = sys.argv[1]
 workspace_root = os.path.realpath(sys.argv[2])
 summary_path = sys.argv[3]
-baseline_path = sys.argv[4]
+thresholds_path = sys.argv[4]
 ci_mode = sys.argv[5] == "true"
-update_baseline = sys.argv[6] == "true"
 
 files = {}
 current = None
@@ -184,40 +179,22 @@ with open(summary_path, "w", encoding="utf-8") as handle:
     json.dump({"version": 1, "segments": summary}, handle, indent=2, sort_keys=True)
     handle.write("\n")
 
-if update_baseline:
-    if os.path.exists(baseline_path):
-        with open(baseline_path, "r", encoding="utf-8") as handle:
-            previous = json.load(handle)["segments"]
-        regressions = []
-        for segment, metrics in previous.items():
-            for metric, minimum in metrics.items():
-                actual = summary.get(segment, {}).get(metric, 0.0)
-                if actual < float(minimum):
-                    regressions.append(
-                        f"{segment}.{metric}: {actual:.2f}% < {float(minimum):.2f}%"
-                    )
-        if regressions:
-            raise SystemExit("Refusing to lower coverage baseline:\n  " + "\n  ".join(regressions))
-    with open(baseline_path, "w", encoding="utf-8") as handle:
-        json.dump({"version": 1, "segments": summary}, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    print(f"Updated coverage baseline: {baseline_path}")
-
 if ci_mode:
-    with open(baseline_path, "r", encoding="utf-8") as handle:
-        baseline = json.load(handle)
-    if baseline.get("version") != 1:
-        raise SystemExit("Unsupported C++ coverage baseline version")
-    regressions = []
-    for segment, metrics in baseline["segments"].items():
+    with open(thresholds_path, "r", encoding="utf-8") as handle:
+        thresholds = json.load(handle)
+    if thresholds.get("version") != 1:
+        raise SystemExit("Unsupported C++ coverage threshold version")
+    failures = []
+    for segment, metrics in thresholds["segments"].items():
         for metric, minimum in metrics.items():
             actual = summary.get(segment, {}).get(metric, 0.0)
             if actual < float(minimum):
-                regressions.append(
+                failures.append(
                     f"{segment}.{metric}: {actual:.2f}% < {float(minimum):.2f}%"
                 )
-    if regressions:
-        raise SystemExit("C++ coverage regression:\n  " + "\n  ".join(regressions))
+    if failures:
+        raise SystemExit("C++ coverage threshold not met:\n  " + "\n  ".join(failures))
+    print("Coverage thresholds satisfied")
 PY
 }
 
@@ -399,7 +376,7 @@ echo "Compiler: $COMPILER"
 echo "Parallel jobs: $PARALLEL_JOBS"
 
 rm -rf "$BUILD_DIR"
-rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$TMP_LCOV" "$SUMMARY_OUTPUT"
+rm -f "$LCOV_OUTPUT" "$TMP_LCOV" "$SUMMARY_OUTPUT"
 
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
@@ -430,19 +407,10 @@ else
           "$BUILD_DIR"
     summarize_lcov "$LCOV_OUTPUT"
 
-    if [[ "$CI_MODE" == true ]]; then
-        gcovr --root "$WORKSPACE_ROOT" \
-              --filter "$WORKSPACE_ROOT/src/.*" \
-              --exclude '.*test.*' \
-              --exclude-noncode-lines \
-              --gcov-ignore-parse-errors=all \
-              --xml "$XML_OUTPUT" \
-              "$BUILD_DIR"
-    fi
 fi
 
-if [[ "$CI_MODE" != true && "$UPDATE_BASELINE" != true ]]; then
-    rm -f "$LCOV_OUTPUT" "$XML_OUTPUT" "$SUMMARY_OUTPUT"
+if [[ "$CI_MODE" != true ]]; then
+    rm -f "$LCOV_OUTPUT" "$SUMMARY_OUTPUT"
 fi
 
 if [[ $TEST_RESULT -ne 0 ]]; then

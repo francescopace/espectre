@@ -21,7 +21,7 @@ OWNERSHIP_MANIFEST = REPO_ROOT / "test" / "cpp" / "coverage_ownership.json"
 CPP_SOURCES_CMAKE = CPP_ROOT / "espectre_sources.cmake"
 CPP_TEST_CMAKE = REPO_ROOT / "test" / "cpp" / "suites" / "CMakeLists.txt"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-CPP_COVERAGE_BASELINE = REPO_ROOT / "test" / "cpp" / "coverage-baseline.json"
+CPP_COVERAGE_THRESHOLDS = REPO_ROOT / "test" / "cpp" / "coverage-thresholds.json"
 CPP_COVERAGE_RUNNER = REPO_ROOT / "test" / "cpp" / "run_coverage.sh"
 FIRMWARE_WIRING_SOURCES = {
     "src/cpp/frontend/native/app/main/app_main.cpp",
@@ -76,16 +76,22 @@ def test_cpp_dataset_and_coverage_contracts_are_complete() -> None:
         assert f"add_espectre_dataset_cases(" in test_cmake
         assert re.search(rf"add_espectre_dataset_cases\([^\n]+ {gate}\)", test_cmake)
 
-    baseline = json.loads(CPP_COVERAGE_BASELINE.read_text(encoding="utf-8"))
-    assert baseline["version"] == 1
-    assert set(baseline["segments"]) == {"overall", "core", "runtime", "frontend"}
-    for metrics in baseline["segments"].values():
-        assert set(metrics) == {"lines", "functions", "branches"}
-        assert all(0.0 < float(value) <= 100.0 for value in metrics.values())
+    thresholds = json.loads(CPP_COVERAGE_THRESHOLDS.read_text(encoding="utf-8"))
+    assert thresholds == {
+        "segments": {
+            "runtime": {
+                "branches": 50.0,
+                "functions": 85.0,
+                "lines": 80.0,
+            }
+        },
+        "version": 1,
+    }
 
     coverage_runner = CPP_COVERAGE_RUNNER.read_text(encoding="utf-8")
-    assert "--update-baseline" in coverage_runner
-    assert "C++ coverage regression" in coverage_runner
+    assert "coverage-thresholds.json" in coverage_runner
+    assert "C++ coverage threshold not met" in coverage_runner
+    assert "--update-baseline" not in coverage_runner
 
 
 def is_first_party_source(path: Path) -> bool:

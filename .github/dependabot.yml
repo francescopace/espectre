@@ -34,7 +34,7 @@ updates:
         update-types: ["version-update:semver-major"]
 
   # GitHub Actions
-  # Monitors: actions/checkout, actions/setup-python, codecov/codecov-action, etc.
+  # Monitors: actions/checkout, actions/setup-python, actions/upload-artifact, etc.
   - package-ecosystem: "github-actions"
     directory: "/"
     target-branch: "develop"

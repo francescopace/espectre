@@ -1,7 +1,18 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/francescopace/espectre)](https://github.com/francescopace/espectre/releases/latest)
-[![CI](https://img.shields.io/github/actions/workflow/status/francescopace/espectre/ci.yml?branch=main&label=CI)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/francescopace/espectre/graph/badge.svg)](https://codecov.io/gh/francescopace/espectre)
+main: [![CI main][ci-main-badge]][ci-main-runs] [![C++ runtime coverage main][cpp-main-badge]][ci-main-runs] [![Python coverage main][python-main-badge]][ci-main-runs] [![Web coverage main][web-main-badge]][ci-main-runs]
+develop: [![CI develop][ci-develop-badge]][ci-develop-runs] [![C++ runtime coverage develop][cpp-develop-badge]][ci-develop-runs] [![Python coverage develop][python-develop-badge]][ci-develop-runs] [![Web coverage develop][web-develop-badge]][ci-develop-runs]
+
+[ci-main-badge]: https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main
+[ci-main-runs]: https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain
+[cpp-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json
+[python-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json
+[web-main-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json
+[ci-develop-badge]: https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=develop
+[ci-develop-runs]: https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Adevelop
+[cpp-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-cpp-runtime.json
+[python-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-python.json
+[web-develop-badge]: https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot-dev/coverage-web.json
 
 <h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 

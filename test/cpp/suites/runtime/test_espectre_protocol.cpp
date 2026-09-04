@@ -13,6 +13,7 @@
 #include "direct_http_protocol.h"
 #include "espectre_protocol.h"
 #include "ota_version.h"
+#include "protocol_json.h"
 #include "runtime_diagnostics.h"
 
 #include <cmath>
@@ -868,6 +869,149 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command_id\":\"test\",\"command\":\"update_sensing\",\"threshold\":\"bad\"}", &command, &error));
 }
 
+void test_protocol_json_writers_and_extractors_cover_edge_cases(void) {
+  append_json_string(nullptr, "ignored");
+  std::string json;
+  append_json_string(&json, nullptr);
+  TEST_ASSERT_EQUAL_STRING("\"\"", json.c_str());
+
+  json.clear();
+  append_json_string(&json, "quote\" slash\\ line\nreturn\rtab\t");
+  TEST_ASSERT_EQUAL_STRING("\"quote\\\" slash\\\\ line\\nreturn\\rtab\\t\"", json.c_str());
+
+  append_json_pair(nullptr, "ignored", "ignored");
+  json = "{";
+  append_json_pair(&json, "first", "one", true);
+  append_json_pair(&json, "second", "two");
+  json += "}";
+  TEST_ASSERT_EQUAL_STRING("{\"first\":\"one\",\"second\":\"two\"}", json.c_str());
+
+  TEST_ASSERT_FALSE(has_json_key(json, nullptr));
+  TEST_ASSERT_FALSE(has_json_key(json, ""));
+  TEST_ASSERT_FALSE(has_json_key("{\"first\"}", "first"));
+  TEST_ASSERT_TRUE(has_json_key(json, "second"));
+
+  TEST_ASSERT_TRUE(extract_json_string(json, nullptr).empty());
+  TEST_ASSERT_TRUE(extract_json_string(json, "missing").empty());
+  TEST_ASSERT_TRUE(extract_json_string("{\"key\"}", "key").empty());
+  TEST_ASSERT_TRUE(extract_json_string("{\"key\":null}", "key").empty());
+  TEST_ASSERT_TRUE(extract_json_string("{\"key\":\"unterminated}", "key").empty());
+  TEST_ASSERT_EQUAL_STRING("escaped\"value",
+                           extract_json_string("{\"key\":\"escaped\\\"value\"}", "key").c_str());
+
+  TEST_ASSERT_TRUE(extract_json_number_token(json, nullptr).empty());
+  TEST_ASSERT_TRUE(extract_json_number_token(json, "missing").empty());
+  TEST_ASSERT_TRUE(extract_json_number_token("{\"number\"}", "number").empty());
+  TEST_ASSERT_TRUE(extract_json_number_token("{\"number\":   }", "number").empty());
+  TEST_ASSERT_EQUAL_STRING("-1.25e+3",
+                           extract_json_number_token("{\"number\": -1.25e+3}", "number").c_str());
+}
+
+void test_protocol_json_url_encoding_validates_tokens(void) {
+  std::string decoded;
+  std::string error;
+  TEST_ASSERT_FALSE(decode_urlencoded_component("value", nullptr, &error));
+  TEST_ASSERT_EQUAL_STRING("decoded output is required", error.c_str());
+  TEST_ASSERT_TRUE(decode_urlencoded_component("hello+world%21%af%AF", &decoded, &error));
+  TEST_ASSERT_EQUAL_STRING("hello world!\xAF\xAF", decoded.c_str());
+  TEST_ASSERT_EQUAL_STRING("AZaz09-_.~%20%2F%2B", encode_urlencoded_component("AZaz09-_.~ /+").c_str());
+
+  TEST_ASSERT_FALSE(decode_urlencoded_component("%", &decoded, &error));
+  TEST_ASSERT_EQUAL_STRING("truncated escape sequence", error.c_str());
+  TEST_ASSERT_FALSE(decode_urlencoded_component("%GG", &decoded, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid escape sequence", error.c_str());
+
+  std::vector<std::pair<std::string, std::string>> pairs;
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("a=b", nullptr, &error));
+  TEST_ASSERT_EQUAL_STRING("pairs output is required", error.c_str());
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("", &pairs, &error));
+  TEST_ASSERT_EQUAL_STRING("missing payload", error.c_str());
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("a=b&&c=d", &pairs, &error));
+  TEST_ASSERT_EQUAL_STRING("empty key-value token", error.c_str());
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("missing", &pairs, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid key-value token", error.c_str());
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("=value", &pairs, &error));
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("bad%GG=value", &pairs, &error));
+  TEST_ASSERT_FALSE(parse_urlencoded_key_value_pairs("key=bad%GG", &pairs, &error));
+  TEST_ASSERT_TRUE(parse_urlencoded_key_value_pairs("name=Living+Room&empty=&encoded=%2Fapi", &pairs, &error));
+  TEST_ASSERT_EQUAL(3U, pairs.size());
+  TEST_ASSERT_EQUAL_STRING("Living Room", pairs[0].second.c_str());
+  TEST_ASSERT_EQUAL_STRING("", pairs[1].second.c_str());
+  TEST_ASSERT_EQUAL_STRING("/api", pairs[2].second.c_str());
+}
+
+void test_protocol_json_object_parser_decodes_every_value_type(void) {
+  const std::string payload =
+      " { \"text\":\"quote\\\" slash\\/ backslash\\\\ controls\\b\\f\\n\\r\\t\","
+      "\"ascii\":\"\\u0041\",\"two_byte\":\"\\u00A2\",\"three_byte\":\"\\u20AC\","
+      "\"four_byte\":\"\\uD83D\\uDE00\",\"number\":-12.5e+2,\"truth\":true,"
+      "\"lie\":false,\"nothing\":null,\"object\":{\"nested\":1},\"array\":[1,\"two\",{}] } ";
+  std::vector<JsonObjectField> fields;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_json_object_fields(payload, &fields, &error));
+  TEST_ASSERT_EQUAL(11U, fields.size());
+  TEST_ASSERT_TRUE(find_json_object_field(fields, nullptr) == nullptr);
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "missing") == nullptr);
+
+  const JsonObjectField *text = find_json_object_field(fields, "text");
+  TEST_ASSERT_TRUE(text != nullptr);
+  TEST_ASSERT_TRUE(text->type == JsonValueType::STRING);
+  TEST_ASSERT_EQUAL_STRING("quote\" slash/ backslash\\ controls\b\f\n\r\t", text->value.c_str());
+  TEST_ASSERT_EQUAL_STRING("A", find_json_object_field(fields, "ascii")->value.c_str());
+  TEST_ASSERT_EQUAL_STRING("\xC2\xA2", find_json_object_field(fields, "two_byte")->value.c_str());
+  TEST_ASSERT_EQUAL_STRING("\xE2\x82\xAC", find_json_object_field(fields, "three_byte")->value.c_str());
+  TEST_ASSERT_EQUAL_STRING("\xF0\x9F\x98\x80", find_json_object_field(fields, "four_byte")->value.c_str());
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "number")->type == JsonValueType::NUMBER);
+  TEST_ASSERT_EQUAL_STRING("-12.5e+2", find_json_object_field(fields, "number")->value.c_str());
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "truth")->type == JsonValueType::BOOLEAN);
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "nothing")->type == JsonValueType::NULL_VALUE);
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "object")->type == JsonValueType::OBJECT);
+  TEST_ASSERT_TRUE(find_json_object_field(fields, "array")->type == JsonValueType::ARRAY);
+}
+
+void test_protocol_json_object_parser_rejects_invalid_documents(void) {
+  std::vector<JsonObjectField> fields;
+  std::string error;
+  const auto rejects = [&fields, &error](const std::string &payload) {
+    error.clear();
+    return !parse_json_object_fields(payload, &fields, &error) && !error.empty();
+  };
+
+  TEST_ASSERT_FALSE(parse_json_object_fields("{}", nullptr, &error));
+  TEST_ASSERT_TRUE(rejects("[]"));
+  TEST_ASSERT_TRUE(rejects("{} trailing"));
+  TEST_ASSERT_TRUE(rejects("{invalid:1}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\" 1}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":?}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1 \"other\":2}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1,}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1,\"key\":2}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"line\nfeed\"}"));
+  TEST_ASSERT_TRUE(rejects(std::string("{\"key\":\"trailing") + "\\"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"\\x\"}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"\\u12G4\"}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"\\uD800\"}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"\\uD800\\u0041\"}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":\"\\uDC00\"}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":01}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":-}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1.}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1e}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":1e+}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":tru}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":nul}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":[1 2]}"));
+  TEST_ASSERT_TRUE(rejects("{\"key\":[1,]}"));
+
+  std::string nested = "{\"key\":";
+  nested.append(18U, '[');
+  nested += "0";
+  nested.append(18U, ']');
+  nested += "}";
+  TEST_ASSERT_TRUE(rejects(nested));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ota_version_ordering_blocks_downgrades_and_divergent_builds);
@@ -896,6 +1040,10 @@ int process(void) {
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
   RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
+  RUN_TEST(test_protocol_json_writers_and_extractors_cover_edge_cases);
+  RUN_TEST(test_protocol_json_url_encoding_validates_tokens);
+  RUN_TEST(test_protocol_json_object_parser_decodes_every_value_type);
+  RUN_TEST(test_protocol_json_object_parser_rejects_invalid_documents);
   return UNITY_END();
 }
 

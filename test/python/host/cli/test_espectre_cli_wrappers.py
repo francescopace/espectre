@@ -135,6 +135,15 @@ def test_build_artifact_metadata_reports_exact_file(tmp_path: Path) -> None:
     assert len(metadata["firmware_sha256"]) == 64
 
 
+def test_build_artifact_metadata_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="firmware build artifact not found"):
+        build_artifacts.build_artifact_metadata(
+            frontend="native",
+            chip="s3",
+            artifact=tmp_path / "missing.bin",
+        )
+
+
 def test_discovered_device_selection_filters_chip_before_ambiguity() -> None:
     def record(chip: str, address: str) -> device_discovery.DiscoveredDevice:
         return device_discovery.DiscoveredDevice(
@@ -612,11 +621,165 @@ def test_improv_provision_validates_port_before_requesting_password(monkeypatch)
         )
 
 
-def test_resolve_esphome_config_supports_chip_and_explicit_path() -> None:
+def test_improv_provision_prompts_and_prints_text_result(monkeypatch, capsys) -> None:
+    class FakeImprovClient:
+        def __init__(self, _port):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def provision(self, _ssid, password, *, timeout):
+            assert password == "prompted-secret"
+            assert timeout == 30.0
+            return SimpleNamespace(
+                endpoint="http://192.0.2.10",
+                device_info=(),
+                states=(),
+            )
+
+    monkeypatch.delenv("TEST_ESPECTRE_WIFI_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        device_control,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: "/dev/cu.valid",
+    )
+    monkeypatch.setattr(device_control.getpass, "getpass", lambda _prompt: "prompted-secret")
+    monkeypatch.setattr(device_control, "ImprovSerialClient", FakeImprovClient)
+
+    result = device_control.run_improv_provision_command(
+        argparse.Namespace(
+            port=None,
+            chip=None,
+            frontend="native",
+            ssid="lab",
+            password_env="TEST_ESPECTRE_WIFI_PASSWORD",
+            timeout=30.0,
+            json=False,
+        )
+    )
+
+    assert result == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Improv provisioning completed.",
+        "Device endpoint: http://192.0.2.10/espectre/v1",
+    ]
+
+
+def test_resolve_direct_endpoint_supports_explicit_and_discovered_devices(
+    monkeypatch,
+) -> None:
+    observed = []
+    records = [SimpleNamespace(endpoint="http://192.0.2.20/espectre/v1")]
+    monkeypatch.setattr(
+        device_control,
+        "discover_devices",
+        lambda **kwargs: observed.append(("discover", kwargs)) or records,
+    )
+    monkeypatch.setattr(
+        device_control,
+        "select_discovered_device",
+        lambda found, **kwargs: observed.append(("select", found, kwargs)) or records[0],
+    )
+
+    explicit = argparse.Namespace(endpoint="http://192.0.2.19", chip=None)
+    assert device_control._resolve_direct_endpoint(explicit) == (
+        "http://192.0.2.19/espectre/v1"
+    )
+    with pytest.raises(ValueError, match="--chip requires --frontend discovery"):
+        device_control._resolve_direct_endpoint(
+            argparse.Namespace(endpoint="http://192.0.2.19", chip="c6")
+        )
+
+    discovered = argparse.Namespace(
+        endpoint=None,
+        chip="c6",
+        frontend="native",
+        discovery_timeout=2.5,
+    )
+    assert device_control._resolve_direct_endpoint(discovered) == records[0].endpoint
+    assert observed == [
+        ("discover", {"frontend": "native", "timeout_s": 2.5}),
+        (
+            "select",
+            records,
+            {"frontend_label": "native", "chip": "c6"},
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("http_method", "resource", "expected_negotiate"),
+    [("get", "capabilities", False), ("post", "config", True)],
+)
+def test_direct_request_negotiates_only_when_required(
+    monkeypatch, capsys, http_method, resource, expected_negotiate
+) -> None:
+    events = []
+
+    class FakeDirectClient:
+        def __init__(self, endpoint, *, origin, timeout):
+            events.append(("open", endpoint, origin, timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def negotiate(self):
+            events.append("negotiate")
+
+        def request(self, method, requested_resource, params):
+            events.append(("request", method, requested_resource, params))
+            return {"ok": True}
+
+    monkeypatch.setattr(device_control, "DirectClient", FakeDirectClient)
+    result = device_control.run_direct_request_command(
+        argparse.Namespace(
+            data='{"sample": 1}',
+            endpoint="http://192.0.2.30",
+            chip=None,
+            frontend="native",
+            discovery_timeout=2.0,
+            origin="http://localhost",
+            timeout=5.0,
+            http_method=http_method,
+            resource=resource,
+        )
+    )
+
+    assert result == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
+    assert ("negotiate" in events) is expected_negotiate
+    assert events[0] == (
+        "open",
+        "http://192.0.2.30/espectre/v1",
+        "http://localhost",
+        5.0,
+    )
+    assert events[-1] == ("request", http_method, resource, {"sample": 1})
+
+
+@pytest.mark.parametrize("data", ["not-json", "[]"])
+def test_direct_request_rejects_invalid_data(data, capsys) -> None:
+    result = device_control.run_direct_request_command(
+        argparse.Namespace(data=data)
+    )
+
+    assert result == 1
+    assert capsys.readouterr().out.startswith("Direct request failed:")
+
+
+def test_resolve_esphome_config_supports_chip_and_explicit_path(tmp_path: Path) -> None:
     relative = Path("src/cpp/frontend/esphome/examples/espectre-c3.yaml")
 
     assert targets.resolve_esphome_config("c3", None).name == "espectre-c3.yaml"
     assert targets.resolve_esphome_config(None, str(relative)) == common.REPO_ROOT / relative
+    assert targets.resolve_esphome_config(None, str(tmp_path)) == tmp_path
 
 
 def test_esphome_build_roots_are_config_specific() -> None:
@@ -1852,6 +2015,122 @@ def test_serial_monitor_does_not_retry_a_disconnect(monkeypatch) -> None:
         )
 
     assert resolutions == ["/dev/cu.test"]
+
+
+def test_serial_monitor_requires_pyserial(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(serial_monitor, "serial", None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        serial_monitor._require_pyserial()
+
+    assert exc_info.value.code == 1
+    assert "pyserial not found" in capsys.readouterr().out
+
+
+def test_serial_output_supports_raw_and_text_modes(monkeypatch) -> None:
+    text_writes = []
+    raw_writes = []
+    flushes = []
+    fake_stdout = SimpleNamespace(
+        buffer=SimpleNamespace(
+            write=lambda data: raw_writes.append(data),
+            flush=lambda: flushes.append("raw"),
+        ),
+        write=lambda data: text_writes.append(data),
+        flush=lambda: flushes.append("text"),
+    )
+    monkeypatch.setattr(serial_monitor.sys, "stdout", fake_stdout)
+
+    serial_monitor._write_serial_output(b"\xff", raw=True)
+    serial_monitor._write_serial_output(b"hello\xff", raw=False)
+
+    assert raw_writes == [b"\xff"]
+    assert text_writes == ["hello�"]
+    assert flushes == ["raw", "text"]
+
+
+@pytest.mark.parametrize(
+    ("chip", "console_mode", "message"),
+    [
+        ("s3", "usb_cdc", "Automatic reset is unavailable"),
+        (None, "uart", "--chip is required with --reset"),
+    ],
+)
+def test_serial_monitor_rejects_unsupported_reset(
+    monkeypatch, capsys, chip, console_mode, message
+) -> None:
+    monkeypatch.setattr(serial_monitor, "serial", SimpleNamespace())
+    monkeypatch.setattr(
+        serial_monitor,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: "/dev/cu.test",
+    )
+    monkeypatch.setattr(serial_monitor, "serial_console_mode", lambda *_args: console_mode)
+
+    with pytest.raises(SystemExit) as exc_info:
+        serial_monitor.run_serial_monitor(
+            argparse.Namespace(
+                port="/dev/cu.test",
+                chip=chip,
+                frontend="native",
+                baud=115200,
+                raw=False,
+                reset=True,
+            )
+        )
+
+    assert exc_info.value.code == 1
+    assert message in capsys.readouterr().out
+
+
+def test_serial_monitor_streams_nonempty_data_and_skips_empty_reads(monkeypatch) -> None:
+    writes = []
+
+    class FakeSerialConnection:
+        def __init__(self, *_args, **_kwargs):
+            self.reads = iter((b"hello", b""))
+
+        @property
+        def in_waiting(self):
+            return 0
+
+        def read(self, _size):
+            try:
+                return next(self.reads)
+            except StopIteration as exc:
+                raise KeyboardInterrupt from exc
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        serial_monitor,
+        "serial",
+        SimpleNamespace(Serial=FakeSerialConnection, SerialException=OSError),
+    )
+    monkeypatch.setattr(
+        serial_monitor,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: "/dev/cu.test",
+    )
+    monkeypatch.setattr(
+        serial_monitor,
+        "_write_serial_output",
+        lambda data, *, raw: writes.append((data, raw)),
+    )
+
+    serial_monitor.run_serial_monitor(
+        argparse.Namespace(
+            port="/dev/cu.test",
+            chip="c6",
+            frontend="native",
+            baud=115200,
+            raw=True,
+            reset=False,
+        )
+    )
+
+    assert writes == [(b"hello", True)]
 
 
 def test_build_parser_accepts_top_level_monitor() -> None:

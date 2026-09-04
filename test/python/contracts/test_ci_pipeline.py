@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -27,6 +28,10 @@ REPO_ROOT = repo_root()
 SCRIPTS_DIR = REPO_ROOT / ".github" / "scripts"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 PROTOCOL_HEADER = REPO_ROOT / "src" / "cpp" / "runtime" / "espectre_protocol.h"
+PYTHON_COVERAGE_THRESHOLDS = REPO_ROOT / "test" / "python" / "coverage-thresholds.json"
+BUILD_PAGES_ACTION = REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml"
+WEB_COVERAGE_RUNNER = REPO_ROOT / "test" / "web" / "run_coverage.sh"
+WEB_COVERAGE_THRESHOLDS = REPO_ROOT / "test" / "web" / "coverage-thresholds.json"
 
 
 def _workflow_job(source: str, job_name: str) -> str:
@@ -63,8 +68,213 @@ def test_ci_chip_matrices_follow_production_registries() -> None:
     assert _workflow_chip_matrix(source, "build-matter") == {
         workflow_label(chip) for chip in MATTER_CHIPS
     }
-    assert "flags: cpp" in _workflow_job(source, "test-cpp")
-    assert "flags: python" in _workflow_job(source, "test-python")
+    cpp_job = _workflow_job(source, "test-cpp")
+    assert "./test/cpp/run_coverage.sh --ci" in cpp_job
+    assert "--kind cpp-runtime" in cpp_job
+    assert "--report test/cpp/coverage-summary.json" in cpp_job
+    assert "--output coverage-cpp-runtime.json" in cpp_job
+    assert "name: cpp-coverage-badge" in cpp_job
+
+    python_job = _workflow_job(source, "test-python")
+    assert "--cov-branch" in python_job
+    assert "--cov-report=json:python-coverage.json" in python_job
+    assert "--cov-report=xml" not in python_job
+    assert "python test/python/check_coverage.py python-coverage.json" in python_job
+    assert "--kind python" in python_job
+    assert "--report python-coverage.json" in python_job
+    assert "--output coverage-python.json" in python_job
+    assert "name: python-coverage-badge" in python_job
+
+
+def test_python_coverage_gate_has_fixed_thresholds() -> None:
+    thresholds = json.loads(PYTHON_COVERAGE_THRESHOLDS.read_text(encoding="utf-8"))
+
+    assert thresholds == {
+        "minimums": {"branches": 50.0, "lines": 60.0},
+        "version": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("covered_lines", "covered_branches", "failure"),
+    [
+        (60, 50, None),
+        (59, 50, "lines: 59.00% < 60.00%"),
+        (60, 49, "branches: 49.00% < 50.00%"),
+    ],
+)
+def test_python_coverage_gate_enforces_each_metric(
+    tmp_path: Path,
+    covered_lines: int,
+    covered_branches: int,
+    failure: str | None,
+) -> None:
+    report = tmp_path / "coverage.json"
+    report.write_text(
+        json.dumps(
+            {
+                "totals": {
+                    "covered_branches": covered_branches,
+                    "covered_lines": covered_lines,
+                    "num_branches": 100,
+                    "num_statements": 100,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, "test/python/check_coverage.py", str(report)],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == (1 if failure else 0)
+    if failure:
+        assert failure in result.stdout
+    else:
+        assert "Python coverage thresholds satisfied." in result.stdout
+
+
+def test_web_coverage_gate_uses_canonical_thresholds_and_node_runtime() -> None:
+    workflow = (WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8")
+    build_site = _workflow_job(workflow, "build-site")
+    action = BUILD_PAGES_ACTION.read_text(encoding="utf-8")
+    runner = WEB_COVERAGE_RUNNER.read_text(encoding="utf-8")
+    thresholds = json.loads(WEB_COVERAGE_THRESHOLDS.read_text(encoding="utf-8"))
+
+    assert "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38" in build_site
+    assert "node-version: '22'" in build_site
+    assert "./test/web/run_coverage.sh" in action
+    assert "test/web/coverage-thresholds.json" in runner
+    variables = {
+        "branches": "branch_threshold",
+        "functions": "function_threshold",
+        "lines": "line_threshold",
+    }
+    for metric, variable in variables.items():
+        assert metric in thresholds["minimums"]
+        assert f'--test-coverage-{metric}=${{{variable}}}' in runner
+    assert "docs/web/assets/js/espectre-direct.js" in runner
+    assert "--kind web" in build_site
+    assert "--report web-coverage.log" in build_site
+    assert "--output coverage-web.json" in build_site
+    assert "name: web-coverage-badge" in build_site
+
+
+def test_snapshot_publishes_stable_coverage_badge_endpoints() -> None:
+    workflow = (WORKFLOWS_DIR / "snapshot.yml").read_text(encoding="utf-8")
+    release_job = _workflow_job(workflow, "release")
+
+    assert "name: cpp-coverage-badge" in release_job
+    assert "name: python-coverage-badge" in release_job
+    assert "name: web-coverage-badge" in release_job
+    assert ".github/scripts/build_coverage_badges.py" not in release_job
+    assert "coverage-artifacts" not in release_job
+    assert "coverage-badges/*.json" in release_job
+    assert "overwrite_files: true" in release_job
+
+
+def test_readme_coverage_badges_use_release_assets_through_badgen() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for tag in ("snapshot", "snapshot-dev"):
+        prefix = (
+            "https://badgen.net/https/github.com/francescopace/espectre/"
+            f"releases/download/{tag}/coverage-"
+        )
+        assert readme.count(prefix) == 3
+    assert "img.shields.io/endpoint" not in readme
+
+
+def test_coverage_badge_builder_reads_each_report_format(tmp_path: Path) -> None:
+    builder = load_script("build_coverage_badges")
+    python_report = tmp_path / "python.json"
+    cpp_report = tmp_path / "cpp.json"
+    web_report = tmp_path / "web.log"
+    python_report.write_text(
+        json.dumps(
+            {
+                "totals": {
+                    "covered_branches": 51,
+                    "covered_lines": 61,
+                    "num_branches": 100,
+                    "num_statements": 100,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cpp_report.write_text(
+        json.dumps(
+            {
+                "segments": {
+                    "runtime": {
+                        "branches": 51.0,
+                        "functions": 86.0,
+                        "lines": 81.0,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    web_report.write_text(
+        "# all files | 88.98 | 76.25 | 74.24 |\n",
+        encoding="utf-8",
+    )
+
+    expected_python_badge = {
+        "subject": "Python coverage",
+        "status": "lines 61.00% | branches 51.00%",
+        "color": "4c1",
+    }
+    assert builder.build_badge(
+        "python", python_report, PYTHON_COVERAGE_THRESHOLDS
+    ) == expected_python_badge
+    assert builder.build_badge(
+        "cpp-runtime",
+        cpp_report,
+        REPO_ROOT / "test" / "cpp" / "coverage-thresholds.json",
+    )["status"] == "lines 81.00% | branches 51.00% | functions 86.00%"
+    assert builder.build_badge(
+        "web", web_report, WEB_COVERAGE_THRESHOLDS
+    )["status"] == "lines 88.98% | branches 76.25% | functions 74.24%"
+
+    output = tmp_path / "coverage-python.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS_DIR / "build_coverage_badges.py"),
+            "--kind",
+            "python",
+            "--report",
+            str(python_report),
+            "--thresholds",
+            str(PYTHON_COVERAGE_THRESHOLDS),
+            "--output",
+            str(output),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(output.read_text(encoding="utf-8")) == expected_python_badge
+
+    python_report.write_text(
+        python_report.read_text(encoding="utf-8").replace(
+            '"covered_lines": 61', '"covered_lines": 59'
+        ),
+        encoding="utf-8",
+    )
+    assert builder.build_badge(
+        "python", python_report, PYTHON_COVERAGE_THRESHOLDS
+    )["color"] == "e05d44"
 
 
 def _ota_release_tags() -> tuple[str, str]:

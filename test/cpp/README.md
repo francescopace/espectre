@@ -23,7 +23,7 @@ CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 The registered targets are grouped by the layer they exercise:
 
 - Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_lightweight_detector`, and `test_high_accuracy_detector`
-- Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_periodic_sensing_status_logger`, `test_device_identity`, `test_ota_service_https`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
+- Runtime: `test_traffic_generator`, `test_runtime_helpers`, `test_frontend_sysinfo_helpers`, `test_periodic_sensing_status_logger`, `test_device_identity`, `test_ota_service_https`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_traffic_service`, and `test_udp_listener`
 - Integration with real CSI: `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and `test_packet_rate_adaptation`
 - Frontend: `test_sensor_publisher`, `test_frontend_controls`, `test_native_frontend_lifecycle`, `test_native_direct_frontend`, `test_native_mqtt_frontend`, `test_home_assistant_mqtt_frontend`, `test_native_frontend_ota`, `test_recovery_button_service`, and `test_matter_frontend`
 
@@ -96,11 +96,17 @@ Run the host-side suite with coverage instrumentation:
 ./test/cpp/run_coverage.sh
 ```
 
-The coverage script prints line, function, and branch coverage for the aggregate suite and for `core`, `runtime`, and `frontend`. CI compares those values with `coverage-baseline.json` and fails on any decrease. Refreshing the baseline is explicit and refuses lower values:
+The native coverage script uses the host compiler and prints line, function, and branch coverage for the aggregate suite and for `core`, `runtime`, and `frontend`. On macOS, that normally means Apple Clang and `llvm-cov`.
+
+Use the Docker-backed GCC 13 runner to reproduce the Linux/amd64 coverage toolchain used by CI:
 
 ```bash
-./test/cpp/run_coverage.sh --update-baseline
+./test/cpp/run_gcc13_coverage.sh --ci
 ```
+
+CI compares those canonical GCC results with the fixed runtime gates in `coverage-thresholds.json`: 80% line coverage, 85% function coverage, and 50% branch coverage. These thresholds are deliberate policy and are not generated from the latest run.
+
+The Docker image is built locally and reused through Docker's build cache. The runner uses `linux/amd64` explicitly so Apple Silicon hosts match the GitHub-hosted runner architecture.
 
 ## Project Structure
 
@@ -115,7 +121,10 @@ test/cpp/
 │   └── frontend/
 ├── support/            # Harness, datasets, runtime shims, and in-memory traffic fakes
 ├── CMakeLists.txt      # Host-side test entrypoint
+├── coverage-thresholds.json  # Fixed canonical runtime coverage gates
+├── gcc13-coverage.Dockerfile  # Canonical Linux/GCC coverage environment
 ├── run_all_tests.sh    # Parallel build and test launcher
+├── run_gcc13_coverage.sh      # Docker-backed canonical GCC 13 coverage runner
 └── run_coverage.sh     # Coverage script
 ```
 

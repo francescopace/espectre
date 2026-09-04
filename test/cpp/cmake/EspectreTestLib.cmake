@@ -26,6 +26,11 @@ FetchContent_MakeAvailable(ImprovWifiSdk)
 add_library(improv_wifi_testlib STATIC
     "${improvwifisdk_SOURCE_DIR}/src/improv.cpp"
 )
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # The pinned upstream source has three signedness warnings under -Wall.
+    # Keep project diagnostics enabled without applying them to third-party code.
+    target_compile_options(improv_wifi_testlib PRIVATE -Wno-sign-compare)
+endif()
 target_include_directories(improv_wifi_testlib
     PUBLIC
         "${improvwifisdk_SOURCE_DIR}/src"
@@ -271,8 +276,12 @@ foreach(target_name
         espectre_test_support
         espectre_core_testlib
         espectre_runtime_testlib
+        espectre_runtime_invalid_kconfig_testlib
         espectre_runtime_dual_band_testlib
+        espectre_direct_service_testlib
+        espectre_native_mdns_bootstrap_testlib
         espectre_mqtt_transport_testlib
+        espectre_ota_https_testlib
         espectre_frontend_esphome_testlib
         espectre_frontend_native_testlib
         espectre_frontend_matter_testlib)

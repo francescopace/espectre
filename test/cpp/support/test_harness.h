@@ -80,10 +80,34 @@ inline void assert_false(bool condition, const char *expression, const char *fil
   fail(file, line, oss.str());
 }
 
+namespace detail {
+
+// C++17 equivalent of std::cmp_equal: mixed-signed integer asserts must not
+// emit -Wsign-compare, and a negative value must not compare equal to a large
+// unsigned wraparound.
+template <typename T, typename U>
+constexpr bool values_equal(const T &lhs, const U &rhs) {
+  using Left = std::decay_t<T>;
+  using Right = std::decay_t<U>;
+  if constexpr (std::is_integral_v<Left> && std::is_integral_v<Right>) {
+    if constexpr (std::is_signed_v<Left> == std::is_signed_v<Right>) {
+      return lhs == rhs;
+    } else if constexpr (std::is_signed_v<Left>) {
+      return lhs < 0 ? false : static_cast<std::make_unsigned_t<Left>>(lhs) == rhs;
+    } else {
+      return rhs < 0 ? false : lhs == static_cast<std::make_unsigned_t<Right>>(rhs);
+    }
+  } else {
+    return lhs == rhs;
+  }
+}
+
+}  // namespace detail
+
 template <typename Expected, typename Actual>
 inline void assert_equal(const Expected &expected, const Actual &actual, const char *file, int line,
                          const char *message = nullptr) {
-  if (expected == actual) {
+  if (detail::values_equal(expected, actual)) {
     return;
   }
 

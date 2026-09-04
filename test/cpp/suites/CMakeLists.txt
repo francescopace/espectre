@@ -73,6 +73,11 @@ add_espectre_test(test_runtime_helpers
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_frontend_sysinfo_helpers
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_frontend_sysinfo_helpers.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_periodic_sensing_status_logger
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_periodic_sensing_status_logger.cpp"
     LIBRARIES espectre_runtime_testlib

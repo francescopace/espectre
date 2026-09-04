@@ -153,6 +153,30 @@ jobs:
           path: sdk
           merge-multiple: true
 
+      - name: Download C++ coverage badge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
+          name: cpp-coverage-badge
+          path: coverage-badges
+
+      - name: Download Python coverage badge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
+          name: python-coverage-badge
+          path: coverage-badges
+
+      - name: Download web coverage badge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
+          name: web-coverage-badge
+          path: coverage-badges
+
       - name: List firmware files
         run: ls -la firmware/
 
@@ -274,10 +298,12 @@ jobs:
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
+            coverage-badges/*.json
           draft: false
           prerelease: true
           make_latest: false
           fail_on_unmatched_files: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

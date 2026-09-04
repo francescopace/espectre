@@ -184,8 +184,9 @@ Author: [your name] <[your email]>
 """
 ```
 
-For a full Python baseline with device-runtime coverage, run:
+For the full Python coverage gate, including device-runtime coverage, run:
 
 ```bash
-.venv/bin/pytest test/python -q --tb=short --cov=src/python/micro_espectre --cov-report=term-missing
+.venv/bin/pytest test/python -q --tb=short --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-branch --cov-report=json:python-coverage.json --cov-report=term-missing
+.venv/bin/python test/python/check_coverage.py python-coverage.json
 ```

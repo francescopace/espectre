@@ -1,0 +1,10 @@
+{
+  "segments": {
+    "runtime": {
+      "branches": 50.0,
+      "functions": 85.0,
+      "lines": 80.0
+    }
+  },
+  "version": 1
+}

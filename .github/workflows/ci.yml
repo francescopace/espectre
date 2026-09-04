@@ -26,6 +26,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/web/package-lock.json
       
       - name: Stage published release channel
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -65,6 +72,23 @@ jobs:
       
       - name: Build and verify Pages tree
         uses: ./.github/actions/build-pages
+        env:
+          WEB_COVERAGE_LOG: web-coverage.log
+
+      - name: Build web coverage badge
+        run: |
+          python .github/scripts/build_coverage_badges.py \
+            --kind web \
+            --report web-coverage.log \
+            --thresholds test/web/coverage-thresholds.json \
+            --output coverage-web.json
+
+      - name: Upload web coverage badge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: web-coverage-badge
+          path: coverage-web.json
+          retention-days: 14
 
   test-cpp:
     name: C++ Unit Tests
@@ -90,16 +114,21 @@ jobs:
       
       - name: Run Host-side Tests with Coverage
         run: ./test/cpp/run_coverage.sh --ci
-      
-      - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+
+      - name: Build C++ coverage badge
+        run: |
+          python .github/scripts/build_coverage_badges.py \
+            --kind cpp-runtime \
+            --report test/cpp/coverage-summary.json \
+            --thresholds test/cpp/coverage-thresholds.json \
+            --output coverage-cpp-runtime.json
+
+      - name: Upload C++ coverage badge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          files: test/cpp/coverage.xml,test/cpp/coverage.lcov
-          flags: cpp
-          fail_ci_if_error: true
-          verbose: true
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          name: cpp-coverage-badge
+          path: coverage-cpp-runtime.json
+          retention-days: 14
 
   test-python:
     name: Python Unit Tests
@@ -133,19 +162,25 @@ jobs:
 
       - name: Run Product and Performance Tests with Coverage
         run: |
-          pytest test/python -n auto --dist worksteal -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-report=xml --cov-report=term-missing
+          pytest test/python -n auto --dist worksteal -v --cov=src/python/micro_espectre --cov=src/python/espectre_cli --cov-branch --cov-report=json:python-coverage.json --cov-report=term-missing
+          python test/python/check_coverage.py python-coverage.json
         env:
           PYTEST_XDIST_AUTO_NUM_WORKERS: '4'
-      
-      - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+
+      - name: Build Python coverage badge
+        run: |
+          python .github/scripts/build_coverage_badges.py \
+            --kind python \
+            --report python-coverage.json \
+            --thresholds test/python/coverage-thresholds.json \
+            --output coverage-python.json
+
+      - name: Upload Python coverage badge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          files: coverage.xml
-          flags: python
-          fail_ci_if_error: true
-          verbose: true
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          name: python-coverage-badge
+          path: coverage-python.json
+          retention-days: 14
 
   build-esphome:
     name: Build ESPHome ${{ matrix.chip }}
