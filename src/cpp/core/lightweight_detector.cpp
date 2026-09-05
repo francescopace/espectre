@@ -62,8 +62,10 @@ void LightweightDetector::process_packet(const int8_t* csi_data, size_t csi_len,
     resolved_count = HT20_SELECTED_BAND_SIZE;
   }
   float packet_amplitudes[HT20_NUM_SUBCARRIERS]{};
-  const uint8_t packet_count = extract_packet_subcarrier_amplitudes(
+  const uint8_t packet_count = fill_packet_subcarrier_energies(
       csi_data, csi_len, packet_amplitudes, HT20_NUM_SUBCARRIERS);
+  detail::required_energies_to_amplitudes<TURB_IQR_AGGREGATION_WIDTH>(
+      packet_amplitudes, packet_count, resolved_subcarriers, resolved_count, true);
   float amplitudes[HT20_SELECTED_BAND_SIZE]{};
   const uint8_t amplitude_count = select_subcarrier_amplitudes(
       packet_amplitudes, packet_count, resolved_subcarriers, resolved_count,
@@ -130,9 +132,8 @@ float LightweightDetector::calculate_turb_iqr_over_mean_aggr_() const {
   }
   if (valid_count < 2U) return 0.0f;
   const float mean = sum / valid_count;
-  std::sort(ordered_turbulence_, ordered_turbulence_ + valid_count);
-  const float iqr = percentile_from_sorted(
-      ordered_turbulence_, valid_count, 0.75f) - percentile_from_sorted(
+  const float iqr = percentile_in_place(
+      ordered_turbulence_, valid_count, 0.75f) - percentile_in_place(
       ordered_turbulence_, valid_count, 0.25f);
   return iqr / std::max(std::fabs(mean), 1e-6f);
 }

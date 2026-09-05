@@ -53,26 +53,25 @@ bool TemporalCsiSampler::configure(uint32_t target_pps,
       window_us > std::numeric_limits<uint32_t>::max()) {
     return false;
   }
-  std::unique_ptr<uint64_t[]> slot_ids(
-      new (std::nothrow) uint64_t[static_cast<size_t>(slots)]);
-  if (slot_ids == nullptr) {
+  std::unique_ptr<uint8_t[]> slot_occupied(
+      new (std::nothrow) uint8_t[static_cast<size_t>(slots)]);
+  if (slot_occupied == nullptr) {
     return false;
   }
-  std::fill(slot_ids.get(), slot_ids.get() + slots, kEmptySlot);
   target_pps_ = target_pps;
   window_size_ms_ = window_size_ms;
   window_size_us_ = static_cast<uint32_t>(window_us);
   window_slots_ = slots;
   minimum_valid_slots_ = temporal_minimum_valid_slots(slots);
   minimum_sample_spacing_us_ = temporal_minimum_sample_spacing_us(target_pps);
-  slot_ids_ = std::move(slot_ids);
+  slot_occupied_ = std::move(slot_occupied);
   reset();
   return true;
 }
 
 void TemporalCsiSampler::clear_window_() {
-  if (slot_ids_ != nullptr) {
-    std::fill(slot_ids_.get(), slot_ids_.get() + window_slots_, kEmptySlot);
+  if (slot_occupied_ != nullptr) {
+    std::fill(slot_occupied_.get(), slot_occupied_.get() + window_slots_, 0U);
   }
   occupancy_slots_ = 0U;
 }
@@ -184,24 +183,25 @@ bool TemporalCsiSampler::commit_candidate_() {
       ? advanced - 1U
       : 0U;
 
+  const size_t index = static_cast<size_t>(slot % window_slots_);
   if (has_last_admitted_slot_) {
     if (advanced >= window_slots_) {
       clear_window_();
     } else {
-      for (uint64_t expired = last_admitted_slot_ + 1U;
-           expired <= slot; ++expired) {
-        const size_t index = static_cast<size_t>(expired % window_slots_);
-        if (slot_ids_[index] != kEmptySlot) {
-          slot_ids_[index] = kEmptySlot;
+      // Expire the same circular range backwards, with one modulo per admission.
+      size_t expired_index = index;
+      for (uint32_t expired = 0U; expired < advanced; ++expired) {
+        if (slot_occupied_[expired_index] != 0U) {
+          slot_occupied_[expired_index] = 0U;
           --occupancy_slots_;
         }
+        expired_index = expired_index == 0U ? window_slots_ - 1U : expired_index - 1U;
       }
     }
   }
 
-  const size_t index = static_cast<size_t>(slot % window_slots_);
-  if (slot_ids_[index] == kEmptySlot) ++occupancy_slots_;
-  slot_ids_[index] = slot;
+  if (slot_occupied_[index] == 0U) ++occupancy_slots_;
+  slot_occupied_[index] = 1U;
   has_last_admitted_slot_ = true;
   last_admitted_slot_ = slot;
   last_admitted_elapsed_us_ = pending_elapsed_us_;

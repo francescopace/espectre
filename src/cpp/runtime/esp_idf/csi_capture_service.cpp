@@ -281,9 +281,15 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
 
     // Preserve the 64-bin raw contract after layout detection.
     if (csi_capture_profile_uses_lltf(capture_profile_)) {
-      std::copy_n(normalized.data, normalized.len, lltf_scratch_.data());
-      (void) zero_ht20_lltf_missing_bins(lltf_scratch_.data(), normalized.len);
-      normalized.data = lltf_scratch_.data();
+      // Both normalization buffers are private to this callback. Reuse an
+      // existing writable view; copy only when the view still belongs to Wi-Fi.
+      int8_t *writable = normalized.data == rotation_scratch_.data()
+                             ? rotation_scratch_.data() : remap_scratch_.data();
+      if (normalized.data != writable) {
+        std::copy_n(normalized.data, normalized.len, writable);
+      }
+      (void) zero_ht20_lltf_missing_bins(writable, normalized.len);
+      normalized.data = writable;
     }
   }
 

@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -69,7 +70,6 @@ class EspIdfMqttTransport : public IMqttTransport {
   esp_mqtt_client_handle_t client_{nullptr};
   CommandCallback command_callback_{};
   ConnectionCallback connection_callback_{};
-  MqttPayloadAssembler command_payload_assembler_{};
   std::string broker_host_{};
   std::string mqtt_username_{};
   std::string mqtt_password_{};
@@ -84,7 +84,11 @@ class EspIdfMqttTransport : public IMqttTransport {
   static constexpr uint64_t kMqttOutboxLimitBytes = 8192U;
   static constexpr size_t kReplaceableOutboxHighWaterBytes = 2048U;
   PendingEvent<bool> connection_event_{};
-  std::array<PendingMessage, kPendingMessageCapacity> message_slots_{};
+  struct ReceiveStorage {
+    MqttPayloadAssembler assembler;
+    std::array<PendingMessage, kPendingMessageCapacity> messages{};
+  };
+  std::unique_ptr<ReceiveStorage> receive_storage_;
   PendingQueue<uint8_t, kPendingMessageCapacity> free_message_slots_{};
   PendingQueue<uint8_t, kPendingMessageCapacity> ready_message_slots_{};
   std::deque<PendingPublish> pending_publishes_{};

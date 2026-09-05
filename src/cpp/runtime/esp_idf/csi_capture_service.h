@@ -135,7 +135,6 @@ class CsiCaptureService {
   // avoids reserving two HT20 buffers on every Wi-Fi callback stack frame.
   std::array<int8_t, HT20_CSI_LEN> remap_scratch_{};
   std::array<int8_t, HT20_CSI_LEN> rotation_scratch_{};
-  std::array<int8_t, HT20_CSI_LEN> lltf_scratch_{};
   CsiFormatAssessment last_assessment_{};
   uint32_t consecutive_format_drops_{0U};
   NormalizedCSIPayloadTag last_accepted_normalization_tag_{NormalizedCSIPayloadTag::NONE};

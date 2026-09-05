@@ -40,16 +40,15 @@ constexpr uint32_t L1_DELTA_LAG_US = 100000U;        // Profile-displacement lag
 constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;    // Autocorrelation lag
 constexpr uint16_t DETECTOR_L1_DELTA_LAG_DEFAULT = 10U;
 constexpr uint16_t DETECTOR_AUTOCORR_LAG_DEFAULT = 1U;
-// The L1 profile ring is statically sized in firmware, so the displacement
-// lag is capped. 32 packets covers the 100 ms contract up to ~320 pps, well
+// The L1 profile ring is allocated for the configured displacement lag,
+// capped to bound firmware memory. 32 packets covers the 100 ms contract up to ~320 pps, well
 // past what any supported chip sustains; above that the lag saturates and
 // spans less than 100 ms. Measured cost at 1000 pps is a few points of
 // recall, and the decisive high-rate lag is the autocorrelation one, which
 // stays far below this bound.
 //
-// The ring costs L1_DELTA_LAG_MAX x HT20_SELECTED_BAND_SIZE floats, i.e.
-// 32 x 12 x 4 = 1536 bytes. An earlier revision of this comment said 4.5 KB,
-// which never matched the declaration.
+// Profile payload costs lag x HT20_SELECTED_BAND_SIZE floats: 480 bytes
+// at the default lag of 10, or 1536 bytes at the maximum lag of 32.
 constexpr uint16_t L1_DELTA_LAG_MAX = 32;
 // A cadence faster than this is not a CSI stream, it is a batch delivered
 // faster than real time. The packet-rate estimator ignores it when deriving

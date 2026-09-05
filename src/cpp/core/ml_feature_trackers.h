@@ -162,6 +162,8 @@ class ChannelShapeTrajectoryTracker {
     uint8_t excess_count = 0U;
     Profile first_modes = path[0].modes;
     Profile middle_modes = path[1].modes;
+    float previous_norm = 0.0f;
+    float previous_high_norm = 0.0f;
     for (uint8_t i = 2U; i < count; i++) {
       const Profile last_modes = path[i].modes;
       const uint64_t previous_dt = path[i - 1U].index - path[i - 2U].index;
@@ -182,11 +184,11 @@ class ChannelShapeTrajectoryTracker {
         const float first_delta = middle_modes[j] - first_modes[j];
         const float second_delta = last_modes[j] - middle_modes[j];
         const float chord_delta = last_modes[j] - first_modes[j];
-        first_norm_squared += first_delta * first_delta;
+        if (i == 2U) first_norm_squared += first_delta * first_delta;
         second_norm_squared += second_delta * second_delta;
         chord_norm_squared += chord_delta * chord_delta;
         if (j >= 4U) {
-          first_high_squared += first_delta * first_delta;
+          if (i == 2U) first_high_squared += first_delta * first_delta;
           second_high_squared += second_delta * second_delta;
           chord_high_squared += chord_delta * chord_delta;
         }
@@ -204,14 +206,20 @@ class ChannelShapeTrajectoryTracker {
             0.0f, innovation_low_squared - innovation_high_squared);
       }
       // Parseval: the orthonormal DCT preserves full-profile L2 distances.
-      const float raw_excess = std::sqrt(first_norm_squared) +
-                               std::sqrt(second_norm_squared) -
+      if (i == 2U) {
+        previous_norm = std::sqrt(first_norm_squared);
+        previous_high_norm = std::sqrt(first_high_squared);
+      }
+      const float second_norm = std::sqrt(second_norm_squared);
+      const float second_high_norm = std::sqrt(second_high_squared);
+      const float raw_excess = previous_norm + second_norm -
                                std::sqrt(chord_norm_squared);
-      const float high_excess = std::sqrt(first_high_squared) +
-                                std::sqrt(second_high_squared) -
+      const float high_excess = previous_high_norm + second_high_norm -
                                 std::sqrt(chord_high_squared);
       excess_samples[excess_count++] =
           std::max(0.0f, raw_excess - std::max(0.0f, high_excess));
+      previous_norm = second_norm;
+      previous_high_norm = second_high_norm;
       first_modes = middle_modes;
       middle_modes = last_modes;
     }
@@ -221,6 +229,10 @@ class ChannelShapeTrajectoryTracker {
 
     std::array<float, CHANNEL_SHAPE_WINDOW_BINS - 2U> kendall_samples{};
     uint8_t kendall_count = 0U;
+    // Cache adjacent comparisons lazily, including invalid comparisons. Keep
+    // the original summation order in each overlapping four-point window.
+    std::array<float, CHANNEL_SHAPE_WINDOW_BINS> adjacent_distances{};
+    std::array<uint8_t, CHANNEL_SHAPE_WINDOW_BINS> adjacent_status{};
     for (uint8_t i = 3U; i < count; i++) {
       if (path[i].index - path[i - 3U].index != 3U) continue;
       float long_distance = 0.0f;
@@ -228,13 +240,16 @@ class ChannelShapeTrajectoryTracker {
       float local_sum = 0.0f;
       bool local_ok = true;
       for (uint8_t lag = 0U; lag < 3U; lag++) {
-        float local_distance = 0.0f;
-        if (!kendall_distance_(
-                path[i - lag], path[i - lag - 1U], local_distance)) {
+        const uint8_t edge = i - lag - 1U;
+        if (adjacent_status[edge] == 0U) {
+          adjacent_status[edge] = kendall_distance_(
+              path[edge + 1U], path[edge], adjacent_distances[edge]) ? 1U : 2U;
+        }
+        if (adjacent_status[edge] != 1U) {
           local_ok = false;
           break;
         }
-        local_sum += local_distance;
+        local_sum += adjacent_distances[edge];
       }
       if (!local_ok) continue;
       kendall_samples[kendall_count++] =

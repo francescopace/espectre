@@ -83,8 +83,6 @@ class L1DeltaTracker {
         adjacent_(other.adjacent_),
         hampel_state_(other.hampel_state_),
         hampel_adjacent_(other.hampel_adjacent_) {
-    std::memcpy(profile_ring_, other.profile_ring_, sizeof(profile_ring_));
-    std::memcpy(profile_len_, other.profile_len_, sizeof(profile_len_));
     other.capacity_ = 0U;
     other.profile_index_ = 0U;
     other.storage_ = nullptr;
@@ -95,8 +93,6 @@ class L1DeltaTracker {
     if (this != &other) {
       delete[] storage_;
       capacity_ = other.capacity_;
-      std::memcpy(profile_ring_, other.profile_ring_, sizeof(profile_ring_));
-      std::memcpy(profile_len_, other.profile_len_, sizeof(profile_len_));
       lag_ = other.lag_;
       profile_index_ = other.profile_index_;
       storage_ = other.storage_;
@@ -123,11 +119,11 @@ class L1DeltaTracker {
   /**
    * @param capacity Delta ring capacity in packets
    * @param lag Profile-displacement distance in packets, bounded by
-   *        L1_DELTA_LAG_MAX because the profile ring is statically sized
+   *        L1_DELTA_LAG_MAX
    */
   void configure(uint16_t capacity, uint16_t lag = L1_DELTA_LAG) {
-    allocate_delta_ring_(std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE));
-    lag_ = std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX);
+    allocate_delta_ring_(std::min<uint16_t>(capacity, DETECTOR_MAX_WINDOW_SIZE),
+                         std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX));
     clear();
   }
 
@@ -142,8 +138,10 @@ class L1DeltaTracker {
   }
 
   void clear() {
-    std::memset(profile_ring_, 0, sizeof(profile_ring_));
-    std::memset(profile_len_, 0, sizeof(profile_len_));
+    if (storage_ != nullptr) {
+      std::memset(profile_(0U), 0, lag_ * HT20_SELECTED_BAND_SIZE * sizeof(float));
+      std::memset(profile_lengths_(), 0, lag_);
+    }
     lagged_.clear(capacity_);
     adjacent_.clear(capacity_);
     profile_index_ = 0U;
@@ -170,15 +168,15 @@ class L1DeltaTracker {
     }
 
     float profile[HT20_SELECTED_BAND_SIZE]{};
-    const float *reference = profile_ring_[profile_index_];
-    const uint8_t reference_len = profile_len_[profile_index_];
+    const float *reference = profile_(profile_index_);
+    const uint8_t reference_len = profile_lengths_()[profile_index_];
     // The packet before this one sits in the slot behind the lagged reference,
     // so the adjacent displacement needs no storage of its own.
     const uint16_t previous_index =
         profile_index_ > 0U ? static_cast<uint16_t>(profile_index_ - 1U)
                             : static_cast<uint16_t>(lag_ - 1U);
-    const float *previous = profile_ring_[previous_index];
-    const uint8_t previous_len = profile_len_[previous_index];
+    const float *previous = profile_(previous_index);
+    const uint8_t previous_len = profile_lengths_()[previous_index];
     uint8_t profile_len = 0U;
     float lagged_value = std::numeric_limits<float>::quiet_NaN();
     float adjacent_value = std::numeric_limits<float>::quiet_NaN();
@@ -212,8 +210,8 @@ class L1DeltaTracker {
       }
     }
 
-    std::memcpy(profile_ring_[profile_index_], profile, profile_len * sizeof(float));
-    profile_len_[profile_index_] = profile_len;
+    std::memcpy(profile_(profile_index_), profile, profile_len * sizeof(float));
+    profile_lengths_()[profile_index_] = profile_len;
     profile_index_++;
     if (profile_index_ >= lag_) {
       profile_index_ = 0U;
@@ -223,9 +221,10 @@ class L1DeltaTracker {
   }
 
   void advance_missing_slots(uint32_t count) {
+    if (capacity_ == 0U) return;
     const float missing = std::numeric_limits<float>::quiet_NaN();
     for (uint32_t slot = 0U; slot < count; ++slot) {
-      profile_len_[profile_index_] = 0U;
+      profile_lengths_()[profile_index_] = 0U;
       profile_index_++;
       if (profile_index_ >= lag_) profile_index_ = 0U;
       lagged_.push(missing, capacity_);
@@ -269,20 +268,33 @@ class L1DeltaTracker {
   }
 
  private:
-  void allocate_delta_ring_(uint16_t capacity) {
-    if (capacity == capacity_ && (capacity == 0U || storage_ != nullptr)) {
+  float* profile_(uint16_t index) const {
+    return storage_ + 2U * capacity_ + index * HT20_SELECTED_BAND_SIZE;
+  }
+
+  uint8_t* profile_lengths_() const {
+    return reinterpret_cast<uint8_t*>(profile_(lag_));
+  }
+
+  void allocate_delta_ring_(uint16_t capacity, uint16_t lag) {
+    if (capacity == capacity_ && lag == lag_ && (capacity == 0U || storage_ != nullptr)) {
       return;
     }
     delete[] storage_;
     storage_ = nullptr;
     capacity_ = 0U;
+    lag_ = lag;
     lagged_ = L1DeltaWindow{};
     adjacent_ = L1DeltaWindow{};
     if (capacity == 0U) {
       return;
     }
-    // One block, two views: the lagged window first, the adjacent one behind it.
-    float* block = new (std::nothrow) float[2U * static_cast<size_t>(capacity)];
+    // One allocation holds both delta windows, the configured profiles, and
+    // their byte-sized lengths in the final padded float storage.
+    const size_t floats = 2U * static_cast<size_t>(capacity) +
+                          lag * HT20_SELECTED_BAND_SIZE +
+                          (lag + sizeof(float) - 1U) / sizeof(float);
+    float* block = new (std::nothrow) float[floats];
     if (block == nullptr) {
       return;
     }
@@ -293,8 +305,6 @@ class L1DeltaTracker {
   }
 
   uint16_t capacity_{0U};
-  float profile_ring_[L1_DELTA_LAG_MAX][HT20_SELECTED_BAND_SIZE]{};
-  uint8_t profile_len_[L1_DELTA_LAG_MAX]{};
   uint16_t lag_{L1_DELTA_LAG};
   uint16_t profile_index_{0U};
   float* storage_{nullptr};

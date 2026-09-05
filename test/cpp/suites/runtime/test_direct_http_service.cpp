@@ -8,13 +8,39 @@
 #include "test_harness.h"
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#include <new>
 
 #include "direct_http_service_esp_idf.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "espectre_protocol.h"
+
+namespace {
+bool reject_nothrow_allocation = false;
+bool count_allocations = false;
+size_t allocation_count = 0U;
+}
+
+void* operator new(std::size_t size) {
+  if (count_allocations) ++allocation_count;
+  if (void *memory = std::malloc(size > 0U ? size : 1U)) return memory;
+  throw std::bad_alloc();
+}
+
+void operator delete(void *memory) noexcept { std::free(memory); }
+void operator delete(void *memory, std::size_t) noexcept { std::free(memory); }
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+  if (reject_nothrow_allocation) return nullptr;
+  try {
+    return ::operator new(size);
+  } catch (...) {
+    return nullptr;
+  }
+}
 
 using namespace espectre;
 
@@ -90,6 +116,49 @@ void accept_raw_open(EspIdfDirectHttpService *service,
       [service, session, stopped_callback = std::move(stopped_callback)](std::string *) mutable {
         return service->start_raw_session(session, std::move(stopped_callback));
       });
+}
+
+void test_idle_loop_does_not_allocate() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const DirectRequest &) { return std::string("{}"); }, {}));
+  allocation_count = 0U;
+  count_allocations = true;
+  for (size_t iteration = 0U; iteration < 100U; ++iteration) service.loop();
+  count_allocations = false;
+  TEST_ASSERT_EQUAL(0U, allocation_count);
+}
+
+void test_raw_storage_failure_and_repeated_sessions_preserve_capacity() {
+  httpd_mock_reset();
+  // Raw packet storage must not be embedded in the always-present service.
+  TEST_ASSERT_TRUE(sizeof(EspIdfDirectHttpService) < 4096U);
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const DirectRequest &) { return std::string("{}"); }, {}));
+  RawCsiSessionConfig session;
+  session.session_id[0] = 1U;
+  reject_nothrow_allocation = true;
+  const bool started_without_storage = service.start_raw_session(session, {});
+  reject_nothrow_allocation = false;
+  TEST_ASSERT_FALSE(started_without_storage);
+  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+  int8_t payload[2]{};
+  RawCsiPacketView packet;
+  packet.csi = payload;
+  packet.csi_len = sizeof(payload);
+  size_t capacity = 0U;
+  for (uint8_t cycle = 0U; cycle < 3U; ++cycle) {
+    TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+    size_t accepted = 0U;
+    while (accepted < 100U && service.offer_raw_packet(packet)) ++accepted;
+    TEST_ASSERT_TRUE(accepted > 0U && accepted < 100U);
+    if (cycle == 0U) capacity = accepted;
+    TEST_ASSERT_EQUAL(capacity, accepted);
+    TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+    TEST_ASSERT_FALSE(service.offer_raw_packet(packet));
+    TEST_ASSERT_EQUAL(capacity + 1U, service.raw_diagnostics().raw_drop_total);
+    service.loop();
+  }
 }
 
 void test_setup_registers_http_post_sse_raw_and_preflight() {
@@ -766,6 +835,8 @@ void test_raw_assigns_sequence_before_rejecting_an_invalid_offer() {
 
 int main() {
   espectre::test::begin_suite();
+  RUN_TEST(test_idle_loop_does_not_allocate);
+  RUN_TEST(test_raw_storage_failure_and_repeated_sessions_preserve_capacity);
   RUN_TEST(test_setup_registers_http_post_sse_raw_and_preflight);
   RUN_TEST(test_destructor_does_not_dispatch_application_callbacks);
   RUN_TEST(test_shutdown_releases_the_client_count_callback_before_reuse);

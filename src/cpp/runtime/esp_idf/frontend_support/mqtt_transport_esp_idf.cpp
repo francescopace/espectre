@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <new>
 
 #include "esp_crt_bundle.h"
 #include "espectre_log.h"
@@ -41,6 +42,11 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
 
   if (client_ != nullptr) {
     shutdown();
+  }
+  receive_storage_.reset(new (std::nothrow) ReceiveStorage);
+  if (receive_storage_ == nullptr) {
+    ESPECTRE_LOGE(TAG, "Failed to allocate MQTT receive storage");
+    return false;
   }
   subscriptions_.clear();
   reset_message_slots_();
@@ -81,6 +87,8 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
 
   client_ = esp_mqtt_client_init(&mqtt_config);
   if (client_ == nullptr) {
+    receive_storage_.reset();
+    reset_message_slots_();
     ESPECTRE_LOGE(TAG, "esp_mqtt_client_init failed");
     return false;
   }
@@ -90,6 +98,10 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
     ESPECTRE_LOGE(TAG, "esp_mqtt_client_start failed: %s", esp_err_to_name(err));
     esp_mqtt_client_destroy(client_);
     client_ = nullptr;
+    receive_storage_.reset();
+    reset_message_slots_();
+    connection_event_.clear();
+    connected_.store(false, std::memory_order_relaxed);
     return false;
   }
   ESPECTRE_LOGI(TAG,
@@ -117,8 +129,8 @@ void EspIdfMqttTransport::loop() {
 
   uint8_t slot_index = 0U;
   while (ready_message_slots_.take(slot_index)) {
-    if (slot_index < message_slots_.size()) {
-      dispatch_message_(message_slots_[slot_index]);
+    if (receive_storage_ != nullptr && slot_index < kPendingMessageCapacity) {
+      dispatch_message_(receive_storage_->messages[slot_index]);
       (void)free_message_slots_.post(slot_index);
     }
   }
@@ -132,7 +144,7 @@ void EspIdfMqttTransport::shutdown() {
     client_ = nullptr;
   }
   connected_.store(false, std::memory_order_relaxed);
-  command_payload_assembler_.reset();
+  receive_storage_.reset();
   connection_event_.clear();
   reset_message_slots_();
   pending_publishes_.clear();
@@ -212,11 +224,12 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
       break;
     case MQTT_EVENT_DISCONNECTED:
       connected_.store(false, std::memory_order_relaxed);
-      command_payload_assembler_.reset();
+      if (receive_storage_ != nullptr) receive_storage_->assembler.reset();
       connection_event_.post(false);
       ESPECTRE_LOGW(TAG, "MQTT disconnected");
       break;
     case MQTT_EVENT_DATA:
+      if (receive_storage_ == nullptr) break;
       if (event->topic == nullptr || event->topic_len <= 0 || event->data == nullptr || event->data_len <= 0) {
         break;
       }
@@ -225,15 +238,15 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
         const bool is_command = topic_len == command_topic_.size() &&
             std::memcmp(event->topic, command_topic_.data(), topic_len) == 0;
         if (is_command) {
-          const auto result = command_payload_assembler_.append(
+          const auto result = receive_storage_->assembler.append(
               event->data,
               static_cast<size_t>(event->data_len),
               static_cast<size_t>(event->total_data_len),
               static_cast<size_t>(event->current_data_offset));
           if (result == MqttPayloadAssembler::Result::COMPLETE) {
-            const std::string_view payload = command_payload_assembler_.payload();
+            const std::string_view payload = receive_storage_->assembler.payload();
             (void)enqueue_message_(event->topic, topic_len, payload.data(), payload.size());
-            command_payload_assembler_.reset();
+            receive_storage_->assembler.reset();
           } else if (result == MqttPayloadAssembler::Result::INVALID) {
             ESPECTRE_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
           }
@@ -257,7 +270,7 @@ bool EspIdfMqttTransport::enqueue_message_(const char *topic,
                                            size_t topic_len,
                                            const char *payload,
                                            size_t payload_len) {
-  if (topic == nullptr || payload == nullptr || topic_len == 0U ||
+  if (receive_storage_ == nullptr || topic == nullptr || payload == nullptr || topic_len == 0U ||
       topic_len >= PendingMessage{}.topic.size() ||
       payload_len > MqttPayloadAssembler::MAX_PAYLOAD_SIZE) {
     dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
@@ -265,12 +278,12 @@ bool EspIdfMqttTransport::enqueue_message_(const char *topic,
   }
 
   uint8_t slot_index = 0U;
-  if (!free_message_slots_.take(slot_index) || slot_index >= message_slots_.size()) {
+  if (!free_message_slots_.take(slot_index) || slot_index >= kPendingMessageCapacity) {
     dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
     ESPECTRE_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
     return false;
   }
-  PendingMessage &message = message_slots_[slot_index];
+  PendingMessage &message = receive_storage_->messages[slot_index];
   std::memcpy(message.topic.data(), topic, topic_len);
   std::memcpy(message.payload.data(), payload, payload_len);
   message.topic[topic_len] = '\0';
@@ -289,7 +302,8 @@ bool EspIdfMqttTransport::enqueue_message_(const char *topic,
 void EspIdfMqttTransport::reset_message_slots_() {
   ready_message_slots_.clear();
   free_message_slots_.clear();
-  for (uint8_t index = 0U; index < message_slots_.size(); ++index) {
+  if (receive_storage_ == nullptr) return;
+  for (uint8_t index = 0U; index < kPendingMessageCapacity; ++index) {
     (void)free_message_slots_.post(index);
   }
 }

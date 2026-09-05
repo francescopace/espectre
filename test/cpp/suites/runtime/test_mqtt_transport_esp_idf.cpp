@@ -7,10 +7,24 @@
 #include "test_harness.h"
 
 #include <string>
+#include <new>
 
 #include "esp_crt_bundle.h"
 #include "mqtt_client.h"
 #include "mqtt_transport_esp_idf.h"
+
+namespace {
+bool reject_nothrow_allocation = false;
+}
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+  if (reject_nothrow_allocation) return nullptr;
+  try {
+    return ::operator new(size);
+  } catch (...) {
+    return nullptr;
+  }
+}
 
 using namespace espectre;
 
@@ -29,6 +43,35 @@ void connect(EspIdfMqttTransport &transport) {
   mqtt_client_mock_emit(MQTT_EVENT_CONNECTED, nullptr, nullptr, 0, 0);
   transport.loop();
   TEST_ASSERT_TRUE(transport.connected());
+}
+
+void test_receive_storage_failure_shutdown_and_fragmented_recovery() {
+  mqtt_client_mock_reset();
+  TEST_ASSERT_TRUE(sizeof(EspIdfMqttTransport) < 2048U);
+  EspIdfMqttTransport transport;
+  reject_nothrow_allocation = true;
+  const bool started_without_storage = transport.setup(config());
+  reject_nothrow_allocation = false;
+  TEST_ASSERT_FALSE(started_without_storage);
+  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.init_calls);
+  size_t received = 0U;
+  transport.set_command_callback([&received](const std::string &payload) {
+    TEST_ASSERT_EQUAL_STRING("abcdef", payload.c_str());
+    ++received;
+  });
+  for (uint8_t cycle = 0U; cycle < 3U; ++cycle) {
+    TEST_ASSERT_TRUE(transport.setup(config()));
+    connect(transport);
+    const std::string topic = espectre_topic(config(), "commands/request");
+    mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "abc", 6, 0);
+    mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "def", 6, 3);
+    transport.loop();
+    TEST_ASSERT_EQUAL(cycle + 1U, received);
+    mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "abc", 6, 0);
+    transport.shutdown();
+    transport.loop();
+    TEST_ASSERT_FALSE(transport.connected());
+  }
 }
 
 void test_setup_bounds_the_esp_mqtt_outbox() {
@@ -186,6 +229,7 @@ void test_reconnects_are_observable() {
 
 int main() {
   espectre::test::begin_suite();
+  RUN_TEST(test_receive_storage_failure_shutdown_and_fragmented_recovery);
   RUN_TEST(test_setup_bounds_the_esp_mqtt_outbox);
   RUN_TEST(test_mqtts_uses_the_certificate_bundle_and_hostname_verification);
   RUN_TEST(test_invalid_endpoint_is_rejected_before_client_initialization);

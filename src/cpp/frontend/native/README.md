@@ -45,6 +45,8 @@ The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and 
 
 The per-evaluation motion callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
+Raw CSI packet buffers and the streaming worker are allocated only for an active collection session; stopping collection releases them after capture and sending are quiescent.
+
 Native advertises the shared automatic CSI HTTP surface. Opening `GET /csi` starts the exclusive collection, and closing the response restores sensing without changing persisted traffic configuration. [`API.md`](../../../../docs/API.md#csi-collection) owns framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
 
 The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. Run `./espectre devices --frontend native` to enumerate Native endpoints on an mDNS-visible LAN. [`DISCOVERY.md`](../../../../docs/DISCOVERY.md#dns-sd-and-mdns) owns the SRV, TXT, and peer-discovery contract; [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) owns browser permissions, supported connection identifiers, and recovery when discovery fails.
@@ -76,7 +78,7 @@ ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other support
 
 ## Optional MQTT and Home Assistant
 
-MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
+MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode. Receive buffers are allocated when MQTT starts and released when it shuts down. Home Assistant discovery messages are generated incrementally as the outbound queue accepts them.
 
 Device settings requires an explicit scheme, host, and port. Select `mqtt`, a bare local hostname such as `homeassistant.local`, and port `1883` for a typical trusted-LAN Home Assistant or Mosquitto broker. Select `mqtts` and the broker's TLS port, commonly `8883`, for a public-CA-secured broker; Native verifies both the certificate chain and broker hostname. Do not put `mqtt://`, `mqtts://`, credentials, a port, or a path in the host field. WebSocket MQTT and private certificate authorities are not supported in this configuration version.
 

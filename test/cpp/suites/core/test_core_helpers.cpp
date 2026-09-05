@@ -71,6 +71,71 @@ void fill_past_window(Detector& detector, uint16_t packets) {
 
 }  // namespace
 
+void test_required_amplitudes_preserve_selected_and_aggregated_bands(void) {
+    auto packet = make_trajectory_packet(7U, 1);
+    const uint8_t custom[] = {255U, 0U, 32U, 63U, 60U, 4U, 7U, 8U,
+                             9U, 10U, 11U, 12U, 13U, 14U, 15U};
+    for (const bool aggregated : {false, true}) {
+        for (const size_t length : {size_t{18U}, size_t{114U}, size_t{HT20_CSI_LEN}}) {
+            for (const bool use_default : {false, true}) {
+                const uint8_t *band = use_default ? DEFAULT_SUBCARRIERS : custom;
+                const uint8_t band_count = use_default ? HT20_SELECTED_BAND_SIZE : sizeof(custom);
+                float reference[HT20_NUM_SUBCARRIERS]{};
+                float optimized[HT20_NUM_SUBCARRIERS]{};
+                const uint8_t count = extract_packet_subcarrier_amplitudes(
+                    packet.data(), length, reference, HT20_NUM_SUBCARRIERS);
+                fill_packet_subcarrier_energies(packet.data(), length, optimized, HT20_NUM_SUBCARRIERS);
+                detail::required_energies_to_amplitudes<TURB_IQR_AGGREGATION_WIDTH>(
+                    optimized, count, band, band_count, aggregated);
+                float expected[HT20_SELECTED_BAND_SIZE]{};
+                float actual[HT20_SELECTED_BAND_SIZE]{};
+                const uint8_t selected = select_subcarrier_amplitudes(
+                    reference, count, band, band_count, expected, HT20_SELECTED_BAND_SIZE);
+                TEST_ASSERT_EQUAL(selected, select_subcarrier_amplitudes(
+                    optimized, count, band, band_count, actual, HT20_SELECTED_BAND_SIZE));
+                for (uint8_t i = 0U; i < selected; ++i) TEST_ASSERT_EQUAL_FLOAT(expected[i], actual[i]);
+                if (aggregated) {
+                    const uint8_t adjacent = select_adjacent_aggregated_subcarrier_amplitudes(
+                        reference, count, band, band_count, TURB_IQR_AGGREGATION_WIDTH,
+                        expected, HT20_SELECTED_BAND_SIZE);
+                    TEST_ASSERT_EQUAL(adjacent, select_adjacent_aggregated_subcarrier_amplitudes(
+                        optimized, count, band, band_count, TURB_IQR_AGGREGATION_WIDTH,
+                        actual, HT20_SELECTED_BAND_SIZE));
+                    for (uint8_t i = 0U; i < adjacent; ++i) TEST_ASSERT_EQUAL_FLOAT(expected[i], actual[i]);
+                }
+            }
+        }
+    }
+}
+
+void test_l1_reconfiguration_and_moves_preserve_profile_history(void) {
+    L1DeltaTracker reused;
+    for (const uint16_t lag : {uint16_t{1U}, L1_DELTA_LAG_MAX, uint16_t{L1_DELTA_LAG}}) {
+        reused.configure(20U, lag);
+        L1DeltaTracker fresh;
+        fresh.configure(20U, lag);
+        for (uint16_t packet = 0U; packet < 2U * lag + 20U; ++packet) {
+            float amplitudes[HT20_SELECTED_BAND_SIZE];
+            for (uint8_t tone = 0U; tone < HT20_SELECTED_BAND_SIZE; ++tone) {
+                amplitudes[tone] = 1U + (packet * (tone + 1U)) % 23U;
+            }
+            if (packet % 7U == 0U) {
+                reused.advance_missing_slots(2U);
+                fresh.advance_missing_slots(2U);
+            }
+            reused.process(amplitudes, HT20_SELECTED_BAND_SIZE);
+            fresh.process(amplitudes, HT20_SELECTED_BAND_SIZE);
+            L1DeltaTracker moved(std::move(reused));
+            reused = std::move(moved);
+            TEST_ASSERT_EQUAL(fresh.count(), reused.count());
+            TEST_ASSERT_EQUAL_FLOAT(fresh.delta_lag_ratio(), reused.delta_lag_ratio());
+        }
+        reused.configure(0U, lag);
+        reused.advance_missing_slots(3U);
+        TEST_ASSERT_EQUAL(0U, reused.count());
+    }
+}
+
 void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
     ChannelShapeTrajectoryTracker baseline;
     ChannelShapeTrajectoryTracker gained;
@@ -696,6 +761,8 @@ int process(void) {
     RUN_TEST(test_motion_first_accepts_after_a_long_quiet_prefix);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
+    RUN_TEST(test_required_amplitudes_preserve_selected_and_aggregated_bands);
+    RUN_TEST(test_l1_reconfiguration_and_moves_preserve_profile_history);
     RUN_TEST(test_channel_shape_trajectory_is_gain_and_stutter_invariant);
     RUN_TEST(test_trajectory_duplicate_packets_expire_old_motion);
     RUN_TEST(test_shared_packet_frame_matches_direct_trajectory_tracker);

@@ -417,6 +417,118 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   return settings;
 }
 
+bool build_frontend_ha_discovery_message(
+    const FrontendHaMqttSettings &settings,
+    const EspectreDeviceInfo &info,
+    bool supports_detector,
+    bool supports_motion_hits,
+    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message) {
+  if (message == nullptr) return false;
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.motion_object_id),
+        build_motion_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("sensor", settings.discovery_prefix, settings.movement_object_id),
+        build_movement_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  for (const FrontendHaDiagnosticSensor &sensor : settings.diagnostic_sensors) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("sensor", settings.discovery_prefix, sensor.object_id),
+          build_diagnostic_sensor_discovery_payload(settings, info, sensor),
+      };
+      return true;
+    }
+  }
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("button", settings.discovery_prefix, settings.diagnostics_object_id),
+        build_diagnostics_button_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("number", settings.discovery_prefix, settings.threshold_object_id),
+        build_threshold_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  if (supports_motion_hits) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("number", settings.discovery_prefix, settings.motion_on_hits_object_id),
+          build_motion_hits_discovery_payload(settings, info, true),
+      };
+      return true;
+    }
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("number", settings.discovery_prefix, settings.motion_off_hits_object_id),
+          build_motion_hits_discovery_payload(settings, info, false),
+      };
+      return true;
+    }
+  }
+  if (supports_detector) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("select", settings.discovery_prefix, settings.detector_object_id),
+          build_detector_discovery_payload(settings, info),
+      };
+      return true;
+    }
+  }
+  if (supports_traffic_control) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("select", settings.discovery_prefix, settings.csi_traffic_mode_object_id),
+          build_csi_traffic_mode_discovery_payload(settings, info),
+      };
+      return true;
+    }
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("select", settings.discovery_prefix, settings.traffic_generator_mode_object_id),
+          build_traffic_generator_mode_discovery_payload(settings, info),
+      };
+      return true;
+    }
+  }
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("button", settings.discovery_prefix, settings.recalibrate_object_id),
+        build_recalibrate_button_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  if (index-- == 0U) {
+    *message = FrontendHaDiscoveryMessage{
+        build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.calibration_active_object_id),
+        build_calibration_active_discovery_payload(settings, info),
+    };
+    return true;
+  }
+  for (const RetiredHaDiscovery &retired : kRetiredHaDiscoveries) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic(retired.component, settings.discovery_prefix,
+                                settings.ha_object_prefix + "_" + retired.suffix),
+          "",
+      };
+      return true;
+    }
+  }
+  return false;
+}
+
 std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     const FrontendHaMqttSettings &settings,
     const EspectreDeviceInfo &info,
@@ -424,68 +536,11 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     bool supports_motion_hits,
     bool supports_traffic_control) {
   std::vector<FrontendHaDiscoveryMessage> messages;
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.motion_object_id),
-      build_motion_discovery_payload(settings, info),
-  });
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("sensor", settings.discovery_prefix, settings.movement_object_id),
-      build_movement_discovery_payload(settings, info),
-  });
-  for (const FrontendHaDiagnosticSensor &sensor : settings.diagnostic_sensors) {
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("sensor", settings.discovery_prefix, sensor.object_id),
-        build_diagnostic_sensor_discovery_payload(settings, info, sensor),
-    });
-  }
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("button", settings.discovery_prefix, settings.diagnostics_object_id),
-      build_diagnostics_button_discovery_payload(settings, info),
-  });
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("number", settings.discovery_prefix, settings.threshold_object_id),
-      build_threshold_discovery_payload(settings, info),
-  });
-  if (supports_motion_hits) {
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("number", settings.discovery_prefix, settings.motion_on_hits_object_id),
-        build_motion_hits_discovery_payload(settings, info, true),
-    });
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("number", settings.discovery_prefix, settings.motion_off_hits_object_id),
-        build_motion_hits_discovery_payload(settings, info, false),
-    });
-  }
-  if (supports_detector) {
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("select", settings.discovery_prefix, settings.detector_object_id),
-        build_detector_discovery_payload(settings, info),
-    });
-  }
-  if (supports_traffic_control) {
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("select", settings.discovery_prefix, settings.csi_traffic_mode_object_id),
-        build_csi_traffic_mode_discovery_payload(settings, info),
-    });
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic("select", settings.discovery_prefix, settings.traffic_generator_mode_object_id),
-        build_traffic_generator_mode_discovery_payload(settings, info),
-    });
-  }
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("button", settings.discovery_prefix, settings.recalibrate_object_id),
-      build_recalibrate_button_discovery_payload(settings, info),
-  });
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.calibration_active_object_id),
-      build_calibration_active_discovery_payload(settings, info),
-  });
-  for (const RetiredHaDiscovery &retired : kRetiredHaDiscoveries) {
-    messages.push_back(FrontendHaDiscoveryMessage{
-        build_discovery_topic(retired.component, settings.discovery_prefix,
-                              settings.ha_object_prefix + "_" + retired.suffix),
-        "",
-    });
+  FrontendHaDiscoveryMessage message;
+  for (size_t index = 0U; build_frontend_ha_discovery_message(
+           settings, info, supports_detector, supports_motion_hits,
+           supports_traffic_control, index, &message); ++index) {
+    messages.push_back(std::move(message));
   }
   return messages;
 }

@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <new>
 #include <cerrno>
 #include <cstring>
 #include <limits>
@@ -244,20 +245,6 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
     return false;
   }
   worker_task_.store(worker_task, std::memory_order_release);
-  raw_worker_running_.store(true, std::memory_order_release);
-  TaskHandle_t raw_worker_task = nullptr;
-  if (xTaskCreate(&raw_worker_entry_, "espectre_raw", 4096U, this,
-                  task_scheduling::kRawWorkerPriority, &raw_worker_task) != pdPASS) {
-    raw_worker_running_.store(false, std::memory_order_release);
-    worker_running_.store(false, std::memory_order_release);
-    vTaskDelete(worker_task);
-    worker_task_.store(nullptr, std::memory_order_release);
-    httpd_stop(server_);
-    server_ = nullptr;
-    ESPECTRE_LOGE(TAG, "Failed to start Direct raw CSI worker");
-    return false;
-  }
-  raw_worker_task_.store(raw_worker_task, std::memory_order_release);
 #endif
   stopping_.store(false, std::memory_order_release);
   ESPECTRE_LOGI(TAG,
@@ -384,12 +371,11 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
   }
 #endif
   worker_running_.store(false, std::memory_order_release);
-  raw_worker_running_.store(false, std::memory_order_release);
+  request_raw_worker_stop_();
 #if defined(ESP_PLATFORM)
   TaskHandle_t worker_task = worker_task_.load(std::memory_order_acquire);
   TaskHandle_t raw_worker_task = raw_worker_task_.load(std::memory_order_acquire);
   if (worker_task != nullptr) xTaskNotifyGive(worker_task);
-  if (raw_worker_task != nullptr) xTaskNotifyGive(raw_worker_task);
   uint32_t waited_ms = 0U;
   while ((worker_task_.load(std::memory_order_acquire) != nullptr ||
           raw_worker_task_.load(std::memory_order_acquire) != nullptr) &&
@@ -531,10 +517,28 @@ bool EspIdfDirectHttpService::start_raw_session(
     unlock_();
     return false;
   }
-  if (pending_raw_stopped_callback_) {
+  if (raw_buffers_ != nullptr || pending_raw_stopped_callback_ ||
+      raw_worker_task_.load(std::memory_order_acquire) != nullptr) {
     unlock_();
     return false;
   }
+  raw_buffers_.reset(new (std::nothrow) RawBuffers);
+  if (raw_buffers_ == nullptr) {
+    unlock_();
+    return false;
+  }
+#if defined(ESP_PLATFORM)
+  raw_worker_running_.store(true, std::memory_order_release);
+  TaskHandle_t task = nullptr;
+  if (xTaskCreate(&raw_worker_entry_, "espectre_raw", 4096U, this,
+                 task_scheduling::kRawWorkerPriority, &task) != pdPASS) {
+    raw_worker_running_.store(false, std::memory_order_release);
+    raw_buffers_.reset();
+    unlock_();
+    return false;
+  }
+  raw_worker_task_.store(task, std::memory_order_release);
+#endif
   raw_session_ = {};
   raw_session_.config = config;
   raw_session_.stopped_callback = std::move(stopped_callback);
@@ -577,7 +581,9 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   if (headers_pending) origin = raw_session_.origin;
   pending_raw_stopped_callback_ = std::move(raw_session_.stopped_callback);
   pending_raw_stop_reason_ = reason;
+  request_raw_worker_stop_();
   reset_raw_session_locked_();
+  raw_buffers_.reset();
   unlock_();
   xSemaphoreGive(raw_send_mutex_);
   if (request != nullptr) {
@@ -606,12 +612,12 @@ bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
   }
   const uint64_t tail = raw_sample_tail_.load(std::memory_order_relaxed);
   const uint64_t head = raw_sample_head_.load(std::memory_order_acquire);
-  if (tail - head >= raw_samples_.size()) {
+  if (tail - head >= kRawQueueDepth) {
     raw_drop_total_.fetch_add(1U, std::memory_order_relaxed);
     raw_producer_active_.fetch_sub(1U, std::memory_order_release);
     return false;
   }
-  RawSampleSlot &slot = raw_samples_[tail % raw_samples_.size()];
+  RawSampleSlot &slot = raw_buffers_->samples[tail % kRawQueueDepth];
   slot.metadata = packet;
   std::memcpy(slot.csi.data(), packet.csi, packet.csi_len);
   slot.metadata.csi = slot.csi.data();
@@ -694,7 +700,12 @@ void EspIdfDirectHttpService::raw_worker_entry_(void *context) {
            service->service_raw_stream_()) {
     }
   }
-  if (service != nullptr) service->raw_worker_task_.store(nullptr, std::memory_order_release);
+  if (service != nullptr) {
+    while (service->raw_worker_notifications_active_.load(std::memory_order_acquire) != 0U) {
+      vTaskDelay(1U);
+    }
+    service->raw_worker_task_.store(nullptr, std::memory_order_release);
+  }
   vTaskDelete(nullptr);
 #else
   (void) context;
@@ -1238,7 +1249,7 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
     prefix.fresh_record_total = fresh_total;
     prefix.raw_drop_total = raw_drop_total_.load(std::memory_order_relaxed);
     prefix.raw_send_backpressure_total = raw_send_backpressure_total_.load(std::memory_order_relaxed);
-    std::memcpy(raw_send_buffer_.data() + length, &prefix, sizeof(prefix));
+    std::memcpy(raw_buffers_->send.data() + length, &prefix, sizeof(prefix));
     length += sizeof(prefix);
 
     RawCsiRecordHeaderV8 header{};
@@ -1264,9 +1275,9 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
     header.phy_mode = static_cast<uint8_t>(sample.metadata.phy_mode);
     header.ltf_type = static_cast<uint8_t>(sample.metadata.ltf_type);
     header.channel_width = static_cast<uint8_t>(sample.metadata.channel_width);
-    std::memcpy(raw_send_buffer_.data() + length, &header, sizeof(header));
+    std::memcpy(raw_buffers_->send.data() + length, &header, sizeof(header));
     length += sizeof(header);
-    std::memcpy(raw_send_buffer_.data() + length, sample.csi.data(), sample.metadata.csi_len);
+    std::memcpy(raw_buffers_->send.data() + length, sample.csi.data(), sample.metadata.csi_len);
     length += sample.metadata.csi_len;
     records += 1U;
   }
@@ -1278,7 +1289,7 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
   // The HTTP server borrows header strings until the first chunk is sent.
   if (headers_pending) set_response_headers_(request, origin);
   const esp_err_t result = httpd_resp_send_chunk(request,
-                                                  reinterpret_cast<const char *>(raw_send_buffer_.data()),
+                                                  reinterpret_cast<const char *>(raw_buffers_->send.data()),
                                                   length);
   if (result != ESP_OK) {
     raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
@@ -1347,7 +1358,9 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
   RawSessionStoppedCallback stopped_callback;
   RawCsiStopReason stop_reason = RawCsiStopReason::INTERNAL_ERROR;
   if (lock_()) {
-    stopped_callback = std::move(pending_raw_stopped_callback_);
+    if (raw_worker_task_.load(std::memory_order_acquire) == nullptr) {
+      stopped_callback = std::move(pending_raw_stopped_callback_);
+    }
     if (stopped_callback) {
       stop_reason = pending_raw_stop_reason_;
     }
@@ -1355,6 +1368,11 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
   }
   if (stopped_callback) stopped_callback(stop_reason);
 
+  // libstdc++ allocates even an empty deque. Leave the idle loop allocation-free.
+  if (!lock_()) return;
+  const bool have_completions = !response_completions_.empty();
+  unlock_();
+  if (!have_completions) return;
   std::deque<ResponseCompletion> response_completions;
   if (lock_()) {
     response_completions.swap(response_completions_);
@@ -1397,7 +1415,7 @@ bool EspIdfDirectHttpService::pop_raw_sample_(RawSampleSlot *sample) {
   const uint64_t head = raw_sample_head_.load(std::memory_order_relaxed);
   const uint64_t tail = raw_sample_tail_.load(std::memory_order_acquire);
   if (head == tail) return false;
-  const RawSampleSlot &slot = raw_samples_[head % raw_samples_.size()];
+  const RawSampleSlot &slot = raw_buffers_->samples[head % kRawQueueDepth];
   sample->metadata = slot.metadata;
   std::memcpy(sample->csi.data(), slot.csi.data(), slot.metadata.csi_len);
   sample->metadata.csi = sample->csi.data();
@@ -1430,7 +1448,21 @@ void EspIdfDirectHttpService::notify_worker_() {
 void EspIdfDirectHttpService::notify_raw_worker_() {
 #if defined(ESP_PLATFORM)
   raw_worker_notifications_active_.fetch_add(1U, std::memory_order_acq_rel);
-  if (!stopping_.load(std::memory_order_acquire)) {
+  if (!stopping_.load(std::memory_order_acquire) &&
+      raw_worker_running_.load(std::memory_order_acquire)) {
+    TaskHandle_t task = raw_worker_task_.load(std::memory_order_acquire);
+    if (task != nullptr) xTaskNotifyGive(task);
+  }
+  raw_worker_notifications_active_.fetch_sub(1U, std::memory_order_release);
+#endif
+}
+
+void EspIdfDirectHttpService::request_raw_worker_stop_() {
+#if defined(ESP_PLATFORM)
+  // Publish the notification reference before stopping the worker, so its task
+  // handle cannot disappear while the final wakeup is in progress.
+  raw_worker_notifications_active_.fetch_add(1U, std::memory_order_acq_rel);
+  if (raw_worker_running_.exchange(false, std::memory_order_acq_rel)) {
     TaskHandle_t task = raw_worker_task_.load(std::memory_order_acquire);
     if (task != nullptr) xTaskNotifyGive(task);
   }

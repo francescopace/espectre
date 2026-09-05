@@ -271,6 +271,58 @@ inline void energies_to_amplitudes_in_place(float* values, uint8_t count) {
     for (uint8_t i = 0U; i < count; ++i) values[i] = std::sqrt(values[i]);
 }
 
+namespace detail {
+
+constexpr std::array<bool, HT20_NUM_SUBCARRIERS> required_amplitude_bins(
+        const uint8_t* subcarriers, uint8_t count, uint8_t width) {
+    std::array<bool, HT20_NUM_SUBCARRIERS> required{};
+    if (subcarriers == nullptr) return required;
+    for (uint8_t i = 0U; i < count; ++i) {
+        if (subcarriers[i] < HT20_NUM_SUBCARRIERS) required[subcarriers[i]] = true;
+        if (width == 0U) continue;
+        const int half = (width - 1U) / 2U;
+        int low = static_cast<int>(subcarriers[i]) - half;
+        int high = static_cast<int>(subcarriers[i]) + width - 1U - half;
+        if (low < HT20_GUARD_BAND_LOW) {
+            low = HT20_GUARD_BAND_LOW;
+            high = HT20_GUARD_BAND_LOW + width - 1U;
+        }
+        if (high > HT20_GUARD_BAND_HIGH) {
+            low = HT20_GUARD_BAND_HIGH - width + 1U;
+            high = HT20_GUARD_BAND_HIGH;
+        }
+        for (int bin = low; bin <= high; ++bin) {
+            if (bin >= 0 && bin < HT20_NUM_SUBCARRIERS && bin != HT20_DC_SUBCARRIER) {
+                required[bin] = true;
+            }
+        }
+    }
+    return required;
+}
+
+// Production's fixed band is resolved at compile time. Custom SDK bands retain
+// the same bounds and aggregation behavior without changing the packet layout.
+template <uint8_t Width>
+inline void required_energies_to_amplitudes(float* values, uint8_t count,
+        const uint8_t* subcarriers, uint8_t subcarrier_count, bool aggregated) {
+    static constexpr auto selected = required_amplitude_bins(
+        DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE, 0U);
+    static constexpr auto adjacent = required_amplitude_bins(
+        DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE, Width);
+    const auto convert = [values, count](const auto& required) {
+        for (uint8_t i = 0U; i < count; ++i) {
+            if (required[i]) values[i] = std::sqrt(values[i]);
+        }
+    };
+    if (subcarriers == DEFAULT_SUBCARRIERS && subcarrier_count == HT20_SELECTED_BAND_SIZE) {
+        convert(aggregated ? adjacent : selected);
+    } else {
+        convert(required_amplitude_bins(subcarriers, subcarrier_count, aggregated ? Width : 0U));
+    }
+}
+
+}  // namespace detail
+
 /** Select the configured tones from a packet-wide amplitude frame. */
 inline uint8_t select_subcarrier_amplitudes(const float* packet_amplitudes,
                                             uint8_t packet_count,

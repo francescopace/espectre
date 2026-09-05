@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -156,6 +157,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   void notify_client_count_(size_t count);
   void notify_worker_();
   void notify_raw_worker_();
+  void request_raw_worker_stop_();
   bool lock_() const;
   void unlock_() const;
 
@@ -194,11 +196,14 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
       sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + RAW_CSI_MAX_PAYLOAD_BYTES;
   std::atomic<bool> raw_session_active_{false};
   std::atomic<uint32_t> raw_producer_active_{0U};
-  std::array<RawSampleSlot, kRawQueueDepth> raw_samples_{};
+  struct RawBuffers {
+    std::array<RawSampleSlot, kRawQueueDepth> samples{};
+    std::array<uint8_t, kRawBatchRecords * kRawEncodedFrameMaximumSize> send{};
+  };
+  std::unique_ptr<RawBuffers> raw_buffers_;
   std::atomic<uint64_t> raw_sample_head_{0U};
   std::atomic<uint64_t> raw_sample_tail_{0U};
   std::atomic<uint64_t> raw_offer_sequence_{0U};
-  std::array<uint8_t, kRawBatchRecords * kRawEncodedFrameMaximumSize> raw_send_buffer_{};
   RawSessionState raw_session_{};
   PendingRawOpen pending_raw_open_{};
   RawSessionRequestedCallback raw_session_requested_callback_{};

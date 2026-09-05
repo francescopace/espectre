@@ -77,6 +77,13 @@ bool frontend_ha_mqtt_enabled();
 FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfig &config,
                                                        const EspectreDeviceInfo &info,
                                                        const char *frontend_name);
+/// Build one discovery message in publication order; false marks the end.
+bool build_frontend_ha_discovery_message(
+    const FrontendHaMqttSettings &settings,
+    const EspectreDeviceInfo &info,
+    bool supports_detector,
+    bool supports_motion_hits,
+    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message);
 std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     const FrontendHaMqttSettings &settings,
     const EspectreDeviceInfo &info,

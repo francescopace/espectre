@@ -26,7 +26,7 @@ constexpr uint8_t HT20_GUARD_BAND_HIGH = 60U;
 constexpr uint8_t HT20_DC_SUBCARRIER = 32U;
 constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12U;
 
-constexpr uint8_t DEFAULT_SUBCARRIERS[HT20_SELECTED_BAND_SIZE] = {
+inline constexpr uint8_t DEFAULT_SUBCARRIERS[HT20_SELECTED_BAND_SIZE] = {
     4U, 8U, 13U, 18U, 23U, 28U, 36U, 41U, 46U, 51U, 56U, 60U,
 };
 using SelectedSubcarriers = std::array<uint8_t, HT20_SELECTED_BAND_SIZE>;

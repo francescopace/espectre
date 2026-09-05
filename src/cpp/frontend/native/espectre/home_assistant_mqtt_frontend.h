@@ -9,7 +9,6 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
@@ -51,7 +50,8 @@ class HomeAssistantMqttFrontend {
   NativeFrontend &owner_;
   IMqttTransport *transport_{nullptr};
   FrontendHaMqttSettings settings_{};
-  std::vector<FrontendHaDiscoveryMessage> pending_discovery_{};
+  bool pending_discovery_{false};
+  FrontendHaDiscoveryMessage pending_discovery_message_{};
   size_t pending_discovery_index_{0U};
   bool online_{false};
   bool pending_state_{false};

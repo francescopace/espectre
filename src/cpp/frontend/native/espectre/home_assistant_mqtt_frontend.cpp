@@ -89,7 +89,8 @@ HomeAssistantMqttFrontend::HomeAssistantMqttFrontend(NativeFrontend &owner, IMqt
 void HomeAssistantMqttFrontend::set_online(bool online) {
   online_ = online && frontend_ha_mqtt_enabled();
   if (!online_) {
-    pending_discovery_.clear();
+    pending_discovery_ = false;
+    pending_discovery_message_ = {};
     pending_discovery_index_ = 0U;
     pending_state_ = false;
   }
@@ -149,10 +150,8 @@ void HomeAssistantMqttFrontend::schedule_discovery() {
     return;
   }
   settings_ = build_frontend_ha_mqtt_settings(owner_.device_config_, owner_.device_info_, "native");
-  pending_discovery_ = build_frontend_ha_discovery_messages(
-      settings_, owner_.device_info_, owner_.runtime_.capabilities().supports_runtime_detector_selection,
-      owner_.runtime_.capabilities().supports_runtime_motion_hits_updates,
-      owner_.runtime_.capabilities().supports_traffic_control);
+  pending_discovery_ = true;
+  pending_discovery_message_ = {};
   pending_discovery_index_ = 0U;
   pending_state_ = true;
   drain_pending_snapshot();
@@ -162,21 +161,29 @@ void HomeAssistantMqttFrontend::drain_pending_snapshot() {
   if (!online_ || transport_ == nullptr || !transport_->connected()) {
     return;
   }
-  while (pending_discovery_index_ < pending_discovery_.size()) {
+  while (pending_discovery_) {
     const MqttTransportDiagnostics diagnostics = transport_->diagnostics();
     if (diagnostics.queue_capacity > 0U && diagnostics.queued_publishes >= diagnostics.queue_capacity) {
       return;
     }
-    const FrontendHaDiscoveryMessage &message = pending_discovery_[pending_discovery_index_];
+    if (pending_discovery_message_.topic.empty() && !build_frontend_ha_discovery_message(
+            settings_, owner_.device_info_,
+            owner_.runtime_.capabilities().supports_runtime_detector_selection,
+            owner_.runtime_.capabilities().supports_runtime_motion_hits_updates,
+            owner_.runtime_.capabilities().supports_traffic_control,
+            pending_discovery_index_, &pending_discovery_message_)) {
+      pending_discovery_ = false;
+      pending_discovery_index_ = 0U;
+      break;
+    }
+    const FrontendHaDiscoveryMessage &message = pending_discovery_message_;
     if (!transport_->publish(message.topic, message.payload, true)) {
       return;
     }
+    pending_discovery_message_ = {};
     pending_discovery_index_ += 1U;
   }
-  if (!pending_discovery_.empty()) {
-    pending_discovery_.clear();
-    pending_discovery_index_ = 0U;
-  }
+
   if (pending_state_ && owner_.runtime_.snapshot().ready_to_publish &&
       transport_->diagnostics().queued_publishes == 0U) {
     pending_state_ = false;

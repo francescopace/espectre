@@ -61,7 +61,7 @@ class TemporalCsiSampler {
   /** Reconfigure the grid and clear its timestamp epoch and window state. */
   bool configure(uint32_t target_pps, uint32_t window_size_ms);
   /** Return whether the active slot window owns complete storage. */
-  bool is_valid() const { return slot_ids_ != nullptr && window_slots_ > 0U; }
+  bool is_valid() const { return slot_occupied_ != nullptr && window_slots_ > 0U; }
   /** Clear the timestamp epoch, window state, and lifetime counters. */
   void reset();
   /** Clear the window and timestamp grid while retaining lifetime counters. */
@@ -111,7 +111,6 @@ class TemporalCsiSampler {
   uint64_t gap_resets() const { return gap_resets_; }
 
  private:
-  static constexpr uint64_t kEmptySlot = UINT64_MAX;
   static constexpr uint32_t kHalfTimestampRange = 0x80000000U;
 
   void clear_window_();
@@ -126,7 +125,7 @@ class TemporalCsiSampler {
   uint32_t window_slots_{100U};
   uint32_t minimum_valid_slots_{70U};
   uint32_t minimum_sample_spacing_us_{5000U};
-  std::unique_ptr<uint64_t[]> slot_ids_;
+  std::unique_ptr<uint8_t[]> slot_occupied_;
   uint32_t occupancy_slots_{0U};
 
   bool has_last_timestamp_{false};

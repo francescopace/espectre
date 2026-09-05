@@ -264,7 +264,9 @@ void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len
             packet_values, packet_value_count);
     }
 
-    energies_to_amplitudes_in_place(packet_values, packet_value_count);
+    detail::required_energies_to_amplitudes<TURB_IQR_AGGREGATION_WIDTH>(
+        packet_values, packet_value_count, resolved_subcarriers, resolved_count,
+        uses_aggregated_turbulence_);
 
     float amplitudes[HT20_SELECTED_BAND_SIZE]{};
     const uint8_t amplitude_count = select_subcarrier_amplitudes(
