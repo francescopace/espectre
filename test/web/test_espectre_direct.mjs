@@ -317,6 +317,39 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         client.close();
     });
 
+    it('aborts pending HTTP reads when SSE ends and permits a clean reconnect', async () => {
+        let endStream;
+        let requestSignal;
+        let reads = 0;
+        globalThis.fetch = async (url, options) => {
+            if (url.endsWith('/events')) {
+                return { ok: true, status: 200, body: {
+                    getReader: () => ({
+                        read: () => new Promise((resolve) => { endStream = () => resolve({ done: true }); }),
+                        releaseLock() {},
+                    }),
+                } };
+            }
+            reads += 1;
+            if (reads > 1) return { ok: true, status: 200, text: async () => '{"healthy":true}' };
+            requestSignal = options.signal;
+            return new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+            });
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        const pending = assert.rejects(client.request('get', 'health'), (error) => error.code === 'not_connected');
+        endStream();
+        await pending;
+        assert.equal(requestSignal.aborted, true);
+        assert.equal(reads, 1);
+        await client.connect();
+        assert.deepEqual(await client.request('get', 'health'), { healthy: true });
+        assert.equal(reads, 2);
+        client.close();
+    });
+
     it('retries a read-only request once after a transport failure', async () => {
         let getCalls = 0;
         const requestUrls = [];

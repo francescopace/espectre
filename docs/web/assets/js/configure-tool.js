@@ -99,8 +99,10 @@
 
     /* =========================================================== configure */
 
-    const WIFI_SCAN_POLL_INTERVAL_MS = 350;
+    const WIFI_SCAN_POLL_INTERVAL_MS = 1000;
     const WIFI_SCAN_TIMEOUT_MS = 30 * 1000;
+    let wifiScanGeneration = 0;
+    let wifiScanActive = false;
 
     function cfgValue(id) {
         return document.getElementById(id).value;
@@ -120,6 +122,7 @@
             wifi_connected: wifi.connected === true,
             wifi_apply_state: wifi.apply_state || '',
             mqtt_host: mqtt.host || '',
+            mqtt_scheme: mqtt.scheme || '',
             mqtt_port: mqtt.port || 0,
             topic_prefix: mqtt.topic_prefix || ''
         };
@@ -150,7 +153,8 @@
 
     async function requestConfigVerification() {
         const pending = pendingConfigVerification;
-        if (!pending) return;
+        if (!pending || pending.requestPending) return;
+        clearTimeout(pending.timer);
         if (directClient && conn.mode === 'direct' && conn.status === 'connecting') {
             if (configVerificationCanWait(pending)) {
                 pending.observedDisconnect = true;
@@ -172,16 +176,15 @@
             return;
         }
         pending.attempts += 1;
+        const client = directClient;
+        const session = directResourceSession(client);
+        pending.requestPending = true;
         try {
-            const [device, runtime, wifi, mqtt] = await Promise.all([
-                directClient.request('get', 'device'),
-                directClient.request('get', 'sensing'),
-                directClient.request('get', 'wifi'),
-                directClient.capabilities?.resources?.includes('mqtt')
-                    ? directClient.request('get', 'mqtt') : Promise.resolve({})
-            ]);
-            const config = { device, runtime, wifi, mqtt };
-            if (pendingConfigVerification !== pending) return;
+            const snapshot = await client.request('get', pending.resource);
+            const config = { [pending.resource]: snapshot };
+            if (pendingConfigVerification !== pending || directClient !== client
+                    || directResourceSessions.get(client) !== session) return;
+            rememberDirectResource(client, pending.resource, snapshot);
             applyDirectConfig(config);
             evaluateConfigVerification(directConfigSnapshot(config));
         } catch (_error) {
@@ -193,10 +196,12 @@
                 finishConfigVerification(
                     'unconfirmed', 'VerificationRequestFailed', pending.timeoutMessage);
             }
+        } finally {
+            pending.requestPending = false;
         }
     }
 
-    function beginConfigVerification(action, verification, acknowledgement = {}) {
+    function beginConfigVerification(action, verification, acknowledgement = {}, resource) {
         if (pendingConfigVerification) finishConfigVerification('unconfirmed', 'Superseded');
         const normalized = typeof verification === 'function'
             ? { verify: verification }
@@ -205,6 +210,8 @@
         const waitForReconnect = normalized.waitForReconnect === true;
         pendingConfigVerification = {
             action,
+            resource,
+            requestPending: false,
             verify: normalized.verify,
             evaluate: normalized.evaluate,
             attempts: 0,
@@ -227,6 +234,8 @@
     function evaluateConfigVerification(snapshot) {
         const pending = pendingConfigVerification;
         if (!pending) return;
+        const field = { device: 'device_label', wifi: 'wifi_bssid', mqtt: 'mqtt_host' }[pending.resource];
+        if (field && snapshot[field] === undefined) return;
         clearTimeout(pending.timer);
         if (pending.evaluate) {
             const outcome = pending.evaluate(snapshot, pending);
@@ -266,7 +275,8 @@
             const result = await directClient.request(requestMethod, resource, params);
             toast(resolvedSuccessMessage(result?.data || result));
             track('configure_change', { action, result: 'accepted' });
-            if (verification) beginConfigVerification(action, verification, result?.data || result);
+            if (verification) beginConfigVerification(
+                action, verification, result?.data || result, resource.split('/')[0]);
             return true;
         } catch (error) {
             console.warn('Device setting update failed:', error);
@@ -333,29 +343,47 @@
             return;
         }
         const client = directClient;
-        if (!client?.connected || !monitor.commands.has('scan_wifi')) return;
+        if (!client?.connected || !monitor.commands.has('scan_wifi') || wifiScanActive
+                || document.hidden || route !== 'tool-configure') return;
+        const generation = ++wifiScanGeneration;
+        wifiScanActive = true;
         renderWifiAccessPoints({ scanning: true, message: 'Scanning for nearby access points…' });
         try {
             await client.request('post', 'wifi/scans');
             const deadline = Date.now() + WIFI_SCAN_TIMEOUT_MS;
+            let interval = WIFI_SCAN_POLL_INTERVAL_MS;
             while (Date.now() < deadline) {
-                await new Promise((resolve) => setTimeout(resolve, WIFI_SCAN_POLL_INTERVAL_MS));
-                if (directClient !== client || !client.connected) return;
+                await new Promise((resolve) => setTimeout(resolve, interval));
+                if (generation !== wifiScanGeneration || document.hidden
+                        || route !== 'tool-configure' || directClient !== client || !client.connected) return;
                 const snapshot = await client.request('get', 'wifi/access-points');
-                if (directClient !== client || !client.connected) return;
+                if (generation !== wifiScanGeneration || directClient !== client || !client.connected) return;
                 renderWifiAccessPoints(snapshot);
                 if (!snapshot.scanning) return;
+                interval = Math.min(interval + WIFI_SCAN_POLL_INTERVAL_MS, 3000);
             }
             if (directClient !== client || !client.connected) return;
             renderWifiAccessPoints({ scanning: false, message: 'The scan took too long. Try again.' });
         } catch (error) {
-            if (directClient !== client || !client.connected) return;
+            if (generation !== wifiScanGeneration || directClient !== client || !client.connected) return;
             console.warn('Access point scan failed:', error);
             renderWifiAccessPoints({
                 scanning: false,
                 message: 'The scan failed. Check the connection and try again.'
             });
+        } finally {
+            if (generation === wifiScanGeneration) {
+                wifiScanActive = false;
+                renderWifiAccessPoints({ scanning: false });
+            }
         }
+    }
+
+    function cancelWifiScan() {
+        if (!wifiScanActive) return;
+        wifiScanGeneration += 1;
+        wifiScanActive = false;
+        renderWifiAccessPoints({ scanning: false, message: '' });
     }
 
     async function cfgSaveWifi() {

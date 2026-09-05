@@ -6,10 +6,13 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
-import { describe, it } from 'node:test';
+import { before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { AnsiUp } from '../../docs/web/node_modules/ansi_up/ansi_up.js';
+import { rollup } from '../../docs/web/node_modules/rollup/dist/es/rollup.js';
+import serialConfig from '../../docs/web/rollup.config.mjs';
+import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/improv-wifi-serial-sdk/dist/const.js';
 import { flashSource, index, read, routeManifest, toolContent } from './fixtures/site_test_helpers.mjs';
 
 function loadFlashRuntime(globals = {}) {
@@ -29,6 +32,297 @@ function loadFlashRuntime(globals = {}) {
 function loadFlashCore(globals = {}) {
     return loadFlashRuntime(globals).window.ESPectreFlashCore;
 }
+
+function loadDeviceHttpRuntime() {
+    let now = 0;
+    let timerId = 0;
+    const timers = new Map();
+    const panel = { open: true };
+    const context = vm.createContext({
+        window: {}, HTMLElement: class {}, customElements: { get: () => true },
+        URL, TextEncoder, console,
+        Date: class extends Date { static now() { return now; } },
+        document: { hidden: false, getElementById: () => null },
+        $: (selector) => selector === '.device-live-diagnostics' ? panel : { hidden: false },
+        setTimeout: (fn, ms) => { timers.set(++timerId, { fn, at: now + ms }); return timerId; },
+        clearTimeout: (id) => timers.delete(id),
+        setInterval: (fn, ms) => { timers.set(++timerId, { fn, at: now + ms, interval: ms }); return timerId; },
+        clearInterval: (id) => timers.delete(id),
+        toast() {}, track() {},
+    });
+    for (const file of ['device-session', 'monitor-tool', 'configure-tool', 'direct-discovery']) {
+        vm.runInContext(read(`docs/web/assets/js/${file}.js`), context);
+    }
+    context.applySysinfo = (snapshot) => context.evaluateConfigVerification(snapshot);
+    context.applySensingSnapshot = () => {};
+    context.applyOtaStatus = () => {};
+    context.renderWifiAccessPoints = () => {};
+    context.monitorStats = () => {};
+    context.activeToolName = () => vm.runInContext("route === 'tool-configure' ? 'configure' : 'monitor'", context);
+    const run = (code) => vm.runInContext(code, context);
+    return {
+        context, run, timers, panel,
+        setClient(client) {
+            context.testClient = client;
+            run("directClient = testClient; conn.mode = 'direct'; conn.status = 'connected'; route = 'tool-configure'");
+        },
+        async nextTimer() {
+            for (let i = 0; i < 20; i++) await Promise.resolve();
+            const [id, timer] = [...timers].sort((a, b) => a[1].at - b[1].at)[0];
+            timers.delete(id);
+            now = timer.at;
+            if (timer.interval) timers.set(id, { ...timer, at: now + timer.interval });
+            timer.fn();
+            for (let i = 0; i < 20; i++) await Promise.resolve();
+        },
+    };
+}
+
+describe('device HTTP request budgets', () => {
+    for (const [resource, field, value] of [
+        ['device', 'device_label', 'office'],
+        ['mqtt', 'mqtt_host', 'broker.local'],
+        ['wifi/bssid', 'wifi_bssid', 'AA:BB:CC:DD:EE:FF'],
+    ]) {
+        it(`verifies ${resource} with a single resource read`, async () => {
+            const runtime = loadDeviceHttpRuntime();
+            const calls = [];
+            runtime.setClient({ connected: true, request: async (method, path) => {
+                calls.push([method, path]);
+                return { label: value, host: value, bssid: value };
+            } });
+            await runtime.context.cfgApply('save', '', 'patch', resource, {}, (snapshot) => snapshot[field] === value);
+            await runtime.nextTimer();
+            assert.deepEqual(calls, [['patch', resource], ['get', resource.split('/')[0]]]);
+            assert.equal(runtime.run('pendingConfigVerification'), null);
+            assert.equal(runtime.timers.size, 0);
+        });
+    }
+
+    it('keeps one-second diagnostics only while the panel and browser are visible', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        let reads = 0;
+        runtime.setClient({ connected: true, request: async () => { reads++; return {}; } });
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.syncDiagnosticsPolling();
+        assert.equal(reads, 1);
+        await runtime.nextTimer();
+        assert.equal(reads, 2);
+        assert.equal([...runtime.timers.values()][0].interval, 1000);
+        runtime.context.document.hidden = true;
+        runtime.context.syncDiagnosticsPolling();
+        assert.equal(runtime.timers.size, 0);
+        await runtime.context.monitorRequestStats();
+        assert.equal(reads, 2);
+        runtime.context.document.hidden = false;
+        runtime.context.syncDiagnosticsPolling();
+        assert.equal(reads, 3);
+        runtime.panel.open = false;
+        runtime.context.syncDiagnosticsPolling();
+        assert.equal(runtime.timers.size, 0);
+        await runtime.context.monitorRequestStats();
+        assert.equal(reads, 3);
+    });
+
+    it('limits verification retries to the changed resource and ignores unrelated events', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const reads = [];
+        runtime.setClient({ connected: true, request: async (method, resource) => {
+            if (method === 'get') reads.push(resource);
+            return { label: 'old' };
+        } });
+        await runtime.context.cfgSaveDeviceLabel('new');
+        const timer = [...runtime.timers.keys()][0];
+        runtime.context.evaluateConfigVerification({ wifi_connected: true });
+        assert.equal([...runtime.timers.keys()][0], timer);
+        const attempts = runtime.run('CONFIG_VERIFICATION_MAX_ATTEMPTS');
+        for (let i = 0; i < attempts; i++) await runtime.nextTimer();
+        assert.deepEqual(reads, Array(attempts).fill('device'));
+        assert.equal(runtime.run('pendingConfigVerification'), null);
+        assert.equal(runtime.timers.size, 0);
+    });
+
+    it('backs off scan polling and cancels it without restarting the device scan', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const calls = [];
+        runtime.setClient({ connected: true, request: async (method, resource) => {
+            calls.push([method, resource]);
+            return { scanning: true };
+        } });
+        runtime.run("monitor.commands.add('scan_wifi')");
+        const scan = runtime.context.cfgRefreshWifiAccessPoints();
+        await runtime.context.cfgRefreshWifiAccessPoints();
+        const intervals = [];
+        for (let i = 0; i < 3; i++) {
+            intervals.push([...runtime.timers.values()][0].at - runtime.context.Date.now());
+            await runtime.nextTimer();
+        }
+        assert.deepEqual(intervals, [1000, 2000, 3000]);
+        assert.deepEqual(calls, [['post', 'wifi/scans'], ...Array.from({ length: 3 }, () => ['get', 'wifi/access-points'])]);
+        runtime.context.document.hidden = true;
+        runtime.context.cancelWifiScan();
+        await runtime.nextTimer();
+        await scan;
+        assert.equal(calls.length, 4);
+        assert.equal(runtime.run('wifiScanActive'), false);
+        assert.equal(runtime.timers.size, 0);
+    });
+
+    it('loads settings on demand and shares concurrent refresh reads', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const reads = [];
+        runtime.setClient({ connected: true, capabilities: {
+            resources: ['device', 'health', 'sensing', 'wifi', 'mqtt', 'ota', 'diagnostics'],
+            operations: [{ name: 'read_diagnostics' }],
+        }, request: async (_method, resource) => { reads.push(resource); return {}; } });
+        runtime.run("route = 'tool-monitor'");
+        await Promise.all([runtime.context.refreshDirectDevice(), runtime.context.refreshDirectDevice()]);
+        assert.deepEqual(reads, ['device', 'health', 'sensing', 'ota']);
+        runtime.run("route = 'tool-configure'");
+        await runtime.context.refreshDirectDevice();
+        assert.deepEqual(reads.slice(4), ['wifi', 'mqtt', 'diagnostics']);
+        await runtime.context.refreshDirectDevice();
+        assert.equal(reads.length, 7);
+    });
+
+    it('prevents an obsolete refresh from continuing after reconnection', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const reads = [];
+        let resolveOld;
+        runtime.setClient({ connected: true, capabilities: {}, request: async (_method, resource) => {
+            reads.push(resource);
+            if (reads.length === 1) return new Promise((resolve) => { resolveOld = resolve; });
+            return {};
+        } });
+        runtime.run("route = 'tool-monitor'");
+        const old = runtime.context.refreshDirectDevice();
+        runtime.run('directResourceSessions.delete(directClient)');
+        await runtime.context.refreshDirectDevice();
+        resolveOld({});
+        assert.equal(await old, false);
+        assert.deepEqual(reads, ['device', 'device', 'health', 'sensing']);
+    });
+
+    it('retains newer SSE snapshots while an initial GET is pending', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        let resolveDevice;
+        runtime.setClient({ connected: true, capabilities: {}, request: async (_method, resource) => {
+            if (resource === 'device') return new Promise((resolve) => { resolveDevice = resolve; });
+            return {};
+        } });
+        runtime.run("route = 'tool-monitor'");
+        let label;
+        runtime.context.applySysinfo = (snapshot) => { if (snapshot.label) label = snapshot.label; };
+        const refresh = runtime.context.refreshDirectDevice();
+        runtime.context.rememberDirectResource(runtime.context.testClient, 'device', { label: 'new' });
+        resolveDevice({ label: 'old' });
+        assert.equal(await refresh, true);
+        assert.equal(label, 'new');
+    });
+
+    it('stops loading settings resources when the user leaves settings', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const reads = [];
+        let resolveWifi;
+        runtime.setClient({ connected: true, capabilities: {
+            resources: ['mqtt'], operations: [{ name: 'read_diagnostics' }],
+        }, request: async (_method, resource) => {
+            reads.push(resource);
+            if (resource === 'wifi') return new Promise((resolve) => { resolveWifi = resolve; });
+            return {};
+        } });
+        const refresh = runtime.context.refreshDirectDevice();
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        runtime.run("route = 'tool-monitor'");
+        resolveWifi({});
+        await refresh;
+        assert.deepEqual(reads, ['device', 'health', 'sensing', 'wifi']);
+        assert.equal(runtime.run("directResourceSession(directClient).snapshots.has('wifi')"), false);
+    });
+});
+
+describe('Improv Serial initialization', () => {
+    let ImprovSerial;
+    before(async () => {
+        const bundle = await rollup({
+            ...serialConfig,
+            input: new URL('../../docs/web/headless-entry.js', import.meta.url).pathname,
+        });
+        try {
+            const { output } = await bundle.generate(serialConfig.output);
+            ({ ImprovSerial } = await import(`data:text/javascript;base64,${Buffer.from(output[0].code).toString('base64')}`));
+        } finally {
+            await bundle.close();
+        }
+    });
+
+    function device(onCommand) {
+        let input;
+        const commands = [];
+        const port = {
+            readable: new ReadableStream({ start(controller) { input = controller; } }),
+            writable: new WritableStream({
+                write(packet) {
+                    commands.push(packet[9]);
+                    onCommand(packet[9], reply, commands);
+                },
+            }),
+        };
+        function reply(type, data) {
+            const bytes = [...SERIAL_PACKET_HEADER, type, data.length, ...data];
+            input.enqueue(Uint8Array.from([...bytes, bytes.reduce((sum, value) => sum + value, 0) & 0xff, 10]));
+        }
+        const serial = new ImprovSerial(port, { log() {}, debug() {}, error() {} });
+        return { serial, port, commands };
+    }
+
+    it('settles a silent probe and releases the pending RPC and serial reader', async () => {
+        const { serial, port, commands } = device(() => {});
+        await assert.rejects(serial.initialize(20));
+        assert.deepEqual(commands, [2]);
+        assert.equal(serial._rpcFeedback, undefined);
+        assert.equal(port.readable.locked, false);
+        assert.equal(port.writable.locked, false);
+    });
+
+    it('propagates device errors and closes the probe', async () => {
+        const { serial, port } = device((command, reply) => {
+            reply(ImprovSerialMessageType.ERROR_STATE, [2]);
+        });
+        await assert.rejects(serial.initialize(1000), /UNKNOWN_RPC_COMMAND/);
+        assert.equal(serial._rpcFeedback, undefined);
+        assert.equal(port.readable.locked, false);
+    });
+
+    for (const state of [ImprovSerialCurrentState.READY, ImprovSerialCurrentState.PROVISIONED]) {
+        it(`retries a booting device and initializes state ${state}`, async () => {
+            const url = 'http://espectre.local';
+            const { serial, port, commands } = device((command, reply, sent) => {
+                const result = (values) => {
+                    const data = values.flatMap((value) => [value.length, ...new TextEncoder().encode(value)]);
+                    reply(ImprovSerialMessageType.RPC_RESULT, [command, data.length, ...data]);
+                };
+                if (sent.length === 1) return;
+                if (command === 2) {
+                    reply(ImprovSerialMessageType.CURRENT_STATE, [state]);
+                    if (state === ImprovSerialCurrentState.PROVISIONED) result([url]);
+                } else if (command === 3) {
+                    result(['ESPectre', '1.0.0', 'ESP32', 'test-device']);
+                }
+            });
+            try {
+                const info = await serial.initialize(2000);
+                assert.equal(info.firmware, 'ESPectre');
+                assert.equal(serial.state, state);
+                assert.equal(serial.nextUrl, state === ImprovSerialCurrentState.PROVISIONED ? url : undefined);
+                assert.deepEqual(commands, [2, 2, 3]);
+            } finally {
+                await serial.close();
+            }
+            assert.equal(port.readable.locked, false);
+        });
+    }
+});
 
 describe('website tool contracts', () => {
     it('simulates motion from captured touch and pen drags while preserving mouse input', () => {
@@ -391,6 +685,32 @@ describe('website tool contracts', () => {
         assert.equal(core.settingsUrl(
             'http://localhost:8090', 'https://host.invalid/?target=10.0.0.2', false
         ).search, '');
+    });
+
+    it('shows device settings only when the link forwards a known device target', () => {
+        const link = {};
+        const context = loadFlashRuntime({
+            location: { origin: 'https://test.espectre.dev' },
+            $$: () => [link],
+        });
+        for (const nextUrl of ['', 'http://[invalid', 'http://192.168.1.5/']) {
+            context.flashState.nextUrl = nextUrl;
+            context.flashSyncDeviceSettingsLinks('native');
+            assert.equal(link.hidden, true);
+            assert.equal(new URL(link.href).search, '');
+        }
+        context.flashState.nextUrl = 'https://espectre.dev/?target=192.168.1.5';
+        context.flashSyncDeviceSettingsLinks('native');
+        assert.equal(link.hidden, false);
+        assert.equal(new URL(link.href).pathname, '/tools/device-settings/');
+        assert.equal(new URL(link.href).searchParams.get('target'), '192.168.1.5');
+
+        context.flashSyncDeviceSettingsLinks('matter');
+        assert.equal(link.hidden, true);
+        context.flashState.nextUrl = '';
+        context.flashSyncDeviceSettingsLinks('native');
+        assert.equal(link.hidden, true);
+        assert.equal(new URL(link.href).search, '');
     });
 
     it('applies the upstream esptool-js SPI register correction for C5 and C6', async () => {

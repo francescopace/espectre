@@ -7,6 +7,7 @@
  */
 
 import { ImprovSerial as BaseImprovSerial } from 'improv-wifi-serial-sdk/dist/serial.js';
+import { PortNotReady } from 'improv-wifi-serial-sdk/dist/const.js';
 
 export { ESPLoader, Transport } from 'esptool-js';
 export { ImprovSerialCurrentState } from 'improv-wifi-serial-sdk/dist/const.js';
@@ -14,6 +15,45 @@ export { ImprovSerialCurrentState } from 'improv-wifi-serial-sdk/dist/const.js';
 const ESPECTRE_IMPROV_GET_MATTER_ONBOARDING = 0x80;
 
 export class ImprovSerial extends BaseImprovSerial {
+    async initialize(timeout = 1000) {
+        // SDK 2.8.0 uses an async Promise executor here, which loses RPC errors.
+        const input = this._processInput();
+        await Promise.resolve();
+        if (this._reader === undefined) {
+            await input;
+            throw new PortNotReady();
+        }
+
+        let timer;
+        let retryInterval;
+        const state = this.requestCurrentState();
+        try {
+            await Promise.race([
+                state,
+                new Promise((resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error('Improv Wi-Fi Serial not detected')), timeout);
+                    retryInterval = setInterval(() => this._sendRPC(2, []), 1000);
+                }),
+            ]);
+            clearInterval(retryInterval);
+            clearTimeout(timer);
+            await this.requestInfo();
+            return this.info;
+        } catch (error) {
+            clearInterval(retryInterval);
+            clearTimeout(timer);
+            // Settle the SDK command before closing, releasing its timer and listener.
+            this._rpcFeedback?.reject(error);
+            await state.catch(() => {});
+            await this._rpcLock;
+            await this.close();
+            throw error;
+        } finally {
+            clearInterval(retryInterval);
+            clearTimeout(timer);
+        }
+    }
+
     async requestMatterOnboarding(timeout) {
         const response = await this._sendRPCWithResponse(
             ESPECTRE_IMPROV_GET_MATTER_ONBOARDING, [], timeout

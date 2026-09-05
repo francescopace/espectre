@@ -497,6 +497,8 @@
                 this.#connected = false;
                 this.#compatible = false;
                 this.#capabilities = null;
+                for (const request of this.#requestControllers) request.abort('event stream ended');
+                this.#requestControllers.clear();
                 this.#emit('close', { code: 0, reason: expected ? 'client closed' : 'event stream ended', expected });
             }
         }
@@ -582,11 +584,13 @@
                     break;
                 } catch (error) {
                     if (error instanceof ESPectreDirectError) throw error;
-                    const timedOut = controller.signal.aborted;
-                    if (!timedOut && !this.#closing && attempt + 1 < attempts) continue;
+                    const aborted = controller.signal.aborted;
+                    const timedOut = aborted && controller.signal.reason === 'request timeout';
+                    if (!aborted && !this.#closing && attempt + 1 < attempts) continue;
                     throw new ESPectreDirectError(
-                        timedOut ? `Direct request ${httpMethod} ${resource} timed out.` : `Direct HTTP request failed: ${error.message}`,
-                        timedOut ? 'timeout' : 'connection_failed'
+                        timedOut ? `Direct request ${httpMethod} ${resource} timed out.`
+                            : aborted ? 'Direct session ended.' : `Direct HTTP request failed: ${error.message}`,
+                        timedOut ? 'timeout' : aborted ? 'not_connected' : 'connection_failed'
                     );
                 } finally {
                     clearTimeout(timer);

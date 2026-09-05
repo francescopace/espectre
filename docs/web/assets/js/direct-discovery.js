@@ -186,11 +186,34 @@
         if (name === 'fault') toast(data.message || 'The device reported a runtime fault.');
     }
 
+    const directResourceSessions = new WeakMap();
+
+    function directResourceSession(client) {
+        if (!directResourceSessions.has(client)) {
+            directResourceSessions.set(client, { snapshots: new Map(), pending: new Map() });
+        }
+        return directResourceSessions.get(client);
+    }
+
+    function rememberDirectResource(client, resource, snapshot) {
+        if (directClient === client && client.connected) {
+            directResourceSession(client).snapshots.set(resource, snapshot);
+        }
+    }
+
     function makeDirectClient(endpoint) {
         const client = new DirectProtocolClient(endpoint);
-        client.on('event', ingestDirectEvent);
+        client.on('open', () => directResourceSessions.delete(client));
+        client.on('event', (name, data) => {
+            if (directClient !== client) return;
+            if (['device', 'health', 'sensing', 'wifi', 'ota'].includes(name)) {
+                rememberDirectResource(client, name, data);
+            }
+            ingestDirectEvent(name, data);
+        });
         client.on('protocol-error', (error) => console.warn('Ignored invalid Direct frame:', error.message));
         client.on('close', ({ expected }) => {
+            directResourceSessions.delete(client);
             if (expected || conn.mode !== 'direct') return;
             scheduleDirectReconnect(client);
         });
@@ -501,21 +524,28 @@
         directReconnectTimer = setTimeout(async () => {
             directReconnectTimer = 0;
             if (directClient !== client || conn.mode !== 'direct') return;
+            let session;
             try {
                 await client.connect({ timeoutMs: 5000 });
+                session = directResourceSession(client);
                 await client.handshake({ timeoutMs: 5000 });
+                if (directResourceSessions.get(client) !== session) return;
                 if (directClient !== client || conn.mode !== 'direct') {
                     client.close();
                     return;
                 }
-                await refreshDirectDevice();
+                if (!await refreshDirectDevice({ client })) return;
+                if (directClient !== client || !client.connected) return;
                 directReconnectAttempt = 0;
                 setStatus('connected');
                 toast('Device reconnected.');
                 if (pendingConfigVerification) requestConfigVerification();
             } catch (error) {
+                if (directClient !== client
+                        || (session && directResourceSessions.get(client) !== session)) return;
                 client.close();
                 const permissionState = await localNetworkAccessState();
+                if (directClient !== client) return;
                 if (error?.code === 'local_network_denied' || permissionState === 'denied') {
                     directClient = null;
                     teardownConnection('local_network_denied');
@@ -529,30 +559,59 @@
         }, delay);
     }
 
-    async function refreshDirectDevice() {
-        if (!directClient?.connected) return;
-        const supportsOta = directClient.capabilities?.resources?.includes('ota');
+    async function refreshDirectDevice({ client = directClient } = {}) {
+        if (!client?.connected || directClient !== client) return false;
+        const session = directResourceSession(client);
+        const current = () => directClient === client && client.connected
+            && directResourceSessions.get(client) === session;
+        const resources = ['device', 'health', 'sensing'];
+        // OTA state feeds the shared firmware notice, even outside Device settings.
+        if (client.capabilities?.resources?.includes('ota')) resources.push('ota');
+        if (activeToolName() === 'configure') {
+            resources.push('wifi');
+            if (client.capabilities?.resources?.includes('mqtt')) resources.push('mqtt');
+            if (directSupportsCommand('read_diagnostics')) resources.push('diagnostics');
+        }
         // Keep local-network requests serial. Chrome may still be resolving its
         // Local Network Access grant when the Direct stream and handshake have
         // just completed, and rejects a concurrent fan-out before CORS runs.
-        const info = await directClient.request('get', 'device');
-        const status = await directClient.request('get', 'health');
-        const sensing = await directClient.request('get', 'sensing');
-        const wifi = await directClient.request('get', 'wifi');
-        const mqtt = directClient.capabilities?.resources?.includes('mqtt')
-            ? await directClient.request('get', 'mqtt') : {};
-        const diagnostics = activeToolName() === 'configure' && directSupportsCommand('read_diagnostics')
-            ? await directClient.request('get', 'diagnostics')
-            : null;
-        const otaStatus = supportsOta ? await directClient.request('get', 'ota') : null;
+        for (const resource of resources) {
+            if (!current()) return false;
+            const settingsResource = ['wifi', 'mqtt', 'diagnostics'].includes(resource);
+            if (settingsResource && activeToolName() !== 'configure') continue;
+            if (session.snapshots.has(resource)) continue;
+            if (!session.pending.has(resource)) {
+                const request = client.request('get', resource).then((snapshot) => {
+                    if (settingsResource && activeToolName() !== 'configure') return;
+                    // An SSE snapshot received during the GET is newer.
+                    if (current() && !session.snapshots.has(resource)) session.snapshots.set(resource, snapshot);
+                }).finally(() => session.pending.delete(resource));
+                session.pending.set(resource, request);
+            }
+            try {
+                await session.pending.get(resource);
+            } catch (error) {
+                if (!current()) return false;
+                throw error;
+            }
+        }
+        if (!current()) return false;
+        const info = session.snapshots.get('device');
+        const status = session.snapshots.get('health');
+        const sensing = session.snapshots.get('sensing');
+        const wifi = session.snapshots.get('wifi');
+        const mqtt = session.snapshots.get('mqtt');
+        const diagnostics = session.snapshots.get('diagnostics');
+        const otaStatus = session.snapshots.get('ota');
         applySysinfo({
-            ...directCapabilitiesSnapshot(directClient.capabilities),
+            ...directCapabilitiesSnapshot(client.capabilities),
             ...info,
             ...status,
             ...(diagnostics || {})
         });
         applyDirectConfig({ device: info, runtime: sensing, wifi, mqtt });
         if (otaStatus) applyOtaStatus(otaStatus);
+        return true;
     }
 
     async function resolveDiscoveredTarget(target, input) {
@@ -644,23 +703,28 @@
             ...connectionParams(), transport: 'direct_http', result: 'attempt'
         });
         setStatus('connecting');
+        let client;
+        let session;
         try {
-            const client = makeDirectClient(normalizedEndpoint);
+            client = makeDirectClient(normalizedEndpoint);
             directClient = client;
             cancelDirectReconnect();
             await client.connect();
+            session = directResourceSession(client);
             await client.handshake();
-            if (directClient !== client) return;
+            if (directClient !== client || directResourceSessions.get(client) !== session) return;
             conn.mode = 'direct';
             conn.endpoint = normalizedEndpoint;
             conn.deviceBannerSub = normalizedEndpoint;
             conn.connectedAt = Date.now();
             syncDirectEndpointInputs(target.display);
-            await refreshDirectDevice();
+            if (!await refreshDirectDevice({ client })) return;
             if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live'
-                && directSupportsCommand('update_sensing')) {
+                && directSupportsCommand('update_sensing')
+                && session.snapshots.get('sensing')?.enabled !== true) {
                 await client.request('patch', 'sensing', { enabled: true });
             }
+            if (directClient !== client || directResourceSessions.get(client) !== session) return;
             setStatus('connected');
             setDirectConnectionHelp();
             if (route === 'tool-raw-csi') {
@@ -677,7 +741,9 @@
             if (conn.toolName === 'configure') markToolReady('info');
             if (pendingLiveDestination) completeLiveConnectionNavigation();
         } catch (error) {
-            directClient?.close();
+            if (directClient !== client
+                    || (session && directResourceSessions.get(client) !== session)) return;
+            client?.close();
             directClient = null;
             setStatus('disconnected');
             if (target.discoveryFallback) {

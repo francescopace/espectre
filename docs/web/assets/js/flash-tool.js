@@ -10,7 +10,7 @@
 
 'use strict';
 
-    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.6.1-2.8.0/headless.js?v=2';
+    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.6.1-2.8.0/headless.js?v=3';
     const FLASH_ANSI_BUNDLE = '/vendor/ansi_up-6.0.6/ansi_up.js';
     const FLASH_SERIAL_BAUD = 115200;
     const FLASH_IMPROV_PROBE_TIMEOUT_MS = 1500;
@@ -1485,8 +1485,10 @@
     }
 
     function flashSyncDeviceSettingsLinks(frontend = '') {
+        const destination = flashDeviceSettingsUrl(frontend);
         $$('.js-flash-device-settings').forEach((link) => {
-            link.href = flashDeviceSettingsUrl(frontend).toString();
+            link.href = destination.toString();
+            link.hidden = !destination.searchParams.get('target');
         });
     }
 

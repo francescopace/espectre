@@ -45,6 +45,10 @@ npm --prefix docs/web run stage:vendor
 
 `package-lock.json` owns the versions. `stage:vendor` builds the headless Web Serial bundle and copies it with the QR and ANSI renderers and upstream licenses. CI stages the same files, while `build/`, `vendor/`, and `node_modules/` remain ignored. There is no remote fallback: a local preview must run both commands before the installer can connect to a board.
 
+The local Improv wrapper propagates initialization failures and cancels pending state requests before releasing the serial reader. A device that does not answer within the probe timeout proceeds through the USB detection fallbacks without leaving a background RPC timeout. State requests are retried once per second during the probe to allow firmware to finish booting.
+
+The installer's Device settings link appears only when the firmware supplies a device address in the Improv URL's `target` parameter. The link forwards that parameter to `/tools/device-settings/`.
+
 ## Firmware and artifacts
 
 USB detection tries Improv Serial first, then resets the board to inspect boot logs, and finally reads app descriptors through the bootloader when firmware identity or version is still unavailable. The fallbacks recognize Native, Matter, and ESPectre ESPHome firmware. ESPHome logs report the `francescopace.espectre` project version, including on renamed devices. Descriptor-only ESPHome detection recognizes the standard `espectre` app name and leaves the firmware version unavailable because that descriptor contains the ESPHome framework version. Custom ESPHome app names require Improv or project logs for identification. Initial detection does not request Matter pairing codes; the Matter QR action prefers the Improv onboarding RPC and retains serial markers as a compatibility fallback.
@@ -82,6 +86,10 @@ Keep Analytics parameters low-cardinality. They must not include device IDs, net
 `assets/js/espectre-direct.js` owns resource-oriented Direct HTTP, incremental SSE parsing, abort, and reconnect behavior. Device settings and the live tools share one connection picker with Local connection, Demo, and the planned Remote connection. Relay support is not implemented. The wire contract and capability boundaries are in [API.md](../API.md).
 
 Starting Demo or leaving a route cancels pending device discovery; late results cannot replace the active session. The raw CSI parser accepts split or aggregated HTTP chunks while keeping its working buffer bounded.
+
+The shared SSE connection stays open across routes and while the browser is hidden so the device indicator retains live motion. Diagnostics are requested once per second only while the Monitor diagnostics panel is open and the browser document is visible. Wi-Fi scan results are polled after one second, then two seconds, and then every three seconds; leaving Device settings or hiding the document stops polling. Configuration verification reads only the changed resource.
+
+Connection refreshes share in-flight reads and reuse session snapshots maintained by SSE. Device identity, health, sensing, and supported OTA status feed the shared interface; Wi-Fi, MQTT, and settings diagnostics are loaded when Device settings opens. Resources without SSE updates are invalidated when leaving settings. Reconnection discards the previous session's snapshots, aborts its pending HTTP requests, and prevents obsolete refreshes from continuing.
 
 `assets/js/browser-support.js` owns the browser matrix and Local Network Access permission checks. The active connection picker reports recovery guidance for permission, Origin, discovery, timeout, protocol, and SSE capacity failures. Direct support does not scan the LAN or relax a global security header.
 

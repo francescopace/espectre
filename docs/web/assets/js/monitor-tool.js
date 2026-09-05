@@ -311,7 +311,8 @@
     function diagnosticsPanelOpen() {
         const panel = $('.device-live-diagnostics');
         const workspace = $('.js-monitor-workspace');
-        return !!(panel && panel.open && route === 'tool-monitor' && workspace && !workspace.hidden);
+        return !!(panel && panel.open && !document.hidden
+            && route === 'tool-monitor' && workspace && !workspace.hidden);
     }
 
     function stopDiagnosticsPolling() {

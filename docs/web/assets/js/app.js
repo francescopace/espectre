@@ -297,6 +297,9 @@
             renderDirectBrowserGuidance();
             renderConnection();
             consumeDirectHandoff();
+            if (routeAtStart === 'tool-configure' && conn.status === 'connected') {
+                void cfgRefreshDevice();
+            }
             if (routeAtStart === 'tool-monitor') window.monitorResizeChart();
             if (routeAtStart === 'tool-raw-csi') window.rawCsiUseConnection();
             if (routeAtStart === 'tool-game') {
@@ -346,6 +349,14 @@
         }
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
+        if (previousRoute === 'tool-configure' && target !== previousRoute) {
+            cancelWifiScan();
+            // Re-read resources without SSE updates on the next settings visit.
+            const session = directClient && directResourceSessions.get(directClient);
+            for (const resource of session?.snapshots.keys() || []) {
+                if (!directClient.capabilities?.events?.includes(resource)) session.snapshots.delete(resource);
+            }
+        }
         clearApiReferenceLocation(previousRoute, target);
         if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi'
                 && typeof window.rawCsiStop === 'function') {
@@ -833,6 +844,10 @@
                 if (ready && route === 'tool-flash') flashRefresh();
             });
         }
+    });
+    document.addEventListener('visibilitychange', () => {
+        syncDiagnosticsPolling();
+        if (document.hidden) cancelWifiScan();
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;

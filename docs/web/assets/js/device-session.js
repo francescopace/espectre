@@ -1031,6 +1031,7 @@
     }
 
     function teardownConnection(reason = 'route_change') {
+        cancelWifiScan();
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
         if (typeof window.rawCsiStop === 'function') void window.rawCsiStop(reason);
