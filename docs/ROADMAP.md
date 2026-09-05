@@ -4,7 +4,7 @@
 
 | Milestone | Status | Starts when | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | In validation | Current | Validate the first complete candidate of the shared sensing platform |
+| **v3.0.0-rc1** | Released | Current | Validate the first complete candidate of the shared sensing platform |
 | **v3.0.0-rc2** | Planned | `rc1` findings are resolved | Close release blockers and validate the final v3 candidate |
 | **v3.0.0** | Planned | `rc2` passes its release gates | Ship the supported shared sensing platform and firmware frontends |
 | **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
@@ -34,7 +34,7 @@
 **Release tasks**:
 
 - [ ] Run a classic ESP32/ESP32-S2 A/B with HTTPD task priorities 1 and 4; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
-- [ ] Complete the v3 corpus collection backlog, including replacement `empty` captures for the low-occupancy recordings removed from the catalog and missing original ESP32 label and environment coverage; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
+- [ ] Complete the dataset collection backlog; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
 - [ ] Benchmark the C++ Direct raw CSI queue with fixed 512-, 256-, and 128-byte payload bounds, then retain or reduce its internal fixed-slot size without changing the published raw-record contract or advertised capabilities.
 - [ ] Authenticate Native OTA images independently of HTTPS: enable ESP-IDF signed-app verification during updates on every supported Native target, sign every channel artifact with release-managed keys, reject unsigned or invalid images, document key custody, rotation, and USB recovery, and validate upgrades, corrupt images, and rollback behavior. Record Secure Boot v2 and hardware anti-rollback as production provisioning requirements rather than silently enabling irreversible eFuse policy in general-purpose builds.
 - [ ] Protect the existing `PATCH /mqtt` and `DELETE /mqtt` resources with per-device administrator pairing and encrypted Security2 sessions.
