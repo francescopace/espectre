@@ -338,11 +338,15 @@ def test_direct_client_types_unexpected_sse_eof_as_transport_loss():
         urlopen_factory=lambda *_args, **_kwargs: response,
     )
 
+    assert client.events_active is False
     client.start_events()
+    assert client.events_active is True
     response.readable.set()
     assert response.closed.wait(1.0)
+    assert client.events_active is False
     with pytest.raises(DirectEventStreamTransportError):
         client.stop_events()
+    assert client.events_active is False
 
 
 def test_direct_client_types_incomplete_sse_chunk_as_transport_loss():
@@ -411,6 +415,45 @@ def test_direct_client_sends_resource_mutation_body():
     assert requests[0].method == "PATCH"
     assert requests[0].full_url == "http://192.0.2.10/espectre/v1/sensing"
     assert json.loads(requests[0].data) == {"enabled": True}
+
+@pytest.mark.parametrize("method", ["get", "patch", "post", "put", "delete"])
+@pytest.mark.parametrize("failure", [OSError, TimeoutError, http.client.RemoteDisconnected])
+def test_persistent_direct_retries_reads_but_never_replays_mutations(monkeypatch, method, failure):
+    calls = []
+    connections = []
+
+    class Connection:
+        sock = None
+
+        def __init__(self, *_args, **_kwargs):
+            self.closed = False
+            connections.append(self)
+
+        def request(self, verb, path, **_kwargs):
+            calls.append((verb, path))
+
+        def getresponse(self):
+            if len(calls) == 1:
+                raise failure("response lost")
+            return _FakeHttpResponse({"online": True})
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(device_transport.http.client, "HTTPConnection", Connection)
+    client = DirectClient("http://192.0.2.10" + device_transport.DIRECT_PATH, persistent_requests=True)
+    try:
+        if method == "get":
+            assert client.request(method, "health") == {"online": True}
+            assert len(calls) == 2
+        else:
+            with pytest.raises(DirectProtocolError):
+                client.request(method, "sensing", {"enabled": True})
+            assert len(calls) == 1
+        assert connections[0].closed is True
+    finally:
+        client.close()
+
 
 def test_direct_client_can_pace_requests(monkeypatch):
     clock = SimpleNamespace(now=0.0)

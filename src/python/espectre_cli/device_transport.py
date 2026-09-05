@@ -437,6 +437,15 @@ class DirectClient:
         self._close_request_connection()
         self.capabilities = None
 
+    @property
+    def events_active(self) -> bool:
+        return (
+            self._events_thread is not None
+            and self._events_thread.is_alive()
+            and not self._events_stop.is_set()
+            and self._events_error is None
+        )
+
     def _close_request_connection(self) -> None:
         connection = self._request_connection
         self._request_connection = None
@@ -459,7 +468,8 @@ class DirectClient:
             else http.client.HTTPConnection
         )
         with self._request_lock:
-            for attempt in range(2):
+            attempts = 2 if method == "GET" else 1
+            for attempt in range(attempts):
                 try:
                     connection = self._request_connection
                     if connection is None:
@@ -476,7 +486,7 @@ class DirectClient:
                     return status, raw
                 except (OSError, TimeoutError, http.client.HTTPException):
                     self._close_request_connection()
-                    if attempt == 1:
+                    if attempt + 1 == attempts:
                         raise
         raise RuntimeError("unreachable Direct request retry state")
 

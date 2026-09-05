@@ -69,6 +69,7 @@ from tools.lib.firmware_benchmark.settings import (
     BENCHMARK_CONTROL_TIMEOUT_SECONDS,
     CPP_DIRECT_RUNTIME_MINIMUM_UPTIME_SECONDS,
     DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+    DIRECT_EVENT_CLOSE_POLL_INTERVAL_SECONDS,
     DIRECT_EVENT_OPEN_ATTEMPTS,
     DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS,
     DIRECT_ORIGIN,
@@ -243,9 +244,22 @@ def discover_direct_device(
     raise RuntimeError(f"timed out discovering {FRONTEND_LABELS[frontend]} Direct endpoint{target}{detail}")
 
 
-def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
+def direct_handshake(
+    client: DirectClient,
+    *,
+    frontend: str,
+    chip: str,
+    identity: dict[str, dict[str, object]] | None = None,
+) -> dict[str, dict[str, object]]:
     resources = ("capabilities", "device", "health", "sensing", "wifi", "diagnostics")
-    responses = {resource: client.request("get", resource) for resource in resources}
+    cached = {key: value for key, value in (identity or {}).items() if key in {"capabilities", "device"}}
+    capabilities = getattr(client, "capabilities", None)
+    if "capabilities" not in cached and isinstance(capabilities, dict):
+        cached["capabilities"] = capabilities
+    responses = {
+        resource: cached[resource] if resource in cached else client.request("get", resource)
+        for resource in resources
+    }
     capabilities = responses["capabilities"]
     commands = capabilities.get("operations")
     if not isinstance(commands, list) or not all(isinstance(item, dict) for item in commands):
@@ -258,13 +272,20 @@ def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[
         raise RuntimeError(f"Direct endpoint chip mismatch: {info.get('chip')!r}")
     return responses
 
-def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: str) -> dict[str, dict[str, object]]:
-    handshake = direct_handshake(client, frontend=case.frontend, chip=chip)
+def prepare_direct_runtime(
+    client: DirectClient,
+    case: BenchmarkCase,
+    *,
+    chip: str,
+    identity: dict[str, dict[str, object]] | None = None,
+) -> dict[str, dict[str, object]]:
+    handshake = direct_handshake(client, frontend=case.frontend, chip=chip, identity=identity)
     methods = {
         str(item.get("name"))
         for item in handshake["capabilities"].get("operations", [])
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    updates: dict[str, object] = {}
     if case.benchmark_mode == "runtime":
         required = {
             "update_sensing",
@@ -273,19 +294,19 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
         missing = sorted(required - methods)
         if missing:
             raise RuntimeError(f"Direct endpoint lacks required methods: {', '.join(missing)}")
-        client.request("patch", "sensing", {"detector": case.detector})
-    if "update_sensing" in methods:
-        client.request("patch", "sensing", {"enabled": True})
-    confirmation = {
-        resource: client.request("get", resource)
-        for resource in ("device", "health", "sensing", "wifi")
-    }
-    if confirmation["sensing"].get("enabled") is not True:
+        if handshake["sensing"].get("detector") != case.detector:
+            updates["detector"] = case.detector
+    if "update_sensing" in methods and handshake["sensing"].get("enabled") is not True:
+        updates["enabled"] = True
+    if updates:
+        client.request("patch", "sensing", updates)
+        handshake["sensing"] = client.request("get", "sensing")
+    if handshake["sensing"].get("enabled") is not True:
         raise RuntimeError("Direct sensing resource did not confirm sensing enabled")
     if case.benchmark_mode == "runtime":
-        info = confirmation["device"]
+        info = handshake["device"]
         detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
-        runtime_config = confirmation["sensing"]
+        runtime_config = handshake["sensing"]
         detector = runtime_config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
         if detector != case.detector:
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
@@ -297,7 +318,7 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
                 "Direct endpoint did not retain configured "
                 f"{expected_traffic_mode} traffic generation"
             )
-    return {**handshake, **confirmation}
+    return handshake
 
 def prepare_micro_direct_runtime(
     client: DirectClient,
@@ -437,7 +458,7 @@ def _wait_for_direct_event_stream_closed(
         direct_http = diagnostics.get("direct_http")
         if isinstance(direct_http, dict) and _integer(direct_http.get("event_clients")) == 0:
             return
-        time.sleep(0.05)
+        time.sleep(DIRECT_EVENT_CLOSE_POLL_INTERVAL_SECONDS)
     raise RuntimeError("Direct event stream did not close after the scored window")
 
 def capture_direct_window(
@@ -555,6 +576,7 @@ def wait_for_direct_runtime_ready(
     require_publish_ready: bool = True,
     minimum_uptime_seconds: int = 0,
     initial_uptime_seconds: int | None = None,
+    use_sensing_events: bool = False,
 ) -> None:
     """Wait for stable CSI readiness and reject device restarts."""
     deadline = time.monotonic() + timeout_seconds
@@ -566,9 +588,22 @@ def wait_for_direct_runtime_ready(
     last_publish_ready = False
     last_admitted_pps = 0.0
     last_uptime = 0
+    sensing: dict[str, object] | None = None
+    event_index = len(getattr(client, "events", ()))
     while time.monotonic() < deadline:
-        sensing = client.request("get", "sensing")
+        live_sensing = use_sensing_events and client.events_active
+        if sensing is None or not live_sensing:
+            sensing = client.request("get", "sensing")
         diagnostics = client.request("get", "diagnostics")
+        if live_sensing and not client.events_active:
+            sensing = client.request("get", "sensing")
+            live_sensing = False
+        events = getattr(client, "events", ())[event_index:]
+        event_index += len(events)
+        if live_sensing:
+            for event in events:
+                if event.name == "sensing":
+                    sensing = event.data
         sample = normalize_direct_diagnostics(diagnostics, host_elapsed_seconds=0.0, previous=previous)
         previous = diagnostics
         admitted_pps = _numeric(sample.get("csi_admitted_pps")) or 0.0
@@ -810,7 +845,7 @@ def _connect_direct_with_retry(
                 persistent_requests=True,
                 minimum_request_interval_seconds=DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS,
             )
-            client.request("get", "capabilities")
+            client.capabilities = client.request("get", "capabilities")
             return client
         except (OSError, RuntimeError, TimeoutError) as exc:
             if client is not None:
@@ -1326,7 +1361,7 @@ def run_direct_frontend_cases(
                 "bssid_provisioning": dict(bssid_evidence),
             }
             try:
-                prepare_direct_runtime(client, case, chip=chip)
+                prepare_direct_runtime(client, case, chip=chip, identity=baseline)
                 if sse_enabled:
                     for attempt in range(DIRECT_EVENT_OPEN_ATTEMPTS):
                         try:
@@ -1363,6 +1398,8 @@ def run_direct_frontend_cases(
                         initial_uptime_seconds=_integer(
                             baseline["diagnostics"].get("uptime")
                         ),
+                        use_sensing_events=sse_enabled
+                        and "sensing" in baseline["capabilities"].get("events", []),
                     )
                 (
                     result.direct_samples,

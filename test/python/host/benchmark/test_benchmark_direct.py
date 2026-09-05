@@ -17,6 +17,7 @@ from tools.lib.firmware_benchmark.models import (
     RuntimeMetrics,
 )
 from src.python.espectre_cli.device_transport import (
+    DirectEvent,
     DirectEventStreamTransportError,
     DirectProtocolError,
     DirectRequestError,
@@ -146,6 +147,7 @@ def test_direct_retry_performs_a_capabilities_request(monkeypatch):
     )
 
     assert connected is clients[1]
+    assert connected.capabilities == {"operations": []}
     assert clients[0].closed is True
     assert all(
         client.minimum_request_interval_seconds
@@ -730,7 +732,7 @@ def test_direct_capture_waits_for_closed_scored_stream(monkeypatch):
 
     assert client.started_at == pytest.approx(0.0)
     assert client.stopped_at == pytest.approx(0.0)
-    assert FakeClock.now == pytest.approx(0.1)
+    assert FakeClock.now == pytest.approx(2 * bench.DIRECT_EVENT_CLOSE_POLL_INTERVAL_SECONDS)
 
 
 def test_radio_reassociation_does_not_score_expected_sse_disconnect(capsys):
@@ -966,6 +968,118 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
             "error_type": "DirectProtocolError",
         }
     ]
+
+@pytest.mark.parametrize("needs_update", [False, True])
+def test_direct_preparation_reuses_identity_and_limits_requests(monkeypatch, needs_update):
+    identity = {
+        "capabilities": {"operations": [{"name": "update_sensing"}, {"name": "read_diagnostics"}]},
+        "device": {"frontend": "native", "chip": "esp32c3"},
+        "diagnostics": {"uptime": 1},
+    }
+    sensing = {
+        "enabled": not needs_update,
+        "detector": "high_accuracy" if needs_update else "lightweight",
+        "csi_traffic_mode": "internal",
+        "traffic_generator_mode": "ping",
+    }
+    calls = []
+
+    class FakeClient:
+        def request(self, verb, resource, params=None):
+            calls.append((verb, resource, params))
+            if verb == "patch":
+                sensing.update(params)
+                return {}
+            if resource == "sensing":
+                return dict(sensing)
+            return {"uptime": 40} if resource == "diagnostics" else {}
+
+    monkeypatch.setattr(bench, "configured_traffic_generator_mode", lambda *_args: "ping")
+    result = bench.prepare_direct_runtime(
+        FakeClient(), BenchmarkCase("native", "lightweight"), chip="c3", identity=identity,
+    )
+
+    assert result["device"] == identity["device"]
+    assert result["diagnostics"] == {"uptime": 40}
+    assert result["sensing"]["detector"] == "lightweight"
+    assert result["sensing"]["enabled"] is True
+    assert [resource for verb, resource, _ in calls if verb == "get"] == (
+        ["health", "sensing", "wifi", "diagnostics"] + (["sensing"] if needs_update else [])
+    )
+    assert [call for call in calls if call[0] != "get"] == (
+        [("patch", "sensing", {"detector": "lightweight", "enabled": True})] if needs_update else []
+    )
+
+
+@pytest.mark.parametrize("cached_capabilities", [False, True])
+def test_direct_handshake_reads_new_identity_and_reuses_connection_probe(cached_capabilities):
+    calls = []
+    capabilities = {"operations": []}
+
+    class FakeClient:
+        def request(self, verb, resource):
+            calls.append(resource)
+            return {
+                "capabilities": capabilities,
+                "device": {"frontend": "native", "chip": "esp32c3"},
+            }.get(resource, {})
+
+    client = FakeClient()
+    if cached_capabilities:
+        client.capabilities = capabilities
+    result = bench.direct_handshake(client, frontend="native", chip="c3")
+
+    assert result["capabilities"] == capabilities
+    assert "device" in calls
+    assert calls.count("capabilities") == (0 if cached_capabilities else 1)
+
+
+@pytest.mark.parametrize("stream_behavior", ["ready", "lost", "interrupted_readiness"])
+def test_direct_readiness_uses_sensing_events_with_polling_fallback(monkeypatch, stream_behavior):
+    class FakeClock:
+        now = 0.0
+
+        @classmethod
+        def sleep(cls, seconds):
+            assert seconds == 1.0
+            cls.now += seconds
+
+    class FakeClient:
+        events_active = True
+
+        def __init__(self):
+            self.events = []
+            self.sensing_reads = 0
+            self.diagnostics_reads = 0
+
+        def request(self, verb, resource):
+            assert verb == "get"
+            if resource == "sensing":
+                self.sensing_reads += 1
+                return {"enabled": True, "ready": not self.events_active}
+            assert resource == "diagnostics"
+            self.diagnostics_reads += 1
+            if self.diagnostics_reads == 2:
+                if stream_behavior == "lost":
+                    self.events_active = False
+                else:
+                    self.events.append(DirectEvent("sensing", {"enabled": True, "ready": True}, FakeClock.now))
+            if stream_behavior == "interrupted_readiness" and self.diagnostics_reads in {4, 5}:
+                self.events.append(DirectEvent(
+                    "sensing", {"enabled": True, "ready": self.diagnostics_reads == 5}, FakeClock.now,
+                ))
+            return {"timestamp_ms": self.diagnostics_reads * 1000, "uptime": 40 + self.diagnostics_reads,
+                    "csi_admitted_pps": 95.0}
+
+    monkeypatch.setattr(bench.time, "monotonic", lambda: FakeClock.now)
+    monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
+    client = FakeClient()
+    bench.wait_for_direct_runtime_ready(client, use_sensing_events=True)
+
+    assert client.sensing_reads == (6 if stream_behavior == "lost" else 1)
+    assert client.diagnostics_reads == (9 if stream_behavior == "interrupted_readiness" else 6)
+    assert FakeClock.now == client.diagnostics_reads - 1
+
 
 def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     class FakeClock:
