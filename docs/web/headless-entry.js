@@ -8,11 +8,44 @@
 
 import { ImprovSerial as BaseImprovSerial } from 'improv-wifi-serial-sdk/dist/serial.js';
 import { PortNotReady } from 'improv-wifi-serial-sdk/dist/const.js';
+import { Transport as BaseTransport } from 'esptool-js';
 
-export { ESPLoader, Transport } from 'esptool-js';
+export { ESPLoader } from 'esptool-js';
 export { ImprovSerialCurrentState } from 'improv-wifi-serial-sdk/dist/const.js';
 
 const ESPECTRE_IMPROV_GET_MATTER_ONBOARDING = 0x80;
+
+export class Transport extends BaseTransport {
+    trace(message) {
+        if (this.tracing) super.trace(message);
+    }
+
+    async readLoop() {
+        while (this.device.readable) {
+            const reader = this.device.readable.getReader();
+            this.reader = reader;
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) return;
+                    if (value?.length) {
+                        this.buffer = this.appendArray(this.buffer, Uint8Array.from(value));
+                    }
+                }
+            } catch (error) {
+                const recoverable = ['BufferOverrunError', 'FramingError', 'BreakError', 'ParityError']
+                    .includes(error?.name);
+                if (!recoverable) {
+                    this.onDeviceLostCallback?.();
+                    return;
+                }
+            } finally {
+                reader.releaseLock();
+                if (this.reader === reader) this.reader = undefined;
+            }
+        }
+    }
+}
 
 export class ImprovSerial extends BaseImprovSerial {
     async initialize(timeout = 1000) {

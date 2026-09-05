@@ -530,6 +530,47 @@ def test_project_firmware_rejects_unsupported_chip(tmp_path: Path) -> None:
         micro_firmware.build_project_firmware(tmp_path, chip="h2", cache_dir=tmp_path)
 
 
+def test_project_firmware_uses_shared_cpp_identity(tmp_path: Path) -> None:
+    cmake_path = tmp_path / "ports" / "esp32" / "CMakeLists.txt"
+    cmake_path.parent.mkdir(parents=True)
+    cmake_path.write_text("project(micropython)\n", encoding="utf-8")
+    micro_firmware._configure_project_identity(tmp_path)
+    micro_firmware._configure_project_identity(tmp_path)
+    identity = tmp_path / "identity.txt"
+    script = tmp_path / "verify.cmake"
+    script.write_text(
+        "cmake_minimum_required(VERSION 3.16)\n"
+        f'set(ESPECTRE_CORE_SDK_ROOT "{micro_firmware.REPO_ROOT / "src" / "cpp"}")\n'
+        "macro(project name)\n"
+        f'  file(WRITE "{identity}" "${{name}}\\n${{PROJECT_VER}}\\n")\n'
+        "endmacro()\n"
+        f'include("{cmake_path}")\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["cmake", "-DESPECTRE_GIT_VERSION=2.8.0-417-g2b49a9c", "-P", str(script)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert identity.read_text(encoding="utf-8").splitlines() == [
+        micro_firmware.PROJECT_FIRMWARE_PROJECT_NAME, "2.8.0-417-g2b49a9c"
+    ]
+    defaults = (
+        micro.PYTHON_SRC_DIR / "firmware" / "boards" / "sdkconfig.micro_espectre"
+    ).read_text(encoding="utf-8").splitlines()
+    for key in ("APP_EXCLUDE_PROJECT_NAME_VAR", "APP_EXCLUDE_PROJECT_VER_VAR", "APP_PROJECT_VER_FROM_CONFIG"):
+        assert f"CONFIG_{key}=n" in defaults
+
+
+def test_project_firmware_rejects_unexpected_upstream_project(tmp_path: Path) -> None:
+    cmake_path = tmp_path / "ports" / "esp32" / "CMakeLists.txt"
+    cmake_path.parent.mkdir(parents=True)
+    cmake_path.write_text("project(unrelated)\n", encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        micro_firmware._configure_project_identity(tmp_path)
+    assert cmake_path.read_text(encoding="utf-8") == "project(unrelated)\n"
+
+
 def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
     micropython_dir = tmp_path / "micropython"
     lockfile = (

@@ -2,6 +2,11 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 
 # Shared Micro-ESPectre performance profile.
+# Keep the ESP-IDF app descriptor and boot identity, as Native and Matter do.
+CONFIG_APP_EXCLUDE_PROJECT_NAME_VAR=n
+CONFIG_APP_EXCLUDE_PROJECT_VER_VAR=n
+CONFIG_APP_PROJECT_VER_FROM_CONFIG=n
+
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=n
 

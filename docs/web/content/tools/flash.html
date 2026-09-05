@@ -3,7 +3,7 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <h1 class="page-title">Install ESPectre</h1>
-<p class="page-sub">Connect an ESP32 over USB to update, replace, or configure its ESPectre firmware.</p>
+<p class="page-sub">Connect an ESP32 over USB to update, replace, or configure its ESPectre firmware. USB flashing requires desktop Chrome or Edge.</p>
 
 <section class="tool-static-entry" aria-labelledby="flash-static-title">
   <h2 id="flash-static-title">Install from your browser</h2>
@@ -21,8 +21,12 @@
       <span class="connection-card-eyebrow">USB installer</span>
       <h2 id="flash-wizard-title">Connect your device</h2>
       <p>The installer identifies the board and checks its current firmware.</p>
-      <p id="flash-requirement" class="tool-note js-flash-requirement" role="status">USB flashing requires desktop Chrome or Edge.</p>
-      <button type="button" class="btn-primary js-flash-connect" aria-describedby="flash-requirement">Connect USB device</button>
+      <button type="button" class="btn-primary js-flash-connect" aria-describedby="flash-requirement" aria-busy="false">
+        <span class="spinner js-flash-activity-spinner" aria-hidden="true" hidden></span>
+        <span class="js-flash-connect-label">Connect USB device</span>
+        <span class="js-flash-activity-label" role="status" hidden></span>
+        <span class="flash-activity-elapsed js-flash-activity-elapsed" aria-live="off" hidden></span>
+      </button>
       <a class="flash-releases-link js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse firmware releases on GitHub</a>
     </section>
 

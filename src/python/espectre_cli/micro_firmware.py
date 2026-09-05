@@ -35,7 +35,8 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "s2-rom-usb-serial-v2"
+MICROPYTHON_PATCH_REVISION = "app-identity-v4"
+PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
     "c3": "ESP32C3_MICRO_ESPECTRE",
@@ -141,6 +142,23 @@ def _read_idf_version(idf_path: Path) -> str:
     if not version_file.is_file():
         raise RuntimeError(f"ESP-IDF version file is missing: {version_file}")
     return version_file.read_text(encoding="utf-8").strip().removeprefix("v")
+
+
+def _configure_project_identity(micropython_dir: Path) -> None:
+    """Set the Micro-ESPectre name and use the shared Native and Matter Git version resolver."""
+    cmake_path = micropython_dir / "ports" / "esp32" / "CMakeLists.txt"
+    source = cmake_path.read_text(encoding="utf-8")
+    original = "project(micropython)"
+    replacement = (
+        'include("${ESPECTRE_CORE_SDK_ROOT}/espectre_git_version.cmake")\n'
+        'set(PROJECT_VER "${ESPECTRE_GIT_VERSION}")\n'
+        f"project({PROJECT_FIRMWARE_PROJECT_NAME})"
+    )
+    if replacement in source:
+        return
+    if source.count(original) != 1:
+        raise RuntimeError("Unable to configure the Micro-ESPectre project identity")
+    cmake_path.write_text(source.replace(original, replacement), encoding="utf-8")
 
 
 def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_version: str) -> None:
@@ -1302,6 +1320,7 @@ def _build_project_firmware_locked(
         micropython_lib_dir,
     )
     patch_stamp_path = _prepare_micropython_patch_revision(micropython_dir)
+    _configure_project_identity(micropython_dir)
     _configure_project_csi_capture(micropython_dir, chip)
     _configure_project_csi_rearm(micropython_dir)
     _configure_project_csi_fixed_records(micropython_dir)
@@ -1397,7 +1416,7 @@ def _build_project_firmware_locked(
             f"{build_dir.name}/sdkconfig",
             f"{build_dir.name}/bootloader/bootloader.bin",
             f"{build_dir.name}/partition_table/partition-table.bin",
-            f"{build_dir.name}/micropython.bin",
+            f"{build_dir.name}/{PROJECT_FIRMWARE_PROJECT_NAME}.bin",
             f"{build_dir.name}/firmware.bin",
             f"{build_dir.name}/firmware.uf2",
         ],

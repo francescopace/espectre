@@ -33,6 +33,53 @@ function loadFlashCore(globals = {}) {
     return loadFlashRuntime(globals).window.ESPectreFlashCore;
 }
 
+function flashReadFixture(contents) {
+    const reads = [];
+    const writes = [];
+    const packets = [];
+    const transport = {
+        getInfo: () => 'test',
+        slipWriter: (packet) => packet,
+        async read() {
+            assert.ok(packets.length, 'A read must have a pending protocol frame');
+            return packets.shift();
+        },
+        device: {
+            writable: {
+                getWriter: () => ({
+                    async write(packet) {
+                        writes.push(packet);
+                        if (packet.length !== 24) return;
+                        const view = new DataView(packet.buffer, packet.byteOffset);
+                        const address = view.getUint32(8, true);
+                        const size = view.getUint32(12, true);
+                        const blockSize = view.getUint32(16, true);
+                        assert.equal(view.getUint32(20, true), blockSize);
+                        reads.push([address, size]);
+                        // Command response, data frame, and stub's trailing digest.
+                        const response = new Uint8Array(10);
+                        response[0] = 1;
+                        response[1] = packet[1];
+                        const bytes = contents(address, size);
+                        packets.push(response);
+                        for (let offset = 0; offset < bytes.length; offset += blockSize) {
+                            packets.push(bytes.slice(offset, offset + blockSize));
+                        }
+                        packets.push(new Uint8Array(16));
+                    },
+                    releaseLock() {},
+                    async abort() {},
+                }),
+            },
+        },
+    };
+    const loader = new ESPLoader({
+        transport, baudrate: 115200,
+        terminal: { clean() {}, writeLine() {}, write() {} },
+    });
+    return { loader, transport, reads, writes, packets };
+}
+
 function loadDeviceHttpRuntime() {
     let now = 0;
     let timerId = 0;
@@ -241,21 +288,23 @@ describe('device HTTP request budgets', () => {
     });
 });
 
-describe('Improv Serial initialization', () => {
-    let ImprovSerial;
-    before(async () => {
-        const bundle = await rollup({
-            ...serialConfig,
-            input: new URL('../../docs/web/headless-entry.js', import.meta.url).pathname,
-        });
-        try {
-            const { output } = await bundle.generate(serialConfig.output);
-            ({ ImprovSerial } = await import(`data:text/javascript;base64,${Buffer.from(output[0].code).toString('base64')}`));
-        } finally {
-            await bundle.close();
-        }
+let ImprovSerial;
+let ESPLoader;
+let Transport;
+before(async () => {
+    const bundle = await rollup({
+        ...serialConfig,
+        input: new URL('../../docs/web/headless-entry.js', import.meta.url).pathname,
     });
+    try {
+        const { output } = await bundle.generate(serialConfig.output);
+        ({ ImprovSerial, ESPLoader, Transport } = await import(`data:text/javascript;base64,${Buffer.from(output[0].code).toString('base64')}`));
+    } finally {
+        await bundle.close();
+    }
+});
 
+describe('Improv Serial initialization', () => {
     function device(onCommand) {
         let input;
         const commands = [];
@@ -464,7 +513,6 @@ describe('website tool contracts', () => {
     it('exposes an accessible Web Serial workflow', () => {
         const flash = toolContent.flash;
         assert.match(flash, /class="btn-primary js-flash-connect"[^>]+aria-describedby="flash-requirement"/);
-        assert.match(flash, /id="flash-requirement"[^>]+class="[^"]*js-flash-requirement[^"\n]*"[^>]+role="status"/);
         const stages = [...flash.matchAll(/data-flash-step="([^"]+)"/g)]
             .map((match) => match[1]);
         assert.deepEqual(stages.sort(), ['error', 'onboarding', 'review', 'select']);
@@ -796,11 +844,43 @@ describe('website tool contracts', () => {
         assert.equal(codes.manual, '12345678901');
     });
 
+    it('recognizes Micro-ESPectre startup and distinguishes its application version from MicroPython', () => {
+        const core = loadFlashCore();
+        for (const chip of ['ESP32', 'C3', 'C5', 'C6', 'S2', 'S3']) {
+            const info = core.serialIdentity(`[INFO] Micro-ESPectre starting...\n[INFO] Detected chip: ${chip}\n`);
+            assert.equal(info.firmware, 'Micro-ESPectre');
+            assert.equal(info.chipFamily, chip === 'ESP32' ? chip : `ESP32-${chip}`);
+            assert.equal(info.version, '');
+            assert.equal(info.inferred, undefined);
+            assert.equal(core.currentFrontend(info), '');
+            assert.equal(core.frontendMatches('native', info), false);
+        }
+        const branded = core.serialIdentity('MicroPython v1.27.0 on 2026-08-31; ESPectre ESP32-C5 with ESP32-C5\n');
+        assert.equal(branded.firmware, 'Micro-ESPectre');
+        assert.equal(branded.version, '');
+        assert.equal(branded.runtimeVersion, 'v1.27.0');
+        assert.equal(branded.inferred, true);
+        const generic = core.serialIdentity('MicroPython v1.27.0 on 2026-08-31; Generic ESP32-C5 with ESP32-C5\n');
+        assert.equal(generic.firmware, 'MicroPython');
+        assert.equal(generic.version, 'v1.27.0');
+        assert.equal(generic.inferred, undefined);
+        const named = core.serialIdentity('ESP-ROM:esp32c5-20250101\nProject name: micro-espectre\nApp version: 2.8.0-417-g2b49a9c\n');
+        assert.equal(named.firmware, 'Micro-ESPectre');
+        assert.equal(named.version, '2.8.0-417-g2b49a9c');
+        assert.equal(named.inferred, undefined);
+        assert.equal(core.serialIdentity('ESP-ROM:esp32c5-20250101\nProject name: micro-espectre\nApp version: 2.8.'), null);
+        assert.equal(core.serialIdentity('Micro-ESPectre starting...\n'), null);
+    });
+
     it('stops USB detection at the first successful identity source for each frontend', async () => {
-        for (const frontend of ['native', 'matter', 'esphome']) {
-            for (const source of ['improv', 'serial', 'descriptor']) {
+        for (const frontend of ['native', 'matter', 'esphome', 'micro', 'micropython']) {
+            const micro = frontend === 'micro' || frontend === 'micropython';
+            for (const source of micro ? ['serial'] : ['improv', 'serial', 'descriptor']) {
                 const calls = [];
-                const info = { firmware: `ESPectre ${frontend}`, version: '2.8.0', chipFamily: 'ESP32-S3' };
+                const info = {
+                    firmware: micro ? (frontend === 'micro' ? 'Micro-ESPectre' : 'MicroPython') : `ESPectre ${frontend}`,
+                    version: micro ? '' : '2.8.0', chipFamily: 'ESP32-S3'
+                };
                 const context = loadFlashRuntime({
                     browserSupport: { flash: true },
                     navigator: { serial: { requestPort: async () => ({}) } },
@@ -847,10 +927,10 @@ describe('website tool contracts', () => {
                 assert.deepEqual(calls, source === 'improv' ? ['improv']
                     : source === 'serial' ? ['improv', 'serial']
                         : ['improv', 'serial', 'loader', 'descriptor']);
-                assert.equal(flash.detectedFrontend, frontend);
-                assert.equal(flash.currentInfo.version, '2.8.0');
+                assert.equal(flash.detectedFrontend, micro ? '' : frontend);
+                assert.equal(flash.currentInfo.version, info.version);
                 assert.equal(flash.step, 'review');
-                assert.equal(flash.installChoice, 'update');
+                assert.equal(flash.installChoice, micro ? 'change' : 'update');
             }
         }
     });
@@ -939,14 +1019,10 @@ describe('website tool contracts', () => {
             header.set(new TextEncoder().encode(version), 0x30);
             header.set(new TextEncoder().encode(project), 0x50);
 
-            const reads = [];
-            const info = await core.readInstalledFirmwareInfo({
-                async readFlash(address, length) {
-                    reads.push([address, length]);
-                    return address === 0x8000 ? table : header;
-                }
-            }, 'ESP32-S3');
-            assert.deepEqual(reads, [[0x8000, 0xC00], [0x20000, 0x100]]);
+            const fixture = flashReadFixture((address) => address === 0x8000 ? table : header);
+            const info = await core.readInstalledFirmwareInfo(fixture.loader, 'ESP32-S3');
+            assert.deepEqual(fixture.reads, [[0x8000, 0xC00], [0x20000, 0x100]]);
+            assert.equal(fixture.packets.length, 0);
             assert.equal(core.currentFrontend(info), frontend);
             if (frontend) {
                 assert.equal(info.version, expectedVersion);
@@ -955,6 +1031,261 @@ describe('website tool contracts', () => {
                 assert.equal(info, null);
             }
         }
+    });
+
+    it('marks a blank MicroPython-style flash layout as inferred and preserves known descriptor identity', async () => {
+        const context = loadFlashRuntime({ console: { info() {}, warn() {} } });
+        const table = new Uint8Array(3072);
+        const entries = [[1, 2, 0x9000, 0x6000], [1, 1, 0xf000, 0x1000], [0, 0, 0x10000, 0x1f0000]];
+        entries.forEach(([type, subtype, address, size], index) => {
+            const offset = index * 32;
+            table.set([0xaa, 0x50, type, subtype], offset);
+            const view = new DataView(table.buffer);
+            view.setUint32(offset + 4, address, true);
+            view.setUint32(offset + 8, size, true);
+        });
+        const header = new Uint8Array(256);
+        header[0] = 0xe9;
+        new DataView(header.buffer).setUint32(0x20, 0xabcd5432, true);
+        const identify = async () => {
+            const fixture = flashReadFixture((address) => address === 0x8000 ? table : header);
+            return context.flashReadInstalledFirmwareInfo(fixture.loader, 'esp32c5');
+        };
+        const inferred = await identify();
+        assert.equal(inferred.firmware, 'MicroPython');
+        assert.equal(inferred.inferred, true);
+        assert.equal(inferred.version, '');
+        assert.equal(inferred.chipFamily, 'ESP32-C5');
+        header.set(new TextEncoder().encode('unrelated'), 0x50);
+        assert.equal(await identify(), null);
+        header.fill(0, 0x50, 0x70);
+        table[3] = 3;
+        assert.equal(await identify(), null);
+        header.set(new TextEncoder().encode('micropython'), 0x50);
+        header.set(new TextEncoder().encode('v1.27.0'), 0x30);
+        const named = await identify();
+        assert.equal(named.firmware, 'MicroPython');
+        assert.equal(named.inferred, undefined);
+        assert.equal(named.version, 'v1.27.0');
+        header.fill(0, 0x50, 0x70);
+        header.set(new TextEncoder().encode('micro-espectre'), 0x50);
+        const micro = await identify();
+        assert.equal(micro.firmware, 'Micro-ESPectre');
+        assert.equal(micro.version, 'v1.27.0');
+        assert.equal(micro.inferred, undefined);
+    });
+
+    it('drains the digest before another read without changing the installation transport', async () => {
+        const context = loadFlashRuntime();
+        const fixture = flashReadFixture((_address, size) => new Uint8Array(size));
+        const originalTransport = fixture.loader.transport;
+        for (const address of [0x8000, 0x20000]) {
+            const bytes = await context.flashReadFirmwareBytes(fixture.loader, address, 256, 'test');
+            assert.equal(bytes.length, 256);
+        }
+        assert.equal(fixture.loader.transport, originalTransport);
+        assert.equal(fixture.packets.length, 0);
+    });
+
+    it('reads metadata in bounded blocks with cumulative ACKs and rejects truncated frames before ACK', async () => {
+        const context = loadFlashRuntime({ console: { info() {}, warn() {} } });
+        const blockSize = vm.runInContext('FLASH_METADATA_BLOCK_SIZE', context);
+        const size = blockSize * 2 + 256;
+        const fixture = flashReadFixture((_address, length) => new Uint8Array(length));
+        await context.flashReadFirmwareBytes(fixture.loader, 0x8000, size, 'test');
+        assert.deepEqual(fixture.writes.slice(1).map((packet) =>
+            new DataView(packet.buffer, packet.byteOffset).getUint32(0, true)),
+        [blockSize, blockSize * 2, size]);
+        assert.equal(fixture.packets.length, 0);
+
+        for (const corruptBlock of [0, 1]) {
+            const broken = flashReadFixture((_address, length) => new Uint8Array(length));
+            const readPacket = broken.transport.read;
+            let frame = -1;
+            broken.transport.read = async () => {
+                const packet = await readPacket();
+                return frame++ === corruptBlock ? packet.slice(0, -115) : packet;
+            };
+            await assert.rejects(context.flashReadFirmwareBytes(broken.loader, 0x8000, size, 'test'),
+                { name: 'UsbFlashReadError' });
+            assert.equal(broken.writes.length, 1 + corruptBlock);
+        }
+    });
+
+    it('decodes fragmented SLIP input and releases the reader on cancellation', async () => {
+        let input;
+        const port = {
+            readable: new ReadableStream({ start(controller) { input = controller; } }),
+        };
+        const transport = new Transport(port, false);
+        const payload = new Uint8Array([1, 0xc0, 0xdb, 4]);
+        const wire = transport.slipWriter(payload);
+        const loop = transport.readLoop();
+        const decoded = transport.read(1000);
+        input.enqueue(wire.slice(0, 4));
+        await new Promise((resolve) => setImmediate(resolve));
+        input.enqueue(wire.slice(4));
+        assert.deepEqual(await decoded, payload);
+        await transport.reader.cancel();
+        await loop;
+        assert.equal(port.readable.locked, false);
+        assert.equal(transport.reader, undefined);
+    });
+
+    it('opens the bootloader transport with the configured receive buffer', async () => {
+        const context = loadFlashRuntime();
+        let options;
+        context.flashState.port = { async open(value) { options = value; } };
+        Object.assign(context, {
+            flashCloseMode: async () => {},
+            flashWaitForSerialReopen: async () => {},
+            flashReportUsbStep() {},
+            flashApplyEsptoolSpiRegisterFix() {},
+        });
+        await context.flashEnterLoader({
+            Transport,
+            ESPLoader: class {
+                constructor(value) { this.options = value; }
+                async main() {
+                    const { transport, baudrate, serialOptions } = this.options;
+                    await transport.connect(baudrate, serialOptions);
+                    return 'ESP32-C5';
+                }
+            },
+        });
+        assert.equal(options.bufferSize, vm.runInContext('FLASH_SERIAL_BUFFER_SIZE', context));
+        assert.equal(options.baudRate, vm.runInContext('FLASH_SERIAL_BAUD', context));
+    });
+
+    it('resumes recoverable serial input failures and reports device loss for fatal errors', async () => {
+        for (const [name, recoverable] of [['BufferOverrunError', true], ['NetworkError', false]]) {
+            let input;
+            let current = new ReadableStream({ start(controller) { input = controller; } });
+            let disconnected = 0;
+            const port = { get readable() { return current; } };
+            const transport = new Transport(port, false);
+            transport.setDeviceLostCallback(() => { disconnected += 1; });
+            const loop = transport.readLoop();
+            const first = current;
+            current = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new Uint8Array([7, 8]));
+                    controller.close();
+                },
+            });
+            const error = new Error('test');
+            error.name = name;
+            input.error(error);
+            await loop;
+            assert.equal(transport.buffer.length, recoverable ? 2 : 0);
+            assert.equal(disconnected, recoverable ? 0 : 1);
+            assert.equal(first.locked, false);
+            assert.equal(current.locked, false);
+        }
+    });
+
+    it('bounds every flash-read I/O stage and prevents late ACKs after cancellation', async () => {
+        for (const blockedStage of ['command_write', 'command_response', 'data_read', 'ack_write', 'digest_read']) {
+            let deadline;
+            let signalBlocked;
+            let resume;
+            let cancelled = 0;
+            let aborted = 0;
+            let released = 0;
+            let writeCount = 0;
+            let readCount = 0;
+            let deadlineCleared = false;
+            const blocked = new Promise((resolve) => { signalBlocked = resolve; });
+            const pause = () => {
+                signalBlocked();
+                return new Promise((resolve) => { resume = resolve; });
+            };
+            const context = loadFlashRuntime({
+                setTimeout: (callback) => { deadline = callback; return 1; },
+                clearTimeout: () => { deadlineCleared = true; },
+            });
+            const fixture = flashReadFixture((_address, size) => new Uint8Array(size));
+            fixture.transport.reader = { async cancel() { cancelled += 1; } };
+            const originalRead = fixture.transport.read;
+            fixture.transport.read = async (...args) => {
+                const stage = ['command_response', 'data_read', 'digest_read'][readCount++];
+                if (stage === blockedStage) await pause();
+                return originalRead(...args);
+            };
+            const getWriter = fixture.transport.device.writable.getWriter;
+            fixture.transport.device.writable.getWriter = () => {
+                const writer = getWriter();
+                return {
+                    async write(packet) {
+                        const stage = writeCount++ === 0 ? 'command_write' : 'ack_write';
+                        if (stage === blockedStage) await pause();
+                        return writer.write(packet);
+                    },
+                    async abort() { aborted += 1; },
+                    releaseLock() { released += 1; },
+                };
+            };
+            const result = context.flashReadFirmwareBytes(fixture.loader, 0x8000, 4, 'partition_table');
+            await blocked;
+            const rejected = assert.rejects(result, { name: 'UsbFlashReadError', stage: blockedStage, phase: 'partition_table' });
+            deadline();
+            await rejected;
+            assert.equal(cancelled, 1);
+            assert.equal(aborted, blockedStage.endsWith('_write') ? 1 : 0);
+            assert.equal(deadlineCleared, true);
+            const writesAtTimeout = writeCount;
+            resume();
+            await new Promise((resolve) => setImmediate(resolve));
+            assert.equal(writeCount, writesAtTimeout);
+            assert.equal(released, writeCount);
+        }
+    });
+
+    it('propagates flash transport failures instead of treating them as unidentified firmware', async () => {
+        const context = loadFlashRuntime({ console: { info() {}, warn() {} } });
+        const fixture = flashReadFixture(() => new Uint8Array(0));
+        await assert.rejects(
+            context.flashReadInstalledFirmwareInfo(fixture.loader, 'ESP32-S3'),
+            { name: 'UsbFlashReadError' },
+        );
+        assert.equal(fixture.writes.length, 1);
+    });
+
+    it('shows USB errors before blocked cleanup and bounds waiting without releasing the pending session', async () => {
+        let deadline;
+        let finishClose;
+        const detail = { textContent: '' };
+        const context = loadFlashRuntime({
+            $: () => detail,
+            setTimeout: (callback) => { deadline = callback; return 1; },
+            clearTimeout() {},
+            console: { warn() {} },
+        });
+        Object.assign(context, {
+            flashShowProgress() {},
+            flashShouldReportInstallResult: () => false,
+            flashSetStep: (step) => { context.flashState.step = step; },
+            flashSetState: (state) => { context.flashState.state = state; },
+            flashSyncControls() {},
+            flashReportUsbStep() {},
+        });
+        const transport = { disconnect: () => new Promise((resolve) => { finishClose = resolve; }) };
+        context.flashState.transport = transport;
+        context.flashState.mode = 'loader';
+        const failing = context.flashFail(new Error('test failure'));
+        assert.equal(context.flashState.state, 'error');
+        assert.equal(context.flashState.step, 'error');
+        const closing = context.flashState.closePromise;
+        assert.ok(closing);
+        await Promise.resolve();
+        deadline();
+        await failing;
+        assert.equal(context.flashState.closePromise, closing);
+        assert.equal(context.flashState.loader, null);
+        assert.equal(context.flashState.transport, null);
+        finishClose();
+        await closing;
+        assert.equal(context.flashState.closePromise, null);
     });
 
     it('matches the CLI flash regions while preserving device data', () => {

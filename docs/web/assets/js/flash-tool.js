@@ -10,12 +10,16 @@
 
 'use strict';
 
-    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.6.1-2.8.0/headless.js?v=3';
+    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.6.1-2.8.0/headless.js?v=5';
     const FLASH_ANSI_BUNDLE = '/vendor/ansi_up-6.0.6/ansi_up.js';
     const FLASH_SERIAL_BAUD = 115200;
     const FLASH_IMPROV_PROBE_TIMEOUT_MS = 1500;
     const FLASH_IMPROV_BOOT_TIMEOUT_MS = 10000;
     const FLASH_FIRMWARE_PROBE_TIMEOUT_MS = 10000;
+    const FLASH_METADATA_READ_TIMEOUT_MS = 10000;
+    const FLASH_METADATA_BLOCK_SIZE = 1024;
+    const FLASH_SERIAL_BUFFER_SIZE = 64 * 1024;
+    const FLASH_CLOSE_TIMEOUT_MS = 3000;
     const FLASH_SERIAL_SETTLE_MS = 250;
     const FLASH_SERIAL_REOPEN_DELAY_MS = 500;
     const FLASH_PROVISION_TIMEOUT_MS = 45000;
@@ -61,11 +65,31 @@
         consoleOpen: false, consoleText: '', consoleAnsiText: '', consoleRedacting: false,
         ansiDependency: null, ansiConstructor: null, ansiRenderer: null,
         attempt: null, flow: 'flash', operation: 0,
-        closePromise: null, lastSerialCloseAt: 0
+        closePromise: null, lastSerialCloseAt: 0,
+        activityTimer: null
     };
 
     function flashDelay(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function flashWithTimeout(promise, timeoutMs, createError) {
+        let timer;
+        try {
+            return await Promise.race([
+                promise,
+                new Promise((_resolve, reject) => {
+                    timer = setTimeout(() => reject(createError()), timeoutMs);
+                })
+            ]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    function flashWaitForClose(promise) {
+        return flashWithTimeout(promise, FLASH_CLOSE_TIMEOUT_MS, () =>
+            new Error('USB cleanup is still pending. Unplug the board, reconnect it, and try again.'));
     }
 
     async function flashWaitForSerialReopen() {
@@ -103,7 +127,7 @@
         renderConnection();
         syncFirmwareUpdateNotice();
         flashSyncUsbActions();
-        const connect = $('.js-flash-connect');
+        const connect = $('.js-flash-connect-label');
         if (connect) connect.textContent = 'Continue with selected device';
     }
 
@@ -115,7 +139,7 @@
         renderConnection();
         syncFirmwareUpdateNotice();
         flashSyncUsbActions();
-        const connect = $('.js-flash-connect');
+        const connect = $('.js-flash-connect-label');
         if (connect) connect.textContent = 'Connect USB device';
     }
 
@@ -172,12 +196,64 @@
 
     function flashSetState(state, message = '') {
         flash.state = state;
+        flashSyncActivity(state, message);
         if (message) toast(message);
+    }
+
+    function flashSyncActivity(state, message = '') {
+        const active = FLASH_TRANSITION_STATES.has(state);
+        if (!active) {
+            clearInterval(flash.activityTimer);
+            flash.activityTimer = null;
+        }
+        const connect = $('.js-flash-connect');
+        const idleLabel = $('.js-flash-connect-label');
+        const spinner = $('.js-flash-activity-spinner');
+        const label = $('.js-flash-activity-label');
+        const elapsed = $('.js-flash-activity-elapsed');
+        if (!connect || !idleLabel || !spinner || !label || !elapsed) return;
+        connect.setAttribute('aria-busy', String(active));
+        idleLabel.hidden = active;
+        spinner.hidden = !active;
+        label.hidden = !active;
+        elapsed.hidden = !active;
+        if (!active) return;
+        label.textContent = message || {
+            selecting: 'Waiting for USB device selection…',
+            detecting: 'Identifying the connected device…',
+            restart: 'Restarting the device…'
+        }[state];
+        if (flash.activityTimer !== null) return;
+        const startedAt = Date.now();
+        const updateElapsed = () => {
+            elapsed.textContent = '(' + Math.floor((Date.now() - startedAt) / 1000) + ' s)';
+        };
+        updateElapsed();
+        flash.activityTimer = setInterval(updateElapsed, 1000);
     }
 
     function flashNotifyTransition(state, message) {
         flashSetState(state, message);
         flashSyncControls();
+    }
+
+    function flashReportUsbStep(message) {
+        if (!FLASH_TRANSITION_STATES.has(flash.state)) return;
+        flashSyncActivity(flash.state, message);
+    }
+
+    function flashTrackUsbMethod(target, method, message, nextMessage = '') {
+        const original = target[method];
+        if (typeof original !== 'function') return;
+        const operation = flash.operation;
+        target[method] = async function (...args) {
+            if (operation === flash.operation) {
+                flashReportUsbStep(typeof message === 'function' ? message() : message);
+            }
+            const result = await original.apply(this, args);
+            if (nextMessage && operation === flash.operation) flashReportUsbStep(nextMessage);
+            return result;
+        };
     }
 
     function flashSetProgress(value, label) {
@@ -448,12 +524,14 @@
         const reader = flash.reader;
         flash.reader = null;
         if (!reader) return;
+        flashReportUsbStep('Releasing the USB reader…');
         await reader.cancel().catch(() => {});
         try { reader.releaseLock(); } catch (_error) { /* already released */ }
     }
 
     async function flashCloseMode({ keepPort = true } = {}) {
         if (flash.closePromise) {
+            flashReportUsbStep('Waiting for the USB session to close…');
             await flash.closePromise;
             if (!keepPort && flash.port) {
                 flash.port = null;
@@ -469,6 +547,7 @@
         const transport = flash.transport;
         const hadOpenSession = Boolean(improv || transport
             || port?.readable || port?.writable || flash.reader);
+        if (hadOpenSession) flashReportUsbStep('Closing the USB session…');
         flash.improv = null;
         flash.transport = null;
         flash.loader = null;
@@ -499,11 +578,14 @@
 
     async function flashOpenPort(mode) {
         await flashCloseMode({ keepPort: true });
+        flashReportUsbStep('Waiting for the USB port to reopen…');
         await flashWaitForSerialReopen();
         const port = flash.port;
         if (!port) throw new DOMException('The USB device is disconnected.', 'NetworkError');
+        flashReportUsbStep('Opening the USB port…');
         await port.open({ baudRate: FLASH_SERIAL_BAUD, bufferSize: 8192 });
         flash.mode = mode;
+        flashReportUsbStep('Waiting for the USB port to become ready…');
         await flashDelay(FLASH_SERIAL_SETTLE_MS);
     }
 
@@ -511,7 +593,7 @@
         return {
             log: () => {},
             debug: () => {},
-            error: (message) => console.debug('Improv Serial:', message)
+            error: () => {}
         };
     }
 
@@ -519,7 +601,10 @@
         await flashOpenPort('probe');
         const improv = new api.ImprovSerial(flash.port, flashImprovLogger());
         flash.improv = improv;
+        flashTrackUsbMethod(improv, 'requestCurrentState', 'Waiting for the device to answer Improv…');
+        flashTrackUsbMethod(improv, 'requestInfo', 'Reading firmware information through Improv…');
         try {
+            flashReportUsbStep('Starting Improv detection…');
             await improv.initialize(timeout);
             flash.currentInfo = improv.info || null;
             flash.nextUrl = improv.nextUrl || '';
@@ -542,6 +627,7 @@
 
     function flashFrontendMatches(frontend, info) {
         if (!info) return false;
+        if (flashIsMicroFirmware(info)) return false;
         const firmware = String(info.firmware || '').toLowerCase();
         const isEspHome = firmware.includes('esphome')
             || firmware === 'francescopace.espectre';
@@ -556,6 +642,10 @@
 
     function flashCurrentFrontend(info) {
         return FLASH_FRONTEND_ORDER.find((frontend) => flashFrontendMatches(frontend, info)) || '';
+    }
+
+    function flashIsMicroFirmware(info) {
+        return ['Micro-ESPectre', 'MicroPython'].includes(info?.firmware);
     }
 
     function flashInstalledInfo(frontend, version, chipFamily, label, reportedInfo = null) {
@@ -745,6 +835,7 @@
 
     async function flashEnterLoader(api) {
         await flashCloseMode({ keepPort: true });
+        flashReportUsbStep('Waiting for the USB port before bootloader connection…');
         await flashWaitForSerialReopen();
         const port = flash.port;
         if (!port) {
@@ -761,10 +852,17 @@
             }
         });
         const loader = new api.ESPLoader({
-            transport, baudrate: FLASH_SERIAL_BAUD, terminal: flashTerminal()
+            transport, baudrate: FLASH_SERIAL_BAUD, terminal: flashTerminal(),
+            serialOptions: { bufferSize: FLASH_SERIAL_BUFFER_SIZE }
         });
         flash.loader = loader;
         flashApplyEsptoolSpiRegisterFix(loader);
+        let attempt = 0;
+        flashTrackUsbMethod(loader, 'connect', 'Opening the bootloader connection…', 'Reading chip information…');
+        flashTrackUsbMethod(loader, '_connectAttempt', () => 'Connecting to bootloader (attempt ' + (++attempt) + ')…');
+        flashTrackUsbMethod(loader, 'runStub', 'Starting the flash reader…');
+        flashTrackUsbMethod(loader, 'readFlashId', 'Checking the flash connection…');
+        flashReportUsbStep('Starting board identification…');
         return flashNormalizeChip(await loader.main('default_reset'));
     }
 
@@ -788,13 +886,15 @@
         flash.nextUrl = '';
         $('.js-flash-force-erase').checked = false;
         const operation = ++flash.operation;
-        flashNotifyTransition('selecting', reusePort
-            ? 'Checking the selected USB device…'
-            : 'Choose the ESPectre USB device in the browser dialog.');
+        flashNotifyTransition('selecting', 'Loading USB tools…');
         track('firmware_installer_open', flashParams());
         try {
+            if (flash.closePromise) await flashWaitForClose(flash.closePromise);
             const api = await flashLoadHeadless();
             if (operation !== flash.operation) return;
+            flashReportUsbStep(reusePort
+                ? 'Checking the selected USB device…'
+                : 'Choose the ESPectre USB device in the browser dialog.');
             const port = reusePort && flash.port ? flash.port : await navigator.serial.requestPort();
             if (operation !== flash.operation) return;
             flashActivateUsb(port, false);
@@ -811,13 +911,17 @@
                 improv?.info?.chipFamily || serialInfo?.chipFamily || ''
             );
             let chip = reportedChip;
+            const needsFirmwareDescriptor = (!serialInfo || !serialInfo.version)
+                && !flashIsMicroFirmware(serialInfo);
             if (!flashAnyFrontendSupportsChip(reportedChip)
-                    || (serialInfo && !serialInfo.version)) {
+                    || (serialInfo && needsFirmwareDescriptor)) {
                 flashNotifyTransition('detecting', 'Identifying the connected board…');
                 chip = await flashEnterLoader(api);
             }
-            if (!improv && (!serialInfo || !serialInfo.version) && flash.loader) {
-                const storedInfo = await flashReadInstalledFirmwareInfo(flash.loader, chip);
+            if (!improv && needsFirmwareDescriptor && flash.loader) {
+                const storedInfo = await flashReadInstalledFirmwareInfo(flash.loader, chip, (message) => {
+                    if (operation === flash.operation) flashReportUsbStep(message);
+                });
                 if (storedInfo) {
                     flash.currentInfo = storedInfo;
                 }
@@ -859,7 +963,12 @@
     async function flashContinueToDetection() {
         const reusePort = Boolean(flash.port);
         if (flash.closePromise || flash.mode === 'console') {
-            await flashCloseMode({ keepPort: true });
+            try {
+                await flashWaitForClose(flashCloseMode({ keepPort: true }));
+            } catch (error) {
+                await flashFail(error);
+                return;
+            }
         }
         if (route !== 'tool-flash') return;
         const consoleDetails = $('.js-flash-console');
@@ -868,7 +977,8 @@
     }
 
     async function flashConfigureWifi(reusePort = false) {
-        if (!browserSupport.flash || flash.detectedFrontend === 'matter') {
+        if (!browserSupport.flash || flash.detectedFrontend === 'matter'
+                || flashIsMicroFirmware(flash.currentInfo)) {
             toast('Wi-Fi configuration over USB is available for Native and ESPHome.');
             return;
         }
@@ -940,12 +1050,16 @@
             || flash.detectedChip;
         const detectedFrontend = flash.detectedFrontend || flashCurrentFrontend(flash.currentInfo);
         $('.js-flash-review-frontend').textContent = flash.frontends[detectedFrontend]?.label
+            || (flash.currentInfo?.firmware
+                ? flash.currentInfo.firmware + (flash.currentInfo.inferred ? ' (inferred)' : '') : '')
             || 'Unknown';
-        $('.js-flash-review-version').textContent = detectedFrontend
-            ? flash.currentInfo?.version || 'Version unavailable.'
+        $('.js-flash-review-version').textContent = detectedFrontend || flash.currentInfo?.firmware
+            ? flash.currentInfo?.version || (flash.currentInfo?.runtimeVersion
+                ? 'MicroPython ' + flash.currentInfo.runtimeVersion + '; application version unavailable.'
+                : 'Version unavailable.')
             : 'Firmware not recognized. Choose a firmware type to install.';
         const configureWifi = $('.js-flash-configure-wifi');
-        configureWifi.hidden = flash.detectedFrontend === 'matter';
+        configureWifi.hidden = flash.detectedFrontend === 'matter' || flashIsMicroFirmware(flash.currentInfo);
         flashSyncDeviceSettingsLinks(detectedFrontend);
         const matterCodes = $('.js-flash-show-matter');
         matterCodes.hidden = flash.detectedFrontend !== 'matter';
@@ -1052,15 +1166,114 @@
         }
     }
 
-    async function flashReadInstalledFirmwareInfo(loader, chipFamily) {
+    async function flashReadFirmwareBytes(loader, address, size, phase) {
+        const startedAt = Date.now();
+        let receivedBytes = 0;
+        let stage = 'command_write';
+        let stopped = false;
+        let writer = null;
+        const transport = loader.transport;
+        // Isolate metadata-read limits from the loader used for later installation.
+        const session = Object.create(loader);
+        session.transport = Object.create(transport);
+        const ensureActive = () => {
+            if (stopped) throw new Error('The USB flash read has been stopped.');
+        };
+        session.transport.write = async (packet) => {
+            ensureActive();
+            const acknowledging = stage === 'ack_write';
+            if (!transport.device.writable) throw new Error('The USB output stream is closed.');
+            const currentWriter = transport.device.writable.getWriter();
+            writer = currentWriter;
+            try {
+                await currentWriter.write(transport.slipWriter(packet));
+                ensureActive();
+                if (acknowledging) {
+                    stage = 'data_read';
+                } else {
+                    stage = 'command_response';
+                }
+            } finally {
+                currentWriter.releaseLock();
+                if (writer === currentWriter) writer = null;
+            }
+        };
+        session.transport.read = async (timeout) => {
+            ensureActive();
+            const remaining = Math.max(1, FLASH_METADATA_READ_TIMEOUT_MS - (Date.now() - startedAt));
+            const packet = await transport.read(Math.min(timeout, remaining));
+            ensureActive();
+            if (stage === 'data_read') {
+                const expectedBlockBytes = Math.min(FLASH_METADATA_BLOCK_SIZE, size - receivedBytes);
+                const blockBytes = packet.length;
+                receivedBytes += packet.length;
+                if (blockBytes !== expectedBlockBytes) {
+                    throw new Error('Incomplete or invalid USB flash block: received ' + blockBytes
+                        + ' bytes, expected ' + expectedBlockBytes + '.');
+                }
+                stage = 'ack_write';
+            }
+            return packet;
+        };
+        session.checkCommand = async (description, op, data, ...args) => {
+            if (op === loader.ESP_READ_FLASH) {
+                data = data.slice();
+                const request = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                // One smaller block in flight; each ACK permits the next block.
+                request.setUint32(8, FLASH_METADATA_BLOCK_SIZE, true);
+                request.setUint32(12, FLASH_METADATA_BLOCK_SIZE, true);
+            }
+            const result = await loader.checkCommand.call(session, description, op, data, ...args);
+            ensureActive();
+            if (result === 0) {
+                stage = 'data_read';
+            }
+            return result;
+        };
         try {
-            const table = await loader.readFlash(0x8000, FLASH_PARTITION_TABLE_LENGTH);
-            const appPartitions = flashPartitions(table, 0)
+            const reading = (async () => {
+                const bytes = await session.readFlash(address, size);
+                ensureActive();
+                // The stub sends a trailing MD5 frame after the final ACK.
+                // Consume it so it cannot become the next command's response.
+                stage = 'digest_read';
+                const digest = await session.transport.read(FLASH_METADATA_READ_TIMEOUT_MS);
+                if (digest.length !== 16) throw new Error('Invalid USB flash digest length.');
+                return bytes;
+            })();
+            const bytes = await flashWithTimeout(reading, FLASH_METADATA_READ_TIMEOUT_MS, () =>
+                new Error('USB flash identification timed out during ' + phase + ' (' + stage + '). Reconnect the board and try again.'));
+            return bytes;
+        } catch (error) {
+            stopped = true;
+            // Stop pending I/O before cleanup; late completions cannot send ACKs.
+            const pendingWriter = writer;
+            const pendingReader = transport.reader;
+            if (pendingWriter) void Promise.resolve().then(() => pendingWriter.abort()).catch(() => {});
+            if (pendingReader) void Promise.resolve().then(() => pendingReader.cancel()).catch(() => {});
+            const failure = new Error(error?.message || String(error));
+            failure.name = 'UsbFlashReadError';
+            failure.phase = phase;
+            failure.stage = stage;
+            throw failure;
+        } finally {
+            stopped = true;
+        }
+    }
+
+    async function flashReadInstalledFirmwareInfo(loader, chipFamily, onProgress = () => {}) {
+        try {
+            onProgress('Reading the flash partition table…');
+            const table = await flashReadFirmwareBytes(loader, 0x8000, FLASH_PARTITION_TABLE_LENGTH, 'partition_table');
+            const partitions = flashPartitions(table, 0);
+            const appPartitions = partitions
                 .filter((partition) => partition.type === 0x00);
-            for (const partition of appPartitions) {
-                const header = await loader.readFlash(
-                    partition.address,
-                    FLASH_APP_DESCRIPTOR_LENGTH
+            let inferredInfo = null;
+            for (const [index, partition] of appPartitions.entries()) {
+                onProgress('Reading installed firmware (partition ' + (index + 1) + ' of ' + appPartitions.length + ')…');
+                const header = await flashReadFirmwareBytes(
+                    loader, partition.address, FLASH_APP_DESCRIPTOR_LENGTH,
+                    'firmware_partition_' + (index + 1)
                 );
                 const descriptor = flashAppDescriptor(header);
                 const frontend = descriptor && flashProjectFrontend(descriptor.projectName);
@@ -1072,11 +1285,46 @@
                         chipFamily: flashNormalizeChip(chipFamily)
                     };
                 }
+                if (descriptor?.projectName.toLowerCase() === 'micro-espectre') {
+                    return {
+                        firmware: 'Micro-ESPectre', version: descriptor.version,
+                        chipFamily: flashNormalizeChip(chipFamily)
+                    };
+                }
+                if (descriptor?.projectName.toLowerCase() === 'micropython') {
+                    inferredInfo = {
+                        firmware: 'MicroPython', version: descriptor.version,
+                        chipFamily: flashNormalizeChip(chipFamily)
+                    };
+                } else if (descriptor && !descriptor.projectName && !descriptor.version
+                        && flashHasMicroPythonLayout(partitions)) {
+                    inferredInfo = {
+                        firmware: 'MicroPython', version: '',
+                        chipFamily: flashNormalizeChip(chipFamily), inferred: true
+                    };
+                }
             }
+            return inferredInfo;
         } catch (error) {
-            console.debug('Unable to read the installed firmware descriptor:', error);
+            if (error?.name === 'UsbFlashReadError') throw error;
+            // Invalid descriptors leave the installed firmware unidentified.
         }
         return null;
+    }
+
+    function flashHasMicroPythonLayout(partitions) {
+        // MicroPython's 4 MiB+ profile leaves the filesystem outside these entries.
+        // This layout is evidence of a likely runtime, not proof of an application.
+        const layout = [
+            [1, 2, 0x9000, 0x6000],
+            [1, 1, 0xF000, 0x1000],
+            [0, 0, 0x10000, 0x1F0000]
+        ];
+        return partitions.length === layout.length && partitions.every((entry, index) => {
+            const [type, subtype, address, size] = layout[index];
+            return entry.type === type && entry.subtype === subtype
+                && entry.address === address && entry.size === size;
+        });
     }
 
     function flashEspImageLength(bytes, offset = 0) {
@@ -1332,6 +1580,27 @@
         input = input.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
         const project = input.match(/Project name:[ \t]*([^\r\n]+)[\r\n]/i)?.[1]?.trim() || '';
         const appVersion = input.match(/App version:[ \t]*([^\r\n]+)[\r\n]/i)?.[1]?.trim() || '';
+        const namedMicro = project.toLowerCase() === 'micro-espectre';
+        const banner = input.match(/MicroPython(?: \(with v2\.0 preview\))?\s+(\S+) on [^;\r\n]+; ([^\r\n]+)[\r\n]/);
+        const microStarted = /Micro-ESPectre starting\.\.\./.test(input);
+        const brandedBoard = banner && /\bESPectre ESP32(?:-[CS][2356])?\b/.test(banner[2]);
+        if (namedMicro && !appVersion && !microStarted && !banner) return null;
+        if (namedMicro || microStarted || banner) {
+            const romChip = input.match(/ESP-ROM:(esp32(?:s2|s3|c3|c5|c6)?)/i)?.[1];
+            const detected = input.match(/Detected chip:\s*(ESP32|[CS][2356])\s*[\r\n]/)?.[1];
+            const chip = romChip || (detected && (detected === 'ESP32' ? detected : 'ESP32-' + detected))
+                || banner?.[2].match(/\bESP32(?:-[CS][2356])?\b/)?.[0];
+            if (chip) {
+                const micro = namedMicro || microStarted || brandedBoard;
+                return {
+                    firmware: micro ? 'Micro-ESPectre' : 'MicroPython',
+                    version: namedMicro ? appVersion : micro ? '' : banner[1],
+                    chipFamily: flashNormalizeChip(chip),
+                    ...(micro && banner ? { runtimeVersion: banner[1] } : {}),
+                    ...(brandedBoard && !microStarted && !namedMicro ? { inferred: true } : {})
+                };
+            }
+        }
         const esphomeProject = input.match(/Project francescopace\.espectre version ([^\r\n]+)[\r\n]/);
         const runtime = input.match(/ESPectre (native|Matter) firmware started/i)?.[1]?.toLowerCase();
         const frontend = esphomeProject ? 'esphome' : flashProjectFrontend(project) || runtime;
@@ -1353,6 +1622,7 @@
 
     async function flashReadSerial(timeoutMs, match) {
         await flashOpenPort('probe');
+        flashReportUsbStep('Restarting the device to read startup logs…');
         await flashResetDevice();
         const reader = flash.port.readable.getReader();
         flash.reader = reader;
@@ -1360,6 +1630,7 @@
         const deadline = Date.now() + timeoutMs;
         let input = '';
         try {
+            flashReportUsbStep('Waiting for device startup logs…');
             while (Date.now() < deadline) {
                 const result = await Promise.race([
                     reader.read(),
@@ -1402,8 +1673,8 @@
                 if (codes.qr && codes.manual) {
                     return { ...codes, info: flash.improv.info || flash.currentInfo };
                 }
-            } catch (error) {
-                console.debug('Matter onboarding RPC unavailable; using serial markers:', error);
+            } catch (_error) {
+                // Older firmware can still expose onboarding codes in serial logs.
             }
         }
         const result = await flashReadSerial(timeoutMs, (input) => {
@@ -1500,17 +1771,25 @@
     }
 
     async function flashFail(error) {
+        const operation = flash.operation;
         console.warn('Web Serial operation failed:', error);
         flashShowProgress(false);
         if (flashShouldReportInstallResult()) {
             flashReportResult(error?.name === 'UnsupportedChipError' ? 'unsupported' : 'failure', error);
         }
-        await flashCloseMode({ keepPort: true });
         $('.js-flash-error-detail').textContent = error?.message
             || 'The USB operation failed. Reconnect the board and try again.';
         flashSetStep('error');
         flashSetState('error', 'The operation was interrupted.');
         flashSyncControls();
+        try {
+            await flashWaitForClose(flashCloseMode({ keepPort: true }));
+        } catch (closeError) {
+            console.warn('USB cleanup failed:', closeError);
+            if (operation === flash.operation) {
+                $('.js-flash-error-detail').textContent += ' ' + closeError.message;
+            }
+        }
     }
 
     function flashRedactConsole(value, redactionState) {
@@ -1684,6 +1963,7 @@
     }
 
     async function flashCleanup(reportCancelled = true) {
+        flashSyncActivity('ready');
         flash.operation += 1;
         flashShowProgress(false);
         if (reportCancelled && !flash.resultReported && flash.attempt) flashReportResult('cancelled');
@@ -1702,6 +1982,7 @@
     }
 
     function flashResetUi() {
+        flashSyncActivity('ready');
         flashCloseEraseDialog(false);
         flash.flowDialogReturnFocus = null;
         const password = $('.js-flash-wifi-password');
@@ -1748,6 +2029,7 @@
         if (configureWifi) {
             configureWifi.disabled = unsupported || busy
                 || flash.detectedFrontend === 'matter'
+                || flashIsMicroFirmware(flash.currentInfo)
                 || !flash.currentInfo;
         }
         const matterCodes = $('.js-flash-show-matter');
@@ -1863,10 +2145,14 @@
         flashSetStep(returnStep);
         flashSetState('restart');
         flashSyncControls();
-        void flashCloseMode({ keepPort: true }).then(() => {
+        const operation = flash.operation;
+        void flashWaitForClose(flashCloseMode({ keepPort: true })).then(() => {
+            if (operation !== flash.operation) return;
             flashSetState(returnStep === 'review' ? 'review' : 'ready');
             flashSyncControls();
             if (returnFocus?.isConnected && route === 'tool-flash') returnFocus.focus();
+        }).catch((error) => {
+            if (operation === flash.operation) void flashFail(error);
         });
     }
 

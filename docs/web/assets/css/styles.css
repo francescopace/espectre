@@ -1913,6 +1913,10 @@ body.modal-open { overflow: hidden; }
 
 .tool-note a[aria-disabled="true"] { opacity: .45; cursor: not-allowed; text-decoration: none; }
 .flash-wizard { min-width: 0; }
+.flash-connect-card > .btn-primary { gap: 8px; }
+.flash-connect-card > .btn-primary[aria-busy="true"]:disabled { opacity: 1; cursor: wait; }
+.flash-connect-card .spinner { border-color: color-mix(in srgb, currentColor 35%, transparent); border-top-color: currentColor; }
+.flash-activity-elapsed { flex: none; font-variant-numeric: tabular-nums; }
 .flash-connect-card { margin: 36px auto; padding: 36px 32px; }
 .flash-connect-card > p:first-of-type { margin-bottom: 0; }
 .flash-releases-link {
@@ -1955,7 +1959,8 @@ body.modal-open { overflow: hidden; }
 .flash-install-channel-menu span { color: var(--dim); font-size: 11.5px; }
 .flash-frontend-switch { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 18px; }
 .flash-firmware-value,
-.flash-frontend-choice {
+.flash-frontend-choice,
+.flash-option {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -1974,17 +1979,18 @@ body.modal-open { overflow: hidden; }
   cursor: pointer;
 }
 .flash-firmware-value strong,
-.flash-frontend-choice strong { overflow-wrap: anywhere; font-size: 13.5px; }
+.flash-frontend-choice strong,
+.flash-option strong { overflow-wrap: anywhere; font-size: 13.5px; }
 .flash-firmware-value span,
-.flash-frontend-choice span { color: var(--dim); font-size: 11.5px; }
+.flash-frontend-choice span,
+.flash-option small { color: var(--dim); font-size: 11.5px; }
 .flash-frontend-choice:hover:not(:disabled) { border-color: var(--accent); background: var(--surface2); }
 .flash-frontend-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .flash-frontend-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .flash-frontend-choice:disabled { opacity: .5; cursor: not-allowed; }
-.flash-option { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.flash-option { flex-direction: row; gap: 10px; cursor: pointer; }
 .flash-option input { margin-top: 3px; }
 .flash-option span { display: grid; gap: 3px; }
-.flash-option small { color: var(--dim); }
 .flash-progress { width: 100%; height: 14px; accent-color: var(--accent); }
 .flash-console { box-sizing: border-box; width: 100%; margin: 18px 0 36px; padding: 0; overflow: hidden; }
 .flash-console summary { padding: 20px 24px; cursor: pointer; font-size: 14px; font-weight: 650; }
