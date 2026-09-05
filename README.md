@@ -1,5 +1,5 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![Platform](https://img.shields.io/badge/platform-ESP32-red.svg)](https://www.espressif.com/en/products/socs)
+[![SoC](https://img.shields.io/badge/SoC-ESP32-orange.svg)](https://www.espressif.com/en/products/socs)
 [![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
 [![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
 [![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 

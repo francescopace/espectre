@@ -3,7 +3,7 @@ description: Download one GitHub Release and stage its firmware and SDK website 
 
 inputs:
   release-tag:
-    description: GitHub Release tag, or latest for the latest published release.
+    description: GitHub Release tag, or latest for the most recently published numeric release from version 3, including prereleases.
     required: true
   channel:
     description: Website channel to stage.
@@ -17,7 +17,7 @@ inputs:
 
 outputs:
   staged:
-    description: Whether the requested release exists and was staged.
+    description: Whether the requested release is version 3 or newer and was staged.
     value: ${{ steps.stage.outputs.staged }}
 
 runs:
@@ -33,14 +33,32 @@ runs:
         SDK_OUTPUT_DIR: ${{ inputs.sdk-output-dir }}
       run: |
         set -euo pipefail
-        release_args=()
-        if [[ "${RELEASE_TAG_INPUT}" != "latest" ]]; then
-          release_args+=("${RELEASE_TAG_INPUT}")
+        if [[ "${RELEASE_TAG_INPUT}" == "latest" ]]; then
+          RELEASE_TAG_INPUT="$(
+            gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" |
+              PYTHONPATH=.github/scripts python3 -c '
+        import json, sys
+        from detect_git_version import parse_version_core
+        from validate_release import SEMVER_PATTERN
+        releases = [
+            release for page in json.load(sys.stdin) for release in page
+            if not release["draft"]
+            and SEMVER_PATTERN.fullmatch(release["tag_name"])
+            and parse_version_core(release["tag_name"])[0] >= 3
+        ]
+        latest = max(releases, key=lambda release: release["published_at"], default=None)
+        print(latest["tag_name"] if latest else "")'
+          )"
+          if [[ -z "${RELEASE_TAG_INPUT}" ]]; then
+            echo "No published release from version 3 found; skipping ${WEB_CHANNEL} channel staging."
+            echo "staged=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
         fi
         if ! release_metadata="$(
-          gh release view "${release_args[@]}" \
-            --json tagName,targetCommitish \
-            --jq '[.tagName, (.targetCommitish // "")] | @tsv' \
+          gh release view "${RELEASE_TAG_INPUT}" \
+            --json tagName,targetCommitish,assets \
+            --jq '[.tagName, (.targetCommitish // ""), any(.assets[]; .name | startswith("sdk-manifest-") and endswith(".json"))] | @tsv' \
             2>/dev/null
         )"; then
           echo "No ${RELEASE_TAG_INPUT} release found; skipping ${WEB_CHANNEL} channel staging."
@@ -48,12 +66,32 @@ runs:
           exit 0
         fi
 
-        IFS=$'\t' read -r resolved_tag target_commit <<< "${release_metadata}"
+        IFS=$'\t' read -r resolved_tag target_commit has_sdk_manifest <<< "${release_metadata}"
         stage_root="$(mktemp -d)"
         trap 'rm -rf "${stage_root}"' EXIT
         firmware_dir="${stage_root}/firmware"
         sdk_dir="${stage_root}/sdk"
         mkdir -p "${firmware_dir}" "${sdk_dir}"
+
+        if [[ "${WEB_CHANNEL}" == "release" ]]; then
+          version="${resolved_tag}"
+        elif [[ "${has_sdk_manifest}" == "true" ]]; then
+          gh release download "${resolved_tag}" \
+            --pattern 'sdk-manifest-*.json' \
+            --dir "${sdk_dir}"
+          version="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir "${sdk_dir}")"
+        else
+          # Older rolling releases have no SDK manifest; identify them from their tag.
+          version="$(git describe --tags --match '[0-9]*' --abbrev=7 "${resolved_tag}")"
+        fi
+        major="$(PYTHONPATH=.github/scripts python3 -c \
+          'import sys; from detect_git_version import parse_version_core; print(parse_version_core(sys.argv[1])[0])' \
+          "${version}")"
+        if (( major < 3 )); then
+          echo "Skipping ${WEB_CHANNEL} ${version}: the website serves version 3 and newer."
+          echo "staged=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
 
         gh release download "${resolved_tag}" \
           --pattern '*.bin' \
@@ -69,11 +107,6 @@ runs:
           --dir "${sdk_dir}" \
           --clobber
 
-        if [[ "${WEB_CHANNEL}" == "release" ]]; then
-          version="${resolved_tag}"
-        else
-          version="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir "${sdk_dir}")"
-        fi
         python3 .github/scripts/stage_web_firmware.py \
           --firmware-dir "${firmware_dir}" \
           --output-dir "${FIRMWARE_OUTPUT_DIR}" \

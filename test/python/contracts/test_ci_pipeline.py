@@ -1398,10 +1398,20 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
             (firmware_dir / filename).write_bytes(b"firmware")
             artifacts.append({"build_type": "factory", "chip": chip, "filename": filename})
         frontends[frontend] = {"artifacts": artifacts}
-    firmware_manifest = {"channel": "preview", "frontends": frontends}
+    firmware_manifest = {
+        "channel": "preview",
+        "version": "3.0.0-rc1-12-gabcdef1",
+        "frontends": frontends,
+    }
     firmware_manifest_path = firmware_dir / "firmware-manifest-preview.json"
     firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
     verifier.verify_firmware_channel("preview")
+
+    firmware_manifest["version"] = "2.8.0-434-g2a4cfc8"
+    firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="version 3 or newer"):
+        verifier.verify_firmware_channel("preview")
+    firmware_manifest["version"] = "3.0.0-rc1-12-gabcdef1"
 
     frontends["native"]["artifacts"].append(frontends["native"]["artifacts"][0])
     firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
@@ -1422,6 +1432,11 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
     }
     sdk_manifest_path.write_text(json.dumps(sdk_manifest), encoding="utf-8")
     verifier.verify_sdk_channel("preview")
+    sdk_manifest["version"] = "2.8.0"
+    sdk_manifest_path.write_text(json.dumps(sdk_manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="version 3 or newer"):
+        verifier.verify_sdk_channel("preview")
+    sdk_manifest["version"] = "3.0.0-rc1-12-gabcdef1"
     sdk_manifest["artifacts"][0]["sha256"] = "invalid"
     sdk_manifest_path.write_text(json.dumps(sdk_manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="SHA-256"):
@@ -1472,14 +1487,11 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
     ).read_text(encoding="utf-8")
     assert "detect_git_version.py" in published_channel_action
-    assert ci.count("uses: ./.github/actions/stage-published-web-channel") == 3
     assert snapshot.count("uses: ./.github/actions/stage-published-web-channel") == 2
     assert release.count("uses: ./.github/actions/stage-published-web-channel") == 2
     for tag in (preview_tag, develop_tag):
-        assert f"release-tag: {tag}" in ci
         assert f"release-tag: {tag}" in release
     assert f"release-tag: {develop_tag}" in snapshot
-    assert "release-tag: latest" in ci
     assert "release-tag: latest" in snapshot
     for expected in (
         "gh release view",
@@ -1492,13 +1504,16 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     for source in (ci, snapshot, release):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
-        assert "docs/web/artifacts/firmware/release" in source
     for source in (snapshot, release):
-        assert 'require-release: "true"' in source
+        assert "docs/web/artifacts/firmware/release" in source
         assert "name: website-sitemap" in source
         assert "path: docs/web/sitemap.xml" in source
         assert "path: deployed-website" in source
         assert "notify_indexnow.py --sitemap deployed-website/sitemap.xml" in source
+    assert 'require-preview: "true"' in snapshot
+    assert "require-release: ${{ steps.release-assets.outputs.staged }}" in snapshot
+    assert 'require-release: "true"' in release
+    assert "require-preview: ${{ steps.preview-assets.outputs.staged }}" in release
     pages_action = (REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml").read_text(
         encoding="utf-8"
     )

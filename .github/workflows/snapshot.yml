@@ -457,6 +457,7 @@ jobs:
             --channel preview
 
       - name: Stage published release channel
+        id: release-assets
         uses: ./.github/actions/stage-published-web-channel
         with:
           release-tag: latest
@@ -483,7 +484,7 @@ jobs:
         uses: ./.github/actions/build-pages
         with:
           require-preview: "true"
-          require-release: "true"
+          require-release: ${{ steps.release-assets.outputs.staged }}
           require-develop: ${{ steps.develop-assets.outputs.staged }}
 
       - name: Setup Pages

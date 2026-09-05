@@ -140,13 +140,13 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     assert "ESP-IDF mDNS component" in notices
     assert "Improv Wi-Fi SDK for C++" in notices
     for workflow in (release_workflow, snapshot_workflow):
+        assert "uses: ./.github/actions/stage-published-web-channel" in workflow
         assert re.search(r"(?m)^\s+firmware/\*\.bin$", workflow)
         assert re.search(r"(?m)^\s+firmware/firmware-compliance-\*\.zip$", workflow)
         assert not re.search(r"(?m)^\s+firmware/\*$", workflow)
         assert "build_firmware_compliance_bundle.py" in workflow
         assert "Remove superseded unbundled compliance assets" in workflow
         assert "--compliance-url-prefix" in workflow
-    assert "uses: ./.github/actions/stage-published-web-channel" in ci_workflow
     assert "--pattern 'firmware-compliance-*.zip'" in published_channel_action
     assert "build_firmware_compliance" in ci_workflow
     assert not (REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES").exists()

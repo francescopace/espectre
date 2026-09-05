@@ -19,7 +19,7 @@ _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from detect_git_version import detect_git_version
+from detect_git_version import detect_git_version, parse_version_core
 from web_html_security import validate_passive_api_fragment
 from web_routes import SITEMAP_NAMESPACE, load_manifest, staged_sdk_channels
 
@@ -220,10 +220,16 @@ def verify_sitemap(*, require_preview: bool, require_release: bool, require_deve
         raise ValueError(f"Sitemap is missing required SDK channels: {missing_required}")
 
 
+def verify_channel_version(manifest: dict) -> None:
+    if parse_version_core(manifest.get("version", ""))[0] < 3:
+        raise ValueError("Website channels require ESPectre version 3 or newer")
+
+
 def verify_firmware_channel(channel: str) -> None:
     channel_dir = WEB_ROOT / "artifacts" / "firmware" / channel
     manifest_path = require_file(f"artifacts/firmware/{channel}/firmware-manifest-{channel}.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    verify_channel_version(manifest)
     if manifest.get("channel") != channel:
         raise ValueError(
             f"Firmware manifest channel mismatch: expected {channel!r}, "
@@ -308,6 +314,7 @@ def verify_sdk_channel(channel: str) -> None:
     require_file(f"artifacts/sdk/{channel}/index.html")
     manifest_path = require_file(f"artifacts/sdk/{channel}/sdk-manifest-{channel}.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    verify_channel_version(manifest)
     if manifest.get("channel") != channel:
         raise ValueError(
             f"SDK manifest channel mismatch: expected {channel!r}, found {manifest.get('channel')!r}"

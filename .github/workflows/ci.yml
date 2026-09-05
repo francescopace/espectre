@@ -34,42 +34,6 @@ jobs:
           cache: npm
           cache-dependency-path: docs/web/package-lock.json
       
-      - name: Stage published release channel
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: ./.github/actions/stage-published-web-channel
-        with:
-          release-tag: latest
-          channel: release
-          firmware-output-dir: docs/web/artifacts/firmware/release
-          sdk-output-dir: docs/web/artifacts/sdk/release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-
-      - name: Stage published preview channel
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: ./.github/actions/stage-published-web-channel
-        with:
-          release-tag: snapshot
-          channel: preview
-          firmware-output-dir: docs/web/artifacts/firmware/preview
-          sdk-output-dir: docs/web/artifacts/sdk/preview
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-
-      - name: Stage published develop channel
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: ./.github/actions/stage-published-web-channel
-        with:
-          release-tag: snapshot-dev
-          channel: develop
-          firmware-output-dir: docs/web/artifacts/firmware/develop
-          sdk-output-dir: docs/web/artifacts/sdk/develop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-      
       - name: Build and verify Pages tree
         uses: ./.github/actions/build-pages
         env:

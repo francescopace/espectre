@@ -71,11 +71,13 @@ Use locally built firmware in the browser preview by restaging the available Nat
 ./test/web/generate_firmware_manifest.sh --replace
 ```
 
-The helper writes the release catalog under `artifacts/firmware/release/`. It preserves previously staged factory images unless `--replace` is present. Official deployments stage published GitHub Release assets through CI.
+The helper writes the release catalog under `artifacts/firmware/release/`. It preserves previously staged factory images unless `--replace` is present. Official deployments serve ESPectre version 3 and newer, including 3.x prereleases. Release contains the most recently published numeric GitHub release from version 3, including release candidates; it identifies a tested tagged release, not necessarily a stable version. Selection uses publication time, includes prereleases, and excludes drafts and rolling tags. Older published channels are omitted; until a supported tagged release exists, the Release channel remains unavailable. Rolling versions come from the SDK manifest, with the numeric Git tag ancestry used only to identify older releases without a manifest. New builds also need a numeric 3.x or newer Git tag in their ancestry; builds still identified as `2.8.0-<commits>-g<sha>` cannot be deployed.
 
 All downloads live under the ignored `artifacts/` tree. Firmware uses `artifacts/firmware/<channel>/`; SDK archives use `artifacts/sdk/<channel>/`; and the generated API reference uses `artifacts/sdk/api/`. Generate the API reference with `python3 .github/scripts/generate_sdk_api.py`. It requires Doxygen 1.17.0 and a pinned m.css revision; `--mcss-root` reuses an existing checkout.
 
-The shared `build-pages` action stages dependencies and artifacts, runs the web tests, builds static routes and the API reference, and verifies the output before upload. `build_sitemap.py` generates the ignored `sitemap.xml` from `routes.json` and the SDK channels present in the staged Pages tree. Its `lastmod` dates come from the owning Git commits and staged SDK manifests, so Pages builds require full Git history. After deployment, IndexNow receives this exact generated sitemap inventory.
+Commit CI runs website tests, builds pages and the API reference, and verifies the site without downloading published channels. Before deployment, the Snapshot and Release workflows stage firmware and SDK artifacts from the source CI run or current tag for the channel being updated, recover the other supported published channels, and require verification of every staged channel.
+
+The shared `build-pages` action stages dependencies, runs the web tests, builds static routes and the API reference, and verifies the output before upload. `build_sitemap.py` generates the ignored `sitemap.xml` from `routes.json` and the SDK channels present in the staged Pages tree. Its `lastmod` dates come from the owning Git commits and staged SDK manifests, so Pages builds require full Git history. After deployment, IndexNow receives this exact generated sitemap inventory.
 
 ## Routing and Analytics
 

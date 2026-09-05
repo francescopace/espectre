@@ -481,6 +481,7 @@ jobs:
             --channel release
 
       - name: Stage published preview channel
+        id: preview-assets
         uses: ./.github/actions/stage-published-web-channel
         with:
           release-tag: snapshot
@@ -506,7 +507,7 @@ jobs:
       - name: Build and verify Pages tree
         uses: ./.github/actions/build-pages
         with:
-          require-preview: "true"
+          require-preview: ${{ steps.preview-assets.outputs.staged }}
           require-release: "true"
           require-develop: ${{ steps.develop-assets.outputs.staged }}
 
