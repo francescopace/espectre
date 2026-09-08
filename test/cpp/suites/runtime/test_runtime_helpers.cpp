@@ -650,6 +650,32 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_wifi_band_policy("unsupported") == WifiBandPolicy::BAND_2G);
 }
 
+void test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses(void) {
+    RuntimeConfig config;
+    const uint8_t gateway_bytes[] = {192, 168, 1, 1};
+    uint32_t gateway;
+    std::memcpy(&gateway, gateway_bytes, sizeof(gateway));
+    TEST_ASSERT_EQUAL(gateway, runtime_traffic_target_addr(config, gateway));
+    TEST_ASSERT_EQUAL(0U, runtime_traffic_target_addr(config, 0U));
+    for (const char *target : {"192.168.1.53", "10.0.0.1", "1.1.1.1"}) {
+        config.traffic_generator_target_ip = target;
+        TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
+        TEST_ASSERT_TRUE(runtime_traffic_target_addr(config, 0U) != 0U);
+    }
+    config.traffic_generator_target_ip = "192.168.1.53";
+    const uint8_t expected[] = {192, 168, 1, 53};
+    const uint32_t address = runtime_traffic_target_addr(config, gateway);
+    TEST_ASSERT_EQUAL(0, std::memcmp(expected, &address, sizeof(address)));
+    for (const char *target : {"router.local", "::1", "192.168.1", "192.168.1.256",
+                              "192.168.1.1:53", "192.168.1.1 ", "192.168.01.1",
+                              "192.168..1", "192.168.1.1.", "0.0.0.0", "0.1.2.3",
+                              "127.0.0.1", "224.0.0.1", "240.0.0.1", "255.255.255.255"}) {
+        config.traffic_generator_target_ip = target;
+        TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP);
+        TEST_ASSERT_EQUAL(0U, runtime_traffic_target_addr(config, gateway));
+    }
+}
+
 void test_runtime_config_validator_covers_the_public_schema(void) {
     RuntimeConfig config;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
@@ -896,6 +922,7 @@ int process(void) {
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
+    RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
     RUN_TEST(test_runtime_performance_diagnostics_publish_complete_windows);

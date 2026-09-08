@@ -90,6 +90,15 @@ config ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
         disables the join. Unicast to the device IP still works.
         Subnet and limited broadcast do not produce reliable CSI.
 
+config ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP
+    string "Traffic generator target IPv4 address"
+    default ""
+    help
+        Unicast IPv4 destination for internal ping, DNS over UDP, and DNS over
+        TCP traffic. Empty uses the Wi-Fi default gateway. DNS modes require
+        a resolver on port 53 at this address. Ignored by wifi_raw and external
+        traffic. Invalid addresses are rejected by runtime configuration.
+
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING

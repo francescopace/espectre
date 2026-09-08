@@ -42,12 +42,7 @@ bool wifi_band_policy_valid(WifiBandPolicy policy) {
          policy == WifiBandPolicy::AUTO;
 }
 
-bool multicast_group_valid(const std::string &group) {
-  if (group.empty()) {
-    return true;
-  }
-
-  unsigned octets[4]{};
+bool parse_ipv4(const std::string &group, unsigned (&octets)[4], bool canonical = false) {
   size_t index = 0U;
   size_t offset = 0U;
   while (index < 4U && offset < group.size()) {
@@ -61,7 +56,7 @@ bool multicast_group_valid(const std::string &group) {
       ++offset;
       ++digits;
     }
-    if (digits == 0U) {
+    if (digits == 0U || (canonical && digits > 1U && group[offset - digits] == '0')) {
       return false;
     }
     octets[index++] = value;
@@ -72,10 +67,30 @@ bool multicast_group_valid(const std::string &group) {
       ++offset;
     }
   }
-  return index == 4U && offset == group.size() && octets[0] >= 224U && octets[0] <= 239U;
+  return index == 4U && offset == group.size();
+}
+
+bool multicast_group_valid(const std::string &group) {
+  unsigned octets[4]{};
+  return group.empty() ||
+         (parse_ipv4(group, octets) && octets[0] >= 224U && octets[0] <= 239U);
 }
 
 }  // namespace
+
+uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gateway_addr) {
+  if (config.traffic_generator_target_ip.empty()) return gateway_addr;
+  unsigned octets[4]{};
+  if (!parse_ipv4(config.traffic_generator_target_ip, octets, true) ||
+      octets[0] == 0U || octets[0] == 127U || octets[0] >= 224U) {
+    return 0U;
+  }
+  const uint8_t bytes[] = {static_cast<uint8_t>(octets[0]), static_cast<uint8_t>(octets[1]),
+                           static_cast<uint8_t>(octets[2]), static_cast<uint8_t>(octets[3])};
+  uint32_t address;
+  std::memcpy(&address, bytes, sizeof(address));
+  return address;
+}
 
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!runtime_profile_valid(config.runtime_profile)) return RuntimeConfigError::RUNTIME_PROFILE;
@@ -86,6 +101,9 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   }
   if (!runtime_traffic_mode_valid(config.traffic_generator_mode)) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_MODE;
+  }
+  if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
+    return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
   }
   if (!runtime_csi_traffic_mode_valid_for_profile(config.runtime_profile,
                                                   config.csi_traffic_mode)) {
@@ -153,6 +171,7 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS: return "invalid segmentation window duration";
     case RuntimeConfigError::CSI_TARGET_PPS: return "invalid CSI target PPS";
     case RuntimeConfigError::TRAFFIC_GENERATOR_MODE: return "invalid traffic generator mode";
+    case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP: return "invalid traffic generator target IPv4 address";
     case RuntimeConfigError::CSI_TRAFFIC_MODE: return "invalid CSI traffic mode for runtime profile";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";

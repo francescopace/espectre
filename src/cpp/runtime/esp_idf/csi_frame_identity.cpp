@@ -149,7 +149,7 @@ bool matches_external_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig 
 }
 
 bool matches_internal_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
-  return packet.protocol == kIpProtoIcmp && packet.source == host_ip(config.gateway_ip_addr) &&
+  return packet.protocol == kIpProtoIcmp && packet.source == host_ip(config.internal_target_ip_addr) &&
          destination_ip_matches(packet, config, false) &&
          packet.transport_len >= kTransportMinimumHeaderBytes &&
          packet.transport[0] == 0U && packet.transport[1] == 0U &&
@@ -157,7 +157,7 @@ bool matches_internal_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig 
 }
 
 bool matches_internal_dns_tcp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
-  if (packet.protocol != kIpProtoTcp || packet.source != host_ip(config.gateway_ip_addr) ||
+  if (packet.protocol != kIpProtoTcp || packet.source != host_ip(config.internal_target_ip_addr) ||
       !destination_ip_matches(packet, config, false) || packet.transport_len < 20U ||
       read_be16(packet.transport) != 53U) return false;
   const size_t tcp_header_len = static_cast<size_t>(packet.transport[12U] >> 4U) * 4U;
@@ -170,7 +170,7 @@ bool matches_internal_dns_tcp(const ParsedIpv4 &packet, const CsiFrameFilterConf
 }
 
 bool matches_internal_dns_udp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
-  if (packet.protocol != kIpProtoUdp || packet.source != host_ip(config.gateway_ip_addr) ||
+  if (packet.protocol != kIpProtoUdp || packet.source != host_ip(config.internal_target_ip_addr) ||
       !destination_ip_matches(packet, config, false) ||
       packet.transport_len < kTransportMinimumHeaderBytes + 12U ||
       read_be16(packet.transport) != 53U) return false;

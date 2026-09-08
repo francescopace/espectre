@@ -90,6 +90,8 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 `RuntimeFrontendController` wires configuration, runtime-control persistence, and the runtime backend together. After `setup()`, `config()` reflects the backend's effective configuration, including persisted detector, motion-hit, and traffic overrides; direct writes to `config()` after setup only stage the next setup, while live changes use the capability-gated runtime setters. The Native and Matter frontends are compact reference integrations for this path.
 
+Set `RuntimeConfig::traffic_generator_target_ip` before setup to select the internal generator's unicast IPv4 destination. Empty follows the Wi-Fi gateway. The shared runtime applies that destination to both traffic generation and CSI response filtering; [SETUP.md](SETUP.md#traffic-generation) owns validation and frontend configuration syntax.
+
 Set `RuntimeConfig::device_id` to `derive_runtime_device_id()` before setup when the integration uses the ESPectre Protocol or CSI streaming. The helper returns a cached pseudonym derived from the station MAC; zero remains an unresolved sentinel and is not replaced by `RuntimeFrontendController`.
 
 ### Core-only

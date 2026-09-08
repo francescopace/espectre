@@ -32,10 +32,10 @@ void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
                                         RUNTIME_CSI_TRAFFIC_MARKER_LENGTH);
 }
 
-bool CsiTrafficService::start(uint32_t gateway_addr) {
+bool CsiTrafficService::start(uint32_t target_addr) {
   switch (mode_) {
     case CsiTrafficMode::INTERNAL:
-      return traffic_generator_.is_running() || traffic_generator_.start(gateway_addr);
+      return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
     case CsiTrafficMode::EXTERNAL:
       return traffic_ingress_.is_running() || traffic_ingress_.start();
     default:

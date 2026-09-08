@@ -612,7 +612,7 @@ bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool rec
     vTaskDelay(pdMS_TO_TICKS(CSI_ENABLE_SETTLE_MS));
   }
   refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
-  if (!csi_traffic_service_.start(wifi_ip_info_.gw.addr)) {
+  if (!csi_traffic_service_.start(runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr))) {
     notify_fault_("Failed to start CSI traffic service");
     return false;
   }
@@ -853,7 +853,8 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
   // Yield once after arming so managed traffic cannot predate driver readiness.
   vTaskDelay(pdMS_TO_TICKS(CSI_ENABLE_SETTLE_MS));
 
-  if (!csi_traffic_service_.is_running() && !csi_traffic_service_.start(ip_info.gw.addr)) {
+  if (!csi_traffic_service_.is_running() &&
+      !csi_traffic_service_.start(runtime_traffic_target_addr(config_, ip_info.gw.addr))) {
     notify_fault_("Failed to start CSI traffic service");
     return;
   }
@@ -1097,7 +1098,7 @@ void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
   filter.traffic_mode = config_.csi_traffic_mode;
   filter.internal_mode = config_.traffic_generator_mode;
   filter.local_ip_addr = local_ip_addr;
-  filter.gateway_ip_addr = wifi_ip_info_.gw.addr;
+  filter.internal_target_ip_addr = runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr);
   filter.multicast_ip_addr = config_.csi_traffic_multicast_group.empty()
                                  ? 0U
                                  : inet_addr(config_.csi_traffic_multicast_group.c_str());

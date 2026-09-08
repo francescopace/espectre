@@ -24,14 +24,15 @@ TRAFFIC_MODES = (MODE_PING, MODE_DNS, MODE_DNS_TCP)
 class TrafficGenerator:
     """Drive the shared firmware-native sensing traffic generator."""
 
-    def __init__(self, mode=MODE_PING):
+    def __init__(self, mode=MODE_PING, target_ip=""):
         self.running = False
         self.paused = False
         self.rate_pps = 0
         self.target_pps = 0
         self.packet_count = 0
         self.error_count = 0
-        self.gateway_ip = None
+        self.destination_ip = None
+        self.target_ip = self._validate_target_ip(target_ip)
         # Retained for compatibility with lifecycle code that previously
         # waited for a Python-owned socket to close.
         self.sock = None
@@ -58,16 +59,35 @@ class TrafficGenerator:
         return True
 
     @staticmethod
-    def _get_gateway_ip():
-        """Return the station gateway address, if Wi-Fi is connected."""
+    def _validate_target_ip(value):
+        """Accept an empty default or a canonical unicast IPv4 destination."""
+        if value == "":
+            return value
+        if not isinstance(value, str):
+            raise ValueError("Traffic generator target must be an IPv4 address or empty")
+        parts = value.split(".")
+        if len(parts) != 4:
+            raise ValueError("Invalid traffic generator target IPv4 address")
+        for part in parts:
+            if (not part or len(part) > 3 or any(c < "0" or c > "9" for c in part)
+                    or (len(part) > 1 and part[0] == "0") or int(part) > 255):
+                raise ValueError("Invalid traffic generator target IPv4 address")
+        if int(parts[0]) in (0, 127) or int(parts[0]) >= 224:
+            raise ValueError("Traffic generator target must be a unicast IPv4 address")
+        return value
+
+    def _get_target_ip(self):
+        """Resolve the configured target or station gateway while connected."""
         try:
             wlan = network.WLAN(network.STA_IF)
             if not wlan.isconnected():
                 return None
+            if self.target_ip:
+                return self.target_ip
             ip_info = wlan.ifconfig()
             return ip_info[2] if len(ip_info) >= 3 else None
         except Exception as exc:
-            print_log("ERROR", "Failed to get gateway IP: {}".format(exc))
+            print_log("ERROR", "Failed to get traffic target IP: {}".format(exc))
             return None
 
     def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
@@ -90,19 +110,19 @@ class TrafficGenerator:
             return False
 
         for attempt in range(1, max_retries + 1):
-            self.gateway_ip = self._get_gateway_ip()
-            if self.gateway_ip:
+            self.destination_ip = self._get_target_ip()
+            if self.destination_ip:
                 break
             print_log(
                 "WARN",
-                "Failed to get gateway IP (attempt {}/{})".format(attempt, max_retries),
+                "Failed to get traffic target IP (attempt {}/{})".format(attempt, max_retries),
             )
             if attempt < max_retries:
                 time.sleep(retry_delay)
-        if not self.gateway_ip:
+        if not self.destination_ip:
             print_log(
                 "ERROR",
-                "Could not get gateway IP after {} attempts".format(max_retries),
+                "Could not get traffic target IP after {} attempts".format(max_retries),
             )
             return False
 
@@ -116,7 +136,7 @@ class TrafficGenerator:
         self.paused = False
         try:
             self.running = bool(
-                self._native_traffic.start(self.gateway_ip, rate_pps, self.mode)
+                self._native_traffic.start(self.destination_ip, rate_pps, self.mode)
             )
         except Exception as exc:
             print_log("ERROR", "Failed to start native traffic generator: {}".format(exc))

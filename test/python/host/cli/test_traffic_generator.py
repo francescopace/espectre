@@ -275,7 +275,7 @@ def test_init_requires_native_backend(traffic_gen):
     assert traffic_gen.rate_pps == 0
     assert traffic_gen.packet_count == 0
     assert traffic_gen.error_count == 0
-    assert traffic_gen.gateway_ip is None
+    assert traffic_gen.destination_ip is None
     assert traffic_gen.sock is None
 
 
@@ -290,6 +290,43 @@ def test_start_delegates_ping_to_native_backend(mock_wlan):
     assert generator.get_packet_count() == 321
     assert generator.get_error_count() == 2
     assert generator.is_running() is True
+
+
+@pytest.mark.parametrize("mode", [MODE_PING, MODE_DNS, MODE_DNS_TCP])
+def test_configured_target_reaches_native_backend_after_restart(mock_wlan, mode):
+    generator = TrafficGenerator(mode, target_ip="192.168.1.53")
+    assert generator.start(100)
+    generator.stop()
+    mock_wlan.ifconfig.return_value = ("192.168.1.100", "255.255.255.0", "192.168.1.254", "")
+    assert generator.start(100)
+    assert generator._native_traffic.start_calls == [("192.168.1.53", 100, mode)] * 2
+
+
+def test_default_target_tracks_gateway_changes(mock_wlan):
+    generator = TrafficGenerator()
+    assert generator.start(100)
+    generator.stop()
+    mock_wlan.ifconfig.return_value = ("192.168.1.100", "255.255.255.0", "192.168.1.254", "")
+    assert generator.start(100)
+    assert generator._native_traffic.start_calls[-1] == ("192.168.1.254", 100, MODE_PING)
+
+
+def test_configured_target_still_requires_wifi(mock_wlan):
+    generator = TrafficGenerator(target_ip="192.168.1.53")
+    mock_wlan.isconnected.return_value = False
+    assert not generator.start(100, max_retries=1)
+    assert generator._native_traffic.start_calls == []
+
+
+@pytest.mark.parametrize("target", [
+    "router.local", "::1", "192.168.1", "192.168.1.256", "192.168.1.1:53",
+    "192.168.1.1 ", "192.168.01.1", "192.168..1", "192.168.1.1.",
+    "0.0.0.0", "0.1.2.3", "127.0.0.1", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+    None, 123,
+])
+def test_invalid_target_is_rejected_before_start(target):
+    with pytest.raises(ValueError):
+        TrafficGenerator(target_ip=target)
 
 
 def test_start_rejects_invalid_or_disabled_rates(traffic_gen):
@@ -327,16 +364,16 @@ def test_start_handles_native_failure(mock_wlan):
 
 
 def test_gateway_lookup_contract(traffic_gen, mock_wlan):
-    assert traffic_gen._get_gateway_ip() == "192.168.1.1"
+    assert traffic_gen._get_target_ip() == "192.168.1.1"
 
     mock_wlan.ifconfig.return_value = ("192.168.1.100",)
-    assert traffic_gen._get_gateway_ip() is None
+    assert traffic_gen._get_target_ip() is None
 
     mock_wlan.isconnected.return_value = False
-    assert traffic_gen._get_gateway_ip() is None
+    assert traffic_gen._get_target_ip() is None
 
     mock_network.WLAN.side_effect = OSError("network unavailable")
-    assert traffic_gen._get_gateway_ip() is None
+    assert traffic_gen._get_target_ip() is None
 
 
 def test_mode_validation_and_live_change_guard(traffic_gen):

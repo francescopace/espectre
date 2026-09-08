@@ -31,6 +31,7 @@ enum class RuntimeConfigError : uint8_t {
   LOWPASS_CUTOFF,
   HAMPEL_WINDOW,
   HAMPEL_THRESHOLD,
+  TRAFFIC_GENERATOR_TARGET_IP,
 };
 
 bool validate_runtime_threshold(float threshold);
@@ -43,6 +44,9 @@ bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value)
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);
 /** Stable diagnostic label for a configuration error. Never returns `nullptr`. */
 const char *runtime_config_error_message(RuntimeConfigError error);
+
+/** Resolve the internal traffic destination in network byte order; empty uses the gateway, and invalid IPv4 returns zero. */
+uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gateway_addr);
 
 const char *runtime_profile_name(RuntimeProfile profile);
 const char *wifi_band_policy_name(WifiBandPolicy policy);

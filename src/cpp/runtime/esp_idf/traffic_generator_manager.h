@@ -1,7 +1,7 @@
 /*
  * ESPectre - Traffic Generator Manager
  *
- * Generates paced traffic to the gateway or associated AP at the configured
+ * Generates paced traffic to the configured IPv4 target or associated AP at the configured
  * CSI target. Scheduling, local send backoff, and stall logging are shared by
  * all backends. Occupancy never changes the send rate.
  *
@@ -76,7 +76,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
   void init(uint32_t target_pps,
             RuntimeTrafficMode mode = RuntimeTrafficMode::PING) override;
 
-  bool start(uint32_t gateway_addr) override;
+  bool start(uint32_t target_addr) override;
   void loop() override;
   void stop() override;
 
@@ -99,7 +99,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
 
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
-  uint32_t gateway_addr_{0U};
+  uint32_t target_addr_{0U};
   uint32_t target_pps_{0U};
   RuntimeTrafficMode mode_{RuntimeTrafficMode::PING};
   uint16_t icmp_identifier_{0U};

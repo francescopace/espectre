@@ -1052,6 +1052,9 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
+  ESP_LOGCONFIG(TAG, " ├─ Target IP .......... %s",
+                config.traffic_generator_target_ip.empty() ? "[gateway]"
+                                                          : config.traffic_generator_target_ip.c_str());
   ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
                 static_cast<unsigned>(config.csi_target_pps));
   ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_mode_name(config.csi_traffic_mode));

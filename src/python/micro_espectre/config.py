@@ -21,6 +21,7 @@ WIFI_CHANNEL = 0  # Optional known channel used with WIFI_BSSID
 CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
 TRAFFIC_GENERATOR_MODE = "ping"  # ping, dns (UDP), or dns_tcp
+TRAFFIC_GENERATOR_TARGET_IP = ""  # Unicast IPv4 destination; empty uses the Wi-Fi gateway
 CSI_LINK_RECOVERY_TIMEOUT_MS = 5000  # Reconnect when the configured traffic source yields no CSI frames
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION

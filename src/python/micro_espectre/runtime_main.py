@@ -503,7 +503,8 @@ def main(wlan=None):
     gc.collect()  # Free memory before creating socket
     from src.traffic_generator import TrafficGenerator
     traffic_gen = TrafficGenerator(
-        getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping')
+        getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping'),
+        target_ip=getattr(config, 'TRAFFIC_GENERATOR_TARGET_IP', ''),
     )
     collect_and_print_heap('after_traffic_gen_init')
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):

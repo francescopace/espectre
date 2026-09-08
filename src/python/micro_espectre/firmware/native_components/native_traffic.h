@@ -20,7 +20,7 @@ void *espectre_native_traffic_create(void);
 void espectre_native_traffic_destroy(void *handle);
 bool espectre_native_traffic_start(
     void *handle,
-    uint32_t gateway_addr,
+    uint32_t target_addr,
     uint32_t rate_pps,
     espectre_native_traffic_mode_t mode);
 void espectre_native_traffic_stop(void *handle);

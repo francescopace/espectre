@@ -92,6 +92,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }
+  void set_traffic_generator_target_ip(const std::string &address) {
+    this->runtime_.config().traffic_generator_target_ip = address;
+  }
   // Picking the startup algorithm and enabling runtime selection are separate
   // concerns; only the first is a YAML choice. ESPHome always exposes the
   // detector select entity and the NVS-backed store behind it, so the second is

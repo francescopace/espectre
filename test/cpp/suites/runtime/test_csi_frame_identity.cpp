@@ -134,7 +134,7 @@ CsiFrameFilterConfig filter(CsiTrafficMode mode, RuntimeTrafficMode internal = R
   config.traffic_mode = mode;
   config.internal_mode = internal;
   config.local_ip_addr = inet_addr("192.168.1.17");
-  config.gateway_ip_addr = inet_addr("192.168.1.1");
+  config.internal_target_ip_addr = inet_addr("192.168.1.1");
   config.multicast_ip_addr = inet_addr("239.255.0.1");
   config.external_udp_port = 5555U;
   config.internal_icmp_identifier = 0x1234U;
@@ -370,6 +370,20 @@ void test_internal_dns_udp_requires_gateway_udp_53_response(void) {
   TEST_ASSERT_FALSE(matches(dns_tcp_reply(true), config));
 }
 
+void test_internal_ip_modes_accept_only_the_configured_target(void) {
+  for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS, RuntimeTrafficMode::DNS_TCP}) {
+    auto config = filter(CsiTrafficMode::INTERNAL, mode);
+    auto reply = mode == RuntimeTrafficMode::PING ? ping_reply(kGateway, 0x1234U)
+                 : mode == RuntimeTrafficMode::DNS ? dns_udp_reply() : dns_tcp_reply(true);
+    config.internal_target_ip_addr = inet_addr("192.168.1.77");
+    TEST_ASSERT_FALSE(matches(reply, config));
+    write_be32(reply.data() + 8U + 12U, 0xC0A8014DU);
+    TEST_ASSERT_TRUE(matches(reply, config));
+    write_be32(reply.data() + 8U + 12U, kOther);
+    TEST_ASSERT_FALSE(matches(reply, config));
+  }
+}
+
 int main() {
   using namespace espectre::test;
   begin_suite();
@@ -386,5 +400,6 @@ int main() {
   RUN_TEST(test_internal_ping_requires_gateway_echo_reply_and_active_identifier);
   RUN_TEST(test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only);
   RUN_TEST(test_internal_dns_udp_requires_gateway_udp_53_response);
+  RUN_TEST(test_internal_ip_modes_accept_only_the_configured_target);
   return end_suite();
 }

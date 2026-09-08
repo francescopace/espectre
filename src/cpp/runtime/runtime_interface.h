@@ -104,6 +104,8 @@ struct RuntimeConfig {
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
   /** Which packet the internal generator sends to solicit CSI. */
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
+  /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
+  std::string traffic_generator_target_ip;
   /** Where the CSI-bearing traffic comes from. See `csi_traffic_types.h`. */
   CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
   /** UDP port used by the external CSI traffic mode. */

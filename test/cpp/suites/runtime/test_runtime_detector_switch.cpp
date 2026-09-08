@@ -937,10 +937,43 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
   }
 }
 
+void test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_changes(void) {
+  for (const char *target : {"", "192.168.1.53"}) {
+    nvs_mock_reset();
+    RuntimeConfig config;
+    config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+    config.traffic_generator_target_ip = target;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip_info{};
+    ip_info.ip.addr = 0x1101A8C0U;
+    ip_info.gw.addr = 0x0101A8C0U;
+    for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS, RuntimeTrafficMode::DNS_TCP}) {
+      runtime.stop_sensing_services_();
+      ip_info.gw.addr += 0x01000000U;
+      runtime.on_wifi_connected_(ip_info);
+      TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(mode));
+      const uint32_t expected = target[0] == '\0' ? ip_info.gw.addr : 0x3501A8C0U;
+      TEST_ASSERT_TRUE(generator.is_running());
+      TEST_ASSERT_EQUAL(expected, generator.gateway_addr);
+      TEST_ASSERT_EQUAL(expected, runtime.csi_pipeline_.traffic_filter_.internal_target_ip_addr);
+      TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
+      TEST_ASSERT_FALSE(generator.is_running());
+      TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
+      TEST_ASSERT_EQUAL(expected, generator.gateway_addr);
+      TEST_ASSERT_EQUAL(expected, runtime.csi_pipeline_.traffic_filter_.internal_target_ip_addr);
+    }
+    runtime.shutdown();
+  }
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_changes);
   RUN_TEST(test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality_gap);
   RUN_TEST(test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change);
   RUN_TEST(test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_only);

@@ -46,7 +46,7 @@ extern "C" void espectre_native_traffic_destroy(void *handle) {
 
 extern "C" bool espectre_native_traffic_start(
     void *handle,
-    uint32_t gateway_addr,
+    uint32_t target_addr,
     uint32_t rate_pps,
     espectre_native_traffic_mode_t mode) {
   auto *manager = as_manager(handle);
@@ -54,7 +54,7 @@ extern "C" bool espectre_native_traffic_start(
     return false;
   }
   manager->init(rate_pps, resolve_mode(mode));
-  return manager->start(gateway_addr);
+  return manager->start(target_addr);
 }
 
 extern "C" void espectre_native_traffic_stop(void *handle) {

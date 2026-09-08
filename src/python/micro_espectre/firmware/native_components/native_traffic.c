@@ -63,10 +63,10 @@ static mp_obj_t native_traffic_make_new(
 
 static mp_obj_t native_traffic_start(size_t n_args, const mp_obj_t *args) {
   native_traffic_obj_t *self = native_traffic_get(args[0]);
-  const char *gateway = mp_obj_str_get_str(args[1]);
+  const char *target = mp_obj_str_get_str(args[1]);
   struct in_addr address;
-  if (inet_pton(AF_INET, gateway, &address) != 1) {
-    mp_raise_ValueError(MP_ERROR_TEXT("invalid gateway IPv4 address"));
+  if (inet_pton(AF_INET, target, &address) != 1) {
+    mp_raise_ValueError(MP_ERROR_TEXT("invalid target IPv4 address"));
   }
   mp_int_t rate = mp_obj_get_int(args[2]);
   if (rate <= 0 || rate > 1000) {

@@ -371,7 +371,7 @@ size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
 void TrafficGeneratorManager::init(uint32_t target_pps, RuntimeTrafficMode mode) {
   task_handle_ = nullptr;
   sock_ = -1;
-  gateway_addr_ = 0U;
+  target_addr_ = 0U;
   mode_ = mode;
   icmp_identifier_ = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this));
   target_pps_ = target_pps;
@@ -387,7 +387,7 @@ void TrafficGeneratorManager::init(uint32_t target_pps, RuntimeTrafficMode mode)
            generator_traffic_mode_name(mode));
 }
 
-bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
+bool TrafficGeneratorManager::start(uint32_t target_addr) {
   if (running_.load(std::memory_order_relaxed)) {
     return true;
   }
@@ -395,11 +395,11 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
     ESPECTRE_LOGE(TAG, "Previous traffic generator task is still stopping");
     return false;
   }
-  if (target_pps_ == 0U || (mode_ != RuntimeTrafficMode::WIFI_RAW && gateway_addr == 0U)) {
-    ESPECTRE_LOGE(TAG, "Traffic rate or gateway IP is unavailable");
+  if (target_pps_ == 0U || (mode_ != RuntimeTrafficMode::WIFI_RAW && target_addr == 0U)) {
+    ESPECTRE_LOGE(TAG, "Traffic rate or target IP is unavailable");
     return false;
   }
-  gateway_addr_ = gateway_addr;
+  target_addr_ = target_addr;
 
   if (mode_ == RuntimeTrafficMode::WIFI_RAW) {
     wifi_ap_record_t ap{};
@@ -452,16 +452,16 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
     return false;
   }
 
-  char gateway[16];
-  const esp_ip4_addr_t gateway_ip{gateway_addr_};
-  std::snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
+  char target[16];
+  const esp_ip4_addr_t target_ip{target_addr_};
+  std::snprintf(target, sizeof(target), IPSTR, IP2STR(&target_ip));
   ESPECTRE_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
-           " pps, gateway=%s, priority=%u)",
+           " pps, target_ip=%s, priority=%u)",
            generator_traffic_mode_name(mode_),
            target_pps_,
            current_rate_pps(),
-           gateway,
+           target,
            static_cast<unsigned>(task_scheduling::kTrafficPriority));
   return true;
 }
@@ -534,7 +534,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
   sockaddr_in destination{};
   destination.sin_family = AF_INET;
   destination.sin_port = htons(protocol->destination_port());
-  destination.sin_addr.s_addr = manager->gateway_addr_;
+  destination.sin_addr.s_addr = manager->target_addr_;
 
   SendErrorState error_state;
   uint32_t consecutive_errors = 0U;

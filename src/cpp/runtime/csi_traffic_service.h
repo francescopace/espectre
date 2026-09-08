@@ -34,7 +34,7 @@ class ICsiTrafficGenerator {
   virtual ~ICsiTrafficGenerator() = default;
 
   virtual void init(uint32_t target_pps, RuntimeTrafficMode mode) = 0;
-  virtual bool start(uint32_t gateway_addr) = 0;
+  virtual bool start(uint32_t target_addr) = 0;
   virtual void stop() = 0;
   virtual void loop() = 0;
   virtual bool is_running() const = 0;
@@ -69,7 +69,7 @@ class CsiTrafficService {
       : traffic_generator_(traffic_generator), traffic_ingress_(traffic_ingress) {}
 
   void init(const CsiTrafficServiceConfig &config);
-  bool start(uint32_t gateway_addr = 0U);
+  bool start(uint32_t target_addr = 0U);
   void stop();
   void loop();
   void set_packet_callback(csi_traffic_packet_callback_t callback,

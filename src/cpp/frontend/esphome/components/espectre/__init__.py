@@ -76,6 +76,7 @@ CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
+CONF_TRAFFIC_GENERATOR_TARGET_IP = "traffic_generator_target_ip"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
@@ -211,6 +212,20 @@ def validate_csi_traffic_multicast_group(value):
     return str(address)
 
 
+def validate_traffic_generator_target_ip(value):
+    value = cv.string_strict(value)
+    if value == "":
+        return value
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as exc:
+        raise cv.Invalid("traffic_generator_target_ip must be a unicast IPv4 address or empty") from exc
+    first_octet = int(address) >> 24
+    if first_octet == 0 or first_octet == 127 or first_octet >= 224:
+        raise cv.Invalid("traffic_generator_target_ip must be a unicast IPv4 address")
+    return str(address)
+
+
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
 
@@ -234,6 +249,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
         "ping", "dns", "dns_tcp", "wifi_raw", lower=True
     ),
+    cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_IP, default=""): validate_traffic_generator_target_ip,
     
     # Detection profile: Lightweight (default) or High Accuracy.
     # Lightweight uses feature fusion and an adaptive startup threshold.
@@ -538,6 +554,7 @@ async def to_code(config):
     cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
     cg.add(var.set_csi_traffic_multicast_group(config[CONF_CSI_TRAFFIC_MULTICAST_GROUP]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
+    cg.add(var.set_traffic_generator_target_ip(config[CONF_TRAFFIC_GENERATOR_TARGET_IP]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_evaluation_interval_ms(config[CONF_EVALUATION_INTERVAL_MS]))
     cg.add(var.set_motion_on_hits(config[CONF_MOTION_ON_HITS]))

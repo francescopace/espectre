@@ -247,6 +247,7 @@ espectre:
   csi_target_pps: 100
   csi_traffic_mode: internal
   traffic_generator_mode: ping
+  traffic_generator_target_ip: "" # Empty uses the gateway; set an IPv4 address to override
 ```
 
 The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change.
