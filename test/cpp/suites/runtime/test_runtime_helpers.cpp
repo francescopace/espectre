@@ -39,7 +39,9 @@ using namespace espectre;
 
 namespace {
 
+#if !CONFIG_SOC_WIFI_HE_SUPPORT
 void dummy_csi_callback(void *, wifi_csi_info_t *) {}
+#endif
 
 struct CapturedCsiPacket {
   std::array<int8_t, HT20_CSI_LEN> payload{};
@@ -55,11 +57,13 @@ struct CapturedCsiPacket {
   bool reset_detector{false};
 };
 
+#if !CONFIG_SOC_WIFI_HE_SUPPORT
 struct CapturedChannelChange {
   uint32_t callback_count{0U};
   uint8_t previous_channel{0U};
   uint8_t current_channel{0U};
 };
+#endif
 
 class CaptureWiFiMock final : public IWiFiCSI {
  public:
@@ -117,12 +121,14 @@ void capture_csi_packet(void *context, const wifi_csi_info_t *info, const Normal
   captured->rotated_to_centered = normalized.rotated_to_centered;
 }
 
+#if !CONFIG_SOC_WIFI_HE_SUPPORT
 void capture_channel_change(void *context, uint8_t previous_channel, uint8_t current_channel) {
   auto *captured = static_cast<CapturedChannelChange *>(context);
   captured->callback_count++;
   captured->previous_channel = previous_channel;
   captured->current_channel = current_channel;
 }
+#endif
 
 }  // namespace
 

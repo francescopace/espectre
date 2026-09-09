@@ -23,7 +23,7 @@
 
 namespace espectre {
 
-static const char *const TAG = "espectre.matter";
+[[maybe_unused]] static const char *const TAG = "espectre.matter";
 
 MatterFrontend::MatterFrontend(IMatterBindings *bindings,
                                uint16_t endpoint_id,
