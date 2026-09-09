@@ -18,6 +18,7 @@
 #include "runtime_diagnostics.h"
 
 #include <cmath>
+#include <cstring>
 #include <string>
 
 using namespace espectre;
