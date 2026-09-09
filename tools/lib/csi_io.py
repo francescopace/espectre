@@ -979,7 +979,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         if self._control is None:
             return
         try:
-            diagnostics = self._control.request("get", "diagnostics", timeout=min(self.timeout, 2.0))
+            diagnostics = self._control.request("get", "diagnostics", {"fields": ["raw_csi"]}, timeout=min(self.timeout, 2.0))
         except Exception:
             return
         raw = diagnostics.get("raw_csi", {}) if isinstance(diagnostics, dict) else {}

@@ -28,11 +28,13 @@
       <tr><td><code>/wifi/access-points</code></td><td>Wi-Fi scan progress and the latest access-point results</td></tr>
       <tr><td><code>/mqtt</code></td><td>Redacted Native MQTT configuration</td></tr>
       <tr><td><code>/ota</code></td><td>Firmware update state and resolved release information</td></tr>
-      <tr><td><code>/diagnostics</code></td><td>On-demand runtime, CSI, memory, and transport diagnostics</td></tr>
+      <tr><td><code>/diagnostics</code></td><td>Field catalog by default; selected runtime, CSI, memory, and transport values with <code>fields</code></td></tr>
       <tr><td><code>/devices</code></td><td>Nearby ESPectre devices found through mDNS and DNS-SD</td></tr>
     </tbody>
   </table></div>
   <p>Add <code>/espectre/v1</code> before each path in the table. The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md#resources" target="_blank" rel="noopener">application contract</a> defines every field and lists the resources supported by each frontend.</p>
+
+  <p>Diagnostics without <code>fields</code> returns the available names, types, and units. Select values with <code>{"fields":["traffic_tx_pps","csi_hw_error_total"]}</code>, or use <code>["*"]</code> for all values. Browser GET requests carry the URL-encoded JSON array in the <code>fields</code> query parameter. Selected responses include <code>timestamp_ms</code> and <code>uptime</code>; unavailable measurements are <code>null</code>.</p>
 
   <h2 data-toc-label="Operations">Run operations</h2>
   <p>Send a JSON object for requests with a body and set <code>Content-Type: application/json</code>. The device rejects unknown fields. A completed mutation returns HTTP <code>200</code>; queued or disruptive work returns <code>202</code> after dispatch.</p>

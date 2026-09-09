@@ -214,6 +214,10 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
     return espectre_command_result_payload(
         device, command, false, frontend_command_parse_error_code(parse_error), parse_error.c_str());
   }
+  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, 2U)) {
+    return espectre_command_result_payload(device, command, false, "invalid_params",
+                                           "diagnostic field is not available on this frontend");
+  }
   if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION &&
       !frontend_command_allowed_during_raw_collection(command.command)) {
     return espectre_command_result_payload(device,
@@ -233,7 +237,7 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
         if (read.command == "health") return health_payload_();
         if (read.command == "sensing") return sensing_payload_();
         if (read.command == "wifi") return wifi_payload_();
-        if (read.command == "read_diagnostics") return diagnostics_payload_();
+        if (read.command == "read_diagnostics") return diagnostics_payload_(read.diagnostic_fields);
         if (read.command == "wifi_access_points") return wifi_access_points_payload_();
         return std::string{};
       },
@@ -706,96 +710,59 @@ std::string RuntimeDirectHttpBridge::wifi_payload_() const {
   return out;
 }
 
-std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
-  const RuntimeDiagnosticsSnapshot diagnostics = runtime_->diagnostics();
-  const uint32_t now_ms = monotonic_now_ms();
-  std::string out{"{"};
-  append_uint(&out, "timestamp_ms", now_ms, true);
-  append_uint(&out, "uptime", now_ms / 1000U);
-  append_uint(&out, "traffic_packets_total", diagnostics.traffic_packets_total);
-  append_uint(&out, "csi_callbacks_total", diagnostics.csi_callbacks_total);
-  append_uint(&out, "csi_classified_total", diagnostics.csi_classified_total);
-  append_uint(&out,
-              "csi_provenance_rejected_total",
-              diagnostics.csi_provenance_rejected_total);
-  append_uint(&out, "csi_accepted_total", diagnostics.csi_accepted_total);
-  append_uint(&out, "csi_admitted_total", diagnostics.csi_admitted_total);
-  append_uint(&out, "csi_filtered_total", diagnostics.csi_filtered_total);
-  append_uint(&out,
-              "csi_pending_frame_drops_total",
-              diagnostics.csi_pending_frame_drops_total);
-  append_uint(&out, "csi_missing_slots_total", diagnostics.csi_missing_slots_total);
-  append_uint(&out, "csi_excess_total", diagnostics.csi_excess_total);
-  append_uint(&out, "csi_stale_total", diagnostics.csi_stale_total);
-  append_uint(&out, "csi_out_of_order_total", diagnostics.csi_out_of_order_total);
-  append_uint(&out, "csi_occupancy_slots", diagnostics.csi_occupancy_slots);
-  append_uint(&out, "csi_window_slots", diagnostics.csi_window_slots);
-  append_uint(&out, "csi_pending_frames", diagnostics.csi_pending_frames);
-  append_uint(&out,
-              "csi_pending_frame_capacity",
-              diagnostics.csi_pending_frame_capacity);
-  const RuntimeDiagnosticsSample *sample = config_.diagnostics_sample_getter
-                                               ? config_.diagnostics_sample_getter()
-                                               : nullptr;
-  if (sample != nullptr) {
-    append_float(&out, "traffic_tx_pps", sample->traffic_tx_pps);
-    append_float(&out, "csi_callback_pps", sample->csi_callback_pps);
-    append_float(&out, "csi_accepted_pps", sample->csi_accepted_pps);
-    append_float(&out, "csi_admitted_pps", sample->csi_admitted_pps);
-    append_float(&out, "csi_filtered_pps", sample->csi_filtered_pps);
-    append_float(&out,
-                 "csi_pending_frame_drop_pps",
-                 sample->csi_pending_frame_drop_pps);
-    append_float(&out, "csi_missing_slots_pps", sample->csi_missing_slots_pps);
-    append_float(&out, "csi_excess_pps", sample->csi_excess_pps);
-    append_float(&out, "csi_stale_pps", sample->csi_stale_pps);
-    append_float(&out, "csi_out_of_order_pps", sample->csi_out_of_order_pps);
-    append_float(&out, "csi_occupancy", sample->csi_occupancy_ratio);
-  }
-  out += ",\"wifi_rssi_dbm\":";
-  const int8_t wifi_rssi_dbm = sample != nullptr ? sample->wifi_rssi_dbm : diagnostics.wifi_rssi_dbm;
-  out += wifi_rssi_dbm == INT8_MIN
-             ? "null"
-             : std::to_string(static_cast<int>(wifi_rssi_dbm));
-  append_uint(&out,
-              "wifi_channel",
-              sample != nullptr ? sample->wifi_channel : diagnostics.wifi_channel);
-  append_runtime_csi_quality_diagnostics_json(&out, diagnostics);
-  append_runtime_performance_diagnostics_json(&out, diagnostics);
-  if (service_ != nullptr) {
-    const DirectHttpServiceDiagnostics direct = service_->diagnostics();
-    const size_t event_client_count = event_client_count_.load(std::memory_order_relaxed);
-    if (config_.runtime_events != nullptr) {
-      append_uint(&out,
-                  "runtime_motion_event_drops_total",
-                  config_.runtime_events->motion_state_drops_total());
+std::string RuntimeDirectHttpBridge::diagnostics_payload_(const std::vector<std::string> &fields) const {
+  RuntimeDiagnosticsSnapshot snapshot;
+  DirectHttpServiceDiagnostics direct_http_values;
+  bool direct_http_loaded = false;
+  RawCsiSessionDiagnostics raw_csi_values;
+  bool raw_csi_loaded = false;
+  bool loaded = false;
+  const std::function<const RuntimeDiagnosticsSnapshot &()> get_snapshot = [&]() -> const RuntimeDiagnosticsSnapshot & {
+    if (!loaded) {
+      snapshot = runtime_->diagnostics();
+      loaded = true;
     }
-    out += ",\"direct_http\":{";
-    append_uint(&out, "event_clients", event_client_count, true);
-    append_uint(&out, "event_client_limit", direct.event_client_limit);
-    append_uint(&out, "queue_capacity", direct.queue_capacity);
-    append_uint(&out, "queued_messages", direct.queued_messages);
-    append_uint(&out, "accepted_connections", direct.accepted_connections);
-    append_uint(&out, "rejected_connections", direct.rejected_connections);
-    append_uint(&out, "malformed_requests", direct.malformed_requests);
-    append_uint(&out, "oversized_requests", direct.oversized_requests);
-    append_uint(&out, "rate_limited_requests", direct.rate_limited_requests);
-    append_uint(&out, "dropped_motion_events", direct.dropped_motion_events);
-    append_uint(&out, "send_failures", direct.send_failures);
-    out += "}";
-    const RawCsiSessionDiagnostics raw = service_->raw_diagnostics();
-    out += ",\"raw_csi\":{\"active\":";
-    out += raw.active ? "true" : "false";
-    out += ",\"binary_bound\":";
-    out += raw.binary_bound ? "true" : "false";
-    append_uint(&out, "raw_drop_total", raw.raw_drop_total);
-    append_uint(&out, "send_backpressure_total", raw.raw_send_backpressure_total);
-    append_uint(&out, "fresh_record_total", raw.fresh_record_total);
-    append_uint(&out, "stream_sequence", raw.stream_sequence);
-    out += "}";
-  }
-  out += "}";
-  return out;
+    return snapshot;
+  };
+  const uint32_t now = monotonic_now_ms();
+  const RuntimeDiagnosticsSample *sample = config_.diagnostics_sample_getter ? config_.diagnostics_sample_getter() : nullptr;
+  return diagnostic_response(fields, 2U, [&](const char *key) -> std::string {
+    if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(now);
+    if (std::strcmp(key, "uptime") == 0) return std::to_string(now / 1000U);
+    if (std::strcmp(key, "runtime_motion_event_drops_total") == 0) return config_.runtime_events ? std::to_string(config_.runtime_events->motion_state_drops_total()) : "null";
+    if (std::strncmp(key, "direct_http.", 12U) == 0) {
+      if (!direct_http_loaded) {
+        direct_http_values = service_ ? service_->diagnostics() : DirectHttpServiceDiagnostics{};
+        direct_http_loaded = true;
+      }
+      const auto &values = direct_http_values;
+      if (std::strcmp(key, "direct_http.event_clients") == 0) return std::to_string(event_client_count_.load(std::memory_order_relaxed));
+      if (std::strcmp(key, "direct_http.event_client_limit") == 0) return std::to_string(values.event_client_limit);
+      if (std::strcmp(key, "direct_http.queue_capacity") == 0) return std::to_string(values.queue_capacity);
+      if (std::strcmp(key, "direct_http.queued_messages") == 0) return std::to_string(values.queued_messages);
+      if (std::strcmp(key, "direct_http.accepted_connections") == 0) return std::to_string(values.accepted_connections);
+      if (std::strcmp(key, "direct_http.rejected_connections") == 0) return std::to_string(values.rejected_connections);
+      if (std::strcmp(key, "direct_http.malformed_requests") == 0) return std::to_string(values.malformed_requests);
+      if (std::strcmp(key, "direct_http.oversized_requests") == 0) return std::to_string(values.oversized_requests);
+      if (std::strcmp(key, "direct_http.rate_limited_requests") == 0) return std::to_string(values.rate_limited_requests);
+      if (std::strcmp(key, "direct_http.dropped_motion_events") == 0) return std::to_string(values.dropped_motion_events);
+      if (std::strcmp(key, "direct_http.send_failures") == 0) return std::to_string(values.send_failures);
+    }
+    if (std::strncmp(key, "raw_csi.", 8U) == 0) {
+      if (!raw_csi_loaded) {
+        raw_csi_values = service_ ? service_->raw_diagnostics() : RawCsiSessionDiagnostics{};
+        raw_csi_loaded = true;
+      }
+      const auto &values = raw_csi_values;
+      if (std::strcmp(key, "raw_csi.active") == 0) return values.active ? "true" : "false";
+      if (std::strcmp(key, "raw_csi.binary_bound") == 0) return values.binary_bound ? "true" : "false";
+      if (std::strcmp(key, "raw_csi.raw_drop_total") == 0) return std::to_string(values.raw_drop_total);
+      if (std::strcmp(key, "raw_csi.send_backpressure_total") == 0) return std::to_string(values.raw_send_backpressure_total);
+      if (std::strcmp(key, "raw_csi.fresh_record_total") == 0) return std::to_string(values.fresh_record_total);
+      if (std::strcmp(key, "raw_csi.stream_sequence") == 0) return std::to_string(values.stream_sequence);
+    }
+    return runtime_diagnostic_value(key, sample, get_snapshot);
+  });
 }
 
 void RuntimeDirectHttpBridge::refresh_peer_candidate_() {

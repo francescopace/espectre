@@ -356,6 +356,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 96.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_accepted_pps = 90.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_filtered_pps = 6.0f;
+  frontend_runtime_shim::state.diagnostics_sample.csi_hw_error_pps = 0.4f;
   frontend_runtime_shim::state.diagnostics_sample.wifi_channel = 10U;
   frontend_runtime_shim::state.diagnostics_sample.wifi_rssi_dbm = -55;
   mqtt_transport_mock::state.publishes.clear();
@@ -364,7 +365,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   frontend.on_motion_state_changed(snapshot);
   frontend.loop();
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"cmd-diagnostics\",\"command\":\"read_diagnostics\"}");
+  mqtt.emit_command("{\"command_id\":\"cmd-diagnostics\",\"command\":\"read_diagnostics\",\"fields\":[\"*\"]}");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/result",
@@ -379,6 +380,8 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"csi_accepted_pps\":90") !=
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"csi_filtered_pps\":6") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"csi_hw_error_pps\":0.4") !=
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"wifi_channel\":10") !=
                    std::string::npos);

@@ -313,7 +313,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   frontend_runtime_shim::state.diagnostics.csi_invalid_estimate_total = 3U;
   frontend_runtime_shim::state.diagnostics.csi_invalid_first_word_total = 4U;
   frontend_runtime_shim::state.diagnostics.csi_sanitized_first_word_total = 5U;
-  frontend_runtime_shim::state.diagnostics.csi_estimate_length_mismatch_total = 6U;
+  frontend_runtime_shim::state.diagnostics.csi_provenance_rejected_total = 6U;
   frontend_runtime_shim::state.diagnostics.minimum_free_memory_bytes = 2048U;
   frontend_runtime_shim::state.diagnostics.largest_free_memory_block_bytes = 1024U;
   frontend_runtime_shim::state.diagnostics.cpu_frequency_mhz = 160U;
@@ -411,10 +411,29 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(access_points.find("\"rssi_dbm\":-43") != std::string::npos);
   TEST_ASSERT_TRUE(access_points.find("\"channel\":6") != std::string::npos);
 
+  const std::string catalog = direct.emit_request(DirectRequest{"", "read_diagnostics", "{}", "/espectre/v1/diagnostics", "GET"});
+  mqtt.emit_command(R"({"command_id":"catalog","command":"read_diagnostics"})");
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"data\":" + catalog) != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"csi_hw_error_total\"") != std::string::npos);
+  const std::string selected = direct.emit_request(DirectRequest{"", "read_diagnostics", R"({"fields":["csi_hw_error_total","direct_http.send_failures"]})", "/espectre/v1/diagnostics", "GET"});
+  mqtt.emit_command(R"({"command_id":"selected","command":"read_diagnostics","fields":["csi_hw_error_total","direct_http.send_failures"]})");
+  std::vector<JsonObjectField> mqtt_result;
+  TEST_ASSERT_TRUE(parse_json_object_fields(mqtt_transport_mock::state.publishes.back().payload, &mqtt_result));
+  const auto *mqtt_data = find_json_object_field(mqtt_result, "data");
+  TEST_ASSERT_NOT_NULL(mqtt_data);
+  std::vector<JsonObjectField> mqtt_values;
+  TEST_ASSERT_TRUE(parse_json_object_fields(mqtt_data->value, &mqtt_values));
+  TEST_ASSERT_EQUAL_STRING("10", find_json_object_field(mqtt_values, "csi_hw_error_total")->value.c_str());
+  TEST_ASSERT_EQUAL(4, mqtt_values.size());
+  TEST_ASSERT_TRUE(selected.find("\"csi_hw_error_total\":10") != std::string::npos);
+  std::vector<JsonObjectField> selected_fields;
+  TEST_ASSERT_TRUE(parse_json_object_fields(selected, &selected_fields));
+  TEST_ASSERT_EQUAL(4, selected_fields.size());
+  mqtt_transport_mock::state.diagnostics.queued_publishes = 5U;
   const std::string diagnostics =
-      direct.emit_request(DirectRequest{"", "read_diagnostics", "{}",
+      direct.emit_request(DirectRequest{"", "read_diagnostics", R"({"fields":["*"]})",
                                         "/espectre/v1/diagnostics", "GET"});
-  mqtt.emit_command("{\"command_id\":\"quality\",\"command\":\"read_diagnostics\"}");
+  mqtt.emit_command("{\"command_id\":\"quality\",\"command\":\"read_diagnostics\",\"fields\":[\"*\"]}");
   const std::string mqtt_diagnostics = mqtt_transport_mock::state.publishes.back().payload;
   TEST_ASSERT_TRUE(diagnostics.find("\"csi_rx_error_total\":1") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_diagnostics.find("\"csi_rx_error_total\":1") != std::string::npos);
@@ -426,8 +445,8 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(mqtt_diagnostics.find("\"csi_invalid_first_word_total\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"csi_sanitized_first_word_total\":5") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_diagnostics.find("\"csi_sanitized_first_word_total\":5") != std::string::npos);
-  TEST_ASSERT_TRUE(diagnostics.find("\"csi_estimate_length_mismatch_total\":6") != std::string::npos);
-  TEST_ASSERT_TRUE(mqtt_diagnostics.find("\"csi_estimate_length_mismatch_total\":6") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"csi_provenance_rejected_total\":6") != std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_diagnostics.find("\"csi_provenance_rejected_total\":6") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"mqtt\":{") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("broker.local") == std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"scheme\"") == std::string::npos);

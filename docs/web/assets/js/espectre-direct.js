@@ -561,9 +561,17 @@
             if (!allowBeforeHandshake && httpMethod !== 'GET' && !this.#compatible) {
                 throw new ESPectreDirectError('Complete the Direct capability handshake before changing the device.', 'handshake_required');
             }
-            const payload = Object.keys(data).length ? JSON.stringify(data) : null;
+            let payload = Object.keys(data).length ? JSON.stringify(data) : null;
             if (new TextEncoder().encode(payload || '').byteLength > MAX_REQUEST_BYTES) {
                 throw new ESPectreDirectError('Direct request exceeds the 4096-byte limit.', 'frame_too_large');
+            }
+            let query = '';
+            if (httpMethod === 'GET' && resource === 'diagnostics' && payload !== null) {
+                if (Object.keys(data).some(key => key !== 'fields')) {
+                    throw new ESPectreDirectError('Unknown diagnostics parameter.', 'invalid_params');
+                }
+                query = `?fields=${encodeURIComponent(JSON.stringify(data.fields))}`;
+                payload = null;
             }
             const headers = { Accept: 'application/json' };
             if (payload !== null) headers['Content-Type'] = 'application/json';
@@ -575,7 +583,7 @@
                 this.#requestControllers.add(controller);
                 const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
                 try {
-                    response = await localFetch(endpointWithPath(this.#endpoint, `${REQUEST_PATH}/${resource.replace(/^\/+/, '')}`), {
+                    response = await localFetch(endpointWithPath(this.#endpoint, `${REQUEST_PATH}/${resource.replace(/^\/+/, '')}`) + query, {
                         method: httpMethod,
                         headers,
                         body: payload,

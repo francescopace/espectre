@@ -94,6 +94,8 @@ DIAGNOSTIC_FIELDS = (
     "csi_accepted_pps",
     "csi_admitted_pps",
     "csi_filtered_pps",
+    "csi_hw_error_pps",
+    "csi_hw_error_total",
     "csi_missing_slots_pps",
     "csi_excess_pps",
     "csi_stale_pps",

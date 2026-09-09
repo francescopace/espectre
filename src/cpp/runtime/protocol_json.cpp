@@ -52,6 +52,28 @@ class JsonReader {
     return position_ == input_.size() || fail_("unexpected data after JSON array");
   }
 
+  bool parse_array_strings(std::vector<std::string> *strings, std::string *error) {
+    error_ = error;
+    if (strings == nullptr) return fail_("strings output is required");
+    strings->clear();
+    skip_space_();
+    if (!consume_('[')) return fail_("expected JSON array");
+    skip_space_();
+    if (!consume_(']')) {
+      while (true) {
+        std::string value;
+        if (!parse_string_(&value)) return false;
+        strings->push_back(std::move(value));
+        skip_space_();
+        if (consume_(']')) break;
+        if (!consume_(',')) return fail_("expected comma in JSON array");
+        skip_space_();
+      }
+    }
+    skip_space_();
+    return position_ == input_.size() || fail_("unexpected data after JSON array");
+  }
+
  private:
   static bool hex_value_(char ch, uint32_t *value) {
     if (value == nullptr) {
@@ -655,6 +677,12 @@ bool parse_json_array_objects(const std::string &payload,
                               std::string *error) {
   JsonReader reader(payload);
   return reader.parse_array_objects(objects, error);
+}
+
+bool parse_json_array_strings(const std::string &payload, std::vector<std::string> *strings,
+                              std::string *error) {
+  JsonReader reader(payload);
+  return reader.parse_array_strings(strings, error);
 }
 
 const JsonObjectField *find_json_object_field(const std::vector<JsonObjectField> &fields, const char *name) {

@@ -52,7 +52,7 @@
       <tr><td><code>update_device</code></td><td><code>label</code></td><td>Set or clear the device label</td></tr>
       <tr><td><code>update_sensing</code></td><td>Supported sensing subset</td><td>Update detector and traffic settings</td></tr>
       <tr><td><code>recalibrate</code></td><td>none</td><td>Start detector recalibration</td></tr>
-      <tr><td><code>read_diagnostics</code></td><td>none</td><td>Return an on-demand diagnostics snapshot in <code>data</code></td></tr>
+      <tr><td><code>read_diagnostics</code></td><td>optional <code>fields</code> array</td><td>Return the field catalog, selected values, or all values with <code>["*"]</code> in <code>data</code></td></tr>
       <tr><td><code>check_ota</code></td><td>optional <code>channel</code></td><td>Check a firmware channel</td></tr>
       <tr><td><code>start_ota</code></td><td>optional <code>channel</code></td><td>Start an update from a firmware channel</td></tr>
     </tbody>
@@ -60,7 +60,7 @@
   <p>A command payload is limited to 2,048 bytes. An unsupported command returns <code>accepted: false</code> with code <code>forbidden</code>. Validation and runtime failures use the same result codes as HTTP.</p>
 
   <h2 data-toc-label="Direct-only access">Use HTTP for Direct-only access</h2>
-  <p>MQTT has no topics for broker configuration, discovery results, raw CSI, or retained diagnostics. Configure MQTT through Direct HTTP or the device settings tool. Use <code>read_diagnostics</code> for an on-demand snapshot, and use Direct HTTP for peer discovery and CSI collection.</p>
+  <p>MQTT has no topics for broker configuration, discovery results, raw CSI, or retained diagnostics. Configure MQTT through Direct HTTP or the device settings tool. Use <code>read_diagnostics</code> with explicit <code>fields</code> for an on-demand snapshot, and use Direct HTTP for peer discovery and CSI collection.</p>
   <p>Home Assistant MQTT Discovery publishes entity definitions under <code>homeassistant/</code>. Those topics are separate from the canonical ESPectre device topics.</p>
 
   <h2 data-toc-label="Privacy and security">Protect the broker</h2>

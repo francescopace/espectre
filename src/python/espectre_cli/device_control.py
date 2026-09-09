@@ -92,6 +92,8 @@ def run_direct_request_command(args) -> int:
         with DirectClient(endpoint, origin=args.origin, timeout=args.timeout) as client:
             if args.http_method != "get" or args.resource.strip("/") != "capabilities":
                 client.negotiate()
+            if args.http_method.lower() == "get" and args.resource.strip("/") == "diagnostics" and "fields" not in params:
+                params["fields"] = ["*"]
             result = client.request(args.http_method, args.resource, params)
     except (OSError, RuntimeError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         print(f"Direct request failed: {exc}")

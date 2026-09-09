@@ -24,6 +24,7 @@
 #include "py/objstr.h"
 #include "py/runtime.h"
 #include "sdkconfig.h"
+#include "runtime/diagnostic_fields.h"
 
 #define DIRECT_BASE_PATH "/espectre/v1"
 #define DIRECT_RESOURCE_PATH "/espectre/v1/*"
@@ -627,13 +628,157 @@ static bool direct_validate_no_parameters(const cJSON *parameters, const char **
   return true;
 }
 
+
+static bool direct_diagnostic_name_available(const char *name) {
+  if (name == NULL || name[0] == '\0') return false;
+  const size_t length = strlen(name);
+  for (size_t i = 0; i < ESPECTRE_DIAGNOSTIC_FIELD_COUNT; ++i) {
+    const espectre_diagnostic_field_t *field = &espectre_diagnostic_fields[i];
+    if (!(field->profiles & 4U)) continue;
+    if (strcmp(name, field->name) == 0 ||
+        (strncmp(name, field->name, length) == 0 && field->name[length] == '.')) return true;
+  }
+  return false;
+}
+
+static bool direct_validate_diagnostic_parameters(const cJSON *parameters, const char **error) {
+  *error = "unknown or invalid diagnostic field selection";
+  const cJSON *fields = parameters->child;
+  if (fields == NULL) return true;
+  if (fields->next != NULL || strcmp(fields->string, "fields") != 0 || !cJSON_IsArray(fields)) return false;
+  if (cJSON_GetArraySize(fields) > (int) ESPECTRE_DIAGNOSTIC_FIELD_COUNT) return false;
+  const cJSON *entry;
+  cJSON_ArrayForEach(entry, fields) {
+    if (!cJSON_IsString(entry)) return false;
+    if (strcmp(entry->valuestring, "*") == 0) return cJSON_GetArraySize(fields) == 1;
+    if (!direct_diagnostic_name_available(entry->valuestring)) return false;
+  }
+  return true;
+}
+
+// The cached payload contains only canonical numeric/boolean diagnostic leaves.
+// Copy one scalar token from the pinned buffer, without parsing/copying the full snapshot.
+static void direct_diagnostic_scalar(const char *snapshot, const char *name, char *out, size_t capacity) {
+  const char *begin = snapshot;
+  const char *end = snapshot == NULL ? NULL : snapshot + strlen(snapshot);
+  const char *leaf = name;
+  const char *dot = strchr(name, '.');
+  char needle[96];
+  if (begin != NULL && dot != NULL) {
+    snprintf(needle, sizeof(needle), "\"%.*s\":", (int) (dot - name), name);
+    begin = strstr(begin, needle);
+    if (begin != NULL) {
+      begin += strlen(needle);
+      end = strchr(begin, '}');
+    }
+    leaf = dot + 1;
+  }
+  snprintf(needle, sizeof(needle), "\"%s\":", leaf);
+  const char *value = begin == NULL ? NULL : strstr(begin, needle);
+  if (value == NULL || end == NULL || value >= end) {
+    snprintf(out, capacity, "null");
+    return;
+  }
+  value += strlen(needle);
+  size_t length = strcspn(value, ",}");
+  if (length >= capacity || value + length > end) {
+    snprintf(out, capacity, "null");
+    return;
+  }
+  memcpy(out, value, length);
+  out[length] = '\0';
+}
+
+static esp_err_t direct_send_diagnostics(httpd_req_t *request, const cJSON *parameters) {
+  const cJSON *fields = cJSON_GetObjectItemCaseSensitive(parameters, "fields");
+  const bool catalog = fields == NULL || fields->child == NULL;
+  direct_command_snapshot_t snapshot = catalog ? (direct_command_snapshot_t) {0}
+      : direct_acquire_command_snapshot("diagnostics");
+  if (!catalog && snapshot.data == NULL) {
+    return direct_send_result(request, "", "diagnostics", false, "unavailable",
+                              "snapshot is unavailable", NULL, "503 Service Unavailable");
+  }
+  httpd_resp_set_type(request, "application/json");
+  (void) httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+  esp_err_t result = httpd_resp_send_chunk(request, catalog ? "{\"fields\":[" : "{", catalog ? 11 : 1);
+  bool first = true;
+  bool nested_first = true;
+  char group[32] = "";
+  for (size_t i = 0; result == ESP_OK && i < ESPECTRE_DIAGNOSTIC_FIELD_COUNT; ++i) {
+    const espectre_diagnostic_field_t *field = &espectre_diagnostic_fields[i];
+    if (!(field->profiles & 4U)) continue;
+    const char *dot = strchr(field->name, '.');
+    const size_t parent_length = dot == NULL ? 0U : (size_t) (dot - field->name);
+    bool selected = catalog || strcmp(field->name, "timestamp_ms") == 0 || strcmp(field->name, "uptime") == 0;
+    const cJSON *entry;
+    cJSON_ArrayForEach(entry, fields) {
+      const char *name = entry->valuestring;
+      selected |= strcmp(name, "*") == 0 || strcmp(name, field->name) == 0 ||
+          (parent_length > 0U && strlen(name) == parent_length && strncmp(name, field->name, parent_length) == 0);
+    }
+    if (!selected) continue;
+    char buffer[192];
+    int length;
+    if (catalog) {
+      length = snprintf(buffer, sizeof(buffer), "%s{\"name\":\"%s\",\"type\":\"%s\",\"unit\":\"%s\"}",
+                        first ? "" : ",", field->name, field->type, field->unit);
+      first = false;
+    } else {
+      if (strlen(group) != parent_length || strncmp(group, field->name, parent_length) != 0) {
+        if (group[0] != '\0') result = httpd_resp_send_chunk(request, "}", 1);
+        snprintf(group, sizeof(group), "%.*s", (int) parent_length, field->name);
+        nested_first = true;
+        if (result == ESP_OK && parent_length > 0U) {
+          length = snprintf(buffer, sizeof(buffer), "%s\"%s\":{", first ? "" : ",", group);
+          result = httpd_resp_send_chunk(request, buffer, length);
+          first = false;
+        }
+      }
+      if (result != ESP_OK) break;
+      char scalar[64];
+      direct_diagnostic_scalar(snapshot.data, field->name, scalar, sizeof(scalar));
+      bool *entry_first = parent_length == 0U ? &first : &nested_first;
+      length = snprintf(buffer, sizeof(buffer), "%s\"%s\":%s", *entry_first ? "" : ",",
+                        dot == NULL ? field->name : dot + 1, scalar);
+      *entry_first = false;
+    }
+    result = httpd_resp_send_chunk(request, buffer, length);
+  }
+  if (result == ESP_OK && group[0] != '\0') result = httpd_resp_send_chunk(request, "}", 1);
+  if (result == ESP_OK) result = httpd_resp_send_chunk(request, catalog ? "]}" : "}", catalog ? 2 : 1);
+  if (result == ESP_OK) result = httpd_resp_send_chunk(request, NULL, 0);
+  direct_release_command_snapshot(&snapshot);
+  return result;
+}
+
+// Decode the one browser-compatible query parameter into the same JSON object
+// accepted in an HTTP body. The decoded request retains the existing byte limit.
+static bool direct_diagnostic_query(const char *query, char *body, size_t capacity) {
+  if (strncmp(query, "fields=", 7U) != 0 || strchr(query, '&') != NULL) return false;
+  size_t used = (size_t) snprintf(body, capacity, "{\"fields\":");
+  for (const char *p = query + 7; *p; ++p) {
+    unsigned char ch = (unsigned char) *p;
+    if (ch == '%') {
+      if (!isxdigit((unsigned char)p[1]) || !p[1] || !p[2] || !isxdigit((unsigned char)p[2])) return false;
+      char hex[3] = {p[1], p[2], 0};
+      ch = (unsigned char) strtoul(hex, NULL, 16);
+      p += 2;
+    } else if (ch == '+') ch = ' ';
+    if (ch == 0 || used + 2 >= capacity) return false;
+    body[used++] = (char) ch;
+  }
+  body[used++] = '}';
+  body[used] = '\0';
+  return true;
+}
+
 static const direct_route_t direct_routes[] = {
     {HTTP_GET, "/espectre/v1/capabilities", "capabilities", direct_validate_no_parameters},
     {HTTP_GET, "/espectre/v1/device", "device", direct_validate_no_parameters},
     {HTTP_GET, "/espectre/v1/health", "health", direct_validate_no_parameters},
     {HTTP_GET, "/espectre/v1/sensing", "sensing", direct_validate_no_parameters},
     {HTTP_GET, "/espectre/v1/wifi", "wifi", direct_validate_no_parameters},
-    {HTTP_GET, "/espectre/v1/diagnostics", "diagnostics", direct_validate_no_parameters},
+    {HTTP_GET, "/espectre/v1/diagnostics", "diagnostics", direct_validate_diagnostic_parameters},
     {HTTP_POST, "/espectre/v1/sensing/calibrations", "recalibrate", direct_validate_no_parameters},
 };
 
@@ -646,7 +791,10 @@ static bool direct_json_input_allowed(const char *body, size_t length) {
     if ((unsigned char) token < 0x20U &&
         (quoted || (token != '\t' && token != '\r' && token != '\n'))) return false;
     if (quoted) {
-      if (escaped) escaped = false;
+      if (escaped) {
+        if (token == 'u' && i + 4U < length && memcmp(body + i + 1U, "0000", 4U) == 0) return false;
+        escaped = false;
+      }
       else if (token == '\\') escaped = true;
       else if (token == '"') quoted = false;
     } else if (token == '"') {
@@ -661,7 +809,7 @@ static bool direct_json_input_allowed(const char *body, size_t length) {
   return true;
 }
 
-static bool direct_validate_request(httpd_req_t *request, const direct_route_t *route) {
+static bool direct_validate_request(httpd_req_t *request, const direct_route_t *route, cJSON **validated) {
   char body[DIRECT_MAX_REQUEST_BYTES + 1];
   size_t received = 0U;
   while (received < request->content_len) {
@@ -685,6 +833,16 @@ static bool direct_validate_request(httpd_req_t *request, const direct_route_t *
       return false;
     }
   }
+  const char *query = strchr(request->uri, '?');
+  if (query != NULL) {
+    if (received != 0U || strcmp(route->command, "diagnostics") != 0 ||
+        !direct_diagnostic_query(query + 1, body, sizeof(body))) {
+      (void) direct_send_result(request, "", route->command, false, "invalid_params",
+                                "invalid diagnostics query", NULL, "400 Bad Request");
+      return false;
+    }
+    received = strlen(body);
+  }
   // Empty bodies represent an empty parameter object, as in the C++ protocol.
   const char *payload = received == 0U ? "{}" : body;
   size_t length = received == 0U ? 2U : received;
@@ -693,7 +851,8 @@ static bool direct_validate_request(httpd_req_t *request, const direct_route_t *
   const char *error = "invalid Direct JSON object";
   bool valid = cJSON_IsObject(parameters);
   if (valid) valid = route->validate(parameters, &error);
-  cJSON_Delete(parameters);
+  if (valid) *validated = parameters;
+  else cJSON_Delete(parameters);
   if (!valid) {
     direct_increment(&direct_state.malformed_requests);
     (void) direct_send_result(request, "", route->command, false, "invalid_params",
@@ -718,12 +877,20 @@ static esp_err_t direct_request_handler(httpd_req_t *request) {
   }
   const direct_route_t *route = NULL;
   for (size_t i = 0U; i < sizeof(direct_routes) / sizeof(direct_routes[0]); ++i) {
-    if (request->method == direct_routes[i].method && strcmp(request->uri, direct_routes[i].path) == 0) {
+    if (request->method == direct_routes[i].method && strlen(direct_routes[i].path) == strcspn(request->uri, "?") &&
+        strncmp(request->uri, direct_routes[i].path, strlen(direct_routes[i].path)) == 0) {
       route = &direct_routes[i];
       break;
     }
   }
-  if (route != NULL && !direct_validate_request(request, route)) return ESP_FAIL;
+  cJSON *parameters = NULL;
+  if (route != NULL && !direct_validate_request(request, route, &parameters)) return ESP_FAIL;
+  if (route != NULL && strcmp(route->command, "diagnostics") == 0) {
+    esp_err_t result = direct_send_diagnostics(request, parameters);
+    cJSON_Delete(parameters);
+    return result;
+  }
+  cJSON_Delete(parameters);
   const char *command = route != NULL ? route->command : NULL;
   bool recalibrate = route != NULL && request->method == HTTP_POST;
   bool query = route != NULL && request->method == HTTP_GET;

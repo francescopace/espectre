@@ -368,6 +368,25 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         client.close();
     });
 
+    it('sends diagnostic selections as a GET query without a body', async () => {
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url, options });
+            if (url.endsWith('/events')) return { ok: true, status: 200, body: pendingBody() };
+            assert.equal(options.body, null);
+            const selected = JSON.parse(new URL(url).searchParams.get('fields'));
+            assert.deepEqual(selected, ['csi_hw_error_total', 'direct_http.send_failures']);
+            return { ok: true, status: 200, text: async () => JSON.stringify({ csi_hw_error_total: 7 }) };
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        assert.deepEqual(await client.request('get', 'diagnostics', {
+            fields: ['csi_hw_error_total', 'direct_http.send_failures']
+        }), { csi_hw_error_total: 7 });
+        assert.equal(calls.filter(call => !call.url.endsWith('/events')).length, 1);
+        client.close();
+    });
+
     it('does not retry a mutating request after a transport failure', async () => {
         let mutationCalls = 0;
         globalThis.fetch = async (_url, options) => {

@@ -1544,13 +1544,45 @@ int main(void) {
     info.len=114;
     wifi_csi_rx_cb(NULL, &info); assert(accepted == 3);
     wifi_csi_rx_cb(NULL, NULL); assert(accepted == 3);
-    assert(sizeof(methods) / sizeof(methods[0]) == 2);
+    assert(sizeof(methods) / sizeof(methods[0]) == 3);
     assert(strcmp(methods[1].name, "MP_QSTR_csi_filtered") == 0);
     assert((*methods[0].getter)(0) == (CONFIG_SOC_WIFI_HE_SUPPORT ? 8 : 6));
     assert((*methods[1].getter)(0) == (CONFIG_SOC_WIFI_HE_SUPPORT ? 5 : 3));
+    assert(strcmp(methods[2].name, "MP_QSTR_csi_hw_errors") == 0);
+    assert((*methods[2].getter)(0) == (CONFIG_SOC_WIFI_HE_SUPPORT ? 5 : 3));
+    // Safe centered payload: vary every flag combination, buffer presence,
+    // and length. Hardware faults take priority and count once per callback.
+    const uint16_t lengths[] = {0, 1, 106, 128, 256};
+    for (unsigned flags = 0; flags < 16; ++flags) {
+        for (unsigned absent = 0; absent < 2; ++absent) {
+            for (unsigned l = 0; l < sizeof(lengths) / sizeof(lengths[0]); ++l) {
+                info.buf = absent ? NULL : payload;
+                info.len = lengths[l];
+                info.first_word_invalid = (flags & 8) != 0;
+                info.rx_ctrl.rx_state = flags & 1;
+                bool hw = info.rx_ctrl.rx_state != 0;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+                info.rx_ctrl.rxend_state = (flags & 2) != 0;
+                info.rx_ctrl.rx_channel_estimate_info_vld = (flags & 4) == 0;
+                hw = hw || info.rx_ctrl.rxend_state || !info.rx_ctrl.rx_channel_estimate_info_vld;
+#endif
+                hw = hw || (info.first_word_invalid && (absent || (info.len != 128 && info.len != 256)));
+                const bool rejected = hw || absent || !info.len || (info.len & 1);
+                const uint32_t old_hw = (*methods[2].getter)(0);
+                const uint32_t old_filtered = (*methods[1].getter)(0);
+                const unsigned old_accepted = accepted;
+                wifi_csi_rx_cb(NULL, &info);
+                assert((*methods[2].getter)(0) == old_hw + hw);
+                assert((*methods[1].getter)(0) == old_filtered + rejected);
+                assert(accepted == old_accepted + !rejected);
+            }
+        }
+    }
+
     reset_counters();
     assert((*methods[0].getter)(0) == 0);
     assert((*methods[1].getter)(0) == 0);
+    assert((*methods[2].getter)(0) == 0);
     return 0;
 }
 ''')

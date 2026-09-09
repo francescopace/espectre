@@ -33,6 +33,7 @@ def test_runtime_diagnostic_rates_reuse_output_and_handle_counter_reset():
             filtered_total=total, missing_slots_total=total, excess_total=total,
             stale_total=total, out_of_order_total=total, occupancy_slots=75,
             window_slots=window_slots, wifi_channel=6, rssi_dbm=-57,
+            wlan=SimpleNamespace(csi_hw_errors=lambda: total),
         )
 
     assert sampler.sample(snapshot(10), 1000, out=output) is output
@@ -86,18 +87,52 @@ def test_runtime_wifi_diagnostics_tolerate_older_or_unavailable_drivers(reader, 
 
 
 def test_runtime_diagnostics_include_native_quality_rejections_without_ring_drops():
-    wlan = SimpleNamespace(csi_filtered=lambda: 100, csi_dropped=lambda: 7)
+    wlan = SimpleNamespace(csi_filtered=lambda: 100, csi_dropped=lambda: 7, csi_hw_errors=lambda: 40)
     snapshot = diagnostics.collect_runtime_diagnostics_snapshot(
         wlan=wlan, callback_total=200, filtered_total=3,
     )
     assert snapshot["csi_callbacks_total"] == 200
     assert snapshot["csi_filtered_total"] == 103
+    assert snapshot["csi_hw_error_total"] == 40
     assert diagnostics.wifi_csi_dropped(wlan) == 7
     for older_driver in (None, SimpleNamespace()):
         snapshot = diagnostics.collect_runtime_diagnostics_snapshot(
             wlan=older_driver, filtered_total=3,
         )
         assert snapshot["csi_filtered_total"] == 3
+        assert snapshot["csi_hw_error_total"] is None
+
+
+@pytest.mark.parametrize("driver", [None, SimpleNamespace(),
+    SimpleNamespace(csi_hw_errors=lambda: "invalid")])
+def test_hardware_error_rate_is_unavailable_with_older_or_invalid_driver(driver):
+    sampler = diagnostics.RuntimeDiagnosticsSampler()
+    snapshot = diagnostics.collect_runtime_diagnostics_snapshot(wlan=driver)
+    for now in (1000, 2000):
+        sample = sampler.sample(snapshot, now)
+        assert sample["csi_hw_error_pps"] is None
+        payload = protocol.build_diagnostics_payload("device", now, now // 1000, sample)
+        assert payload["csi_hw_error_pps"] is None
+
+
+def test_hardware_error_rate_reaches_api_and_log_with_actual_elapsed_time():
+    sampler = diagnostics.RuntimeDiagnosticsSampler()
+    count = 10
+    driver = SimpleNamespace(csi_hw_errors=lambda: count)
+    sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(wlan=driver), 1000)
+    count = 13
+    sample = sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(wlan=driver), 3500)
+    assert sample["csi_hw_error_pps"] == 1.2
+    payload = protocol.build_diagnostics_payload("device", 3500, 3,
+        diagnostics.apply_diagnostics_sample({}, sample))
+    assert payload["csi_hw_error_pps"] == 1.2
+    line = format_detection_publish_line(diagnostics=sample,
+        motion_metric=0.0, threshold=0.5, effective_state=0)
+    assert "hwerr:1.2" in line
+    # Firmware availability changes establish a new hardware-counter baseline.
+    sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(), 4000)
+    sample = sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(wlan=driver), 4500)
+    assert sample["csi_hw_error_pps"] == 0.0
 
 
 def test_runtime_performance_windows_preserve_heap_minimum_and_clear_samples():
@@ -172,8 +207,18 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
 
     assert line == (
         "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
-        "csi:99/100 cb:102 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
+        "tx:101.0 cb:102.0 accepted:100.0 hwerr:-- occ:80% | ch:6 rssi:-50"
     )
+
+
+def test_status_preserves_fractional_hardware_error_rates_when_available():
+    line = format_detection_publish_line(
+        diagnostics={"csi_hw_error_pps": 0.4},
+        motion_metric=0.0, threshold=0.5, effective_state=0,
+    )
+    assert "hwerr:0.4" in line
+    assert "tx:-- cb:-- accepted:--" in line
+    assert "ch:-- rssi:--" in line
 
 
 def test_print_log_uses_a_stable_level_prefix(capsys):
@@ -499,6 +544,9 @@ def test_native_direct_validates_requests_before_dispatch(tmp_path):
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include "runtime/diagnostic_fields.h"
 typedef int esp_err_t;
 typedef int httpd_method_t;
 typedef struct { int method; const char *uri; size_t content_len; } httpd_req_t;
@@ -508,6 +556,7 @@ static struct { unsigned rate_limited_requests; unsigned oversized_requests; uns
 static bool queued, close_connection, busy;
 static unsigned snapshot_reads, receive_calls, parser_calls;
 static const char *response_status, *response_code, *incoming, *content_type;
+static char response_body[8192];
 static size_t incoming_length, received;
 static int json_kind;
 #ifdef TEST_REAL_CJSON
@@ -520,23 +569,35 @@ static cJSON *test_parse(const char *body, size_t length, const char **end, bool
 #else
 /* The JSON dependency supplies a decoded object or a parse failure. The
  * contract exercised here is validation and dispatch around that boundary. */
-typedef struct cJSON { struct cJSON *child; bool object; } cJSON;
+enum { cJSON_Object=64, cJSON_Array=32, cJSON_String=16 };
+typedef struct cJSON { struct cJSON *child, *next; int type; char *string, *valuestring; } cJSON;
 static cJSON *cJSON_ParseWithLengthOpts(const char *body, size_t length, const char **end, bool strict) {
     static cJSON value;
     ++parser_calls;
     if (!strict || length != strlen(body) + 1U || json_kind == 0) return NULL;
-    value.child = json_kind == 2 ? &value : NULL;
-    value.object = json_kind != 3;
+    value = (cJSON){.child=json_kind == 2 ? &value : NULL, .type=json_kind != 3 ? cJSON_Object : 0, .string="force"};
     return &value;
 }
-static bool cJSON_IsObject(const cJSON *value) { return value != NULL && value->object; }
+static bool cJSON_IsObject(const cJSON *value) { return value != NULL && value->type == cJSON_Object; }
 static void cJSON_Delete(cJSON *value) {}
+static bool cJSON_IsArray(const cJSON *value) { return value != NULL && value->type == cJSON_Array; }
+static bool cJSON_IsString(const cJSON *value) { return value != NULL && value->type == cJSON_String; }
+static int cJSON_GetArraySize(const cJSON *value) { int n=0; for (value=value->child; value; value=value->next) ++n; return n; }
+static const cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value, const char *key) {
+    for (value=value->child; value; value=value->next) if (strcmp(value->string,key)==0) return value;
+    return NULL;
+}
+#define cJSON_ArrayForEach(entry,array) for (entry=(array) ? (array)->child : NULL; entry; entry=entry->next)
 #endif
 static bool direct_set_cors(httpd_req_t *r) { return true; }
 static bool direct_request_allowed(void) { return true; }
 static void direct_increment(unsigned *p) { ++*p; }
 static void httpd_resp_set_status(httpd_req_t *r, const char *s) { response_status=s; }
 static int httpd_resp_sendstr(httpd_req_t *r, const char *s) { return 0; }
+static int httpd_resp_send_chunk(httpd_req_t *r, const char *s, size_t length) {
+    if (s && strlen(response_body)+length < sizeof(response_body)) strncat(response_body, s, length);
+    return 0;
+}
 static void httpd_resp_set_type(httpd_req_t *r, const char *s) {}
 static int httpd_resp_set_hdr(httpd_req_t *r, const char *k, const char *v) {
     if (strcmp(k, "Connection") == 0 && strcmp(v, "close") == 0) close_connection = true;
@@ -560,7 +621,7 @@ static int httpd_req_recv(httpd_req_t *r, char *out, size_t size) {
 }
 static direct_command_snapshot_t direct_acquire_command_snapshot(const char *s) {
     ++snapshot_reads;
-    return (direct_command_snapshot_t){"{}"};
+    return (direct_command_snapshot_t){"{\"timestamp_ms\":1234,\"uptime\":1,\"csi_hw_error_total\":7,\"direct_http\":{\"event_clients\":2,\"send_failures\":3}}"};
 }
 static void direct_release_command_snapshot(direct_command_snapshot_t *s) {}
 static bool direct_queue_recalibration(void) { queued = !busy; return queued; }
@@ -573,6 +634,7 @@ static void reset(const char *body, size_t size, int kind) {
     memset(&direct_state, 0, sizeof(direct_state));
     queued = close_connection = busy = false;
     snapshot_reads = receive_calls = parser_calls = 0U;
+    response_body[0] = 0;
     response_status = "200 OK";
     response_code = "";
     incoming = body;
@@ -619,7 +681,7 @@ int main(void) {
         CHECK(direct_request_handler(&request) == ESP_OK);
         CHECK(parser_calls == 1U);
         CHECK(queued == (request.method == HTTP_POST));
-        CHECK(snapshot_reads == (request.method == HTTP_GET));
+        CHECK(snapshot_reads == (request.method == HTTP_GET && strcmp(direct_routes[route].command, "diagnostics") != 0));
     }
     const char *nested = "[[[[[[[[[0]]]]]]]]]";
     reset(nested, strlen(nested), 3);
@@ -646,12 +708,45 @@ int main(void) {
     CHECK(direct_request_handler(&request) == ESP_OK);
     CHECK(!queued && strcmp(response_status, "409 Conflict") == 0);
     CHECK(strcmp(response_code, "busy") == 0);
+
+    cJSON first = {.type=cJSON_String, .valuestring="csi_hw_error_total"};
+    cJSON second = {.type=cJSON_String, .valuestring="direct_http.send_failures"};
+    first.next = &second;
+    cJSON fields = {.type=cJSON_Array, .string="fields", .child=&first};
+    cJSON parameters = {.type=cJSON_Object, .child=&fields};
+    const char *error = NULL;
+    CHECK(direct_validate_diagnostic_parameters(&parameters, &error));
+    reset("", 0, 1);
+    CHECK(direct_send_diagnostics(&request, &parameters) == ESP_OK);
+    CHECK(snapshot_reads == 1U);
+    CHECK(strcmp(response_body, "{\"timestamp_ms\":1234,\"uptime\":1,\"csi_hw_error_total\":7,\"direct_http\":{\"send_failures\":3}}") == 0);
+    first.valuestring = "*";
+    CHECK(!direct_validate_diagnostic_parameters(&parameters, &error));
+    first.next = NULL;
+    CHECK(direct_validate_diagnostic_parameters(&parameters, &error));
+    first.valuestring = "unknown";
+    CHECK(!direct_validate_diagnostic_parameters(&parameters, &error));
+    first.valuestring = "mqtt";
+    CHECK(!direct_validate_diagnostic_parameters(&parameters, &error));
+    fields.child = NULL;
+    reset("", 0, 1);
+    CHECK(direct_send_diagnostics(&request, &parameters) == ESP_OK);
+    CHECK(snapshot_reads == 0U);
+    CHECK(strstr(response_body, "\"name\":\"csi_hw_error_total\"") != NULL);
+    CHECK(strstr(response_body, "\"name\":\"raw_csi.active\"") == NULL);
+    char decoded[DIRECT_MAX_REQUEST_BYTES + 1];
+    CHECK(direct_diagnostic_query("fields=%5B%22uptime%22%5D", decoded, sizeof(decoded)));
+    CHECK(strcmp(decoded, "{\"fields\":[\"uptime\"]}") == 0);
+    CHECK(!direct_diagnostic_query("fields=[]&fields=[]", decoded, sizeof(decoded)));
+    CHECK(!direct_diagnostic_query("fields=%00", decoded, sizeof(decoded)));
+    CHECK(!direct_diagnostic_query("fields=%", decoded, sizeof(decoded)));
+    CHECK(!direct_diagnostic_query("fields=%0", decoded, sizeof(decoded)));
     return 0;
 }
 '''
     probe_source = tmp_path / "direct_request_probe.c"
     probe_source.write_text(limit + "\n" + stubs + handler + main, encoding="utf-8")
     executable = tmp_path / "direct_request_probe"
-    subprocess.run(["cc", str(probe_source), "-o", str(executable)], check=True,
+    subprocess.run(["cc", "-I", str(repo_root() / "src/cpp"), str(probe_source), "-o", str(executable)], check=True,
                    capture_output=True, text=True)
     subprocess.run([str(executable)], check=True, capture_output=True, text=True)

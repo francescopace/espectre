@@ -35,7 +35,7 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "csi-quality-v2"
+MICROPYTHON_PATCH_REVISION = "csi-quality-v3"
 PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
@@ -793,54 +793,64 @@ def _configure_project_csi_quality(micropython_dir: Path) -> None:
            (signature, copy, counter, field, reset, getter_start, getter_end)):
         raise RuntimeError(f"MicroPython CSI quality admission anchors are missing: {path}")
     admission = """// ESPectre CSI quality admission.
-static bool espectre_csi_quality_valid(const wifi_csi_info_t *info) {
-    if (info == NULL || info->buf == NULL || info->len == 0 || (info->len & 1) ||
-        info->rx_ctrl.rx_state != 0) {
+static bool espectre_csi_hardware_error(const wifi_csi_info_t *info) {
+    if (info == NULL) {
         return false;
+    }
+    // Match C++ precedence: hardware faults also count with malformed buffers.
+    if (info->rx_ctrl.rx_state != 0) {
+        return true;
     }
     #if CONFIG_SOC_WIFI_HE_SUPPORT
     if (info->rx_ctrl.rxend_state != 0 || !info->rx_ctrl.rx_channel_estimate_info_vld) {
-        return false;
+        return true;
     }
     #endif
     if (info->first_word_invalid) {
         // Only independently identified, full-width centered guards can be
         // cleaned. Compact and classic-order first pairs contain live tones.
-        if (info->len != 128 && info->len != 256) {
-            return false;
+        if (info->buf == NULL || (info->len != 128 && info->len != 256)) {
+            return true;
         }
         static const uint8_t guard_bins[] = {2, 3, 61, 62, 63};
         static const uint8_t live_bins[] = {29, 30, 31, 33, 34, 35};
         for (unsigned i = 0; i < sizeof(guard_bins); ++i) {
             const unsigned offset = guard_bins[i] * 2;
             if (info->buf[offset] != 0 || info->buf[offset + 1] != 0) {
-                return false;
+                return true;
             }
         }
         for (unsigned i = 0; i < sizeof(live_bins); ++i) {
             const unsigned offset = live_bins[i] * 2;
             if (info->buf[offset] == 0 && info->buf[offset + 1] == 0) {
-                return false;
+                return true;
             }
         }
     }
-    return true;
+    return false;
 }
 
 """
     source = source.replace(signature, admission + signature, 1)
-    source = source.replace(counter, counter + "    if (!espectre_csi_quality_valid(info)) {\n"
+    source = source.replace(counter, counter +
+                            "    const bool hardware_error = espectre_csi_hardware_error(info);\n"
+                            "    if (hardware_error || info == NULL || info->buf == NULL ||\n"
+                            "        info->len == 0 || (info->len & 1)) {\n"
                             "        __atomic_fetch_add(&state->filtered, 1, __ATOMIC_RELAXED);\n"
+                            "        if (hardware_error) {\n"
+                            "            __atomic_fetch_add(&state->hw_errors, 1, __ATOMIC_RELAXED);\n"
+                            "        }\n"
                             "        return;\n"
                             "    }\n", 1)
     source = source.replace(copy, copy + "\n        if (info->first_word_invalid) {\n"
                             "            memset(frame.data, 0, frame.len < 4 ? frame.len : 4);\n"
                             "        }", 1)
-    source = source.replace(field, field + "    volatile uint32_t filtered;\n", 1)
-    source = source.replace(reset, reset + "    state->filtered = 0;\n")
+    source = source.replace(field, field + "    volatile uint32_t filtered;\n    volatile uint32_t hw_errors;\n", 1)
+    source = source.replace(reset, reset + "    state->filtered = 0;\n    state->hw_errors = 0;\n")
     # Keep native counter reads and MicroPython registration identical.
     getter = source[source.index(getter_start):source.index(getter_end) + len(getter_end)]
-    source = source.replace(getter, getter + "\n\n" + getter.replace("callbacks", "filtered"), 1)
+    source = source.replace(getter, getter + "\n\n" + getter.replace("callbacks", "filtered") +
+                            "\n\n" + getter.replace("callbacks", "hw_errors"), 1)
     registrations = (
         (esp32_dir / "network_wlan_csi.h",
          "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_callbacks_obj);"),
@@ -853,7 +863,8 @@ static bool espectre_csi_quality_valid(const wifi_csi_info_t *info) {
         if anchor not in content:
             raise RuntimeError(f"MicroPython CSI counter registration anchor is missing: {registration_path}")
         updates.append((registration_path, content.replace(
-            anchor, anchor + "\n" + anchor.replace("callbacks", "filtered"), 1)))
+            anchor, anchor + "\n" + anchor.replace("callbacks", "filtered") +
+            "\n" + anchor.replace("callbacks", "hw_errors"), 1)))
     for registration_path, content in updates:
         registration_path.write_text(content, encoding="utf-8")
     path.write_text(source, encoding="utf-8")

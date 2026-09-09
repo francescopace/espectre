@@ -40,6 +40,8 @@ struct RuntimeDiagnosticsSample {
   float csi_admitted_pps{0.0f};
   /** CSI packets per second rejected by capture-level validation. */
   float csi_filtered_pps{0.0f};
+  /** Hardware-quality rejections per second, with one reason per rejected callback. */
+  float csi_hw_error_pps{0.0f};
   /** Valid CSI callbacks per second dropped because the pending queue was full. */
   float csi_pending_frame_drop_pps{0.0f};
   /** Missing detector slots per second. */
@@ -118,6 +120,18 @@ void append_runtime_csi_quality_diagnostics_json(std::string *out,
 void append_runtime_performance_diagnostics_json(std::string *out,
                                                  const RuntimeDiagnosticsSnapshot &diagnostics,
                                                  bool include_current_memory = true);
+
+/** Validate diagnostic paths, groups, or an exclusive wildcard against the canonical registry. */
+bool validate_diagnostic_fields(const std::vector<std::string> &fields, unsigned profile = 7U);
+/** Serialize the catalog without reading values, or only selected values from the supplied provider.
+ * Profiles are Native=1, shared Direct bridge=2, and Micro=4. Empty selections return the catalog.
+ * The provider returns one JSON scalar. Unknown profile fields produce an empty response.
+ */
+std::string diagnostic_response(const std::vector<std::string> &fields, unsigned profile,
+                                const std::function<std::string(const char *)> &value);
+/** Read a shared scalar from a cached rate sample or a lazily acquired runtime snapshot. */
+std::string runtime_diagnostic_value(const char *key, const RuntimeDiagnosticsSample *sample,
+                                     const std::function<const RuntimeDiagnosticsSnapshot &()> &snapshot);
 
 using runtime_diagnostic_visitor_t = std::function<void(const char *key, const char *value)>;
 

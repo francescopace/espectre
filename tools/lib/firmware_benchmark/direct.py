@@ -119,6 +119,32 @@ def wait_for_micro_direct_endpoint(
         time.sleep(0.25)
     raise RuntimeError("Micro-ESPectre launcher did not report a Direct-ready event")
 
+BENCHMARK_DIAGNOSTIC_FIELDS = (
+    "wifi_channel",
+    "wifi_rssi_dbm",
+    "csi_admitted_pps",
+    "csi_occupancy",
+    "free_memory_kb",
+    "minimum_free_memory_kb",
+    "largest_free_memory_kb",
+    "task_stack_high_water_bytes",
+    "cpu_frequency_mhz",
+    "performance_window_ready",
+    "runtime_load_percent",
+    "loop_avg_us",
+    "loop_max_us",
+    "detection_timing_supported",
+    "detection_samples",
+    "detection_sum_us",
+    "detection_avg_us",
+    "detection_min_us",
+    "detection_max_us",
+    "direct_http.rejected_connections",
+    "direct_http.send_failures",
+    "direct_http.dropped_motion_events",
+)
+
+
 def normalize_direct_diagnostics(
     payload: dict[str, object],
     *,
@@ -256,10 +282,14 @@ def direct_handshake(
     capabilities = getattr(client, "capabilities", None)
     if "capabilities" not in cached and isinstance(capabilities, dict):
         cached["capabilities"] = capabilities
-    responses = {
-        resource: cached[resource] if resource in cached else client.request("get", resource)
-        for resource in resources
-    }
+    responses = {}
+    for resource in resources:
+        if resource in cached:
+            responses[resource] = cached[resource]
+        elif resource == "diagnostics":
+            responses[resource] = client.request("get", resource, {"fields": ["direct_http"]})
+        else:
+            responses[resource] = client.request("get", resource)
     capabilities = responses["capabilities"]
     commands = capabilities.get("operations")
     if not isinstance(commands, list) or not all(isinstance(item, dict) for item in commands):
@@ -454,7 +484,7 @@ def _wait_for_direct_event_stream_closed(
     """Wait until the device has accounted for the closed SSE subscriber."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        diagnostics = client.request("get", "diagnostics")
+        diagnostics = client.request("get", "diagnostics", {"fields": ["direct_http.event_clients"]})
         direct_http = diagnostics.get("direct_http")
         if isinstance(direct_http, dict) and _integer(direct_http.get("event_clients")) == 0:
             return
@@ -492,7 +522,7 @@ def capture_direct_window(
                     raise
                 time.sleep(0.5)
     if require_fresh_timestamp:
-        previous_raw = client.request("get", "diagnostics")
+        previous_raw = client.request("get", "diagnostics", {"fields": list(BENCHMARK_DIAGNOSTIC_FIELDS)})
         events_start = len(client.events)
     started = time.monotonic()
     deadline = started + duration_seconds
@@ -511,7 +541,10 @@ def capture_direct_window(
                 error: Exception | None = None
                 raw: dict[str, object] | None = None
                 try:
-                    raw = client.request("get", method)
+                    if method == "diagnostics":
+                        raw = client.request("get", method, {"fields": list(BENCHMARK_DIAGNOSTIC_FIELDS)})
+                    else:
+                        raw = client.request("get", method)
                 except (OSError, RuntimeError, TimeoutError) as exc:
                     error = exc
                 sampled_at = time.monotonic()
@@ -594,7 +627,7 @@ def wait_for_direct_runtime_ready(
         live_sensing = use_sensing_events and client.events_active
         if sensing is None or not live_sensing:
             sensing = client.request("get", "sensing")
-        diagnostics = client.request("get", "diagnostics")
+        diagnostics = client.request("get", "diagnostics", {"fields": ["csi_admitted_pps"]})
         if live_sensing and not client.events_active:
             sensing = client.request("get", "sensing")
             live_sensing = False

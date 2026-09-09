@@ -140,10 +140,7 @@
     }
 
     function monitorStats(data) {
-        const errors = [data.csi_rx_error_total, data.csi_rx_end_error_total,
-            data.csi_invalid_estimate_total, data.csi_invalid_first_word_total];
-        const errorTotal = errors.every(value => Number.isSafeInteger(value) && value >= 0)
-            ? errors.reduce((sum, value) => sum + value, 0) : null;
+        const errorTotal = data.csi_hw_error_total;
         monitorSetStat('.js-mon-traffic', data.traffic_tx_pps, 1, ' pps');
         monitorSetStat('.js-mon-callbacks', data.csi_callback_pps, 1, ' pps');
         monitorSetStat('.js-mon-accepted', data.csi_accepted_pps, 1, ' pps');
@@ -279,7 +276,7 @@
             const { command, ...params } = fields;
             statusFn(pendingMessage);
             if (command === 'read_diagnostics') {
-                return directClient.request('get', 'diagnostics', {}, { timeoutMs });
+                return directClient.request('get', 'diagnostics', params, { timeoutMs });
             }
             if (command === 'recalibrate') {
                 return directClient.request('post', 'sensing/calibrations', {}, { timeoutMs });
@@ -351,10 +348,7 @@
                 traffic_tx_pps: csiTargetPps(),
                 csi_callback_pps: Math.max(1, csiTargetPps() - 4),
                 csi_accepted_pps: Math.max(1, csiTargetPps() - 10),
-                csi_rx_error_total: 2,
-                csi_rx_end_error_total: 0,
-                csi_invalid_estimate_total: 4,
-                csi_invalid_first_word_total: 0,
+                csi_hw_error_total: 6,
                 csi_occupancy: Math.max(1, csiTargetPps() - 16) / csiTargetPps(),
                 wifi_rssi_dbm: -55,
                 free_memory_kb: 161.4,
@@ -367,7 +361,10 @@
         if (direct && !directClient?.connected) return;
         try {
             if (direct) monitor.diagRequestPending = true;
-            const response = await monitorPublishCommand({ command: 'read_diagnostics' }, {
+            const response = await monitorPublishCommand({ command: 'read_diagnostics', fields: [
+                'traffic_tx_pps', 'csi_callback_pps', 'csi_accepted_pps', 'csi_hw_error_total',
+                'csi_occupancy', 'wifi_rssi_dbm', 'free_memory_kb', 'loop_time_ms'
+            ] }, {
                 pendingMessage: '',
                 statusFn: () => {}
             });

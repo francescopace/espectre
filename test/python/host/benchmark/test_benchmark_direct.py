@@ -122,7 +122,9 @@ def test_direct_retry_performs_a_capabilities_request(monkeypatch):
             self.persistent_requests = kwargs.get("persistent_requests", False)
             clients.append(self)
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert (verb, resource) == ("get", "capabilities")
             if self.index == 0:
                 raise RuntimeError("not listening yet")
@@ -160,7 +162,9 @@ def test_direct_retry_uses_timed_nonpersistent_client_when_requested(monkeypatch
         def __init__(self, endpoint, **_kwargs):
             self.endpoint = endpoint
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert (verb, resource) == ("get", "capabilities")
             return {"operations": []}
 
@@ -650,7 +654,9 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
     }
 
     class FakeClient:
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             return responses[resource]
 
@@ -675,7 +681,9 @@ def test_direct_capture_opens_and_closes_event_collection():
         def stop_events(self):
             self.stop_calls += 1
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert (verb, resource) == ("get", "diagnostics")
             return {"direct_http": {"event_clients": 0}}
 
@@ -715,7 +723,9 @@ def test_direct_capture_waits_for_closed_scored_stream(monkeypatch):
         def stop_events(self):
             self.stopped_at = FakeClock.now
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert (verb, resource) == ("get", "diagnostics")
             return {"direct_http": {"event_clients": next(self.event_clients)}}
 
@@ -853,7 +863,9 @@ def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch)
         def stop_events(self):
             pass
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "health":
                 return {"status": "ok", "online": True}
@@ -906,7 +918,9 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
         def stop_events(self):
             pass
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "health":
                 self.last_request_timing = {
@@ -1016,7 +1030,9 @@ def test_direct_handshake_reads_new_identity_and_reuses_connection_probe(cached_
     capabilities = {"operations": []}
 
     class FakeClient:
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             calls.append(resource)
             return {
                 "capabilities": capabilities,
@@ -1051,7 +1067,9 @@ def test_direct_readiness_uses_sensing_events_with_polling_fallback(monkeypatch,
             self.sensing_reads = 0
             self.diagnostics_reads = 0
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "sensing":
                 self.sensing_reads += 1
@@ -1092,7 +1110,9 @@ def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "sensing":
                 return {"enabled": True, "ready": True}
@@ -1134,7 +1154,9 @@ def test_direct_runtime_readiness_reserves_stable_samples_after_minimum_uptime(m
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "sensing":
                 return {"enabled": True, "ready": True}
@@ -1175,7 +1197,9 @@ def test_direct_runtime_readiness_rejects_a_reboot(monkeypatch):
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "sensing":
                 return {"enabled": True, "ready": True}
@@ -1218,7 +1242,9 @@ def test_direct_runtime_readiness_rejects_a_later_reboot(monkeypatch):
     class FakeClient:
         diagnostics_calls = 0
 
-        def request(self, verb, resource):
+        def request(self, verb, resource, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert verb == "get"
             if resource == "sensing":
                 return {"enabled": True, "ready": True}
@@ -1388,7 +1414,9 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
 
 def test_native_radio_pin_accepts_committed_values_after_reassociation():
     class FakeClient:
-        def request(self, verb: str, resource: str):
+        def request(self, verb: str, resource: str, data=None):
+            if resource == "diagnostics":
+                assert data and data["fields"]
             assert (verb, resource) == ("get", "wifi")
             return {
                 "configured": True,

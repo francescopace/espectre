@@ -131,7 +131,13 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
     for arg in args:
         key, sep, value = arg.partition("=")
         if sep and key.isidentifier():
-            fields[key] = _coerce_command_token(value)
+            if command == "read_diagnostics" and key == "fields":
+                try:
+                    fields[key] = json.loads(value) if value.startswith("[") else value.split(",") if value else []
+                except ValueError:
+                    return None, "fields must be a JSON array or comma-separated names"
+            else:
+                fields[key] = _coerce_command_token(value)
         else:
             positionals.append(arg)
     if len(positionals) == 1 and command == "update_sensing":
@@ -148,6 +154,8 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
         if channel not in _OTA_CHANNEL_NAMES:
             return None, "invalid ota channel (accepted: release, preview, and develop)"
         fields["channel"] = channel
+    if command == "read_diagnostics" and "fields" not in fields:
+        fields["fields"] = ["*"]
     return fields, None
 
 
@@ -321,6 +329,7 @@ def request_mqtt_diagnostics_and_wait(
     command = {
         "command_id": command_id,
         "command": "read_diagnostics",
+        "fields": ["*"],
     }
 
     client = _make_mqtt_client(args.username, args.password)
@@ -756,6 +765,8 @@ class EspectreMQTTShell:
 
     def send_command(self, cmd_data: Dict[str, Any], *, timeout_s: float | None = None):
         command = dict(cmd_data)
+        if command.get("command") == "read_diagnostics":
+            command.setdefault("fields", ["*"])
         command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
         command["command_id"] = command_id
         payload_label = self._PAYLOAD_LABELS.get(str(command.get("command") or ""))

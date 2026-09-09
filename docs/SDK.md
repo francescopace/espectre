@@ -147,7 +147,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/runtime_capabilities.h` | Which controls the active runtime honors |
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
-| `runtime/runtime_diagnostics.h` | Capture and link counters, plus the sampler that turns them into rates |
+| `runtime/runtime_diagnostics.h` | Capture and link counters, rate sampling, diagnostic selection, and catalog serialization |
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
 | `runtime/csi_raw_record.h` | Transport-neutral CSI V8 record layout and historical V7 capture parsing |
 | `runtime/raw_csi.h` | Optional raw-collection runtime state, session configuration, diagnostics, and Direct binary framing |

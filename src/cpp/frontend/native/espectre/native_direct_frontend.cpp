@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
+#include <cstring>
 #include "native_direct_frontend.h"
 
 #include <esp_log.h>
@@ -407,59 +408,78 @@ std::string NativeDirectFrontend::wifi_access_points_payload() const {
   return out;
 }
 
-std::string NativeDirectFrontend::diagnostics_payload() const {
+std::string NativeDirectFrontend::diagnostics_payload(const std::vector<std::string> &fields) const {
+  RuntimeDiagnosticsSnapshot snapshot;
+  DirectHttpServiceDiagnostics direct_http_values;
+  bool direct_http_loaded = false;
+  RawCsiSessionDiagnostics raw_csi_values;
+  bool raw_csi_loaded = false;
+  MqttTransportDiagnostics mqtt_values;
+  bool mqtt_loaded = false;
+  bool loaded = false;
+  const std::function<const RuntimeDiagnosticsSnapshot &()> get_snapshot = [&]() -> const RuntimeDiagnosticsSnapshot & {
+    if (!loaded) {
+      snapshot = owner_.runtime_.diagnostics();
+      loaded = true;
+    }
+    return snapshot;
+  };
   const uint32_t now = owner_.now_ms_();
-  std::string out = espectre_diagnostics_payload(owner_.device_config_, owner_.runtime_.snapshot(), now, now / 1000U,
-                                                 current_free_memory_kb(), owner_.last_loop_time_ms_,
-                                                 owner_.runtime_.diagnostics_sample());
-  if (!out.empty() && out.back() == '}') {
-    out.pop_back();
-  }
-  const RuntimeDiagnosticsSnapshot runtime_diagnostics = owner_.runtime_.diagnostics();
-  out += ",\"csi_classified_total\":" + std::to_string(runtime_diagnostics.csi_classified_total);
-  out += ",\"csi_provenance_rejected_total\":" + std::to_string(runtime_diagnostics.csi_provenance_rejected_total);
-  out += ",\"csi_pending_frame_drops_total\":" + std::to_string(runtime_diagnostics.csi_pending_frame_drops_total);
-  out += ",\"csi_pending_frames\":" + std::to_string(runtime_diagnostics.csi_pending_frames);
-  out += ",\"csi_pending_frame_capacity\":" + std::to_string(runtime_diagnostics.csi_pending_frame_capacity);
-  out += ",\"runtime_motion_event_drops_total\":" + std::to_string(owner_.runtime_events_.motion_state_drops_total());
-  append_runtime_csi_quality_diagnostics_json(&out, runtime_diagnostics);
-  append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
-  out += ",\"task_stack_high_water_bytes\":" + std::to_string(current_task_stack_high_water_bytes());
-
-  const DirectHttpServiceDiagnostics direct =
-      service_ != nullptr ? service_->diagnostics() : DirectHttpServiceDiagnostics{};
-  out += ",\"direct_http\":{\"event_clients\":" + std::to_string(client_count_);
-  out += ",\"event_client_limit\":" + std::to_string(direct.event_client_limit);
-  out += ",\"queue_capacity\":" + std::to_string(direct.queue_capacity);
-  out += ",\"queued_messages\":" + std::to_string(direct.queued_messages);
-  out += ",\"accepted_connections\":" + std::to_string(direct.accepted_connections);
-  out += ",\"rejected_connections\":" + std::to_string(direct.rejected_connections);
-  out += ",\"malformed_requests\":" + std::to_string(direct.malformed_requests);
-  out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
-  out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
-  out += ",\"dropped_motion_events\":" + std::to_string(direct.dropped_motion_events);
-  out += ",\"send_failures\":" + std::to_string(direct.send_failures) + "}";
-
-  const RawCsiSessionDiagnostics raw = service_ != nullptr ? service_->raw_diagnostics() : RawCsiSessionDiagnostics{};
-  out += ",\"raw_csi\":{\"active\":";
-  out += raw.active ? "true" : "false";
-  out += ",\"binary_bound\":";
-  out += raw.binary_bound ? "true" : "false";
-  out += ",\"raw_drop_total\":" + std::to_string(raw.raw_drop_total);
-  out += ",\"send_backpressure_total\":" + std::to_string(raw.raw_send_backpressure_total);
-  out += ",\"fresh_record_total\":" + std::to_string(raw.fresh_record_total);
-  out += ",\"stream_sequence\":" + std::to_string(raw.stream_sequence) + "}";
-
-  const MqttTransportDiagnostics mqtt = owner_.mqtt_frontend_->diagnostics();
-  out += ",\"mqtt\":{\"connected\":";
-  out += owner_.mqtt_frontend_->transport_connected() ? "true" : "false";
-  out += ",\"queue_capacity\":" + std::to_string(mqtt.queue_capacity);
-  out += ",\"outbox_capacity_bytes\":" + std::to_string(mqtt.outbox_capacity_bytes);
-  out += ",\"queued_publishes\":" + std::to_string(mqtt.queued_publishes);
-  out += ",\"dropped_publishes\":" + std::to_string(mqtt.dropped_publishes);
-  out += ",\"publish_failures\":" + std::to_string(mqtt.publish_failures);
-  out += ",\"reconnects\":" + std::to_string(mqtt.reconnects) + "}}";
-  return out;
+  const RuntimeDiagnosticsSample *sample = owner_.runtime_.diagnostics_sample();
+  return diagnostic_response(fields, 1U, [&](const char *key) -> std::string {
+    if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(now);
+    if (std::strcmp(key, "uptime") == 0) return std::to_string(now / 1000U);
+    if (std::strcmp(key, "free_memory_kb") == 0) return std::to_string(current_free_memory_kb());
+    if (std::strcmp(key, "loop_time_ms") == 0) return std::to_string(owner_.last_loop_time_ms_);
+    if (std::strcmp(key, "task_stack_high_water_bytes") == 0) return std::to_string(current_task_stack_high_water_bytes());
+    if (std::strcmp(key, "runtime_motion_event_drops_total") == 0) return std::to_string(owner_.runtime_events_.motion_state_drops_total());
+    if (std::strncmp(key, "direct_http.", 12U) == 0) {
+      if (!direct_http_loaded) {
+        direct_http_values = service_ ? service_->diagnostics() : DirectHttpServiceDiagnostics{};
+        direct_http_loaded = true;
+      }
+      const auto &values = direct_http_values;
+      if (std::strcmp(key, "direct_http.event_clients") == 0) return std::to_string(client_count_);
+      if (std::strcmp(key, "direct_http.event_client_limit") == 0) return std::to_string(values.event_client_limit);
+      if (std::strcmp(key, "direct_http.queue_capacity") == 0) return std::to_string(values.queue_capacity);
+      if (std::strcmp(key, "direct_http.queued_messages") == 0) return std::to_string(values.queued_messages);
+      if (std::strcmp(key, "direct_http.accepted_connections") == 0) return std::to_string(values.accepted_connections);
+      if (std::strcmp(key, "direct_http.rejected_connections") == 0) return std::to_string(values.rejected_connections);
+      if (std::strcmp(key, "direct_http.malformed_requests") == 0) return std::to_string(values.malformed_requests);
+      if (std::strcmp(key, "direct_http.oversized_requests") == 0) return std::to_string(values.oversized_requests);
+      if (std::strcmp(key, "direct_http.rate_limited_requests") == 0) return std::to_string(values.rate_limited_requests);
+      if (std::strcmp(key, "direct_http.dropped_motion_events") == 0) return std::to_string(values.dropped_motion_events);
+      if (std::strcmp(key, "direct_http.send_failures") == 0) return std::to_string(values.send_failures);
+    }
+    if (std::strncmp(key, "raw_csi.", 8U) == 0) {
+      if (!raw_csi_loaded) {
+        raw_csi_values = service_ ? service_->raw_diagnostics() : RawCsiSessionDiagnostics{};
+        raw_csi_loaded = true;
+      }
+      const auto &values = raw_csi_values;
+      if (std::strcmp(key, "raw_csi.active") == 0) return values.active ? "true" : "false";
+      if (std::strcmp(key, "raw_csi.binary_bound") == 0) return values.binary_bound ? "true" : "false";
+      if (std::strcmp(key, "raw_csi.raw_drop_total") == 0) return std::to_string(values.raw_drop_total);
+      if (std::strcmp(key, "raw_csi.send_backpressure_total") == 0) return std::to_string(values.raw_send_backpressure_total);
+      if (std::strcmp(key, "raw_csi.fresh_record_total") == 0) return std::to_string(values.fresh_record_total);
+      if (std::strcmp(key, "raw_csi.stream_sequence") == 0) return std::to_string(values.stream_sequence);
+    }
+    if (std::strncmp(key, "mqtt.", 5U) == 0) {
+      if (!mqtt_loaded) {
+        mqtt_values = owner_.mqtt_frontend_->diagnostics();
+        mqtt_loaded = true;
+      }
+      const auto &values = mqtt_values;
+      if (std::strcmp(key, "mqtt.connected") == 0) return owner_.mqtt_frontend_->transport_connected() ? "true" : "false";
+      if (std::strcmp(key, "mqtt.queue_capacity") == 0) return std::to_string(values.queue_capacity);
+      if (std::strcmp(key, "mqtt.outbox_capacity_bytes") == 0) return std::to_string(values.outbox_capacity_bytes);
+      if (std::strcmp(key, "mqtt.queued_publishes") == 0) return std::to_string(values.queued_publishes);
+      if (std::strcmp(key, "mqtt.dropped_publishes") == 0) return std::to_string(values.dropped_publishes);
+      if (std::strcmp(key, "mqtt.publish_failures") == 0) return std::to_string(values.publish_failures);
+      if (std::strcmp(key, "mqtt.reconnects") == 0) return std::to_string(values.reconnects);
+    }
+    return runtime_diagnostic_value(key, sample, get_snapshot);
+  });
 }
 
 void NativeDirectFrontend::refresh_peer_candidate_() {

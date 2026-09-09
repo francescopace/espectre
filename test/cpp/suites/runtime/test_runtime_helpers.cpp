@@ -774,6 +774,11 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     current.csi_accepted_total = 540U;
     current.csi_admitted_total = 505U;
     current.csi_filtered_total = 40U;
+    current.csi_rx_error_total = 1U;
+    current.csi_rx_end_error_total = 2U;
+    current.csi_invalid_estimate_total = 3U;
+    current.csi_invalid_first_word_total = 4U;
+    current.csi_sanitized_first_word_total = 500U;
     current.csi_missing_slots_total = 25U;
     current.csi_excess_total = 15U;
     current.csi_stale_total = 5U;
@@ -789,6 +794,7 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     TEST_ASSERT_EQUAL_FLOAT(90.0f, sample.csi_accepted_pps);
     TEST_ASSERT_EQUAL_FLOAT(85.0f, sample.csi_admitted_pps);
     TEST_ASSERT_EQUAL_FLOAT(6.0f, sample.csi_filtered_pps);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, sample.csi_hw_error_pps);
     TEST_ASSERT_EQUAL_FLOAT(5.0f, sample.csi_missing_slots_pps);
     TEST_ASSERT_EQUAL_FLOAT(3.0f, sample.csi_excess_pps);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, sample.csi_stale_pps);
@@ -796,6 +802,20 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.82f, sample.csi_occupancy_ratio);
     TEST_ASSERT_EQUAL_UINT8(10U, sample.wifi_channel);
     TEST_ASSERT_EQUAL_INT8(-55, sample.wifi_rssi_dbm);
+}
+
+void test_runtime_hardware_error_rate_handles_counter_epochs_and_clock_wrap(void) {
+    RuntimeDiagnosticsSnapshot counters;
+    counters.csi_rx_error_total = 100U;
+    RuntimeDiagnosticsSampler sampler;
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 0xffffff00U).csi_hw_error_pps);
+    counters.csi_rx_error_total = 102U;
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 0xffffff00U).csi_hw_error_pps);
+    // 500 ms cross the 32-bit monotonic-clock boundary.
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, sampler.sample(counters, 244U).csi_hw_error_pps);
+    counters.csi_rx_error_total = 1U;
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, sampler.sample(counters, 744U).csi_hw_error_pps);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 1244U).csi_hw_error_pps);
 }
 
 void test_runtime_performance_diagnostics_publish_complete_windows(void) {
@@ -921,6 +941,7 @@ int process(void) {
     RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
+    RUN_TEST(test_runtime_hardware_error_rate_handles_counter_epochs_and_clock_wrap);
     RUN_TEST(test_runtime_performance_diagnostics_publish_complete_windows);
     RUN_TEST(test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);

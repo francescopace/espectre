@@ -302,6 +302,8 @@ struct EspectreCommand {
   std::string command_id;
   /** Command verb, for example `"update_sensing"` or `"recalibrate"`. */
   std::string command;
+  /** Diagnostic paths to return; empty requests the catalog, and ["*"] requests all values. */
+  std::vector<std::string> diagnostic_fields;
   /** Requested sensing-service state for `update_sensing`. */
   bool sensing_enabled{false};
   bool has_sensing_enabled{false};

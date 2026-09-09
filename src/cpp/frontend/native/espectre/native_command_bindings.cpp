@@ -7,6 +7,7 @@
  */
 
 #include "native_command_bindings.h"
+#include "runtime_diagnostics.h"
 
 #include <utility>
 
@@ -30,6 +31,14 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
     busy.code = "busy_raw_collection";
     busy.message = "mutation is unavailable during raw CSI collection";
     return busy;
+  }
+  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, 1U)) {
+    FrontendCommandResult rejected;
+    rejected.handled = true;
+    rejected.command = command;
+    rejected.code = "invalid_params";
+    rejected.message = "diagnostic field is not available on this frontend";
+    return rejected;
   }
   const FrontendCommandCapabilities capabilities = capability_profile(allow_local_config);
   if (find_extension_route(capabilities.extension, command.command) != nullptr) {
@@ -62,7 +71,7 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
           return this->owner_.direct_frontend_->wifi_access_points_payload();
         }
         if (read.command == "read_diagnostics") {
-          return std::string{"{}"};
+          return this->owner_.direct_frontend_->diagnostics_payload(read.diagnostic_fields);
         }
         return std::string{};
       },
@@ -208,9 +217,6 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         return this->owner_.direct_frontend_->handle_raw_stream_command(raw_command, context, code, message, data_json);
       });
 
-  if (result.accepted && result.command.command == "read_diagnostics") {
-    result.data_json = owner_.direct_frontend_->diagnostics_payload();
-  }
   if (result.accepted) {
     if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::HEALTH)) != 0U) {
       owner_.publish_runtime_status_state_();

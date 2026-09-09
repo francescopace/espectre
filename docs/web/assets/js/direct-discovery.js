@@ -581,7 +581,7 @@
             if (settingsResource && activeToolName() !== 'configure') continue;
             if (session.snapshots.has(resource)) continue;
             if (!session.pending.has(resource)) {
-                const request = client.request('get', resource).then((snapshot) => {
+                const request = client.request('get', resource, resource === 'diagnostics' ? { fields: ['wifi_channel'] } : {}).then((snapshot) => {
                     if (settingsResource && activeToolName() !== 'configure') return;
                     // An SSE snapshot received during the GET is newer.
                     if (current() && !session.snapshots.has(resource)) session.snapshots.set(resource, snapshot);

@@ -14,6 +14,8 @@ STATS_DIAGNOSTIC_KEYS = (
     "csi_accepted_pps",
     "csi_admitted_pps",
     "csi_filtered_pps",
+    "csi_hw_error_pps",
+    "csi_hw_error_total",
     "csi_missing_slots_pps",
     "csi_excess_pps",
     "csi_stale_pps",
@@ -68,7 +70,7 @@ def _packets_per_second(delta, elapsed_ms):
 
 
 def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None, out=None):
-    """Return the CSI/Wi-Fi fields with zero rates."""
+    """Return zero rates, with hardware errors unavailable until firmware is checked."""
     if out is None:
         out = {}
     out["traffic_tx_pps"] = 0.0
@@ -76,6 +78,8 @@ def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None, out=None):
     out["csi_accepted_pps"] = 0.0
     out["csi_admitted_pps"] = 0.0
     out["csi_filtered_pps"] = 0.0
+    out["csi_hw_error_pps"] = None
+    out["csi_hw_error_total"] = None
     out["csi_missing_slots_pps"] = 0.0
     out["csi_excess_pps"] = 0.0
     out["csi_stale_pps"] = 0.0
@@ -161,6 +165,7 @@ def collect_runtime_diagnostics_snapshot(
     out["csi_accepted_total"] = int(accepted_total)
     out["csi_admitted_total"] = int(admitted_total)
     out["csi_filtered_total"] = int(filtered_total) + _wifi_csi_counter(wlan, "csi_filtered")
+    out["csi_hw_error_total"] = _wifi_csi_counter(wlan, "csi_hw_errors", None)
     out["csi_missing_slots_total"] = int(missing_slots_total)
     out["csi_excess_total"] = int(excess_total)
     out["csi_stale_total"] = int(stale_total)
@@ -173,7 +178,7 @@ def collect_runtime_diagnostics_snapshot(
 
 
 def apply_diagnostics_sample(payload, sample, wifi_channel=0, rssi_dbm=None):
-    """Copy diagnostic keys into `payload`, filling zeros for missing ones."""
+    """Copy diagnostic keys into `payload`, preserving unavailable measurements."""
     defaults = empty_diagnostics_sample(wifi_channel=wifi_channel, wifi_rssi_dbm=rssi_dbm)
     source = sample if isinstance(sample, dict) else defaults
     for key in STATS_DIAGNOSTIC_KEYS:
@@ -204,6 +209,10 @@ class RuntimeDiagnosticsSampler:
             wifi_rssi_dbm=snapshot.get("wifi_rssi_dbm"),
             out=out,
         )
+        hardware_total = snapshot.get("csi_hw_error_total")
+        result["csi_hw_error_total"] = hardware_total
+        if hardware_total is not None:
+            result["csi_hw_error_pps"] = 0.0
         if not self._baseline_ready:
             self.reset(snapshot, now_ms)
             return result
@@ -213,6 +222,11 @@ class RuntimeDiagnosticsSampler:
             return result
 
         previous = self._previous
+        previous_hardware_total = previous.get("csi_hw_error_total")
+        if hardware_total is not None and previous_hardware_total is not None:
+            result["csi_hw_error_pps"] = _packets_per_second(
+                _counter_delta(hardware_total, previous_hardware_total), elapsed_ms,
+            )
         result["traffic_tx_pps"] = _packets_per_second(
             _counter_delta(snapshot["traffic_packets_total"], previous["traffic_packets_total"]),
             elapsed_ms,

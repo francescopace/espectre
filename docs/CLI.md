@@ -202,6 +202,8 @@ The password is never accepted as a command-line value, printed, or included in 
 ```bash
 ./espectre direct get health --frontend native
 ./espectre direct get diagnostics --endpoint http://espectre-0123456789abcdef.local
+./espectre direct get diagnostics --data '{"fields":["traffic_tx_pps","csi_hw_error_total"]}' --endpoint http://espectre-0123456789abcdef.local
+./espectre direct get diagnostics --data '{"fields":[]}' --endpoint http://espectre-0123456789abcdef.local
 ./espectre direct patch sensing --frontend esphome --data '{"detector":"high_accuracy"}'
 ./espectre direct post sensing/calibrations --frontend matter --chip s3
 ```
@@ -317,7 +319,7 @@ espectre/v1/devices/{device_id}/wifi
 espectre/v1/devices/{device_id}/ota
 ```
 
-After selection, the shell consumes retained `capabilities` to populate help and tab completion. Mutations and actions return through `commands/result`; `read_diagnostics` returns its snapshot in `data`. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise, they appear on the next line. Retained state topics are still dumped as YAML.
+After selection, the shell consumes retained `capabilities` to populate help and tab completion. Mutations and actions return through `commands/result`; `read_diagnostics` returns its selected snapshot in `data`. The CLI requests all values by default; use `read_diagnostics fields=traffic_tx_pps,csi_hw_error_total` for a subset or `read_diagnostics fields=[]` for the catalog. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise, they appear on the next line. Retained state topics are still dumped as YAML.
 
 This behavior belongs to the MQTT transport and applies to ESPectre devices that advertise the MQTT topic surface.
 

@@ -284,7 +284,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   TEST_ASSERT_TRUE(sensing.find("\"enabled\":true") != std::string::npos);
 
   const std::string diagnostics = direct.emit_request(
-      DirectRequest{"", "read_diagnostics", "{}", "/espectre/v1/diagnostics", "GET"});
+      DirectRequest{"", "read_diagnostics", R"({"fields":["*"]})", "/espectre/v1/diagnostics", "GET"});
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_tx_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"csi_callback_pps\":0") != std::string::npos);
@@ -302,7 +302,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 8.0f;
   frontend.on_periodic_update(make_ready_snapshot(false), 8U);
   const std::string sampled_diagnostics = direct.emit_request(
-      DirectRequest{"", "read_diagnostics", "{}", "/espectre/v1/diagnostics", "GET"});
+      DirectRequest{"", "read_diagnostics", R"({"fields":["*"]})", "/espectre/v1/diagnostics", "GET"});
   TEST_ASSERT_TRUE(sampled_diagnostics.find("\"traffic_tx_pps\":0") == std::string::npos);
   TEST_ASSERT_TRUE(sampled_diagnostics.find("\"csi_callback_pps\":0") == std::string::npos);
 

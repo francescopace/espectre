@@ -1142,6 +1142,45 @@ void test_protocol_json_object_parser_rejects_invalid_documents(void) {
   TEST_ASSERT_TRUE(rejects(nested));
 }
 
+void test_diagnostics_selection_catalog_and_transport_parity(void) {
+  size_t reads = 0;
+  const auto value = [&](const char *key) {
+    ++reads;
+    return std::string(std::strcmp(key, "wifi_rssi_dbm") == 0 ? "null" : "7");
+  };
+  const auto catalog = diagnostic_response({}, 1U, value);
+  TEST_ASSERT_EQUAL(0, reads);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"direct_http.send_failures\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"type\":\"integer\",\"unit\":\"ms\"") != std::string::npos);
+  const auto selected = diagnostic_response({"wifi_rssi_dbm", "direct_http.send_failures"}, 1U, value);
+  TEST_ASSERT_EQUAL_STRING("{\"timestamp_ms\":7,\"uptime\":7,\"wifi_rssi_dbm\":null,\"direct_http\":{\"send_failures\":7}}", selected.c_str());
+  TEST_ASSERT_EQUAL(4, reads);
+  const auto group = diagnostic_response({"direct_http", "direct_http.send_failures"}, 1U, value);
+  std::vector<JsonObjectField> decoded;
+  TEST_ASSERT_TRUE(parse_json_object_fields(group, &decoded));
+  TEST_ASSERT_EQUAL(3, decoded.size());
+  TEST_ASSERT_TRUE(parse_json_object_fields(diagnostic_response({"*"}, 1U, value), &decoded));
+  TEST_ASSERT_TRUE(decoded.size() > 20U);
+  TEST_ASSERT_FALSE(validate_diagnostic_fields({"*", "uptime"}));
+  TEST_ASSERT_FALSE(validate_diagnostic_fields({"missing"}));
+  TEST_ASSERT_FALSE(validate_diagnostic_fields({"mqtt"}, 4U));
+  DirectRequest direct;
+  EspectreCommand http, mqtt;
+  std::string error;
+  const std::string selection = R"({"fields":["wifi_rssi_dbm","direct_http.send_failures"]})";
+  TEST_ASSERT_TRUE(parse_direct_http_request("GET", "/espectre/v1/diagnostics?fields=%5B%22wifi_rssi_dbm%22%2C%22direct_http.send_failures%22%5D", "", &direct, &error));
+  TEST_ASSERT_TRUE(direct_http_request_to_command(direct, &http, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command_request("", "read_diagnostics", selection, &mqtt, &error));
+  TEST_ASSERT_TRUE(http.diagnostic_fields == mqtt.diagnostic_fields);
+  for (const char *bad : {R"({"fields":null})", R"({"fields":"*"})", R"({"fields":[1]})", R"({"fields":["missing"]})", R"({"fields":["*","uptime"]})", R"({"fields":["uptime\u0000"]})", R"({"fields":[],"fields":[]})"}) {
+    TEST_ASSERT_FALSE(parse_espectre_command_request("", "read_diagnostics", bad, &mqtt, &error));
+  }
+  TEST_ASSERT_TRUE(parse_espectre_command_request("", "read_diagnostics", R"({"fields":[]})", &mqtt, &error));
+  TEST_ASSERT_TRUE(mqtt.diagnostic_fields.empty());
+  TEST_ASSERT_FALSE(parse_direct_http_request("GET", "/espectre/v1/diagnostics?fields=[]&fields=[]", "", &direct, &error));
+  TEST_ASSERT_FALSE(parse_direct_http_request("GET", "/espectre/v1/diagnostics?fields=[]", "{}", &direct, &error));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_frontend_protocol_extensions_share_capabilities_routing_and_validation);
@@ -1157,6 +1196,7 @@ int process(void) {
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);
   RUN_TEST(test_info_payload_omits_optional_sections_when_empty);
   RUN_TEST(test_info_normalization_reports_runtime_channel_and_csi_profile);
+  RUN_TEST(test_diagnostics_selection_catalog_and_transport_parity);
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);
   RUN_TEST(test_parse_espectre_command_parses_info_and_threshold_commands);
   RUN_TEST(test_parse_espectre_command_rejects_missing_command_and_invalid_threshold);
@@ -1183,6 +1223,7 @@ int process(void) {
 #if defined(ESP_PLATFORM)
 extern "C" void app_main(void) { process(); }
 #else
+
 int main(int argc, char **argv) {
   (void) argc;
   (void) argv;

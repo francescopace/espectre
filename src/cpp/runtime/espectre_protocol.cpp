@@ -519,6 +519,7 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
              name == "motion_off_hits" || name == "detector" ||
              name == "csi_traffic_mode" || name == "traffic_generator_mode";
     }
+    if (parsed.command == "read_diagnostics") return name == "fields";
     if (parsed.command == "update_device") return name == "label";
     if (parsed.command == "set_wifi_bssid") return name == "bssid" || name == "force";
     if (parsed.command == "update_mqtt") {
@@ -530,7 +531,17 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
   for (const JsonObjectField &field : fields) {
     if (!field_allowed(field.name)) return reject("unknown command parameter");
   }
-  if (parsed.command == "update_sensing") {
+  if (parsed.command == "read_diagnostics") {
+    const auto *selection = find_json_object_field(fields, "fields");
+    if (selection != nullptr &&
+        (selection->type != JsonValueType::ARRAY ||
+         !parse_json_array_strings(selection->value, &parsed.diagnostic_fields, error))) {
+      return reject("fields must be an array of diagnostic names");
+    }
+    if (!validate_diagnostic_fields(parsed.diagnostic_fields)) {
+      return reject("unknown or invalid diagnostic field selection");
+    }
+  } else if (parsed.command == "update_sensing") {
     if (find_json_object_field(fields, "enabled") != nullptr) {
       if (!bool_field("enabled", &parsed.sensing_enabled)) {
         return reject("invalid sensing state (accepted: boolean enabled)");
@@ -1039,6 +1050,7 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
     append_json_float_field(&out, "csi_accepted_pps", diagnostics->csi_accepted_pps);
     append_json_float_field(&out, "csi_admitted_pps", diagnostics->csi_admitted_pps);
     append_json_float_field(&out, "csi_filtered_pps", diagnostics->csi_filtered_pps);
+    append_json_float_field(&out, "csi_hw_error_pps", diagnostics->csi_hw_error_pps);
     append_json_float_field(
         &out, "csi_pending_frame_drop_pps", diagnostics->csi_pending_frame_drop_pps);
     append_json_float_field(&out, "csi_missing_slots_pps", diagnostics->csi_missing_slots_pps);

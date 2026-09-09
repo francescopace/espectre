@@ -66,7 +66,7 @@ class NativeDirectFrontend {
   std::string mqtt_payload() const;
   std::string ota_payload() const;
   std::string wifi_access_points_payload() const;
-  std::string diagnostics_payload() const;
+  std::string diagnostics_payload(const std::vector<std::string> &fields = {}) const;
   bool handle_raw_stream_command(const EspectreCommand &command, const FrontendCommandContext &context,
                                  std::string *code, std::string *message, std::string *data_json);
 

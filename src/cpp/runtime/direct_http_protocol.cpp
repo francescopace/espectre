@@ -36,13 +36,25 @@ bool parse_direct_http_request(const std::string &http_method,
     return false;
   };
   parsed.http_method = http_method;
-  parsed.path = path;
+  const size_t query_start = path.find('?');
+  const std::string resource = path.substr(0, query_start);
+  std::string parameters = payload;
+  if (query_start != std::string::npos) {
+    if (http_method != "GET" || resource != "/espectre/v1/diagnostics" || !payload.empty()) {
+      return reject("query parameters are only supported for diagnostics without a body");
+    }
+    std::vector<std::pair<std::string, std::string>> query;
+    if (!parse_urlencoded_key_value_pairs(path.substr(query_start + 1), &query, error) ||
+        query.size() != 1U || query.front().first != "fields") return reject("invalid diagnostics query");
+    parameters = "{\"fields\":" + query.front().second + "}";
+  }
+  parsed.path = resource;
   size_t route_count = 0U;
   const EspectreApiRoute *routes = espectre_api_routes(&route_count);
   for (size_t index = 0U; index < route_count; ++index) {
     const EspectreApiRoute &route = routes[index];
     if (route.kind != EspectreApiRouteKind::STREAM &&
-        http_method == route.http_method && path == route.path) {
+        http_method == route.http_method && resource == route.path) {
       parsed.command = route.command;
       parsed.asynchronous = route.asynchronous;
       break;
@@ -50,7 +62,7 @@ bool parse_direct_http_request(const std::string &http_method,
   }
   if (parsed.command.empty() && extension != nullptr && validate_protocol_extension(*extension)) {
     for (const auto &route : extension->routes) {
-      if (http_method == route.http_method && path == route.path) {
+      if (http_method == route.http_method && resource == route.path) {
         parsed.command = route.command;
         parsed.asynchronous = route.asynchronous;
         break;
@@ -58,13 +70,13 @@ bool parse_direct_http_request(const std::string &http_method,
     }
   }
   if (parsed.command.empty()) return reject("unsupported Direct resource or method");
-  if (payload.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
+  if (parameters.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
     return reject("Direct request exceeds the size limit");
   }
 
   std::vector<JsonObjectField> fields;
   std::string json_error;
-  const std::string normalized_payload = payload.empty() ? "{}" : payload;
+  const std::string normalized_payload = parameters.empty() ? "{}" : parameters;
   if (!parse_json_object_fields(normalized_payload, &fields, &json_error)) {
     if (error != nullptr) {
       *error = json_error.empty() ? "invalid Direct JSON envelope" : json_error;

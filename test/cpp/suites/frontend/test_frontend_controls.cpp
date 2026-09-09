@@ -535,7 +535,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   TEST_ASSERT_FALSE(traffic_rate.has_state());
   TEST_ASSERT_FALSE(channel.has_state());
   const std::string direct_diagnostics = component.direct_bridge_.handle_request_(
-      DirectRequest{"diagnostics", "read_diagnostics", "{}"});
+      DirectRequest{"diagnostics", "read_diagnostics", R"({"fields":["*"]})"});
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"traffic_tx_pps\":100") != std::string::npos);
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_callback_pps\":96") != std::string::npos);
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_pending_frame_drops_total\":15") !=

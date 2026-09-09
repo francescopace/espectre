@@ -44,6 +44,8 @@ Mutations return a result object:
 
 `data` is optional. Synchronous mutations use HTTP `200`. Asynchronous and disruptive routes use HTTP `202` after the request has passed application dispatch. Validation, capability, and conflict errors instead use the status codes in [Errors](#errors).
 
+Micro accepts `fields` on diagnostics; its other supported routes accept no parameters: omit the body or send `{}`. Its service allows 20 requests per one-second window. Oversized bodies receive HTTP `413` and close the connection; incomplete bodies close it without executing the request. Manual recalibration is queued onto the main loop and affects only the current session.
+
 ## Resources
 
 ### `health`
@@ -146,7 +148,13 @@ OTA is a frontend-owned extension of the canonical message model. Native registe
 
 ### `diagnostics`
 
-`GET /diagnostics` returns an on-demand snapshot. It is not published through SSE or a retained MQTT topic. `read_diagnostics` returns the same object inside `commands/result.data` on MQTT.
+`GET /diagnostics` without `fields`, or with `fields: []`, returns a catalog: `{"fields":[{"name":"traffic_tx_pps","type":"number","unit":"pps"}, ...]}`. Names and metadata come from the canonical registry in `src/cpp/runtime/diagnostic_fields.h`; the catalog is limited to the frontend's diagnostic surface and does not read measurement values. A supported measurement can still be unavailable, in which case selecting it returns `null`.
+
+Pass `{"fields":["traffic_tx_pps","csi_hw_error_total","direct_http.send_failures"]}` to request values. Responses contain only the selected fields, plus `timestamp_ms` and `uptime`. Dotted paths select leaves while preserving nested response objects, and a group name such as `raw_csi` selects all its leaves. Duplicate and overlapping selections are emitted once. `{"fields":["*"]}` requests the complete snapshot; the wildcard must be the only selection. Unknown names, wrong types, and mixed wildcard selections are invalid parameters. Names outside the frontend catalog are also invalid parameters.
+
+HTTP accepts the JSON parameter object in the GET body. Browsers use `GET /espectre/v1/diagnostics?fields=%5B%22traffic_tx_pps%22%5D`, where `fields` is a URL-encoded JSON array; a query cannot be combined with a body or additional query parameters. Body limits still apply to decoded query parameters, and the HTTP server also enforces its URI limit. Use a body for long selections. MQTT carries the same `fields` array at the top level of `read_diagnostics` and returns the same object inside `commands/result.data`. Diagnostics are not published through SSE or a retained MQTT topic.
+
+Current clients request their fields directly, without fetching the catalog first. The Monitor requests its eight indicators, Device settings requests the Wi-Fi channel, the firmware benchmark requests its measurement and Direct transport fields, and CSI collection requests `raw_csi`. The generic CLI defaults to `["*"]`; explicitly pass `fields: []` to inspect the catalog. Continuous counters and performance windows retain their existing sampling behavior; selection controls value retrieval and serialization, not detector instrumentation.
 
 | Field group | Meaning |
 | --- | --- |
@@ -158,13 +166,15 @@ OTA is a frontend-owned extension of the canonical message model. Native registe
 | `detection_timing_supported`, `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector timing support and aggregates |
 | `traffic_packets_total`, `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative traffic and CSI pipeline counters |
 | `csi_rx_error_total`, `csi_rx_end_error_total`, `csi_invalid_estimate_total`, `csi_invalid_first_word_total` | Cumulative capture-quality rejections; one reason per rejected callback |
+| `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device for the web Monitor; unavailable on older Micro firmware |
+| `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates; C++ sums four reason counters, and MicroPython reads its dedicated native hardware counter |
 | `csi_sanitized_first_word_total` | Frames whose hardware-invalid guard pairs were zeroed without changing live tones |
 | `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total` | Cumulative queue and temporal-admission drop counters |
 | `csi_occupancy_slots`, `csi_window_slots`, `csi_pending_frames`, `csi_pending_frame_capacity` | Detector-window and callback-queue occupancy |
 | CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached packet rates and detector-window occupancy ratio |
 | `wifi_channel`, `wifi_rssi_dbm` | Current channel and RSSI; unavailable RSSI is `null` |
 | `runtime_motion_event_drops_total` | Runtime-to-frontend motion publications overwritten in the bounded mailbox |
-| `task_stack_high_water_bytes` | Native frontend task stack headroom; omitted where unavailable |
+| `task_stack_high_water_bytes` | Native frontend task stack headroom; `null` where unavailable |
 | `direct_http` | SSE client and queue budgets plus connection, request, delivery, and `dropped_motion_events` counters |
 | `raw_csi` | CSI session state, drops, send backpressure, delivered records, and stream sequence |
 | `mqtt` | Native MQTT connection, queue, outbox, drop, failure, and reconnect counters |
@@ -320,7 +330,7 @@ Publish commands to `commands/request`. Every request has a top-level `command_i
 | `update_device` | `label` | `PATCH /device` |
 | `update_sensing` | Any non-empty supported sensing subset | `PATCH /sensing` |
 | `recalibrate` | none | `POST /sensing/calibrations` |
-| `read_diagnostics` | none | `GET /diagnostics`; snapshot returned in `data` |
+| `read_diagnostics` | optional `fields` array | `GET /diagnostics`; snapshot returned in `data` |
 | `check_ota` | optional `channel` | `POST /ota/checks` |
 | `start_ota` | optional `channel` | `POST /ota/updates` |
 
@@ -358,4 +368,6 @@ The HTTP service can reject a request before application dispatch. These failure
 
 Direct HTTP is a trusted-LAN surface. Firmware enforces exact browser Origin allowlists, Private Network Access preflight, bounded bodies, queues, clients, and request rates. It binds to the station interface and does not expose stored Wi-Fi or MQTT passwords. `/mqtt` may gain independent protection only through an additive security extension.
 
-Clients negotiate once through `capabilities.protocol_version`. Compatible additions may add resources, fields, operations, or events within `v1`; consumers must ignore unknown additive fields. An incompatible contract requires a new base-path major version and discovery protocol version.
+During the 3.0.0 release-candidate phase, the application contract remains `1.0`: Direct uses `/espectre/v1`, the default MQTT prefix is `espectre/v1/devices`, and DNS-SD advertises `protovers=1.0`. Diagnostic field selection changes within this pre-release contract: an unselected request returns a catalog, while `fields: ["*"]` returns all values. Use matching firmware and clients; there is no automatic fallback to the earlier diagnostics response. An explicitly configured MQTT prefix remains a user setting.
+
+Clients negotiate once through `capabilities.protocol_version`. Compatible additions may add resources, fields, operations, or events within `v1`; consumers must ignore unknown additive fields. After the contract is released as stable, an incompatible change requires a new base-path major version and discovery protocol version.

@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include <cstring>
 #include "espectre.h"
 #include "threshold_number.h"
 #include "motion_hits_number.h"
@@ -683,7 +684,7 @@ void ESpectreComponent::publish_cached_diagnostics_() {
 }
 
 void ESpectreComponent::publish_diagnostics_on_demand() {
-  const FrontendCommandResult result = this->execute_entity_command_("read_diagnostics");
+  const FrontendCommandResult result = this->execute_entity_command_("read_diagnostics", R"({"fields":["traffic_tx_pps","csi_callback_pps","csi_accepted_pps","csi_admitted_pps","csi_filtered_pps","csi_missing_slots_pps","csi_excess_pps","csi_stale_pps","csi_out_of_order_pps","csi_occupancy","wifi_channel","wifi_rssi_dbm"]})");
   if (result.accepted) this->publish_cached_diagnostics_();
 }
 
@@ -741,17 +742,16 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
         }
         if (read.command == "device") return espectre_device_payload(device, info);
         if (read.command == "read_diagnostics") {
-          std::string payload = espectre_diagnostics_payload(device,
-                                                             this->runtime_.snapshot(),
-                                                             millis(),
-                                                             millis() / 1000U,
-                                                             0.0f,
-                                                             0.0f,
-                                                             this->runtime_.diagnostics_sample());
-          payload.pop_back();
-          append_runtime_csi_quality_diagnostics_json(&payload, this->runtime_.diagnostics());
-          payload += "}";
-          return payload;
+          RuntimeDiagnosticsSnapshot diagnostics;
+          bool loaded = false;
+          return diagnostic_response(read.diagnostic_fields, 2U, [&](const char *key) -> std::string {
+            if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(millis());
+            if (std::strcmp(key, "uptime") == 0) return std::to_string(millis() / 1000U);
+            return runtime_diagnostic_value(key, this->runtime_.diagnostics_sample(), [&]() -> const RuntimeDiagnosticsSnapshot & {
+              if (!loaded) { diagnostics = this->runtime_.diagnostics(); loaded = true; }
+              return diagnostics;
+            });
+          });
         }
         if (read.command == "health") {
           return espectre_health_payload(device, true, millis());
