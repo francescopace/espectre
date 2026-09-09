@@ -97,57 +97,23 @@ def _format_integer_value(value, *, placeholder="--"):
 
 
 def _format_status_fields(diagnostics, *, placeholders=False):
-    placeholder = "--" if placeholders else "0"
-    admitted = _lookup_value(diagnostics, "csi_admitted_pps", 0.0)
-    accepted = _lookup_value(diagnostics, "csi_accepted_pps", 0.0)
-    callbacks = _lookup_value(diagnostics, "csi_callback_pps", 0.0)
-    traffic = _lookup_value(diagnostics, "traffic_tx_pps", 0.0)
-    occupancy = _lookup_value(diagnostics, "csi_occupancy", 0.0)
-    missing = _lookup_value(diagnostics, "csi_missing_slots_pps", 0.0)
-    excess = _lookup_value(diagnostics, "csi_excess_pps", 0.0)
-    stale = _lookup_value(diagnostics, "csi_stale_pps", 0.0)
-    out_of_order = _lookup_value(diagnostics, "csi_out_of_order_pps", 0.0)
-    channel = _lookup_value(diagnostics, "wifi_channel", 0)
-    rssi = _lookup_value(diagnostics, "wifi_rssi_dbm", None)
+    def rate(key):
+        value = None if placeholders else _lookup_value(diagnostics, key, None)
+        return "--" if value is None else "{:.1f}".format(float(value))
 
-    occupancy_text = placeholder
-    if not placeholders:
-        occupancy_text = str(int(float(occupancy) * 100.0 + 0.5))
-    admitted_value = None if placeholders else admitted
-    accepted_value = None if placeholders else accepted
-    callbacks_value = None if placeholders else callbacks
-    traffic_value = None if placeholders else traffic
-    missing_value = None if placeholders else missing
-    excess_value = None if placeholders else excess
-    stale_value = None if placeholders else stale
-    out_of_order_value = None if placeholders else out_of_order
-    channel_value = None if placeholders else channel
-    rssi_value = None if placeholders else rssi
-    admitted_text = _format_integer_value(admitted_value, placeholder=placeholder)
-    accepted_text = _format_integer_value(accepted_value, placeholder=placeholder)
-    callbacks_text = _format_integer_value(callbacks_value, placeholder=placeholder)
-    traffic_text = _format_integer_value(traffic_value, placeholder=placeholder)
-    missing_text = _format_integer_value(missing_value, placeholder=placeholder)
-    excess_text = _format_integer_value(excess_value, placeholder=placeholder)
-    stale_text = _format_integer_value(stale_value, placeholder=placeholder)
-    out_of_order_text = _format_integer_value(out_of_order_value, placeholder=placeholder)
-    channel_text = _format_integer_value(channel_value, placeholder=placeholder)
-    rssi_text = _format_integer_value(rssi_value, placeholder=placeholder)
-
-    return (
-        "csi:{}/{} cb:{} tx:{} occ:{}% miss:{} excess:{} stale:{} ooo:{} | ch:{} rssi:{}".format(
-            admitted_text,
-            accepted_text,
-            callbacks_text,
-            traffic_text,
-            occupancy_text,
-            missing_text,
-            excess_text,
-            stale_text,
-            out_of_order_text,
-            channel_text,
-            rssi_text,
-        )
+    occupancy = None if placeholders else _lookup_value(diagnostics, "csi_occupancy", None)
+    channel = None if placeholders else _lookup_value(diagnostics, "wifi_channel", None)
+    rssi = None if placeholders else _lookup_value(diagnostics, "wifi_rssi_dbm", None)
+    occupancy_text = "--" if occupancy is None else str(int(float(occupancy) * 100.0 + 0.5))
+    return "tx:{} cb:{} accepted:{} hwerr:{} occ:{}% | ch:{} rssi:{}".format(
+        rate("traffic_tx_pps"),
+        rate("csi_callback_pps"),
+        rate("csi_accepted_pps"),
+        # Older firmware does not expose the dedicated hardware counter.
+        rate("csi_hw_error_pps"),
+        occupancy_text,
+        _format_integer_value(channel if channel else None),
+        _format_integer_value(rssi),
     )
 
 

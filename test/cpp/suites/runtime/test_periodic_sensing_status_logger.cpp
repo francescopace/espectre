@@ -72,7 +72,10 @@ void test_diagnostics_snapshot_formats_all_rates_and_link_state(void) {
   TEST_ASSERT_TRUE(set_log_sink({&capture, &log_enabled, &log_write}));
   PeriodicSensingStatusLogger logger;
   RuntimeDiagnosticsSample diagnostics;
-  diagnostics.csi_admitted_pps = 99.8f;
+  diagnostics.csi_callback_pps = 120.2f;
+  diagnostics.csi_hw_error_pps = 0.4f;
+  diagnostics.wifi_channel = 11U;
+  diagnostics.wifi_rssi_dbm = -55;
   diagnostics.csi_accepted_pps = 101.2f;
   diagnostics.traffic_tx_pps = 100.9f;
   diagnostics.csi_missing_slots_pps = 1.1f;
@@ -85,24 +88,23 @@ void test_diagnostics_snapshot_formats_all_rates_and_link_state(void) {
 
   TEST_ASSERT_EQUAL(1, capture.writes);
   TEST_ASSERT_TRUE(capture.message.find("MOTION") != std::string::npos);
-  TEST_ASSERT_TRUE(capture.message.find("csi:99/101 tx:100 occ:81%") != std::string::npos);
-  TEST_ASSERT_TRUE(capture.message.find("miss:1 excess:2 stale:3 ooo:4") != std::string::npos);
-  TEST_ASSERT_TRUE(capture.message.find("ch:6 rssi:-48") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("tx:100.9 cb:120.2 accepted:101.2 hwerr:0.4 occ:81%") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("ch:11 rssi:-55") != std::string::npos);
 }
 
-void test_reset_restarts_fallback_packet_rate_window(void) {
+void test_missing_diagnostics_do_not_mislabel_admitted_packets(void) {
   CapturedLog capture;
   TEST_ASSERT_TRUE(set_log_sink({&capture, &log_enabled, &log_write}));
   PeriodicSensingStatusLogger logger;
   logger.log_status("runtime", snapshot(), 50U);
   esp_timer_mock::advance(500000);
   logger.log_status("runtime", snapshot(), 50U);
-  TEST_ASSERT_TRUE(capture.message.find("csi:100/0") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("tx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
 
   logger.reset();
   esp_timer_mock::advance(500000);
   logger.log_status("runtime", snapshot(), 50U);
-  TEST_ASSERT_TRUE(capture.message.find("csi:0/0") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("tx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
 }
 
 void test_calibration_progress_is_clamped(void) {
@@ -124,7 +126,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_null_tag_is_silent);
   RUN_TEST(test_diagnostics_snapshot_formats_all_rates_and_link_state);
-  RUN_TEST(test_reset_restarts_fallback_packet_rate_window);
+  RUN_TEST(test_missing_diagnostics_do_not_mislabel_admitted_packets);
   RUN_TEST(test_calibration_progress_is_clamped);
   return UNITY_END();
 }

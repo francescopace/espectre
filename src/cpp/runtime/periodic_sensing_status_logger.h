@@ -22,10 +22,8 @@ class PeriodicSensingStatusLogger {
                   const RuntimeSnapshot &snapshot,
                   uint32_t packets_per_publish,
                   const RuntimeDiagnosticsSample *diagnostics = nullptr);
-  void reset() { last_log_time_ms_ = 0; }
-
- private:
-  uint32_t last_log_time_ms_{0};
+  /** Retained for compatibility; rate history is owned by the diagnostic sampler. */
+  void reset() {}
 };
 
 }  // namespace espectre

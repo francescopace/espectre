@@ -10,7 +10,6 @@
 #include "periodic_sensing_status_logger.h"
 
 #include "espectre_log.h"
-#include "runtime_time.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -78,37 +77,32 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const float threshold = snapshot.threshold;
   const bool is_motion = (snapshot.motion_state == MotionState::MOTION);
 
-  const uint32_t now_ms = monotonic_now_ms();
-
-  uint32_t rate_pps = 0;
-  uint32_t raw_rate_pps = 0;
-  uint32_t traffic_rate_pps = 0;
-  uint32_t missing_rate_pps = 0;
-  uint32_t excess_rate_pps = 0;
-  uint32_t stale_rate_pps = 0;
-  uint32_t out_of_order_rate_pps = 0;
-  uint32_t occupancy_percent = 0;
+  // The legacy packet count represents admitted samples, not capture acceptance.
+  // Keep the public argument without using it to invent missing diagnostics.
+  (void) packets_per_publish;
+  char rates[128];
+  char link[40];
   if (diagnostics != nullptr) {
-    rate_pps = static_cast<uint32_t>(diagnostics->csi_admitted_pps);
-    raw_rate_pps = static_cast<uint32_t>(diagnostics->csi_accepted_pps);
-    traffic_rate_pps = static_cast<uint32_t>(diagnostics->traffic_tx_pps);
-    missing_rate_pps = static_cast<uint32_t>(diagnostics->csi_missing_slots_pps);
-    excess_rate_pps = static_cast<uint32_t>(diagnostics->csi_excess_pps);
-    stale_rate_pps = static_cast<uint32_t>(diagnostics->csi_stale_pps);
-    out_of_order_rate_pps = static_cast<uint32_t>(diagnostics->csi_out_of_order_pps);
-    occupancy_percent = static_cast<uint32_t>(diagnostics->csi_occupancy_ratio * 100.0f + 0.5f);
-  } else if (last_log_time_ms_ > 0 && now_ms > last_log_time_ms_) {
-    const uint32_t elapsed_ms = now_ms - last_log_time_ms_;
-    if (elapsed_ms > 0) {
-      rate_pps = static_cast<uint32_t>((static_cast<uint64_t>(packets_per_publish) * 1000U) / elapsed_ms);
+    std::snprintf(rates, sizeof(rates),
+                  "tx:%.1f cb:%.1f accepted:%.1f hwerr:%.1f occ:%u%%",
+                  static_cast<double>(diagnostics->traffic_tx_pps),
+                  static_cast<double>(diagnostics->csi_callback_pps),
+                  static_cast<double>(diagnostics->csi_accepted_pps),
+                  static_cast<double>(diagnostics->csi_hw_error_pps),
+                  static_cast<unsigned>(diagnostics->csi_occupancy_ratio * 100.0f + 0.5f));
+    char channel[8] = "--";
+    char rssi[8] = "--";
+    if (diagnostics->wifi_channel != 0U) {
+      std::snprintf(channel, sizeof(channel), "%u", static_cast<unsigned>(diagnostics->wifi_channel));
     }
+    if (diagnostics->wifi_rssi_dbm != INT8_MIN) {
+      std::snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(diagnostics->wifi_rssi_dbm));
+    }
+    std::snprintf(link, sizeof(link), "ch:%s rssi:%s", channel, rssi);
+  } else {
+    std::snprintf(rates, sizeof(rates), "tx:-- cb:-- accepted:-- hwerr:-- occ:--%%");
+    std::snprintf(link, sizeof(link), "ch:-- rssi:--");
   }
-  last_log_time_ms_ = now_ms;
-
-  // Link quality comes from the packets that produced the metric, not from a
-  // fresh AP query taken at print time.
-  const int8_t rssi = snapshot.link_rssi_dbm;
-  const uint8_t channel = snapshot.link_channel;
   constexpr int kBarWidth = 20;
 
   if (snapshot.calibrating) {
@@ -124,19 +118,8 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
       calibration_progress = 1.0f;
     }
     log_progress_bar(tag, calibration_progress, kBarWidth, -1,
-                     "| mvmt:%.6f thr:%.6f | CALIBRATING | csi:%u/%u tx:%u occ:%u%% "
-                     "miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
-                     motion_metric, threshold,
-                     static_cast<unsigned>(rate_pps),
-                     static_cast<unsigned>(raw_rate_pps),
-                     static_cast<unsigned>(traffic_rate_pps),
-                     static_cast<unsigned>(occupancy_percent),
-                     static_cast<unsigned>(missing_rate_pps),
-                     static_cast<unsigned>(excess_rate_pps),
-                     static_cast<unsigned>(stale_rate_pps),
-                     static_cast<unsigned>(out_of_order_rate_pps),
-                     static_cast<unsigned>(channel),
-                     static_cast<int>(rssi));
+                     "| mvmt:%.6f thr:%.6f | CALIBRATING | %s | %s",
+                     motion_metric, threshold, rates, link);
     return;
   }
 
@@ -158,20 +141,9 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   }
 
   log_progress_bar(tag, bar_progress, kBarWidth, threshold_pos,
-                   "| mvmt:%.6f thr:%.6f | %s | csi:%u/%u tx:%u occ:%u%% "
-                   "miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
+                   "| mvmt:%.6f thr:%.6f | %s | %s | %s",
                    motion_metric, threshold,
-                   is_motion ? "MOTION" : "IDLE",
-                   static_cast<unsigned>(rate_pps),
-                   static_cast<unsigned>(raw_rate_pps),
-                   static_cast<unsigned>(traffic_rate_pps),
-                   static_cast<unsigned>(occupancy_percent),
-                   static_cast<unsigned>(missing_rate_pps),
-                   static_cast<unsigned>(excess_rate_pps),
-                   static_cast<unsigned>(stale_rate_pps),
-                   static_cast<unsigned>(out_of_order_rate_pps),
-                   static_cast<unsigned>(channel),
-                   static_cast<int>(rssi));
+                   is_motion ? "MOTION" : "IDLE", rates, link);
 }
 
 }  // namespace espectre

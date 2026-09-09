@@ -181,6 +181,8 @@ Current clients request their fields directly, without fetching the catalog firs
 
 Memory values use KiB. Timings use microseconds unless the field ends in `_ms`, and rates use packets per second. `csi_occupancy` is the valid fraction of the active detector window. Fields that depend on a complete performance window are `null` until that window is ready. A frontend may omit measurements and transport objects that it cannot provide; clients must not replace a missing value with zero.
 
+The periodic sensing log labels the traffic, callback, accepted-packet, and hardware-rejection rates `tx`, `cb`, `accepted`, and `hwerr`. Rates use packets per second over the actual diagnostic interval. `hwerr` sums RX errors, RX end errors, invalid hardware estimates, and unsafe invalid first words; it includes background traffic and excludes other filtering reasons. `occ` is valid detector-window occupancy. Channel and RSSI use the same association diagnostics as the API. Missing values appear as `--`; MicroPython reports `hwerr:--` only with older firmware that lacks the dedicated hardware counter; rebuild and flash the firmware to enable it. The diagnostics resource also includes admitted rates, temporal-drop reasons, cumulative error counts, and performance details.
+
 ## Operations
 
 Operations reject unknown fields. Routes described as taking no parameters accept an empty body or `{}` only.
