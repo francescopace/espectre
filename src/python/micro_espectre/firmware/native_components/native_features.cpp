@@ -326,18 +326,12 @@ extern "C" uint64_t espectre_native_sampler_get_u64(void *handle, uint8_t field)
       return sampler->accepted_packets();
     case 4:
       return sampler->excess_packets();
-    case 5:
-      return sampler->duplicate_packets();
     case 6:
       return sampler->out_of_order_packets();
     case 7:
       return sampler->stale_packets();
-    case 8:
-      return sampler->missing_timestamp_packets();
     case 9:
       return sampler->missing_slots();
-    case 10:
-      return sampler->gap_resets();
     default:
       return 0U;
   }

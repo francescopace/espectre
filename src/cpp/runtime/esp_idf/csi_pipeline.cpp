@@ -29,7 +29,6 @@ void CsiPipeline::init(BaseDetector* detector, IWiFiCSI* wifi_csi) {
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
-  traffic_classified_packets_total_.store(0U, std::memory_order_relaxed);
   traffic_rejected_packets_total_.store(0U, std::memory_order_relaxed);
   pending_frames_.clear();
   pending_frame_drops_.store(0U, std::memory_order_relaxed);
@@ -395,7 +394,6 @@ void CsiPipeline::capture_packet_callback_(void *context,
       pipeline->traffic_rejected_packets_total_.fetch_add(1U, std::memory_order_relaxed);
       return;
     }
-    pipeline->traffic_classified_packets_total_.fetch_add(1U, std::memory_order_relaxed);
   }
 
   if (pipeline->raw_packet_callback_.load(std::memory_order_acquire) != nullptr) {

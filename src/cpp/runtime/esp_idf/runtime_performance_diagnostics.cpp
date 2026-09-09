@@ -30,7 +30,6 @@ uint32_t elapsed_us_since(uint64_t start_us, uint64_t end_us) {
 
 void RuntimePerformanceDiagnostics::reset() {
   window_start_us_ = 0U;
-  loop_busy_us_ = 0U;
   loop_duration_sum_us_ = 0U;
   loop_duration_max_us_ = 0U;
   loop_samples_ = 0U;
@@ -42,7 +41,6 @@ void RuntimePerformanceDiagnostics::reset() {
 }
 
 void RuntimePerformanceDiagnostics::record_loop_duration(uint32_t duration_us) {
-  loop_busy_us_ += duration_us;
   loop_duration_sum_us_ += duration_us;
   loop_duration_max_us_ = std::max(loop_duration_max_us_, duration_us);
   loop_samples_ += 1U;
@@ -77,7 +75,7 @@ void RuntimePerformanceDiagnostics::update_if_due() {
   latest_.window_duration_us = static_cast<uint32_t>(
       std::min<uint64_t>(elapsed_us, std::numeric_limits<uint32_t>::max()));
   latest_.runtime_load_percent = static_cast<float>(
-      std::min(100.0, static_cast<double>(loop_busy_us_) * 100.0 / static_cast<double>(elapsed_us)));
+      std::min(100.0, static_cast<double>(loop_duration_sum_us_) * 100.0 / static_cast<double>(elapsed_us)));
   latest_.loop_samples = loop_samples_;
   latest_.loop_average_us =
       loop_samples_ > 0U ? static_cast<uint32_t>(loop_duration_sum_us_ / loop_samples_) : 0U;
@@ -91,7 +89,6 @@ void RuntimePerformanceDiagnostics::update_if_due() {
   latest_.detection_maximum_us = detection_duration_max_us_;
 
   window_start_us_ = now_us;
-  loop_busy_us_ = 0U;
   loop_duration_sum_us_ = 0U;
   loop_duration_max_us_ = 0U;
   loop_samples_ = 0U;

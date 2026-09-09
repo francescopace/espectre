@@ -262,7 +262,6 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.wifi_channel = wifi_channel_;
   diagnostics.traffic_packets_total = csi_traffic_service_.get_traffic_packets_total();
   diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
-  diagnostics.csi_classified_total = csi_pipeline_.traffic_classified_packets_total();
   diagnostics.csi_provenance_rejected_total = csi_pipeline_.traffic_rejected_packets_total();
   diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
   diagnostics.csi_admitted_total = csi_pipeline_.detector_admitted_packets_total();
@@ -272,7 +271,6 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.csi_invalid_estimate_total = csi_pipeline_.capture_invalid_estimate_total();
   diagnostics.csi_invalid_first_word_total = csi_pipeline_.capture_invalid_first_word_total();
   diagnostics.csi_sanitized_first_word_total = csi_pipeline_.capture_sanitized_first_word_total();
-  diagnostics.csi_estimate_length_mismatch_total = csi_pipeline_.capture_estimate_length_mismatch_total();
 
   diagnostics.csi_pending_frame_drops_total = csi_pipeline_.pending_frame_drops_total();
   diagnostics.csi_missing_slots_total = csi_pipeline_.detector_missing_slots_total();

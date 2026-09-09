@@ -42,24 +42,6 @@ class CsiCaptureService {
   CsiCaptureProfile capture_profile() const { return capture_profile_; }
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
-  uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
-  uint32_t normalized_invalid_packets() const {
-    return normalized_invalid_packets_.load(std::memory_order_relaxed);
-  }
-  uint32_t valid_packets() const { return valid_packets_.load(std::memory_order_relaxed); }
-  uint32_t rejected_out_of_order_packets() const {
-    return rejected_out_of_order_packets_.load(std::memory_order_relaxed);
-  }
-  uint32_t unsupported_phy_packets() const { return unsupported_phy_packets_.load(std::memory_order_relaxed); }
-  uint32_t unsupported_width_packets() const {
-    return unsupported_width_packets_.load(std::memory_order_relaxed);
-  }
-  uint32_t unexpected_ltf_packets() const { return unexpected_ltf_packets_.load(std::memory_order_relaxed); }
-  uint32_t unknown_layout_packets() const { return unknown_layout_packets_.load(std::memory_order_relaxed); }
-  uint32_t bad_length_packets() const { return bad_length_packets_.load(std::memory_order_relaxed); }
-  uint32_t missing_metadata_packets() const {
-    return missing_metadata_packets_.load(std::memory_order_relaxed);
-  }
   uint32_t rx_error_packets() const {
     return rx_error_packets_.load(std::memory_order_relaxed);
   }
@@ -75,18 +57,8 @@ class CsiCaptureService {
   uint32_t sanitized_first_word_packets() const {
     return sanitized_first_word_packets_.load(std::memory_order_relaxed);
   }
-  uint32_t estimate_length_mismatch_packets() const {
-    return estimate_length_mismatch_packets_.load(std::memory_order_relaxed);
-  }
-  uint32_t normalization_collapse_packets() const {
-    return normalization_collapse_packets_.load(std::memory_order_relaxed);
-  }
-  uint32_t normalization_remap_packets() const {
-    return normalization_remap_packets_.load(std::memory_order_relaxed);
-  }
   const CsiFormatAssessment &last_assessment() const { return last_assessment_; }
   uint32_t enable_attempts() const { return enable_attempts_.load(std::memory_order_relaxed); }
-  uint32_t disable_attempts() const { return disable_attempts_.load(std::memory_order_relaxed); }
   esp_err_t last_configure_err() const { return static_cast<esp_err_t>(last_configure_err_.load(std::memory_order_relaxed)); }
   esp_err_t last_set_callback_err() const {
     return static_cast<esp_err_t>(last_set_callback_err_.load(std::memory_order_relaxed));
@@ -125,25 +97,12 @@ class CsiCaptureService {
   void *channel_change_callback_context_{nullptr};
   std::atomic<uint32_t> filtered_packets_{0U};
   std::atomic<uint32_t> callback_invocations_{0U};
-  std::atomic<uint32_t> null_or_empty_packets_{0U};
-  std::atomic<uint32_t> normalized_invalid_packets_{0U};
-  std::atomic<uint32_t> valid_packets_{0U};
-  std::atomic<uint32_t> rejected_out_of_order_packets_{0U};
-  std::atomic<uint32_t> unsupported_phy_packets_{0U};
-  std::atomic<uint32_t> unsupported_width_packets_{0U};
-  std::atomic<uint32_t> unexpected_ltf_packets_{0U};
-  std::atomic<uint32_t> unknown_layout_packets_{0U};
-  std::atomic<uint32_t> bad_length_packets_{0U};
-  std::atomic<uint32_t> missing_metadata_packets_{0U};
   std::atomic<uint32_t> rx_error_packets_{0U};
   std::atomic<uint32_t> rx_end_error_packets_{0U};
   std::atomic<uint32_t> invalid_estimate_packets_{0U};
   std::atomic<uint32_t> invalid_first_word_packets_{0U};
   std::atomic<uint32_t> sanitized_first_word_packets_{0U};
-  std::atomic<uint32_t> estimate_length_mismatch_packets_{0U};
 
-  std::atomic<uint32_t> normalization_collapse_packets_{0U};
-  std::atomic<uint32_t> normalization_remap_packets_{0U};
   std::atomic<uint32_t> enable_attempts_{0U};
   std::atomic<uint32_t> disable_attempts_{0U};
   std::atomic<int32_t> last_configure_err_{ESP_OK};

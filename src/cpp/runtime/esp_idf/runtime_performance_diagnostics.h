@@ -42,7 +42,6 @@ class RuntimePerformanceDiagnostics {
   static constexpr uint64_t WINDOW_INTERVAL_US = 10000000ULL;
 
   uint64_t window_start_us_{0U};
-  uint64_t loop_busy_us_{0U};
   uint64_t loop_duration_sum_us_{0U};
   uint32_t loop_duration_max_us_{0U};
   uint32_t loop_samples_{0U};

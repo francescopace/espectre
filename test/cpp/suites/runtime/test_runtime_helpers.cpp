@@ -205,9 +205,6 @@ void test_csi_quality_rejects_hardware_errors_and_preserves_valid_tones(void) {
     }
     TEST_ASSERT_EQUAL(4, captured.callback_count);
     TEST_ASSERT_EQUAL(2, service.sanitized_first_word_packets());
-#if CONFIG_SOC_WIFI_HE_SUPPORT
-    TEST_ASSERT_EQUAL(1, service.estimate_length_mismatch_packets());
-#endif
     for (uint16_t length : {114, 228}) {
         info.len = length;
         service.process_packet(&info);
@@ -470,24 +467,22 @@ void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
     info.rx_ctrl.cwb = 0U;
 
     const uint32_t timestamps[] = {100U, 101U, 101U, 50U, 102U};
-    for (uint32_t timestamp : timestamps) {
-        info.rx_ctrl.timestamp = timestamp;
+    const uint32_t delivered[] = {1U, 2U, 2U, 2U, 3U};
+    for (size_t i = 0; i < 5U; ++i) {
+        info.rx_ctrl.timestamp = timestamps[i];
         service.process_packet(&info);
+        TEST_ASSERT_EQUAL(delivered[i], captured.callback_count);
     }
 
     TEST_ASSERT_EQUAL(3U, captured.callback_count);
-    TEST_ASSERT_EQUAL(3U, service.valid_packets());
     TEST_ASSERT_EQUAL(2U, service.filtered_packets());
-    TEST_ASSERT_EQUAL(2U, service.rejected_out_of_order_packets());
 
     service.reset_session();
     info.rx_ctrl.timestamp = 50U;
     service.process_packet(&info);
 
     TEST_ASSERT_EQUAL(4U, captured.callback_count);
-    TEST_ASSERT_EQUAL(1U, service.valid_packets());
     TEST_ASSERT_EQUAL(0U, service.filtered_packets());
-    TEST_ASSERT_EQUAL(0U, service.rejected_out_of_order_packets());
 }
 
 void test_csi_capture_service_defers_channel_change_and_resets_session_baseline(void) {
@@ -597,19 +592,20 @@ void test_csi_capture_service_tracks_format_drop_reasons(void) {
     info.rx_ctrl.sig_mode = 3U;
     info.rx_ctrl.cwb = 0U;
     service.process_packet(&info);
+    TEST_ASSERT_TRUE(service.last_assessment().reason_code == CsiFormatReasonCode::UNSUPPORTED_PHY);
+    TEST_ASSERT_EQUAL(0U, captured.callback_count);
 
     info.rx_ctrl.sig_mode = 1U;
     info.rx_ctrl.cwb = 1U;
     service.process_packet(&info);
+    TEST_ASSERT_TRUE(service.last_assessment().reason_code == CsiFormatReasonCode::UNSUPPORTED_WIDTH);
+    TEST_ASSERT_EQUAL(0U, captured.callback_count);
 
     info.len = 64U;
     info.rx_ctrl.cwb = 0U;
     service.process_packet(&info);
-
+    TEST_ASSERT_TRUE(service.last_assessment().reason_code == CsiFormatReasonCode::UNKNOWN_LAYOUT);
     TEST_ASSERT_EQUAL(0U, captured.callback_count);
-    TEST_ASSERT_EQUAL(1U, service.unsupported_phy_packets());
-    TEST_ASSERT_EQUAL(1U, service.unsupported_width_packets());
-    TEST_ASSERT_EQUAL(1U, service.unknown_layout_packets());
     TEST_ASSERT_EQUAL(3U, service.filtered_packets());
 }
 

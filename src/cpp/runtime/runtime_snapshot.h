@@ -43,8 +43,6 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t traffic_packets_total{0U};
   /** Raw invocations of the ESP-IDF CSI callback. */
   uint64_t csi_callbacks_total{0U};
-  /** CSI callbacks classified as traffic produced by the configured generator. */
-  uint64_t csi_classified_total{0U};
   /** CSI callbacks rejected because their packet provenance did not match. */
   uint64_t csi_provenance_rejected_total{0U};
   /** CSI packets accepted by capture validation, before temporal admission. */
@@ -63,8 +61,6 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t csi_invalid_first_word_total{0U};
   /** Frames whose hardware-invalid guard pairs were zeroed without changing live tones. */
   uint64_t csi_sanitized_first_word_total{0U};
-  /** Valid estimates whose hardware length differs from the original CSI buffer length. */
-  uint64_t csi_estimate_length_mismatch_total{0U};
 
   /** Valid CSI callbacks dropped because the callback-to-runtime queue was full. */
   uint64_t csi_pending_frame_drops_total{0U};

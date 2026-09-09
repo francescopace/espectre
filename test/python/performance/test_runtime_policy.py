@@ -89,13 +89,17 @@ class TestTemporalCsiSampler:
 
         assert not sampler.admit(2_000_000)
         assert not sampler.admit(2_000_000)
+        assert not sampler.selected_current
+        assert not sampler.admit(None)
+        assert not sampler.selected_current
         assert not sampler.admit(1_999_999)
         assert not sampler.admit(2_010_000, now_us=3_010_000)
 
-        assert sampler.duplicate_packets == 1
         assert sampler.out_of_order_packets == 1
         assert sampler.stale_packets == 1
         assert sampler.flush()
+        assert sampler.accepted_packets == 1
+        assert not sampler.flush()
 
     def test_accepts_uint32_wrap_without_resetting(self):
         sampler = TemporalCsiSampler(100, 1000)
@@ -105,7 +109,8 @@ class TestTemporalCsiSampler:
         assert sampler.flush()
 
         assert sampler.current_slot == 1
-        assert sampler.gap_resets == 0
+        assert not sampler.reset_required
+        assert not sampler.gap_reset_required
 
     def test_window_sized_gap_requests_history_reset(self):
         sampler = TemporalCsiSampler(100, 1000)
@@ -120,7 +125,6 @@ class TestTemporalCsiSampler:
         assert not sampler.gap_reset_required
         assert sampler.current_slot == 0
         assert sampler.occupancy_slots == 1
-        assert sampler.gap_resets == 1
 
     def test_clears_window_without_rephasing_temporal_grid(self):
         sampler = TemporalCsiSampler(100, 1000)
@@ -170,14 +174,12 @@ class TestTemporalCsiSampler:
         assert (
             sampler.accepted_packets,
             sampler.excess_packets,
-            sampler.duplicate_packets,
             sampler.out_of_order_packets,
             sampler.missing_slots,
-            sampler.gap_resets,
             sampler.current_slot,
             sampler.occupancy_slots,
             sampler.is_ready,
-        ) == (6, 2, 1, 1, 3, 1, 1, 2, False)
+        ) == (6, 2, 1, 3, 1, 2, False)
 
 
 class TestRuntimeMotionPolicy:

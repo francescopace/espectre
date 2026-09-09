@@ -287,7 +287,6 @@ class RuntimePerformanceDiagnostics:
     def reset(self):
         """Clear the current timing window while retaining the heap low-water mark."""
         self._window_start_ms = None
-        self._loop_busy_us = 0
         self._loop_duration_sum_us = 0
         self._loop_duration_max_us = 0
         self._loop_samples = 0
@@ -300,7 +299,6 @@ class RuntimePerformanceDiagnostics:
         """Record one measured main-loop body duration."""
         duration_us = max(0, int(duration_us))
         weight = max(1, int(weight))
-        self._loop_busy_us += duration_us * weight
         self._loop_duration_sum_us += duration_us * weight
         self._loop_duration_max_us = max(self._loop_duration_max_us, duration_us)
         self._loop_samples += weight
@@ -338,7 +336,7 @@ class RuntimePerformanceDiagnostics:
             return self.snapshot(heap_free, out=out)
 
         elapsed_us = max(1, int(elapsed_ms) * 1000)
-        runtime_load = min(100.0, self._loop_busy_us * 100.0 / elapsed_us)
+        runtime_load = min(100.0, self._loop_duration_sum_us * 100.0 / elapsed_us)
         loop_average = (
             self._loop_duration_sum_us // self._loop_samples
             if self._loop_samples

@@ -80,12 +80,9 @@ void TemporalCsiSampler::reset() {
   clear_history();
   accepted_packets_ = 0U;
   excess_packets_ = 0U;
-  duplicate_packets_ = 0U;
   out_of_order_packets_ = 0U;
   stale_packets_ = 0U;
-  missing_timestamp_packets_ = 0U;
   missing_slots_ = 0U;
-  gap_resets_ = 0U;
 }
 
 void TemporalCsiSampler::clear_history() {
@@ -220,7 +217,6 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
                                uint32_t now_us, bool has_now) {
   drop_();
   if (!has_timestamp) {
-    ++missing_timestamp_packets_;
     return false;
   }
 
@@ -246,7 +242,6 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
 
   const uint32_t delta = timestamp_us - last_timestamp_;
   if (delta == 0U) {
-    ++duplicate_packets_;
     return false;
   }
   if (delta >= kHalfTimestampRange) {
@@ -256,7 +251,6 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
 
   last_timestamp_ = timestamp_us;
   if (delta >= window_size_us_) {
-    ++gap_resets_;
     const bool emitted = commit_candidate_();
     clear_window_();
     elapsed_us_ = 0U;

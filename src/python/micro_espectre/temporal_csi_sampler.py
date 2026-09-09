@@ -133,10 +133,6 @@ class TemporalCsiSampler:
         return self._native.get_u64(4)
 
     @property
-    def duplicate_packets(self):
-        return self._native.get_u64(5)
-
-    @property
     def out_of_order_packets(self):
         return self._native.get_u64(6)
 
@@ -145,16 +141,8 @@ class TemporalCsiSampler:
         return self._native.get_u64(7)
 
     @property
-    def missing_timestamp_packets(self):
-        return self._native.get_u64(8)
-
-    @property
     def missing_slots(self):
         return self._native.get_u64(9)
-
-    @property
-    def gap_resets(self):
-        return self._native.get_u64(10)
 
     def close(self):
         native_sampler = getattr(self, "_native", None)

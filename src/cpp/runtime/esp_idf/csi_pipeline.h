@@ -238,9 +238,6 @@ class CsiPipeline {
     return sampler_.occupancy_slots();
   }
   uint32_t detector_window_slots() const { return sampler_.window_slots(); }
-  uint64_t rejected_out_of_order_packets_total() const {
-    return capture_service_.rejected_out_of_order_packets();
-  }
   uint64_t capture_callback_invocations_total() const {
     return capture_service_.callback_invocations();
   }
@@ -262,17 +259,11 @@ class CsiPipeline {
   uint64_t capture_sanitized_first_word_total() const {
     return capture_service_.sanitized_first_word_packets();
   }
-  uint64_t capture_estimate_length_mismatch_total() const {
-    return capture_service_.estimate_length_mismatch_packets();
-  }
   uint64_t pending_frame_drops_total() const {
     return pending_frame_drops_.load(std::memory_order_relaxed);
   }
   size_t pending_frame_count() const { return pending_frames_.size(); }
   static constexpr size_t pending_frame_capacity() { return kPendingCsiFrameCapacity; }
-  uint64_t traffic_classified_packets_total() const {
-    return traffic_classified_packets_total_.load(std::memory_order_relaxed);
-  }
   uint64_t traffic_rejected_packets_total() const {
     return traffic_rejected_packets_total_.load(std::memory_order_relaxed);
   }
@@ -363,7 +354,6 @@ class CsiPipeline {
   std::atomic<uint32_t> packets_processed_{0U};
   std::atomic<MotionState> heartbeat_motion_state_{MotionState::IDLE};
   std::atomic<uint64_t> accepted_packets_total_{0U};
-  std::atomic<uint64_t> traffic_classified_packets_total_{0U};
   std::atomic<uint64_t> traffic_rejected_packets_total_{0U};
   int8_t last_rssi_dbm_{INT8_MIN};
   uint8_t last_channel_{0};

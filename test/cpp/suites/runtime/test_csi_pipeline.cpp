@@ -430,7 +430,7 @@ void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
     TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
     TEST_ASSERT_EQUAL(3U, manager.accepted_packets_total());
-    TEST_ASSERT_EQUAL(2U, manager.rejected_out_of_order_packets_total());
+    TEST_ASSERT_EQUAL(2U, manager.capture_filtered_packets_total());
 }
 
 void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
@@ -452,7 +452,7 @@ void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
     TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
     TEST_ASSERT_EQUAL(4U, manager.accepted_packets_total());
-    TEST_ASSERT_EQUAL(0U, manager.rejected_out_of_order_packets_total());
+    TEST_ASSERT_EQUAL(0U, manager.capture_filtered_packets_total());
 }
 
 void test_csi_pipeline_filters_non_ht20_phy(void) {
@@ -1620,7 +1620,6 @@ void test_csi_pipeline_admits_local_ack_only_with_active_lltf20_profile(void) {
         manager.flush_pending_candidate();
 
         const bool use_lltf = profile == CsiCaptureProfile::LLTF20;
-        TEST_ASSERT_EQUAL(use_lltf ? 2U : 0U, manager.traffic_classified_packets_total());
         TEST_ASSERT_EQUAL(use_lltf ? 0U : 2U, manager.traffic_rejected_packets_total());
         TEST_ASSERT_EQUAL(use_lltf ? 2U : 0U, manager.accepted_packets_total());
         TEST_ASSERT_EQUAL(use_lltf ? 2U : 0U, manager.detector_window_occupancy_slots());

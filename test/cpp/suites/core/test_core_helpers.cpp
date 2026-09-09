@@ -291,9 +291,13 @@ void test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets(void) 
     TEST_ASSERT_EQUAL(3U, sampler.excess_packets());
 
     TEST_ASSERT_FALSE(sampler.admit(1010000U));
+    TEST_ASSERT_FALSE(sampler.selected_current());
+    TEST_ASSERT_FALSE(sampler.flush());
+    TEST_ASSERT_FALSE(sampler.admit(1020000U, false));
+    TEST_ASSERT_FALSE(sampler.selected_current());
+    TEST_ASSERT_FALSE(sampler.flush());
     TEST_ASSERT_FALSE(sampler.admit(1009999U));
     TEST_ASSERT_FALSE(sampler.admit(1020000U, true, 2020000U, true));
-    TEST_ASSERT_EQUAL(1U, sampler.duplicate_packets());
     TEST_ASSERT_EQUAL(1U, sampler.out_of_order_packets());
     TEST_ASSERT_EQUAL(1U, sampler.stale_packets());
 }
@@ -319,7 +323,8 @@ void test_temporal_csi_sampler_handles_wrap_and_window_gap(void) {
     TEST_ASSERT_TRUE(sampler.admit(5000U));
     TEST_ASSERT_TRUE(sampler.flush());
     TEST_ASSERT_EQUAL(1U, sampler.current_slot());
-    TEST_ASSERT_EQUAL(0U, sampler.gap_resets());
+    TEST_ASSERT_FALSE(sampler.reset_required());
+    TEST_ASSERT_FALSE(sampler.gap_reset_required());
 
     TEST_ASSERT_FALSE(sampler.admit(1005000U));
     TEST_ASSERT_FALSE(sampler.reset_required());
@@ -327,7 +332,6 @@ void test_temporal_csi_sampler_handles_wrap_and_window_gap(void) {
     TEST_ASSERT_TRUE(sampler.flush());
     TEST_ASSERT_TRUE(sampler.reset_required());
     TEST_ASSERT_FALSE(sampler.gap_reset_required());
-    TEST_ASSERT_EQUAL(1U, sampler.gap_resets());
     TEST_ASSERT_EQUAL(0U, sampler.current_slot());
     TEST_ASSERT_EQUAL(1U, sampler.occupancy_slots());
 }
@@ -375,10 +379,8 @@ void test_temporal_csi_sampler_matches_python_cross_runtime_trace(void) {
     TEST_ASSERT_TRUE(sampler.flush());
     TEST_ASSERT_EQUAL(6U, sampler.accepted_packets());
     TEST_ASSERT_EQUAL(2U, sampler.excess_packets());
-    TEST_ASSERT_EQUAL(1U, sampler.duplicate_packets());
     TEST_ASSERT_EQUAL(1U, sampler.out_of_order_packets());
     TEST_ASSERT_EQUAL(3U, sampler.missing_slots());
-    TEST_ASSERT_EQUAL(1U, sampler.gap_resets());
     TEST_ASSERT_EQUAL(1U, sampler.current_slot());
     TEST_ASSERT_EQUAL(2U, sampler.occupancy_slots());
     TEST_ASSERT_FALSE(sampler.is_ready());

@@ -35,25 +35,12 @@ void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
 void CsiCaptureService::reset_session() {
   filtered_packets_.store(0U, std::memory_order_relaxed);
   callback_invocations_.store(0U, std::memory_order_relaxed);
-  null_or_empty_packets_.store(0U, std::memory_order_relaxed);
-  normalized_invalid_packets_.store(0U, std::memory_order_relaxed);
-  valid_packets_.store(0U, std::memory_order_relaxed);
-  rejected_out_of_order_packets_.store(0U, std::memory_order_relaxed);
-  unsupported_phy_packets_.store(0U, std::memory_order_relaxed);
-  unsupported_width_packets_.store(0U, std::memory_order_relaxed);
-  unexpected_ltf_packets_.store(0U, std::memory_order_relaxed);
-  unknown_layout_packets_.store(0U, std::memory_order_relaxed);
-  bad_length_packets_.store(0U, std::memory_order_relaxed);
-  missing_metadata_packets_.store(0U, std::memory_order_relaxed);
   rx_error_packets_.store(0U, std::memory_order_relaxed);
   rx_end_error_packets_.store(0U, std::memory_order_relaxed);
   invalid_estimate_packets_.store(0U, std::memory_order_relaxed);
   invalid_first_word_packets_.store(0U, std::memory_order_relaxed);
   sanitized_first_word_packets_.store(0U, std::memory_order_relaxed);
-  estimate_length_mismatch_packets_.store(0U, std::memory_order_relaxed);
 
-  normalization_collapse_packets_.store(0U, std::memory_order_relaxed);
-  normalization_remap_packets_.store(0U, std::memory_order_relaxed);
   enable_attempts_.store(0U, std::memory_order_relaxed);
   disable_attempts_.store(0U, std::memory_order_relaxed);
   last_configure_err_.store(ESP_OK, std::memory_order_relaxed);
@@ -203,7 +190,6 @@ bool CsiCaptureService::accept_rx_timestamp_(const wifi_csi_info_t *data) {
     return true;
   }
   filtered_packets_.fetch_add(1U, std::memory_order_relaxed);
-  rejected_out_of_order_packets_.fetch_add(1U, std::memory_order_relaxed);
   return false;
 }
 
@@ -219,30 +205,6 @@ void CsiCaptureService::record_format_drop_(CsiFormatReasonCode reason_code) {
     consecutive_format_drops_++;
   }
   switch (reason_code) {
-    case CsiFormatReasonCode::NULL_OR_EMPTY:
-      // Already counted in null_or_empty_packets_ at the call site; do not
-      // inflate the bad-length or normalization counters as well.
-      break;
-    case CsiFormatReasonCode::BAD_LENGTH:
-      bad_length_packets_.fetch_add(1U, std::memory_order_relaxed);
-      normalized_invalid_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
-    case CsiFormatReasonCode::UNSUPPORTED_PHY:
-      unsupported_phy_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
-    case CsiFormatReasonCode::UNSUPPORTED_WIDTH:
-      unsupported_width_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
-    case CsiFormatReasonCode::UNEXPECTED_LTF:
-      unexpected_ltf_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
-    case CsiFormatReasonCode::UNKNOWN_LAYOUT:
-      unknown_layout_packets_.fetch_add(1U, std::memory_order_relaxed);
-      normalized_invalid_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
-    case CsiFormatReasonCode::MISSING_METADATA:
-      missing_metadata_packets_.fetch_add(1U, std::memory_order_relaxed);
-      break;
     case CsiFormatReasonCode::RX_ERROR:
       rx_error_packets_.fetch_add(1U, std::memory_order_relaxed);
       break;
@@ -264,22 +226,11 @@ void CsiCaptureService::record_format_drop_(CsiFormatReasonCode reason_code) {
 void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   CsiFormatAssessment assessment = assess_ht20_sensing_format(data, capture_profile_);
   if (!assessment.is_sensing_accepted()) {
-    if (assessment.reason_code == CsiFormatReasonCode::NULL_OR_EMPTY) {
-      null_or_empty_packets_.fetch_add(1U, std::memory_order_relaxed);
-    }
     last_assessment_ = assessment;
     record_format_drop_(assessment.reason_code);
     return;
   }
 
-#if CONFIG_SOC_WIFI_HE_SUPPORT
-  // This metadata describes the original estimate, not the normalized payload.
-  // A mismatch is diagnostic until the driver defines its relation for every
-  // supported LTF layout; it must not reject an otherwise valid estimate.
-  if (data->rx_ctrl.rx_channel_estimate_len != data->len) {
-    estimate_length_mismatch_packets_.fetch_add(1U, std::memory_order_relaxed);
-  }
-#endif
   // Match the MicroPython runtime: the tag-change reset applies only once a
   // packet has been accepted, so the very first packet never forces a reset.
   const bool should_reset_detector =
@@ -343,7 +294,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
 
   if (normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT20 ||
       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64) {
-    normalization_collapse_packets_.fetch_add(1U, std::memory_order_relaxed);
     if (!collapse_seen_.exchange(true, std::memory_order_relaxed)) {
       collapse_log_event_.post();
     }
@@ -352,7 +302,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (normalized.tag == NormalizedCSIPayloadTag::LLTF53_TO_64 ||
       normalized.tag == NormalizedCSIPayloadTag::HT57_TO_64 ||
       normalized.tag == NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64) {
-    normalization_remap_packets_.fetch_add(1U, std::memory_order_relaxed);
     if (!remap_seen_.exchange(true, std::memory_order_relaxed)) {
       remap_log_event_.post();
     }
@@ -392,7 +341,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (packet_callback_) {
     packet_callback_(packet_callback_context_, data, normalized);
   }
-  valid_packets_.fetch_add(1U, std::memory_order_relaxed);
 }
 
 void IRAM_ATTR CsiCaptureService::csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data) {

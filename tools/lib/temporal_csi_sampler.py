@@ -85,12 +85,9 @@ class TemporalCsiSampler:
         self.missing_slots_before = 0
         self.accepted_packets = 0
         self.excess_packets = 0
-        self.duplicate_packets = 0
         self.out_of_order_packets = 0
         self.stale_packets = 0
-        self.missing_timestamp_packets = 0
         self.missing_slots = 0
-        self.gap_resets = 0
 
     def clear_history(self):
         """Start a new temporal epoch while preserving lifetime counters."""
@@ -237,7 +234,6 @@ class TemporalCsiSampler:
         """
         self._drop()
         if timestamp_us is None:
-            self.missing_timestamp_packets += 1
             return False
 
         timestamp = int(timestamp_us) % UINT32_MODULUS
@@ -258,7 +254,6 @@ class TemporalCsiSampler:
 
         delta = self._forward_delta(timestamp, self._last_timestamp)
         if delta == 0:
-            self.duplicate_packets += 1
             return False
         if delta >= UINT32_HALF_RANGE:
             self.out_of_order_packets += 1
@@ -266,7 +261,6 @@ class TemporalCsiSampler:
 
         self._last_timestamp = timestamp
         if delta >= self.window_size_us:
-            self.gap_resets += 1
             emitted = self._commit_candidate()
             self._clear_window()
             self._elapsed_us = 0

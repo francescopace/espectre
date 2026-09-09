@@ -156,10 +156,9 @@ OTA is a frontend-owned extension of the canonical message model. Native registe
 | `performance_window_ready`, `performance_window_ms`, `runtime_load_percent` | Availability, duration, and runtime-loop load for the latest complete performance window |
 | `loop_samples`, `loop_avg_us`, `loop_max_us` | Runtime loop timing for that window |
 | `detection_timing_supported`, `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector timing support and aggregates |
-| `traffic_packets_total`, `csi_callbacks_total`, `csi_classified_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative traffic and CSI pipeline counters |
+| `traffic_packets_total`, `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative traffic and CSI pipeline counters |
 | `csi_rx_error_total`, `csi_rx_end_error_total`, `csi_invalid_estimate_total`, `csi_invalid_first_word_total` | Cumulative capture-quality rejections; one reason per rejected callback |
 | `csi_sanitized_first_word_total` | Frames whose hardware-invalid guard pairs were zeroed without changing live tones |
-| `csi_estimate_length_mismatch_total` | Valid hardware estimates whose reported length differs from the original CSI buffer; diagnostic only |
 | `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total` | Cumulative queue and temporal-admission drop counters |
 | `csi_occupancy_slots`, `csi_window_slots`, `csi_pending_frames`, `csi_pending_frame_capacity` | Detector-window and callback-queue occupancy |
 | CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached packet rates and detector-window occupancy ratio |

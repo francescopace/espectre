@@ -103,12 +103,9 @@ class TemporalCsiSampler {
 
   uint64_t accepted_packets() const { return accepted_packets_; }
   uint64_t excess_packets() const { return excess_packets_; }
-  uint64_t duplicate_packets() const { return duplicate_packets_; }
   uint64_t out_of_order_packets() const { return out_of_order_packets_; }
   uint64_t stale_packets() const { return stale_packets_; }
-  uint64_t missing_timestamp_packets() const { return missing_timestamp_packets_; }
   uint64_t missing_slots() const { return missing_slots_; }
-  uint64_t gap_resets() const { return gap_resets_; }
 
  private:
   static constexpr uint32_t kHalfTimestampRange = 0x80000000U;
@@ -154,12 +151,9 @@ class TemporalCsiSampler {
 
   uint64_t accepted_packets_{0U};
   uint64_t excess_packets_{0U};
-  uint64_t duplicate_packets_{0U};
   uint64_t out_of_order_packets_{0U};
   uint64_t stale_packets_{0U};
-  uint64_t missing_timestamp_packets_{0U};
   uint64_t missing_slots_{0U};
-  uint64_t gap_resets_{0U};
 };
 
 }  // namespace espectre
