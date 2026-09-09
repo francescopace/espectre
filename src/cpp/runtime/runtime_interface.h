@@ -69,6 +69,8 @@ struct RuntimeConfig {
    * default preserves the band covered by the production detector corpus.
    */
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::BAND_2G};
+  /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
+  CsiCapturePolicy csi_capture_profile{CsiCapturePolicy::AUTO};
   /** Detection profile to run. Lightweight self-calibrates; High Accuracy uses trained weights. */
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
   /**

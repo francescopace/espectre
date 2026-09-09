@@ -20,6 +20,13 @@ enum class CsiCaptureProfile : uint8_t {
   VHT20 = 2,
 };
 
+/** Build-time policy resolved to a physical capture profile after association. */
+enum class CsiCapturePolicy : uint8_t {
+  AUTO = 0,
+  LLTF = 1,
+  HT_VHT = 2,
+};
+
 constexpr const char *csi_capture_profile_name(CsiCaptureProfile profile) {
   switch (profile) {
     case CsiCaptureProfile::LLTF20:
@@ -36,11 +43,13 @@ constexpr bool csi_capture_profile_uses_lltf(CsiCaptureProfile profile) {
   return profile == CsiCaptureProfile::LLTF20;
 }
 
-/** Resolve the automatic capture policy from target capabilities and link channel. */
+/** Resolve the configured capture policy from target capabilities and link channel. */
 constexpr CsiCaptureProfile resolve_csi_capture_profile(bool prefers_lltf20,
                                                         bool supports_vht20,
-                                                        uint8_t wifi_channel) {
-  if (prefers_lltf20) {
+                                                        uint8_t wifi_channel,
+                                                        CsiCapturePolicy requested = CsiCapturePolicy::AUTO) {
+  if (requested == CsiCapturePolicy::LLTF ||
+      (requested == CsiCapturePolicy::AUTO && prefers_lltf20)) {
     return CsiCaptureProfile::LLTF20;
   }
   if (supports_vht20 && wifi_channel > 14U) {

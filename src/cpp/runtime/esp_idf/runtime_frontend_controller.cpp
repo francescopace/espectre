@@ -221,6 +221,10 @@ bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode
 }
 
 bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  if (!runtime_capture_profile_supports_traffic(effective_config.csi_capture_profile, mode)) {
+    return false;
+  }
   if (!runtime_traffic_mode_valid(mode)) {
     return false;
   }

@@ -38,6 +38,16 @@ A successful Direct mutation republishes the affected number or select state, so
 
 Shared sensing options go under `espectre:` with the names, defaults, and ranges in [SDK.md](../../../../docs/SDK.md#shared-sensing-options). The YAML schema is in [__init__.py](components/espectre/__init__.py); the [Integrated Entities](#integrated-entities) table lists the runtime controls. Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) to decide what to adjust.
 
+Set the capture profile in YAML and rebuild to change it:
+
+```yaml
+espectre:
+  csi_capture_profile: lltf # auto (default), lltf, or ht-vht
+  csi_traffic_mode: external
+```
+
+`lltf` always uses LLTF20. `ht-vht` selects HT20 or VHT20 from the chip and associated band, including with `wifi.band_mode: AUTO` on ESP32-C5. The `wifi_raw` generator requires `auto` or `lltf`; incompatible YAML and runtime generator changes are rejected. The profile has no Home Assistant control or Direct mutation. [CSI.md](../../../../docs/CSI.md#capture-profiles) owns automatic selection and the LLTF capture behavior.
+
 ### Diagnostic Telemetry
 
 Press `Refresh Diagnostics` to publish the latest cached rate sample to Home Assistant. Diagnostic sensors are available in production builds and publish only on request. Direct HTTP also exposes performance, heap, load, and detector timing; see [API.md](../../../../docs/API.md#diagnostics). For interpreting input rates and occupancy, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#check-the-sensing-input).

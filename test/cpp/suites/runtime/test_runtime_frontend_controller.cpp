@@ -461,6 +461,20 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
 }
 
+void test_runtime_frontend_controller_rejects_incompatible_capture_profile_source(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  controller.config().csi_capture_profile = CsiCapturePolicy::HT_VHT;
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  // A staged build configuration must not override the running profile's constraint.
+  controller.config().csi_capture_profile = CsiCapturePolicy::LLTF;
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+}
+
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
   RuntimeFrontendController controller;
 
@@ -608,6 +622,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_threshold_requires_capability);
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_traffic_runtime_updates_config);
+  RUN_TEST(test_runtime_frontend_controller_rejects_incompatible_capture_profile_source);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
   RUN_TEST(test_runtime_frontend_controller_refreshes_snapshot_across_raw_collection);
   RUN_TEST(test_runtime_frontend_controller_applies_armed_state_staged_during_raw_collection);

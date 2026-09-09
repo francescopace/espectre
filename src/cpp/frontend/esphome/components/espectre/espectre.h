@@ -83,6 +83,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
     this->runtime_.config().wifi_band_policy = parse_wifi_band_policy(policy.c_str());
   }
   void set_csi_target_pps(uint32_t target_pps) { this->runtime_.config().csi_target_pps = target_pps; }
+  void set_csi_capture_profile(CsiCapturePolicy profile) {
+    this->runtime_.config().csi_capture_profile = profile;
+  }
   void set_csi_traffic_mode(const std::string &mode) {
     this->runtime_.config().csi_traffic_mode = parse_csi_traffic_mode(mode.c_str());
   }

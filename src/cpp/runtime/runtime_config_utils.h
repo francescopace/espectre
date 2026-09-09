@@ -32,6 +32,8 @@ enum class RuntimeConfigError : uint8_t {
   HAMPEL_WINDOW,
   HAMPEL_THRESHOLD,
   TRAFFIC_GENERATOR_TARGET_IP,
+  CSI_CAPTURE_PROFILE,
+  CSI_CAPTURE_PROFILE_TRAFFIC,
 };
 
 bool validate_runtime_threshold(float threshold);
@@ -39,6 +41,8 @@ bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorith
 bool validate_runtime_float(float value, float min_value, float max_value);
 bool validate_runtime_uint32(uint32_t value, uint32_t min_value, uint32_t max_value);
 bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value);
+/** Whether a configured CSI profile can be combined with the internal source. */
+bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeTrafficMode mode);
 
 /** Validate the complete configuration before creating runtime state. */
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);

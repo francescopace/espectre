@@ -34,6 +34,8 @@
 
 namespace espectre {
 
+constexpr const char *const RUNTIME_CSI_CAPTURE_PROFILE_DEFAULT_NAME = "auto";
+
 /** Which detector runs. See `docs/ALGORITHMS.md` for how they differ. */
 enum class DetectionAlgorithm {
   /** Lightweight feature fusion. Self-calibrates, and needs no training data. Default. */

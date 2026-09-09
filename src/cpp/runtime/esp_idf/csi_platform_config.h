@@ -18,8 +18,9 @@
 namespace espectre {
 
 constexpr CsiCaptureProfile select_csi_capture_profile(uint8_t wifi_channel,
-                                                       bool requires_lltf = false) {
-  if (requires_lltf) return CsiCaptureProfile::LLTF20;
+                                                       bool requires_lltf = false,
+                                                       CsiCapturePolicy requested = CsiCapturePolicy::AUTO) {
+  if (requires_lltf && requested == CsiCapturePolicy::AUTO) return CsiCaptureProfile::LLTF20;
 #if (defined(CONFIG_IDF_TARGET_ESP32) && CONFIG_IDF_TARGET_ESP32) || \
     (defined(CONFIG_IDF_TARGET_ESP32S2) && CONFIG_IDF_TARGET_ESP32S2)
   constexpr bool kPrefersLltf20 = true;
@@ -32,7 +33,18 @@ constexpr CsiCaptureProfile select_csi_capture_profile(uint8_t wifi_channel,
   constexpr bool kSupportsVht20 = false;
 #endif
   return resolve_csi_capture_profile(kPrefersLltf20, kSupportsVht20,
-                                     wifi_channel);
+                                     wifi_channel, requested);
+}
+
+/** Whether this target can acquire the requested profile. */
+constexpr bool csi_capture_profile_supported(CsiCaptureProfile profile) {
+#if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_IDF_TARGET_ESP32C5
+  return profile == CsiCaptureProfile::LLTF20 ||
+         profile == CsiCaptureProfile::HT20 || profile == CsiCaptureProfile::VHT20;
+#else
+  return profile == CsiCaptureProfile::LLTF20 ||
+         profile == CsiCaptureProfile::HT20;
+#endif
 }
 
 wifi_csi_config_t build_csi_config(CsiCaptureProfile profile);

@@ -741,6 +741,47 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
                              runtime_config_error_message(RuntimeConfigError::HAMPEL_WINDOW));
 }
 
+void test_capture_profile_selection_and_source_constraints(void) {
+    RuntimeConfig config;
+    TEST_ASSERT_EQUAL(CsiCapturePolicy::AUTO, config.csi_capture_profile);
+    for (bool prefers_lltf : {false, true}) {
+        for (bool supports_vht : {false, true}) {
+            for (uint8_t channel : {6U, 36U}) {
+                TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20,
+                    resolve_csi_capture_profile(prefers_lltf, supports_vht, channel, CsiCapturePolicy::LLTF));
+                TEST_ASSERT_EQUAL(supports_vht && channel > 14U ? CsiCaptureProfile::VHT20 : CsiCaptureProfile::HT20,
+                    resolve_csi_capture_profile(prefers_lltf, supports_vht, channel, CsiCapturePolicy::HT_VHT));
+            }
+        }
+    }
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, select_csi_capture_profile(6U, true));
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, select_csi_capture_profile(6U, false, CsiCapturePolicy::LLTF));
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, select_csi_capture_profile(6U, false, CsiCapturePolicy::HT_VHT));
+
+    for (auto profile : {CsiCapturePolicy::AUTO, CsiCapturePolicy::LLTF, CsiCapturePolicy::HT_VHT}) {
+        config.csi_capture_profile = profile;
+        config.traffic_generator_mode = RuntimeTrafficMode::PING;
+        for (auto band : {WifiBandPolicy::BAND_2G, WifiBandPolicy::BAND_5G, WifiBandPolicy::AUTO}) {
+            config.wifi_band_policy = band;
+            TEST_ASSERT_EQUAL(RuntimeConfigError::NONE, validate_runtime_config(config));
+        }
+        config.traffic_generator_mode = RuntimeTrafficMode::WIFI_RAW;
+        const bool compatible = profile != CsiCapturePolicy::HT_VHT;
+        TEST_ASSERT_EQUAL(compatible ? RuntimeConfigError::NONE : RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC,
+                          validate_runtime_config(config));
+    }
+    config = RuntimeConfig{};
+    config.csi_capture_profile = static_cast<CsiCapturePolicy>(0x7f);
+    TEST_ASSERT_EQUAL(RuntimeConfigError::CSI_CAPTURE_PROFILE, validate_runtime_config(config));
+    WiFiCSIReal wifi;
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, configure_csi(&wifi, static_cast<CsiCaptureProfile>(0x7f)));
+    TEST_ASSERT_TRUE(csi_capture_profile_supported(CsiCaptureProfile::LLTF20));
+    TEST_ASSERT_FALSE(csi_capture_profile_supported(static_cast<CsiCaptureProfile>(0x7f)));
+#if !CONFIG_IDF_TARGET_ESP32C5
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, configure_csi(&wifi, CsiCaptureProfile::VHT20));
+#endif
+}
+
 void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     RuntimeConfig config;
     RuntimeSnapshot snapshot;
@@ -944,6 +985,7 @@ int process(void) {
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
+    RUN_TEST(test_capture_profile_selection_and_source_constraints);
     RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);

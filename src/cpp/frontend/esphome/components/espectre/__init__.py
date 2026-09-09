@@ -58,6 +58,7 @@ AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch", 
 CONF_DIRECT_API = "direct_api"
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
 CONF_CSI_TARGET_PPS = "csi_target_pps"
+CONF_CSI_CAPTURE_PROFILE = "csi_capture_profile"
 CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
 CONF_CSI_TRAFFIC_MULTICAST_GROUP = "csi_traffic_multicast_group"
 CONF_EVALUATION_INTERVAL_MS = "evaluation_interval_ms"
@@ -173,6 +174,7 @@ SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WIND
 SEGMENTATION_WINDOW_SIZE_MS_MIN = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN"]
 SEGMENTATION_WINDOW_SIZE_MS_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX"]
 CSI_TARGET_PPS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_DEFAULT"]
+CSI_CAPTURE_PROFILE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_CAPTURE_PROFILE_DEFAULT_NAME"]
 CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
 CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
@@ -242,6 +244,9 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
         "internal", "external", lower=True
+    ),
+    cv.Optional(CONF_CSI_CAPTURE_PROFILE, default=CSI_CAPTURE_PROFILE_DEFAULT): cv.one_of(
+        "auto", "lltf", "ht-vht", lower=True
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MULTICAST_GROUP, default=CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT): validate_csi_traffic_multicast_group,
     
@@ -438,6 +443,16 @@ def _runtime_wifi_band_policy():
     return _WIFI_BAND_POLICY_BY_MODE[band_mode]
 
 
+def _validate_capture_profile(config):
+    profile = config[CONF_CSI_CAPTURE_PROFILE]
+    if config[CONF_TRAFFIC_GENERATOR_MODE] == "wifi_raw" and profile not in ("auto", "lltf"):
+        raise cv.Invalid("wifi_raw requires csi_capture_profile: auto or lltf")
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = _validate_capture_profile
+
+
 def _uses_tinyusb_primary_console():
     """Return whether the selected CDC console lacks reset-capable USB JTAG."""
     logger_config = CORE.config[CONF_LOGGER]
@@ -551,6 +566,9 @@ async def to_code(config):
     # matching fixed-band or per-band ESP-IDF APIs.
     cg.add(var.set_wifi_band_policy(_runtime_wifi_band_policy()))
     cg.add(var.set_csi_target_pps(config[CONF_CSI_TARGET_PPS]))
+    cg.add(var.set_csi_capture_profile(cg.RawExpression(
+        "::espectre::CsiCapturePolicy::" + config[CONF_CSI_CAPTURE_PROFILE].upper().replace("-", "_")
+    )))
     cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
     cg.add(var.set_csi_traffic_multicast_group(config[CONF_CSI_TRAFFIC_MULTICAST_GROUP]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))

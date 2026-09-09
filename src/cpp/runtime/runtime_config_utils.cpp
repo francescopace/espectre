@@ -92,15 +92,28 @@ uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gatew
   return address;
 }
 
+bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeTrafficMode mode) {
+  return mode != RuntimeTrafficMode::WIFI_RAW || profile == CsiCapturePolicy::AUTO ||
+         profile == CsiCapturePolicy::LLTF;
+}
+
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!runtime_profile_valid(config.runtime_profile)) return RuntimeConfigError::RUNTIME_PROFILE;
   if (!wifi_band_policy_valid(config.wifi_band_policy)) return RuntimeConfigError::WIFI_BAND_POLICY;
+  if (config.csi_capture_profile != CsiCapturePolicy::AUTO &&
+      config.csi_capture_profile != CsiCapturePolicy::LLTF &&
+      config.csi_capture_profile != CsiCapturePolicy::HT_VHT) {
+    return RuntimeConfigError::CSI_CAPTURE_PROFILE;
+  }
   if (!validate_runtime_uint32(config.csi_target_pps, RUNTIME_CSI_TARGET_PPS_MIN,
                                RUNTIME_CSI_TARGET_PPS_MAX)) {
     return RuntimeConfigError::CSI_TARGET_PPS;
   }
   if (!runtime_traffic_mode_valid(config.traffic_generator_mode)) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_MODE;
+  }
+  if (!runtime_capture_profile_supports_traffic(config.csi_capture_profile, config.traffic_generator_mode)) {
+    return RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC;
   }
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
@@ -163,6 +176,8 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
 
 const char *runtime_config_error_message(RuntimeConfigError error) {
   switch (error) {
+    case RuntimeConfigError::CSI_CAPTURE_PROFILE: return "invalid CSI capture profile";
+    case RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC: return "wifi_raw requires auto or lltf CSI capture profile";
     case RuntimeConfigError::NONE: return "valid configuration";
     case RuntimeConfigError::RUNTIME_PROFILE: return "invalid runtime profile";
     case RuntimeConfigError::WIFI_BAND_POLICY: return "invalid Wi-Fi band policy";

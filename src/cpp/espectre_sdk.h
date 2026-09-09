@@ -118,6 +118,7 @@
 #include "core/espectre_log.h"
 
 // Runtime contracts. Platform-agnostic and host-testable.
+#include "runtime/csi_capture_profile.h"
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_diagnostics.h"

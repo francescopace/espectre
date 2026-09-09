@@ -71,7 +71,7 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard sing
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
 
-The full runtime selects a read-only CSI capture profile from the traffic source, chip, and associated Wi-Fi band. The canonical `device` resource reports it as `csi_profile`. [CSI.md](CSI.md#capture-profiles) describes profile selection and capture normalization.
+Set `RuntimeConfig::csi_capture_profile` before setup to choose `CsiCapturePolicy::AUTO`, `LLTF`, or `HT_VHT`. `AUTO` resolves the effective profile from the traffic source, chip, and associated Wi-Fi band. `LLTF` always selects LLTF20; `HT_VHT` selects VHT20 on a supported 5 GHz link and HT20 otherwise. All three policies work with automatic band selection on ESP32-C5. `wifi_raw` requires `AUTO` or `LLTF`. There is no runtime profile setter or persisted profile override. The canonical `device` resource reports the effective profile as the read-only `csi_profile`. [CSI.md](CSI.md#capture-profiles) describes capture behavior and normalization.
 
 ## Choosing a detection profile
 
@@ -92,6 +92,7 @@ ESPHome maps sensing options from YAML under `espectre:` and uses its native `wi
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
+| `csi_capture_profile` | `auto`, `lltf`, or `ht-vht` | `auto` | Build-time selection. Kconfig uses `CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_*`. `ht-vht` resolves HT20 or VHT20 from chip and band; `wifi_raw` requires `auto` or `lltf` |
 | `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
 | `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` | `ping` | `dns` uses UDP, `dns_tcp` uses persistent TCP, and experimental `wifi_raw` sends Null Data to the AP |
@@ -183,7 +184,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/runtime_interface.h` | `RuntimeConfig` and the backend contract |
 | `runtime/runtime_events.h` | `IRuntimeListener` and the threading contract |
 | `runtime/runtime_snapshot.h` | `RuntimeSnapshot`: what every callback delivers |
-| `runtime/csi_capture_profile.h` | Read-only CSI capture profile names and automatic-selection policy |
+| `runtime/csi_capture_profile.h` | `CsiCapturePolicy` build-time selection, `CsiCaptureProfile` effective profile, and chip/band resolution |
 | `runtime/runtime_capabilities.h` | Which controls the active runtime honors |
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |

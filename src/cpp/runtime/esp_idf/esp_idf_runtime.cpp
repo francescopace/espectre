@@ -140,8 +140,11 @@ bool EspIdfRuntime::setup() {
       load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
   if (generator_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
-  } else if (has_saved_generator_mode) {
+  } else if (has_saved_generator_mode &&
+             runtime_capture_profile_supports_traffic(config_.csi_capture_profile, saved_generator_mode)) {
     config_.traffic_generator_mode = saved_generator_mode;
+  } else if (has_saved_generator_mode) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with the configured CSI profile");
   }
 
   uint8_t saved_motion_on_hits = config_.motion_on_hits;
@@ -411,6 +414,10 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
 }
 
 bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (!runtime_capture_profile_supports_traffic(config_.csi_capture_profile, mode)) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "wifi_raw requires auto or lltf CSI capture profile");
+    return false;
+  }
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
@@ -585,7 +592,7 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
 CsiCaptureProfile EspIdfRuntime::sensing_capture_profile_() const {
   const bool requires_lltf = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL &&
                              config_.traffic_generator_mode == RuntimeTrafficMode::WIFI_RAW;
-  return select_csi_capture_profile(wifi_channel_, requires_lltf);
+  return select_csi_capture_profile(wifi_channel_, requires_lltf, config_.csi_capture_profile);
 }
 
 bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {

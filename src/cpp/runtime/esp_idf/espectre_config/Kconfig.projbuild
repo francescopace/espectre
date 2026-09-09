@@ -99,6 +99,26 @@ config ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP
         a resolver on port 53 at this address. Ignored by wifi_raw and external
         traffic. Invalid addresses are rejected by runtime configuration.
 
+choice ESPECTRE_CSI_CAPTURE_PROFILE
+    prompt "CSI capture profile"
+    default ESPECTRE_CSI_CAPTURE_PROFILE_AUTO
+    help
+        Build-time capture selection. AUTO uses LLTF20 on ESP32 and S2,
+        VHT20 on a supported 5 GHz link, and HT20 otherwise. Internal wifi_raw
+        uses LLTF20 in AUTO. LLTF always uses LLTF20. HT-VHT uses VHT20 on a
+        supported 5 GHz link and HT20 otherwise, including on ESP32 and S2.
+        Changing this selection requires a rebuild.
+
+    config ESPECTRE_CSI_CAPTURE_PROFILE_AUTO
+        bool "Automatic"
+
+    config ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
+        bool "LLTF (legacy OFDM)"
+
+    config ESPECTRE_CSI_CAPTURE_PROFILE_HT_VHT
+        bool "HT-VHT (selected by chip and band)"
+endchoice
+
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
@@ -114,6 +134,7 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
 
     config ESPECTRE_TRAFFIC_GENERATOR_MODE_WIFI_RAW
         bool "Wi-Fi raw (Null Data to AP)"
+        depends on ESPECTRE_CSI_CAPTURE_PROFILE_AUTO || ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
         help
             Send non-QoS Null Data frames directly to the associated AP BSSID.
             Selects LLTF20 capture for ACKs and leaves the TX rate to the driver.

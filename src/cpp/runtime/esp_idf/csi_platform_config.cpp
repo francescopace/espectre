@@ -67,6 +67,9 @@ esp_err_t configure_csi(IWiFiCSI *wifi_csi, CsiCaptureProfile profile) {
   if (wifi_csi == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
+  if (!csi_capture_profile_supported(profile)) {
+    return ESP_ERR_INVALID_ARG;
+  }
 
   const wifi_csi_config_t csi_config = build_csi_config(profile);
   return wifi_csi->set_csi_config(&csi_config);
