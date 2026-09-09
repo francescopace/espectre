@@ -304,6 +304,14 @@ Before opening a PR:
 5. verify the dataset with `./espectre collect --info`
 6. run `python tools/validate_dataset_quality.py` and resolve admission FAILs
 
+### Data privacy
+
+CSI captures do not contain images or audio, but they are not inherently anonymous. Persistent device identifiers, timestamps, contributor names, environment labels, packet-level radio metadata, and inferred presence or activity can identify people or reveal sensitive information.
+
+Collect data only in spaces where you have the right to do so, inform affected people, and follow applicable privacy laws. Before opening a pull request, inspect the `.npz` metadata and `data/dataset_info.json`. Remove unnecessary identifying details and use a pseudonymous contributor value when attribution does not require your real name.
+
+Do not submit Wi-Fi credentials, SSIDs, BSSIDs, local IP addresses, serial logs, or unrelated personal information. Contributors retain ownership of their data and are credited in the dataset documentation. [CONTRIBUTING.md](../CONTRIBUTING.md#dco-and-cla) describes the DCO and CLA requirements.
+
 ## Next Steps
 
 - [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks

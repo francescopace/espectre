@@ -71,13 +71,53 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard sing
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
 
-The full runtime selects the read-only CSI capture profile after Wi-Fi association. The original ESP32 and ESP32-S2 use `lltf20`; a VHT-capable dual-band target uses `vht20` on 5 GHz; and every other association uses `ht20`. The active value is reported as `csi_profile` in the canonical `device` resource and is not a writable setting. LLTF admits legacy OFDM traffic while preserving the canonical centered 64-bin geometry: raw capture marks the unavailable physical tones ±27 and ±28 as zero, records the observed PHY and LLTF metadata, and copies I/Q from the nearest live ±26 tone only in the private detector view.
+The full runtime selects a read-only CSI capture profile from the traffic source, chip, and associated Wi-Fi band. The canonical `device` resource reports it as `csi_profile`. [CSI.md](CSI.md#capture-profiles) describes profile selection and capture normalization.
 
 ## Choosing a detection profile
 
-Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TUNING.md](TUNING.md#startup-and-detection-profile) owns the operator-facing choice.
+Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TROUBLESHOOTING.md](TROUBLESHOOTING.md#detection-profile) owns the operator-facing choice.
 
 For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror threshold changes from `IRuntimeListener::on_threshold_changed()`, and budget flash separately from the CPU and working memory used by the active profile. A runtime-switching build may contain both detector implementations and ML weights even while Lightweight is active.
+
+## Shared sensing options
+
+The shared C++ configuration uses defaults and validators from [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). The table below summarizes that reference for ESPHome, Native, Matter, and SDK integrations. Frontend syntax and overrides belong in the respective README.
+
+ESPHome maps sensing options from YAML under `espectre:` and uses its native `wifi.band_mode` for band selection. Native and Matter read the shared ESP-IDF sensing menu, with frontend overrides in `app/sdkconfig.defaults`. SDK integrations assign `RuntimeConfig` fields before setup.
+
+| Option | Type / values | Default | Range / notes |
+|--------|---------------|---------|---------------|
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. |
+| `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
+| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
+| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
+| `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
+| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
+| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` | `ping` | `dns` uses UDP, `dns_tcp` uses persistent TCP, and experimental `wifi_raw` sends Null Data to the AP |
+| `traffic_generator_target_ip` | Unicast IPv4 address, or empty | empty | Destination for internal `ping`, `dns`, and `dns_tcp`; empty uses the Wi-Fi default gateway. Ignored by `wifi_raw` and external traffic |
+| `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
+| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
+| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` |
+| `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
+| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz against a nominal regular `100 pps` cadence; other targets or substantial missing-slot patterns require filter revalidation |
+| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
+| `hampel_window` | int | `7` | `3-11` samples |
+| `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
+
+Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; [API.md](API.md#sensing-update-and-calibration) defines accepted runtime values.
+
+Runtime-writable controls are a subset of startup configuration. Inspect the advertised capabilities and use the corresponding runtime setters or the operations in [API.md](API.md#sensing-update-and-calibration). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#tuning-essentials) explains when to adjust a setting; [CSI.md](CSI.md) describes traffic and capture behavior.
+
+### Traffic destination
+
+Set `RuntimeConfig::traffic_generator_target_ip` before setup to override the destination for internal `ping`, `dns`, and `dns_tcp`. Empty uses the current Wi-Fi gateway. `wifi_raw` and external traffic ignore this setting. It has no runtime API mutation.
+
+The value must be dotted-decimal unicast IPv4 without leading zeros. Hostnames, loopback, unspecified, multicast, and reserved addresses are rejected. Choose a reachable host that replies to the selected protocol; DNS modes require a resolver on port `53`, with TCP query support for `dns_tcp`. The runtime applies the same resolved address to traffic generation and CSI response filtering after each connection. Wi-Fi configuration continues to own association and the default route.
+
+ESPHome exposes `traffic_generator_target_ip` under `espectre:`. Native and Matter expose `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP` in `sdkconfig`. The frontend READMEs describe their configuration workflow.
+
+The hit-filter timing model is described in [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering).
 
 ## Integration paths
 
@@ -90,7 +130,7 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 `RuntimeFrontendController` wires configuration, runtime-control persistence, and the runtime backend together. After `setup()`, `config()` reflects the backend's effective configuration, including persisted detector, motion-hit, and traffic overrides; direct writes to `config()` after setup only stage the next setup, while live changes use the capability-gated runtime setters. The Native and Matter frontends are compact reference integrations for this path.
 
-Set `RuntimeConfig::traffic_generator_target_ip` before setup to select the internal generator's unicast IPv4 destination. Empty follows the Wi-Fi gateway. The shared runtime applies that destination to both traffic generation and CSI response filtering; [SETUP.md](SETUP.md#traffic-generation) owns validation and frontend configuration syntax.
+Use the [traffic destination](#traffic-destination) setting to select the internal generator's IP destination before setup.
 
 Set `RuntimeConfig::device_id` to `derive_runtime_device_id()` before setup when the integration uses the ESPectre Protocol or CSI streaming. The helper returns a cached pseudonym derived from the station MAC; zero remains an unresolved sentinel and is not replaced by `RuntimeFrontendController`.
 
@@ -224,7 +264,17 @@ latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 
 SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [API.md](API.md#contract-principles) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement.
 
-The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. Architecture owns how first-party frontends collect and cache those samples, while Protocol owns their transport representation.
+The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. [API.md](API.md#diagnostics) defines their transport representation; the sampling contract follows below.
+
+### Performance sampling
+
+C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. The runtime also owns the single one-second `RuntimeDiagnosticsSample` derived from cumulative counters; Native, ESPHome, Matter, Direct, and ecosystem adapters read that shared sample instead of maintaining frontend-specific samplers. ESPectre frontends expose these production fields through Direct `diagnostics`; collection is unconditional and does not emit a periodic debug log.
+
+`runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct HTTP, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
+
+### Transport adapters
+
+The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
 ### Frontend extensions
 
@@ -307,7 +357,7 @@ The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORIT
 
 Classic ESP32 and ESP32-S2 builds default the Direct HTTP server priority to `4`, keeping control requests above best-effort managed traffic while CSI is active. Other supported targets default it to `1`. This is an explicit validated target policy, not an inference from scheduler topology; custom integrations can still override it after workload-specific validation.
 
-See [TUNING.md](TUNING.md) for how evaluation cadence, tick alignment, and hit filtering determine expected publish delay.
+See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
 
 ### Optional capability groups
 

@@ -1,8 +1,8 @@
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
 [![SoC](https://img.shields.io/badge/SoC-ESP32-orange.svg)](https://www.espressif.com/en/products/socs)
-[![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
-[![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
-[![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain) 
+[![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
+[![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
+[![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![Web coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 
 <h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
@@ -37,8 +37,6 @@ ESPectre detects changes in the radio environment. It does not identify people, 
 | **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
-Native, ESPHome, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profile-availability), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
-
 ## Quick start
 
 The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Device settings and Monitor is not guaranteed:
@@ -66,8 +64,8 @@ For local builds, flashing from this repository, and the rest of the operator pa
 
 | Topic | What it covers | Guides |
 |---|---|---|
-| **Install and operate** | Device setup, CLI workflows, and detector tuning | [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), [TUNING.md](docs/TUNING.md) |
-| **Understand and integrate** | Runtime architecture, API, discovery, algorithms, and the C++ SDK | [ARCHITECTURE.md](docs/ARCHITECTURE.md), [API.md](docs/API.md), [DISCOVERY.md](docs/DISCOVERY.md), [ALGORITHMS.md](docs/ALGORITHMS.md), [SDK.md](docs/SDK.md) |
+| **Install and operate** | Device setup, CLI workflows, and troubleshooting | [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
+| **Understand and integrate** | Runtime architecture, CSI acquisition, API, discovery, algorithms, and the C++ SDK | [ARCHITECTURE.md](docs/ARCHITECTURE.md), [CSI.md](docs/CSI.md), [API.md](docs/API.md), [DISCOVERY.md](docs/DISCOVERY.md), [ALGORITHMS.md](docs/ALGORITHMS.md), [SDK.md](docs/SDK.md) |
 | **Collect and train** | CSI collection, model training, feature history, performance, and literature | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), [performance report](docs/performance/README.md), [LITERATURE.md](docs/LITERATURE.md) |
 | **Research and direction** | Roadmap, architecture decisions, and release history | [ROADMAP.md](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [CHANGELOG.md](docs/CHANGELOG.md) |
 | **Frontend reference** | Firmware-path READMEs for ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
@@ -101,7 +99,7 @@ Use ESPectre only in spaces and networks where you have the right to deploy it. 
 ## Acknowledgments
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
-- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's CSI contribution](https://github.com/micropython/micropython/pull/18460), which added direct CSI methods to mainline `network.WLAN`. 
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's CSI contribution](https://github.com/micropython/micropython/pull/18460), which added direct CSI methods to mainline `network.WLAN`.
 
 ## License
 

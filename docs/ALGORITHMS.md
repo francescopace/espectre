@@ -4,7 +4,7 @@ Current detector and signal-processing reference for ESPectre.
 
 This file documents only algorithms active in the current project surface. Feature experiments and promotion evidence live in [FEATURES.md](FEATURES.md), decision rationale lives in [adr/](adr/), and mutable detector metrics live in the generated [performance report](performance/README.md).
 
-This reference is for detector and firmware contributors. Operators normally need [TUNING.md](TUNING.md), which turns these mechanisms into practical settings.
+This reference is for detector and firmware contributors. Operators normally need [TROUBLESHOOTING.md](TROUBLESHOOTING.md), which turns these mechanisms into practical settings.
 
 Terms used throughout this document:
 
@@ -88,6 +88,31 @@ Cadence advances on admitted packet timestamps, never on the loop clock or a pac
 
 The rest of the replay contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
 
+The detector window setting is elapsed time. Together with `csi_target_pps`, it defines the fixed slot count:
+
+```text
+window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)
+```
+
+The production model, replay gates, training workflow, and published performance evidence use `1000 ms`. Other supported values change feature geometry and response time but are not covered by those published results. Do not use the window as a routine false-positive or latency control; prefer threshold and hit filtering. If a product needs a different window, validate the selected detector profile and the C++/Python parity gates at that setting.
+
+### Motion-hit filtering
+
+The detector processes every admitted CSI packet into its sliding window, but it evaluates and publishes on the coarser `evaluation_interval_ms` cadence. Packet timestamps drive that cadence; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps.
+
+Each evaluation produces a raw `IDLE` or `MOTION` reading. The runtime requires `motion_on_hits` consecutive opposing readings before publishing `MOTION`, and `motion_off_hits` consecutive readings before returning to `IDLE`. One reading in the current published state clears the pending count. These hits are evaluation ticks, not detector windows.
+
+For a sustained threshold crossing, the nominal hit-filter delay includes the wait for the first evaluation plus the remaining confirmation ticks. At regular 250 ms intervals, the default ranges are:
+
+| Transition | Hits | Confirmation latency |
+|------------|------|----------------------|
+| `IDLE -> MOTION` | `4` | about `0.75-1.0 s` |
+| `MOTION -> IDLE` | `3` | about `0.50-0.75 s` |
+
+The lower bound applies when the crossing aligns with an evaluation tick; the upper bound applies when it begins just after one. These ranges describe hit filtering only. Feature-window response and missing valid coverage can add delay between physical movement and the published state.
+
+ESPHome, Native, and Matter expose persisted runtime hit controls through their advertised surfaces. Telemetry is available on detector evaluations once `ready_to_publish` is true and a frontend consumer requests it. [API.md](API.md) describes the published resources and events.
+
 ## AGC-Active Normalization
 
 The shared turbulence signal is:
@@ -135,16 +160,7 @@ The split follows from what each family measures rather than from independent ba
 
 Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../tools/lib/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../tools/lib/ml_feature_trackers.py).
 
-Production detectors consume a canonical centered 64-subcarrier, 20 MHz view. The runtime admits the named `lltf20`, `ht20`, and `vht20` capture profiles and normalizes recognized layouts onto that view. The current detection corpus validates only 2.4 GHz HT20 with HT-LTF; 5 GHz VHT20 detection quality is not characterized yet. HE20 and wider layouts are not accepted. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [20 MHz sensing ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
-
-Supported HT20 payload variants are normalized onto the same internal 64-subcarrier index grid before fixed-subcarrier extraction. Short estimates are centered so the HT20 midpoint remains aligned, and doubled payloads are collapsed to one HT20 half.
-
-| Input case | Raw layout | Mapping to HT20 | Output |
-|------------|------------|-----------------|--------|
-| Native HT20 | `128 B = 64 SC` | pass-through | `64 SC / 128 B` |
-| Short HT estimate | `114 B = 57 SC` | zero-pad `4` SC left, copy `57` SC, zero-pad `3` SC right | `64 SC / 128 B` |
-| Double HT20 payload | `256 B = 2 x 64 SC` | collapse to one `128 B` half | `64 SC / 128 B` |
-| Double short HT estimate | `228 B = 2 x 57 SC` | collapse to one `57 SC` half, then pad `4` left and `3` right | `64 SC / 128 B` |
+Production detectors consume a canonical centered 64-subcarrier, 20 MHz view. [CSI.md](CSI.md#normalization) defines capture layouts and normalization. For LLTF, raw capture keeps the unavailable physical tones ±27 and ±28 at zero; the private detector view copies I/Q from the nearest live ±26 tone before feature extraction. The current detection corpus validates 2.4 GHz HT20 with HT-LTF; 5 GHz VHT20 detection quality remains uncharacterized.
 
 ## Signal Conditioning
 
@@ -154,7 +170,7 @@ Optional filters operate on the scalar turbulence stream before detector evaluat
 
 Default: enabled (`window=7`, `threshold=5.0` MAD)
 
-The Hampel filter removes large outliers using the median absolute deviation:
+Hampel filtering feeds both `lightweight` and `high_accuracy`. It removes large outliers using the median absolute deviation:
 
 ```text
 MAD = median(|x_i - median(x)|)
@@ -166,7 +182,9 @@ Packets that exceed the configured MAD-scaled deviation are replaced by the curr
 
 Default: disabled
 
-The low-pass stage is a first-order Butterworth IIR filter applied to the turbulence signal before detector evaluation. Use [`TUNING.md`](TUNING.md) for the operational trade-off between false-positive reduction and responsiveness.
+The low-pass stage is a first-order Butterworth IIR filter applied to the turbulence signal before detector evaluation. Use [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the operational trade-off between false-positive reduction and responsiveness.
+
+The current C++ implementations calculate low-pass coefficients against a nominal `100 Hz` sample rate. `lowpass_cutoff` has its nominal frequency meaning when the admitted stream follows that regular cadence. A different target or substantial missing-slot pattern changes the effective time scale, so treat that combination as an experiment and revalidate it.
 
 ## Lightweight Implementation: LightweightDetector
 
@@ -323,6 +341,10 @@ The same production feature set is used by:
 |----------|-----------|------------------|
 | `lightweight` | automatic, session-adjustable | motion-first completion with quiet-first fallback inside the valid evidence budget; applies session `q95` logit adaptation |
 | `high_accuracy` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
+
+Lightweight startup uses up to 10 seconds of valid, ready coverage after temporal warmup. A clean `quiet -> motion -> quiet` pattern can finish earlier. For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
+
+Micro-ESPectre bounds the calibration attempt in wall-clock time: it aborts after 15 seconds without admitted CSI or after `max(15000, 2 * CALIBRATION_DURATION_MS + SEGMENTATION_WINDOW_SIZE_MS)` milliseconds overall, even if sparse packets continue arriving. Its deployment settings are in [README.md](../src/python/micro_espectre/README.md#runtime-behavior).
 
 Both profiles use the same fixed subcarrier set and temporal-admission contract. Their feature extraction, working state, readiness gates, motion metric, and threshold-calibration behavior differ.
 

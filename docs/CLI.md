@@ -13,6 +13,63 @@ The command tables below are summaries; `./espectre --help` and `./espectre <nam
 
 Run the CLI from the repository root.
 
+## Local build prerequisites
+
+The maintained host workflows target Python `3.14`. Create the repository environment with that interpreter before a local firmware build or host-tool workflow:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
+
+Native, Matter, and Micro-ESPectre firmware builds use one shared backend policy: prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
+
+```bash
+./espectre native build --chip c3
+```
+
+On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter.
+
+When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
+
+Docker covers firmware compilation only; flashing still uses host serial tooling. If neither build backend is available, build an ESPHome configuration once to provision its native toolchain, install Docker, or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
+
+### Optional compiler cache
+
+`ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. The local `./espectre` backend enables it automatically when `ccache` is on `PATH`. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.
+
+Install `ccache` for the local backend:
+
+- macOS with Homebrew: `brew install ccache`
+- Debian or Ubuntu Linux: `sudo apt update && sudo apt install ccache`; on other distributions, install the `ccache` package with the system package manager
+- Windows: the official ESP-IDF Tools installation includes `ccache`; verify it from an ESP-IDF PowerShell with `ccache --version`. For a manually managed toolchain, install the [official Windows release](https://ccache.dev/download.html) or run `choco install ccache` when Chocolatey is available
+
+Confirm the binary is on `PATH`:
+
+```bash
+ccache --version
+```
+
+`./espectre native build --chip c3`, `./espectre matter build --chip c3`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Replace `c3` with the selected chip. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
+
+Use the equivalent PowerShell environment variable on Windows to disable the cache:
+
+```powershell
+$env:IDF_CCACHE_ENABLE = "0"
+ccache --version
+```
+
+The frontend workflow sections below cover build cleanup, chip-matched flash selection, and namespace-specific flags.
+
+### Generated files and caches
+
+Repository workflows keep generated files under `.cache/`: `firmware/` and `sdk/` contain distribution files, `reports/` contains audit and coverage reports, `build/` contains Docker toolchain homes, and `npz/`, `ruff/`, and `pytest/` contain reusable caches. The virtual environment remains in `.venv/`, and ESP-IDF and ESPHome retain their frontend-specific build directories.
+
+Python bytecode follows the interpreter defaults or the user's `PYTHONPYCACHEPREFIX` setting; repository scripts do not set a bytecode cache location. NPZ tooling continues to support `ESPECTRE_NPZ_CACHE_DIR` for a cache on another volume. Moving an existing `.npz_cache/` to `.cache/npz/` preserves its contents; avoid moving caches while a build, test, or training process is using them.
+
 ## Command Map
 
 | Namespace | Purpose |
@@ -209,6 +266,24 @@ The password is never accepted as a command-line value, printed, or included in 
 ```
 
 The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits mutation JSON to 2,048 bytes, accepts a response up to 8,192 bytes, validates direct resource snapshots or mutation results, and closes cleanly. It negotiates protocol `1.0` once through `capabilities`; messages do not repeat the version. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+
+#### Access-point selection
+
+```bash
+./espectre direct post wifi/scans  # start an access-point scan
+./espectre direct get wifi/access-points  # list BSSID, channel, and RSSI
+./espectre direct put wifi/bssid --data '{"bssid":"AA:BB:CC:DD:EE:FF"}'  # pin one AP
+```
+
+The scan is asynchronous, so wait a few seconds after `POST /wifi/scans` before reading `GET /wifi/access-points`. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct base URL. The station reconnects after a pin or clear.
+
+To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Device settings or run:
+
+```bash
+./espectre direct delete wifi/bssid
+```
+
+Clear a stale pin after replacing or removing an access point. [API.md](API.md#wi-fi-scan-and-bssid-selection) defines the methods and responses; the frontend README describes persistence.
 
 ### `collect`
 

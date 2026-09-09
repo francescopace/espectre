@@ -100,7 +100,7 @@ The CSI feature is named `csi`. Clients must tolerate additive resources, operat
 | `threshold` | number | Current detector threshold in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integer | Consecutive evaluations required for each state transition |
 | `csi_traffic_mode` | string | `internal` or `external` |
-| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [SETUP.md](SETUP.md#traffic-generation)) |
+| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [CSI.md](CSI.md#compatibility-limits)) |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
@@ -208,7 +208,7 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `threshold` | finite number in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integers from `1` through `20`; both must be present together |
 | `csi_traffic_mode` | `internal` or `external` |
-| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [SETUP.md](SETUP.md#traffic-generation)) |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [CSI.md](CSI.md#compatibility-limits)) |
 
 The request is parsed and all field constraints and capabilities are checked before changes are applied. Success returns HTTP `200` and publishes `sensing`. `POST /sensing/calibrations` takes no parameters, returns HTTP `202` when queued, and returns `409` with code `busy` when calibration is already active.
 
@@ -283,23 +283,29 @@ A `fault` event reports a runtime error without changing a resource payload:
 
 Each SSE connection receives a `: heartbeat` comment every 10 seconds. There is no replay. C++ frontends support at most two event clients, and Micro supports one. Persistent send failures close the affected stream.
 
+Micro retains one in-flight event of at most 4,096 bytes and one queued heartbeat. Its stream uses `Cache-Control: no-store` and closes after a send error. A peer close or reset does not increment `direct_http.send_failures`; timeout and backpressure failures do.
+
 ## CSI collection
 
 `GET /espectre/v1/csi` opens the single exclusive binary CSI collection session. No setup request, bearer token, session deletion, or bind timeout exists. Closing the TCP response ends collection.
 
 The C++ runtime requires sensing services to be armed before collection starts. If sensing is disabled or services are suspended for reconfiguration or maintenance, opening collection fails without re-enabling CSI capture or traffic generation. An accepted collection pauses derived sensing while retaining the active capture and traffic services.
 
-Capture validates hardware quality before normalization, calibration, sensing, or collection, independently of the traffic generator. A nonzero `rx_state` rejects the packet on every supported chip. On HE-capable chips (C5/C6), a nonzero `rxend_state` or a cleared `rx_channel_estimate_info_vld` also rejects it. Unsupported metadata fields are not read on classic chips. Hardware estimate length is compared with the original buffer length for diagnostics, not with the normalized 128-byte payload.
-
-MicroPython includes native hardware-quality rejections in `csi_filtered_total` and `csi_filtered_pps`, and counts those callbacks in `csi_callbacks_total`. Native ring overflow remains separate from quality rejection; per-reason quality counters are available on the C++ frontends.
-
-`first_word_invalid` identifies the first four source bytes, not the first four normalized bytes. A frame is retained only when its full-width centered ordering can be identified independently of those bytes: the invalid guard pairs are zeroed in a private buffer. Compact, classic-order, and ambiguous flagged frames are rejected because their invalid pairs may affect live tones. No replacement live tones are synthesized. Quality-drop counters cover all capture callbacks, including background traffic, and do not by themselves identify generator-specific failures. Quality errors take priority over missing or malformed payloads and do not participate in the format-drop reset streak; valid-stream gaps remain subject to temporal admission. RSSI and sequence metadata are not additional validity gates.
+Capture rejects hardware-invalid estimates before sensing and collection. [CSI.md](CSI.md#capture-quality) defines validation and normalization; the diagnostics above expose rejection counts and rates.
 
 The public CSI record format is unchanged. Filtered streams may have fewer usable packets, including no usable packets if the hardware reports invalid estimates for the selected source. This is not a quiet measurement, and the runtime does not silently select another generator. Detailed hardware metadata is not added to collected datasets.
 
 Each CSI V8 record retains the established 60-byte little-endian HTTP prefix. The client adopts the 16-byte session identifier from the first frame and rejects a change within the same connection. The producer preserves order; fixed-ring drops remain observable in the transport counters.
 
 While CSI is active, sensing reports `csi_collection`, readiness is false, and motion plus all present or future derived events are paused on every transport. Control and resource events remain available. A second `/csi` request and sensing, Wi-Fi, or OTA mutations return `409`. On close, the runtime restores its prior state, recalibrates when required, and resumes derived events only after readiness returns. The raw worker also detects a disconnected client when no CSI records are available; it closes the session without synthesizing records. When external traffic is configured, the host traffic generator must start before opening `/csi`.
+
+### External CSI traffic
+
+In `external` mode, ESPHome, Native, and Matter accept UDP markers and unicast ICMP Echo Requests addressed to the device. UDP can use the device IP or `csi_traffic_multicast_group`, which defaults to `239.255.0.1`. An empty multicast setting disables the group join while preserving unicast reception.
+
+The UDP listener uses port `5555` and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Unicast Echo Requests become CSI candidates, and the normal IP stack sends the replies. The external host owns pacing for either protocol. [CLI.md](CLI.md#collect) covers host generation; [CSI.md](CSI.md#external-sources) describes delivery limits.
+
+Multicast sensing traffic may arrive with the group's multicast MAC or the device's unicast MAC when the access point converts multicast to unicast. Both delivery forms require the configured multicast destination IP, UDP port, and exact marker; frames addressed to another device are rejected.
 
 ## MQTT
 
@@ -369,6 +375,8 @@ The HTTP service can reject a request before application dispatch. These failure
 ## Security and versioning
 
 Direct HTTP is a trusted-LAN surface. Firmware enforces exact browser Origin allowlists, Private Network Access preflight, bounded bodies, queues, clients, and request rates. It binds to the station interface and does not expose stored Wi-Fi or MQTT passwords. `/mqtt` may gain independent protection only through an additive security extension.
+
+Micro requires an `Origin` header and accepts only `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev` in published firmware. Development builds can enable `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED` to also accept HTTP loopback hosts (`localhost`, `127.0.0.1`, or `[::1]`) with an optional valid port.
 
 During the 3.0.0 release-candidate phase, the application contract remains `1.0`: Direct uses `/espectre/v1`, the default MQTT prefix is `espectre/v1/devices`, and DNS-SD advertises `protovers=1.0`. Diagnostic field selection changes within this pre-release contract: an unselected request returns a catalog, while `fields: ["*"]` returns all values. Use matching firmware and clients; there is no automatic fallback to the earlier diagnostics response. An explicitly configured MQTT prefix remains a user setting.
 
