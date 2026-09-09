@@ -5,6 +5,7 @@ Start with CSI occupancy and traffic, then check placement and detector behavior
 ## Contents
 
 - [Low occupancy](#low-occupancy)
+- [Bluetooth reduces CSI occupancy](#bluetooth-reduces-csi-occupancy)
 - [No CSI or insufficient input](#no-csi-or-insufficient-input)
 - [LAN traffic blocked](#lan-traffic-blocked)
 - [Check the sensing input](#check-the-sensing-input)
@@ -22,10 +23,38 @@ Occupancy measures how much of the detector window contains valid CSI input. Det
 
 1. Compare traffic, callback, accepted-packet, and occupancy readings using the [log example](#check-the-sensing-input).
 2. If traffic or accepted input is missing, follow [No CSI or insufficient input](#no-csi-or-insufficient-input).
-3. If packets arrive but occupancy stays low, check loss, burst delivery, and [LAN restrictions](#lan-traffic-blocked). Recheck placement using [SETUP.md](SETUP.md#sensor-placement) before compensating with detector parameters. On a mesh network, check whether the device is [roaming between access points](#mesh-wi-fi-instability).
+3. If packets arrive but occupancy stays low, check loss, burst delivery, [Bluetooth activity](#bluetooth-reduces-csi-occupancy), and [LAN restrictions](#lan-traffic-blocked). Recheck placement using [SETUP.md](SETUP.md#sensor-placement) before compensating with detector parameters. On a mesh network, check whether the device is [roaming between access points](#mesh-wi-fi-instability).
 4. Repeat the quiet-and-motion test once occupancy is stable and the detector is ready.
 
 Keep `csi_target_pps` at its production default of `100` while repairing the traffic path. Changing it alters detector timing and requires validation at the chosen cadence; [ALGORITHMS.md](ALGORITHMS.md#detector-timing) explains that constraint. Lowering the detection threshold cannot repair missing input.
+
+## Bluetooth reduces CSI occupancy
+
+Bluetooth and Wi-Fi share radio time. BLE scanning can leave CSI packets concentrated in bursts: accepted input may remain near or above the target rate while admitted input and occupancy fall. Compare with Bluetooth disabled before changing detector thresholds. Callbacks that are all filtered, with no accepted input, require the separate [capture checks](#no-csi-or-insufficient-input); the measurements below do not explain that failure.
+
+For an advertisement-only ESPHome Bluetooth proxy, try short passive scan windows if BLE must remain enabled. The ESPHome [README.md](../src/cpp/frontend/esphome/README.md#bluetooth-proxy-and-csi-occupancy) provides the tested YAML and rebuild procedure. In ESPHome 2026.8.2 with ESP-IDF 5.5.5, setting the tracker's `software_coexistence: false` alone left ESP-IDF software coexistence enabled, including after a clean build. Explicitly disabling `CONFIG_ESP_COEX_SW_COEXIST_ENABLE` produced the largest occupancy improvement in this experiment. This disables software arbitration, not Bluetooth or radio contention.
+
+### ESP32-S3 measurements
+
+The investigation for [issue #165](https://github.com/francescopace/espectre/issues/165) included 18 runs on September 9, 2026, using one ESP32-S3 at 240 MHz, ESPHome 2026.8.2, ESP-IDF 5.5.5, and local ESPectre `develop` builds. The board position and AP BSSID were fixed, with internal `wifi_raw` traffic at 100 pps. Each run lasted 60–120 seconds; occupancy averages exclude its first 15 seconds. Repeated runs are listed separately within each row.
+
+| Scan window / interval | Scan type | Tracker software coexistence | ESP-IDF software coexistence | Mean CSI occupancy per run |
+|------------------------|-----------|------------------------------|------------------------------|----------------------------|
+| BLE disabled | — | — | — | 94.1%, 88.8%, 94.0% |
+| 320 / 320 ms | Active | Enabled | Enabled | 52.3% |
+| 30 / 320 ms | Passive | Enabled | Enabled | 53.2% |
+| 10 / 100 ms | Passive | Enabled | Enabled | 53.3%, 54.4% |
+| 5 / 100 ms | Passive | Enabled | Enabled | 53.6%, 51.9% |
+| 10 / 100 ms | Active | Enabled | Enabled | 54.0% |
+| 10 / 100 ms | Passive | Disabled | Enabled | 56.7% |
+| 5 / 100 ms | Passive | Disabled | Enabled | 56.5% |
+| 30 / 320 ms | Passive | Disabled | Explicitly disabled | 84.4% |
+| 10 / 100 ms | Passive | Disabled | Explicitly disabled | 88.5%, 87.6% |
+| 5 / 100 ms | Passive | Disabled | Explicitly disabled | 93.4%, 91.1%, 92.6% |
+
+Passive scanning for 5 ms every 100 ms, with both software coexistence settings disabled, had the lowest measured CSI impact among the BLE configurations. The final two-minute run used a fresh boot with static YAML: calibration completed, scored occupancy ranged from 89% to 96%, and the proxy received 433 advertisements from 26 distinct addresses over the full run. The 10 ms window received roughly twice as many advertisements in this environment, at the cost of lower CSI occupancy. The nominal window-to-interval ratio alone did not predict the impact.
+
+These are short measurements on one board and network, not a general BLE compatibility or motion-accuracy result. Active GATT proxy connections were not tested. Keep the workaround experimental, compare BLE reception as well as CSI occupancy on the target installation, and repeat quiet-and-motion checks after input becomes stable.
 
 ## No CSI or insufficient input
 
@@ -57,7 +86,7 @@ Read the packet rates in sequence:
 | No traffic | Wi-Fi connection and the selected traffic source |
 | Traffic without CSI callbacks | Capture configuration and radio state |
 | Callbacks without accepted packets | Hardware-quality errors and frame identity filtering |
-| Accepted packets with low occupancy | Packet loss, bursts, and sensor placement |
+| Accepted packets with low occupancy | Packet loss, bursts, Bluetooth activity, and sensor placement |
 | Stable input with unstable output | Threshold, motion-hit settings, and detector profile |
 
 Accepted packets have passed capture and identity checks. Admitted packets are the detector input after temporal admission. Occupancy measures how much of the detector window contains valid input; high packet rates can still leave gaps when packets arrive in bursts.

@@ -262,6 +262,39 @@ The ESPHome frontend fits in `4 MB` flash with OTA and uses the board and framew
 
 Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#check-the-sensing-input) for sensing and connectivity problems, and [SETUP.md](../../../../docs/SETUP.md#web-flash-no-coding-required) when the board does not enter download mode.
 
+### Bluetooth proxy and CSI occupancy
+
+If enabling BLE reduces CSI occupancy, first compare with Bluetooth disabled. [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#bluetooth-reduces-csi-occupancy) records the scan comparisons, measured results, and interpretation. For an advertisement-only proxy, the following experimental settings had the lowest CSI impact in those ESP32-S3 tests. Merge them into the existing device configuration, preserving board, Wi-Fi, API, and other required settings:
+
+```yaml
+esp32:
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_COEX_SW_COEXIST_ENABLE: n
+
+bluetooth_proxy:
+  active: false
+
+esp32_ble_tracker:
+  software_coexistence: false
+  scan_parameters:
+    interval: 100ms
+    window: 5ms
+    duration: 5min
+    active: false
+    continuous: true
+
+espectre:
+  csi_traffic_mode: internal
+  traffic_generator_mode: wifi_raw
+```
+
+In the tested ESPHome 2026.8.2 / ESP-IDF 5.5.5 combination, `esp32_ble_tracker.software_coexistence: false` did not force the ESP-IDF flag off: its SDK default remained enabled even after a clean build. The explicit SDK override above is required to reproduce the tested configuration. Run **Clean Build Files**, rebuild, and install the firmware. Verify that the generated SDK configuration contains `# CONFIG_ESP_COEX_SW_COEXIST_ENABLE is not set`.
+
+`bluetooth_proxy.active: false` disables active GATT proxy connections; it still forwards advertisements. The separate `scan_parameters.active: false` selects passive scanning. Active GATT connections were not validated with this workaround. Shorter scan windows reduce advertisement reception, so check the BLE devices you rely on alongside CSI occupancy. Keep the detector settings fixed during that comparison; the YAML includes those used in the experiment. For `wifi_raw` hardware and capture-profile limits, see [CSI.md](../../../../docs/CSI.md#compatibility-limits).
+
 ### View logs
 
 Home Assistant entity updates do not replace the serial status log. The shared runtime forwards its 1 Hz `IDLE | csi:` / `MOTION | csi:` heartbeats through the ESPHome sink, so they should appear on USB serial and in `esphome logs` when the `espectre.runtime` tag permits INFO messages.
