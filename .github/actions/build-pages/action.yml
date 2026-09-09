@@ -47,8 +47,20 @@ runs:
         sudo install -m 0755 "$binary" /usr/local/bin/doxygen
         installed="$(doxygen -v | awk '{print $1}')"
         test "$installed" = "$version"
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends graphviz
+
+    - name: Install Graphviz
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Use only Ubuntu sources so unrelated third-party indexes cannot block the build.
+        test -s /etc/apt/sources.list.d/ubuntu.sources
+        apt_options=(
+          -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources
+          -o Dir::Etc::sourceparts=-
+          -o APT::Get::List-Cleanup=0
+        )
+        sudo apt-get "${apt_options[@]}" update --error-on=any
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends graphviz
 
     - name: Install SDK API renderer dependencies
       shell: bash
