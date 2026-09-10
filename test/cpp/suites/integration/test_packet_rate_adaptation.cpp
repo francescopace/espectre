@@ -105,7 +105,6 @@ const std::vector<PacketRateSourceSelection>& source_pairs() {
 
     struct MotionEntry {
       std::string path;
-      double average_packet_rate{0.0};
     };
     std::unordered_map<std::string, MotionEntry> motion_by_filename;
 
@@ -122,7 +121,6 @@ const std::vector<PacketRateSourceSelection>& source_pairs() {
           filename,
           MotionEntry{
               std::string("../../data/motion/") + filename,
-              average_packet_rate,
           });
     }
 

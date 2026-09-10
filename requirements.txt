@@ -20,6 +20,7 @@ prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies
 ruff==0.16.6           # Python quality reports (SARIF)
+cppcheck==1.5.1        # Cppcheck 2.17.1 wheel for C/C++ quality reports (SARIF)
 numpy==2.5.2            # ML environments must update through requirements-ml.txt
 pytest==9.1.1           # test framework
 pytest-cov==7.1.0       # Python coverage

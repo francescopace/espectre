@@ -1,0 +1,133 @@
+{
+  "style_rules": {
+    "useStlAlgorithm": "Explicit loops are accepted project style; replacing them is not a quality defect.",
+    "shadowFunction": "Callback parameter names may match snapshot/status accessor names without changing lookup at their call sites.",
+    "useInitializationList": "Assignment of SDK handles during construction is accepted project style.",
+    "returnByReference": "Snapshot APIs intentionally return independent values; do not change ownership semantics for this suggestion.",
+    "constVariableReference": "Local const qualification is a discretionary style choice.",
+    "constVariablePointer": "Local const qualification is a discretionary style choice.",
+    "constParameterCallback": "SDK callback signatures must retain their declared parameter types.",
+    "cstyleCast": "C-compatible SDK mocks may use C-style casts.",
+    "constParameterPointer": "SDK-compatible mock signatures and local const qualification are not report gates.",
+    "noExplicitConstructor": "Adding explicit changes existing public construction semantics and requires an API decision.",
+    "missingOverride": "Explicit destructor override spelling is optional; base destructors are already virtual."
+  },
+  "reviewed_findings": [
+    {
+      "rule": "unusedStructMember",
+      "file": "src/cpp/frontend/matter/app/main/matter_commissioning_data.cpp",
+      "messages": [
+        "struct member 'MatterFactoryRecord::reserved' is never used."
+      ],
+      "reason": "The reserved field is part of the packed factory record layout."
+    },
+    {
+      "rule": "unusedStructMember",
+      "file": "src/cpp/runtime/esp_idf/traffic_generator_manager.cpp",
+      "messages": [
+        "struct member 'IcmpEchoHeader::code' is never used."
+      ],
+      "reason": "The code byte is part of the ICMP packet layout, including its checksum."
+    },
+    {
+      "rule": "unusedStructMember",
+      "file": "test/cpp/mocks/esp_idf/mdns_mock.cpp",
+      "messages": [
+        "struct member 'mdns_search_once_s::active' is never used."
+      ],
+      "reason": "The mock provides storage for an opaque SDK handle; the field is not application state."
+    },
+    {
+      "rule": "virtualCallInConstructor",
+      "file": "src/cpp/frontend/ota_service_https.cpp",
+      "messages": [
+        "Virtual function 'shutdown' is called from destructor '~HttpsOtaService()' at line 91. Dynamic binding is not used."
+      ],
+      "reason": "The destructor intentionally invokes its own shutdown implementation; derived dispatch is not needed."
+    },
+    {
+      "rule": "unreadVariable",
+      "file": "src/cpp/frontend/ota_service_https.cpp",
+      "messages": [
+        "Variable 'context' is assigned a value that is never used."
+      ],
+      "reason": "The worker context is passed to xTaskCreate and consumed by worker_entry_; the SDK is not present in this scan."
+    },
+    {
+      "rule": "unreadVariable",
+      "file": "test/cpp/suites/runtime/test_csi_pipeline.cpp",
+      "messages": [
+        "Variable 'csi_buf[16]' is assigned a value that is never used."
+      ],
+      "reason": "The buffer aliases csi_info.buf and is consumed through process_packet and the interceptor callback."
+    },
+    {
+      "rule": "unreadVariable",
+      "file": "test/cpp/suites/runtime/test_runtime_helpers.cpp",
+      "messages": [
+        "Variable 'payload[bin*2+1]' is assigned a value that is never used.",
+        "Variable 'payload[bin*2]' is assigned a value that is never used."
+      ],
+      "reason": "The payload aliases info.buf and is consumed by the capture service; callback counts verify the resulting rejection."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "src/cpp/runtime/esp_idf/csi_phy_filter.h",
+      "messages": [
+        "Condition '!is_vht20' is always true",
+        "Condition 'is_vht20' is always false",
+        "Return value 'csi_rx_is_vht20_sensing(info->rx_ctrl)' is always false"
+      ],
+      "reason": "VHT support intentionally becomes false on targets without CONFIG_SOC_WIFI_HE_SUPPORT."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "src/cpp/runtime/esp_idf/direct_http_service_esp_idf.cpp",
+      "messages": [
+        "Condition 'lock_()' is always true"
+      ],
+      "reason": "A repeated lock attempt can time out independently after unlock; the FreeRTOS synchronization model is external."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "src/cpp/runtime/protocol_json.cpp",
+      "messages": [
+        "Return value 'fail_(\"unexpected data after JSON array\")' is always false"
+      ],
+      "reason": "fail_ returns false while recording the parse error; its side effect is required."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "test/cpp/suites/runtime/test_sdk_surface.cpp",
+      "messages": [
+        "Condition 'subcarrier_count>0U' is always true"
+      ],
+      "reason": "The assertion deliberately checks the public constant exposed through the facade."
+    },
+    {
+      "rule": "badBitmaskCheck",
+      "file": "test/cpp/suites/integration/test_packet_rate_adaptation.cpp",
+      "messages": [
+        "Operator '|' with one operand equal to zero is redundant."
+      ],
+      "reason": "ArduinoJson overloads operator | to provide a default value; this is not a bitmask."
+    },
+    {
+      "rule": "duplicateAssignExpression",
+      "file": "test/cpp/suites/integration/test_packet_rate_adaptation.cpp",
+      "messages": [
+        "Same expression used in consecutive assignments of 'min_baseline_eval' and 'max_baseline_eval'.",
+        "Same expression used in consecutive assignments of 'min_motion_eval' and 'max_motion_eval'."
+      ],
+      "reason": "Independent minimum and maximum accumulators intentionally start with the same first sample."
+    },
+    {
+      "rule": "knownEmptyContainer",
+      "file": "test/cpp/suites/runtime/test_wifi_provisioning_service.cpp",
+      "messages": [
+        "Using search with iterator 'output.begin()' that is always empty."
+      ],
+      "reason": "The serial writer callback appends to output; the parsed frame assertions verify that output is populated."
+    }
+  ]
+}

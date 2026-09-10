@@ -131,10 +131,7 @@ static PerformanceResult mean_result_for_chip(const char* chip_name, const char*
             (report_only && !r.report_reserved)) {
             continue;
         }
-        const PerformanceResult& value =
-            (strcmp(algorithm, "ml") == 0) ? r.ml
-            : (strcmp(algorithm, "classic") == 0) ? r.classic
-                                                   : r.classic;
+        const PerformanceResult& value = (strcmp(algorithm, "ml") == 0) ? r.ml : r.classic;
         if (!value.valid) {
             continue;
         }
@@ -176,10 +173,7 @@ static int valid_result_count_for_chip(const char* chip_name, const char* algori
             (report_only && !r.report_reserved)) {
             continue;
         }
-        const PerformanceResult& value =
-            (strcmp(algorithm, "ml") == 0) ? r.ml
-            : (strcmp(algorithm, "classic") == 0) ? r.classic
-                                                  : r.classic;
+        const PerformanceResult& value = (strcmp(algorithm, "ml") == 0) ? r.ml : r.classic;
         if (value.valid) {
             count++;
         }

@@ -30,7 +30,8 @@ void setUp(void) {
 }
 
 void tearDown(void) {
-    // Nothing to tear down
+    g_esp_wifi_mock.raw_tx_hook = nullptr;
+    active_generator = nullptr;
 }
 
 // ============================================================================
@@ -67,6 +68,8 @@ void test_wifi_raw_targets_current_bssid_without_gateway_and_counts_sends(void) 
         ++g_esp_wifi_mock.current_ap_info.bssid[5];
     }
     TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.get_ap_info_call_count);
+    g_esp_wifi_mock.raw_tx_hook = nullptr;
+    active_generator = nullptr;
 }
 
 void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failure(void) {
@@ -102,6 +105,8 @@ void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failur
     TEST_ASSERT_FALSE(manager.start(0U));
     TEST_ASSERT_FALSE(manager.is_running());
     TEST_ASSERT_EQUAL(0U, g_esp_wifi_mock.raw_tx_call_count);
+    g_esp_wifi_mock.raw_tx_hook = nullptr;
+    active_generator = nullptr;
 }
 
 void test_wifi_raw_requires_association_and_valid_station_identity(void) {

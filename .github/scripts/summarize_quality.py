@@ -27,6 +27,15 @@ def main() -> None:
             if not result.get('suppressions')
         )
         message = f'{args.name}: {count} quality findings. Informational; does not block merging.'
+        notes = sum(len(invocation.get('toolExecutionNotifications', []))
+                    for run in runs for invocation in run.get('invocations', []))
+        excluded = sum(run.get('properties', {}).get('qualityReport', {}).get('excludedFindings', 0)
+                       for run in runs)
+        duplicates = sum(run.get('properties', {}).get('qualityReport', {}).get('duplicateFindings', 0)
+                         for run in runs)
+        if notes or excluded or duplicates:
+            message += (f' {notes} analysis notes; {excluded} reviewed exclusions; '
+                        f'{duplicates} duplicate findings removed. Inspect the raw report for details.')
     except (OSError, ValueError, KeyError):
         message = f'{args.name}: analysis incomplete; inspect the scanner step. No clean result is available.'
         print('::warning::Quality analysis did not produce a complete report.')

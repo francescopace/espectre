@@ -376,7 +376,6 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
   request_raw_worker_stop_();
 #if defined(ESP_PLATFORM)
   TaskHandle_t worker_task = worker_task_.load(std::memory_order_acquire);
-  TaskHandle_t raw_worker_task = raw_worker_task_.load(std::memory_order_acquire);
   if (worker_task != nullptr) xTaskNotifyGive(worker_task);
   uint32_t waited_ms = 0U;
   while ((worker_task_.load(std::memory_order_acquire) != nullptr ||
@@ -391,7 +390,7 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
     vTaskDelete(worker_task);
   }
-  raw_worker_task = raw_worker_task_.exchange(nullptr, std::memory_order_acq_rel);
+  TaskHandle_t raw_worker_task = raw_worker_task_.exchange(nullptr, std::memory_order_acq_rel);
   if (raw_worker_task != nullptr) {
     ESPECTRE_LOGW(TAG, "Direct raw worker did not stop within %u ms",
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
@@ -897,7 +896,6 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   const int fd = httpd_req_to_sockfd(async_request);
-  size_t count = 0U;
   bool registered = false;
   if (lock_()) {
     if (pending_event_connections_ > 0U) pending_event_connections_ -= 1U;
@@ -905,9 +903,8 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
       event_clients_.push_back(EventClient{async_request, fd, 0U,
                                            static_cast<uint64_t>(esp_timer_get_time()), {}});
       diagnostics_.accepted_connections += 1U;
-      count = event_clients_.size();
       registered = true;
-      notify_client_count_(count);
+      notify_client_count_(event_clients_.size());
     } else {
       diagnostics_.rejected_connections += 1U;
     }

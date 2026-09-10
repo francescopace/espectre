@@ -884,8 +884,6 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->detector_republished_ = false;
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
-  }
-  if (!snapshot.ready_to_publish) {
     return;
   }
 
