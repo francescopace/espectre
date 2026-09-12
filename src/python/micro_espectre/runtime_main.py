@@ -22,7 +22,7 @@ from src.device_utils import (
     NORMALIZATION_HT57_TO_64,
     NORMALIZATION_LLTF53_TO_64,
     assess_ht20_sensing_frame,
-    impute_ht20_lltf_detector_bins,
+    prepare_ht20_detector_input,
     normalize_ht20_csi_payload,
     csi_read_frame,
     select_csi_capture_profile,
@@ -231,7 +231,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     use_lltf = g_state.csi_capture_profile == 'lltf20'
-    lltf_detector_buffer = bytearray(EXPECTED_CSI_LEN) if use_lltf else None
+    detector_csi_buffer = bytearray(EXPECTED_CSI_LEN)
     normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
@@ -287,16 +287,18 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 remap_buffer=ht57_remap_buffer,
                 assessment=assessment,
                 state=normalization_state,
+                first_word_invalid=len(frame) > 22 and bool(frame[22]),
             )
             if csi_data is None:
                 filtered_count += 1
                 del frame
                 continue
 
-            if use_lltf:
-                csi_data = impute_ht20_lltf_detector_bins(
-                    csi_data, lltf_detector_buffer
-                )
+            csi_data = prepare_ht20_detector_input(
+                csi_data, detector_csi_buffer, lltf=use_lltf,
+                first_word_invalid=len(frame) > 22 and bool(frame[22]),
+                source_layout=normalization_state.bin_layout,
+            )
 
             if not frame_timestamp_filter.accept(frame):
                 del frame
@@ -665,7 +667,7 @@ def main(wlan=None):
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
     use_lltf = g_state.csi_capture_profile == 'lltf20'
-    lltf_detector_buffer = bytearray(EXPECTED_CSI_LEN) if use_lltf else None
+    detector_csi_buffer = bytearray(EXPECTED_CSI_LEN)
     normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     out_of_order_count = 0
@@ -926,6 +928,7 @@ def main(wlan=None):
                     remap_buffer=ht57_remap_buffer,
                     assessment=assessment,
                     state=normalization_state,
+                    first_word_invalid=len(frame) > 22 and bool(frame[22]),
                 )
                 if csi_data is None:
                     filtered_count += 1
@@ -939,10 +942,11 @@ def main(wlan=None):
                         )
                     continue
 
-                if use_lltf:
-                    csi_data = impute_ht20_lltf_detector_bins(
-                        csi_data, lltf_detector_buffer
-                    )
+                csi_data = prepare_ht20_detector_input(
+                    csi_data, detector_csi_buffer, lltf=use_lltf,
+                    first_word_invalid=len(frame) > 22 and bool(frame[22]),
+                    source_layout=normalization_state.bin_layout,
+                )
 
                 if not frame_timestamp_filter.accept(frame):
                     out_of_order_count += 1
@@ -1102,9 +1106,6 @@ def main(wlan=None):
                                 ),
                             )
                         use_lltf = g_state.csi_capture_profile == 'lltf20'
-                        lltf_detector_buffer = (
-                            bytearray(EXPECTED_CSI_LEN) if use_lltf else None
-                        )
                         print_wifi_status(wlan)
                         if traffic_enabled and not traffic_gen.start(target_pps):
                             raise RuntimeError('CSI traffic generator recovery failed')

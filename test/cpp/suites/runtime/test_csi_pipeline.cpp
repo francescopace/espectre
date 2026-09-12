@@ -1175,6 +1175,8 @@ struct RawCaptureProbe {
     RawCsiPhyMode phy_mode{RawCsiPhyMode::UNKNOWN};
     RawCsiLtfType ltf_type{RawCsiLtfType::UNKNOWN};
     bool missing_lltf_bins_zero{false};
+    uint8_t record_flags{0U};
+    std::array<int8_t, HT20_CSI_LEN> payload{};
 };
 
 bool raw_capture_probe_(void *context, const RawCsiPacketView &packet) {
@@ -1185,6 +1187,8 @@ bool raw_capture_probe_(void *context, const RawCsiPacketView &packet) {
     probe->first_byte = packet.csi[0];
     probe->phy_mode = packet.phy_mode;
     probe->ltf_type = packet.ltf_type;
+    probe->record_flags = packet.record_flags;
+    std::copy_n(packet.csi, HT20_CSI_LEN, probe->payload.begin());
     probe->missing_lltf_bins_zero = packet.csi_len == HT20_CSI_LEN;
     for (uint8_t bin : HT20_LLTF_MISSING_BINS) {
         const size_t byte_index = static_cast<size_t>(bin) * 2U;
@@ -1197,6 +1201,7 @@ bool raw_capture_probe_(void *context, const RawCsiPacketView &packet) {
 struct DetectorViewProbe {
   uint32_t packets{0U};
   bool nearest_edge_tones_copied{false};
+  std::array<int8_t, HT20_CSI_LEN> payload{};
 };
 
 bool detector_view_probe_(void *context, const int8_t *csi, size_t csi_len,
@@ -1205,6 +1210,7 @@ bool detector_view_probe_(void *context, const int8_t *csi, size_t csi_len,
   if (probe == nullptr || csi == nullptr || csi_len != HT20_CSI_LEN) return false;
   probe->packets += 1U;
   probe->nearest_edge_tones_copied = true;
+  std::copy_n(csi, HT20_CSI_LEN, probe->payload.begin());
   for (uint8_t bin : {4U, 5U}) {
     const size_t byte_index = static_cast<size_t>(bin) * 2U;
     probe->nearest_edge_tones_copied &=
@@ -1390,6 +1396,47 @@ void test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector(void) {
     }
 
     TEST_ASSERT_EQUAL(expected_packets, detector.get_total_packets());
+}
+
+void test_csi_pipeline_imputes_invalid_classic_tone_only_for_detector(void) {
+    for (const auto profile : {CsiCaptureProfile::HT20, CsiCaptureProfile::LLTF20}) {
+        LightweightDetector detector(50, 1.0f);
+        CsiPipeline manager;
+        manager.init(&detector, &g_wifi_mock);
+        RawCaptureProbe raw;
+        TEST_ASSERT_TRUE(manager.start_raw_capture(&raw_capture_probe_, &raw));
+        TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr, profile));
+        std::array<int8_t, HT20_CSI_LEN> source{};
+        wifi_csi_info_t info{};
+        fill_valid_csi_info_(&info, source.data());
+        source.fill(7);
+        for (uint8_t bin : HT20_CLASSIC_ONLY_NULL_BINS) source[bin * 2] = source[bin * 2 + 1] = 0;
+        source[0] = source[1] = source[2] = source[3] = 127;
+        source[4] = 42;
+        source[5] = -43;
+        const auto original = source;
+        info.first_word_invalid = true;
+        info.rx_ctrl.timestamp = 100000U;
+        g_wifi_mock.trigger_callback(&info);
+        TEST_ASSERT_EQUAL(1U, raw.packets);
+        TEST_ASSERT_TRUE(raw.record_flags & RAW_CSI_FLAG_FIRST_WORD_INVALID);
+        TEST_ASSERT_EQUAL_INT8(0, raw.payload[66]);
+        TEST_ASSERT_EQUAL_INT8(0, raw.payload[67]);
+        manager.stop_raw_capture();
+        DetectorViewProbe prepared;
+        manager.set_packet_interceptor(&detector_view_probe_, &prepared);
+        info.rx_ctrl.timestamp += 10000U;
+        g_wifi_mock.trigger_callback(&info);
+        manager.loop();
+        manager.flush_pending_candidate();
+        TEST_ASSERT_EQUAL(1U, prepared.packets);
+        TEST_ASSERT_EQUAL_INT8(42, prepared.payload[66]);
+        TEST_ASSERT_EQUAL_INT8(-43, prepared.payload[67]);
+        TEST_ASSERT_EQUAL_INT8(0, prepared.payload[64]);
+        TEST_ASSERT_EQUAL_INT8(0, prepared.payload[65]);
+        TEST_ASSERT_TRUE(source == original);
+        TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    }
 }
 
 void test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain(void) {
@@ -1723,6 +1770,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly);
     RUN_TEST(test_csi_pipeline_raw_stop_finishes_in_flight_callback_before_returning);
     RUN_TEST(test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector);
+    RUN_TEST(test_csi_pipeline_imputes_invalid_classic_tone_only_for_detector);
     RUN_TEST(test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain);
     RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);
     

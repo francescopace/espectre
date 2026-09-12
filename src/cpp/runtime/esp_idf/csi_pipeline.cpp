@@ -442,9 +442,11 @@ void CsiPipeline::capture_packet_callback_(void *context,
   frame.len = static_cast<uint16_t>(normalized.len);
   frame.reset_detector_before_consume = normalized.reset_detector_before_consume;
   std::copy_n(normalized.data, normalized.len, frame.csi.begin());
-  if (csi_capture_profile_uses_lltf(pipeline->capture_profile())) {
-    (void) impute_ht20_lltf_detector_bins(frame.csi.data(), frame.len);
-  }
+  (void) prepare_ht20_detector_input(
+      frame.csi.data(), frame.len,
+      csi_capture_profile_uses_lltf(pipeline->capture_profile()),
+      data->first_word_invalid,
+      normalized.rotated_to_centered ? Ht20BinLayout::CLASSIC : Ht20BinLayout::CENTERED);
   if (!pipeline->pending_frames_.post(frame)) {
     pipeline->pending_frame_drops_.fetch_add(1U, std::memory_order_relaxed);
   }

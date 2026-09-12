@@ -28,6 +28,7 @@ using portMUX_TYPE = int;
 #define portEXIT_CRITICAL(mux) (void)(mux)
 #endif
 
+#include "csi_types.h"
 #include "direct_http_service.h"
 #include "pending_event.h"
 
@@ -93,9 +94,13 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
     bool sent{false};
   };
 
+  // Capture delivers normalized 64-subcarrier records to the raw queue.
+  static constexpr size_t kRawSlotPayloadBytes = HT20_CSI_LEN;
+  static_assert(kRawSlotPayloadBytes <= RAW_CSI_MAX_PAYLOAD_BYTES);
+
   struct RawSampleSlot {
     RawCsiPacketView metadata{};
-    std::array<int8_t, RAW_CSI_MAX_PAYLOAD_BYTES> csi{};
+    std::array<int8_t, kRawSlotPayloadBytes> csi{};
     uint64_t stream_sequence{0U};
   };
 

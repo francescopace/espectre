@@ -43,7 +43,9 @@ enum class RawCsiStopReason : uint8_t {
  *
  * The struct and the bytes addressed by `csi` are valid only for the duration
  * of the capture callback. Copy them before returning if another task needs the
- * sample.
+ * sample. The built-in capture pipeline supplies HT20_CSI_LEN bytes (64 complex
+ * subcarriers) after LLTF, HT, or VHT normalization. This normalized capture
+ * bound is independent of RAW_CSI_MAX_PAYLOAD_BYTES, the record-format limit.
  */
 struct RawCsiPacketView {
   const int8_t *csi{nullptr};

@@ -454,23 +454,44 @@ def rotate_ht20_classic_to_centered(csi_data, remap_buffer=None):
     return remap_buffer
 
 
-def impute_ht20_lltf_detector_bins(csi_data, detector_buffer=None):
-    """Copy the nearest live LLTF edge tones into a detector-only view."""
+def prepare_ht20_detector_input(csi_data, detector_buffer=None, *, lltf=False,
+                                first_word_invalid=False,
+                                source_layout=LAYOUT_BINS_UNKNOWN):
+    """Prepare a private centered detector view from normalized raw CSI.
+
+    Impute LLTF edge tones and hardware-invalid classic +1 from their nearest
+    live neighbors. Source metadata, never a zero value, selects the latter.
+    DC and guards remain unchanged. Return the raw view when no fill is needed.
+    """
     try:
         if len(csi_data) != HT20_CSI_LEN:
             return None
     except TypeError:
         return None
+    if first_word_invalid and source_layout not in (LAYOUT_BINS_CENTERED, LAYOUT_BINS_CLASSIC):
+        return None
+    missing_positive_one = first_word_invalid and source_layout == LAYOUT_BINS_CLASSIC
+    if not lltf and not missing_positive_one:
+        return csi_data
     if detector_buffer is None or len(detector_buffer) != HT20_CSI_LEN:
         detector_buffer = bytearray(HT20_CSI_LEN)
     if csi_data is not detector_buffer:
         detector_buffer[:] = csi_data
-    for target_bin, source_bin in HT20_LLTF_DETECTOR_BIN_SOURCES:
-        target = target_bin * 2
-        source = source_bin * 2
-        detector_buffer[target] = detector_buffer[source]
-        detector_buffer[target + 1] = detector_buffer[source + 1]
+    if lltf:
+        for target_bin, source_bin in HT20_LLTF_DETECTOR_BIN_SOURCES:
+            target = target_bin * 2
+            source = source_bin * 2
+            detector_buffer[target] = detector_buffer[source]
+            detector_buffer[target + 1] = detector_buffer[source + 1]
+    if missing_positive_one:
+        detector_buffer[66] = csi_data[68]
+        detector_buffer[67] = csi_data[69]
     return detector_buffer
+
+
+def impute_ht20_lltf_detector_bins(csi_data, detector_buffer=None):
+    """Prepare the legacy LLTF-only detector view."""
+    return prepare_ht20_detector_input(csi_data, detector_buffer, lltf=True)
 
 
 def _resolve_ht20_bin_layout_once(payload, expected_len, bin_layout, state):
@@ -511,17 +532,21 @@ def normalize_ht20_csi_payload(csi_data, expected_len=128, remap_buffer=None,
         return None, raw_len, None
 
     if first_word_invalid:
-        # The first two pairs of compact or classic-order frames include live
-        # tones. Only full-width centered frames can be cleaned losslessly.
+        # Full-width layouts locate the invalid source pairs independently of
+        # their values. Preserve missing tones as zero, never as fabricated CSI.
         if expected_len != HT20_CSI_LEN or raw_len not in (128, 256):
             return None, raw_len, None
         resolved = detect_ht20_bin_layout(memoryview(csi_data)[:128], first_word_invalid=True)
-        if resolved != LAYOUT_BINS_CENTERED:
+        if resolved == LAYOUT_BINS_UNKNOWN:
             return None, raw_len, None
         if remap_buffer is None or len(remap_buffer) != expected_len:
             remap_buffer = bytearray(expected_len)
-        remap_buffer[:] = memoryview(csi_data)[:expected_len]
-        remap_buffer[:4] = b"\x00" * 4
+        if resolved == LAYOUT_BINS_CLASSIC:
+            rotate_ht20_classic_to_centered(memoryview(csi_data)[:expected_len], remap_buffer)
+            remap_buffer[64:68] = b"\x00" * 4
+        else:
+            remap_buffer[:] = memoryview(csi_data)[:expected_len]
+            remap_buffer[:4] = b"\x00" * 4
         if state is not None:
             state.bin_layout = resolved
         return remap_buffer, raw_len, normalization_id

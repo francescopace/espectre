@@ -9,7 +9,8 @@ Install a frontend, connect it to your network, and check that it detects moveme
 | ESPHome | Home Assistant entities and YAML configuration | [README.md](../src/cpp/frontend/esphome/README.md) |
 | Native | A standalone sensor, browser tools, and optional MQTT or Home Assistant MQTT Discovery | [README.md](../src/cpp/frontend/native/README.md) |
 | Matter | A Matter occupancy sensor, with detector settings available through Direct HTTP | [README.md](../src/cpp/frontend/matter/README.md) |
-| Micro-ESPectre | Research and MicroPython development | [README.md](../src/python/micro_espectre/README.md) |
+
+For sensing research and MicroPython development, see Micro-ESPectre's [README.md](../src/python/micro_espectre/README.md).
 
 ## Check the hardware
 

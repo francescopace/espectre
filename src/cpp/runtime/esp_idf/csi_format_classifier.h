@@ -162,10 +162,11 @@ inline CsiFormatAssessment assess_ht20_sensing_format(
 
   if (info->first_word_invalid) {
     const bool full_width = info->len == HT20_CSI_LEN || info->len == HT20_CSI_LEN * 2U;
-    // Compact layouts and classic ordering map invalid source pairs onto live
-    // tones. Only independently identified centered guard pairs are safe.
+    // Full-width layouts identify the invalid pairs without using their values.
+    // Classic DC/+1 and centered guards can be marked missing; compact layouts
+    // can overlap the selected detector band and remain unsupported.
     if (info->buf == nullptr || !full_width ||
-        detect_ht20_bin_layout(info->buf, HT20_CSI_LEN, true) != Ht20BinLayout::CENTERED) {
+        detect_ht20_bin_layout(info->buf, HT20_CSI_LEN, true) == Ht20BinLayout::UNKNOWN) {
       assessment.reason_code = CsiFormatReasonCode::INVALID_FIRST_WORD;
       return assessment;
     }

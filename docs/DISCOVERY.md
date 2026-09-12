@@ -70,7 +70,7 @@ The nonce responder is stateless. It does not register, retain, announce, or sen
 
 ### `/devices` scan
 
-After resolving one bootstrap responder, the portal requests `GET /espectre/v1/devices` with the same Origin policy as any Direct request and a 10-second client timeout. Native, ESPHome, and Matter implement this resource; Micro does not.
+After resolving one bootstrap responder, the portal requests `GET /espectre/v1/devices` with the same Origin policy as any Direct request and a 10-second client timeout. Native, ESPHome, and Matter implement this resource.
 
 The request takes no parameters. It starts one asynchronous PTR browse for `_espectre._tcp.local.` with a fixed 3,000 ms query window. A concurrent scan returns HTTP `409` with code `conflict`; a scan that cannot start returns code `unavailable`. Closing the requesting connection prevents later delivery and creates no waiter or persistent peer inventory.
 
@@ -146,4 +146,4 @@ The comma-separated TXT capability value may contain at most 128 characters. Cap
 
 The portal validates the complete result before rendering a device or constructing an endpoint. It remembers only the selected unique address, never the shared bootstrap name or peer list. After selection, the client requests `GET /device` and `GET /capabilities`; the `device_id`, frontend, protocol version, and base path must agree with discovery.
 
-Micro publishes its DNS-SD record but cannot answer the bootstrap name or `/devices`. If no eligible responder is reachable, connect with a private device IP, the unique `espectre-{device_id}.local` host name, a remembered endpoint, or Improv Serial. Routed networks, multicast filtering, client isolation, and browser local-network permissions can block discovery without blocking Direct connectivity.
+If no eligible responder is reachable, connect with a private device IP, the unique `espectre-{device_id}.local` host name, a remembered endpoint, or Improv Serial. Routed networks, multicast filtering, client isolation, and browser local-network permissions can block discovery without blocking Direct connectivity.

@@ -30,11 +30,11 @@ Direct HTTP listens on TCP port `62587`. A client starts with `GET /espectre/v1/
 | `DELETE` | `/wifi/bssid` | yes | yes | yes | no |
 | `DELETE` | `/wifi/credentials`, `/mqtt` | yes | no | no | no |
 
-Unsupported resources and method combinations return HTTP `404`. Capability negotiation remains authoritative when a custom build disables an otherwise supported feature.
+Unsupported resources and method combinations return HTTP `404`. Capability negotiation remains authoritative when a custom build disables an otherwise supported feature. Micro-ESPectre's request limits, SSE behavior, and transport policies are documented in its [README.md](../src/python/micro_espectre/README.md#direct-http-surface).
 
 ### Request and response framing
 
-Successful `GET` requests return the resource object directly. A request body, when present, must be a JSON object. An empty body is equivalent to `{}`. C++ frontends accept at most 2,048 request bytes; Micro accepts at most 512 bytes. Send `Content-Type: application/json` whenever the body is non-empty.
+Successful `GET` requests return the resource object directly. A request body, when present, must be a JSON object. An empty body is equivalent to `{}`. C++ frontends accept at most 2,048 request bytes. Send `Content-Type: application/json` whenever the body is non-empty.
 
 Mutations return a result object:
 
@@ -43,8 +43,6 @@ Mutations return a result object:
 ```
 
 `data` is optional. Synchronous mutations use HTTP `200`. Asynchronous and disruptive routes use HTTP `202` after the request has passed application dispatch. Validation, capability, and conflict errors instead use the status codes in [Errors](#errors).
-
-Micro accepts `fields` on diagnostics; its other supported routes accept no parameters: omit the body or send `{}`. Its service allows 20 requests per one-second window. Oversized bodies receive HTTP `413` and close the connection; incomplete bodies close it without executing the request. Manual recalibration is queued onto the main loop and affects only the current session.
 
 ## Resources
 
@@ -166,9 +164,9 @@ Current clients request their fields directly, without fetching the catalog firs
 | `detection_timing_supported`, `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector timing support and aggregates |
 | `traffic_packets_total`, `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative traffic and CSI pipeline counters |
 | `csi_rx_error_total`, `csi_rx_end_error_total`, `csi_invalid_estimate_total`, `csi_invalid_first_word_total` | Cumulative capture-quality rejections; one reason per rejected callback |
-| `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device for the web Monitor; unavailable on older Micro firmware |
-| `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates; C++ sums four reason counters, and MicroPython reads its dedicated native hardware counter |
-| `csi_sanitized_first_word_total` | Frames whose hardware-invalid guard pairs were zeroed without changing live tones |
+| `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device for the web Monitor |
+| `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates |
+| `csi_sanitized_first_word_total` | Frames whose hardware-invalid source pairs were zeroed; classic DC/+1 or centered guards, with the default turbulence band preserved |
 | `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total` | Cumulative queue and temporal-admission drop counters |
 | `csi_occupancy_slots`, `csi_window_slots`, `csi_pending_frames`, `csi_pending_frame_capacity` | Detector-window and callback-queue occupancy |
 | CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached packet rates and detector-window occupancy ratio |
@@ -181,7 +179,7 @@ Current clients request their fields directly, without fetching the catalog firs
 
 Memory values use KiB. Timings use microseconds unless the field ends in `_ms`, and rates use packets per second. `csi_occupancy` is the valid fraction of the active detector window. Fields that depend on a complete performance window are `null` until that window is ready. A frontend may omit measurements and transport objects that it cannot provide; clients must not replace a missing value with zero.
 
-The periodic sensing log labels the traffic, callback, accepted-packet, and hardware-rejection rates `tx`, `cb`, `accepted`, and `hwerr`. Rates use packets per second over the actual diagnostic interval. `hwerr` sums RX errors, RX end errors, invalid hardware estimates, and unsafe invalid first words; it includes background traffic and excludes other filtering reasons. `occ` is valid detector-window occupancy. Channel and RSSI use the same association diagnostics as the API. Missing values appear as `--`; MicroPython reports `hwerr:--` only with older firmware that lacks the dedicated hardware counter; rebuild and flash the firmware to enable it. The diagnostics resource also includes admitted rates, temporal-drop reasons, cumulative error counts, and performance details.
+The periodic sensing log labels the traffic, callback, accepted-packet, and hardware-rejection rates `tx`, `cb`, `accepted`, and `hwerr`. Rates use packets per second over the actual diagnostic interval. `hwerr` sums RX errors, RX end errors, invalid hardware estimates, and unsafe invalid first words; it includes background traffic and excludes other filtering reasons. `occ` is valid detector-window occupancy. Channel and RSSI use the same association diagnostics as the API. Missing values appear as `--`. The diagnostics resource also includes admitted rates, temporal-drop reasons, cumulative error counts, and performance details.
 
 ## Operations
 
@@ -265,7 +263,7 @@ The three disruptive Wi-Fi mutations return HTTP `202` before any disconnect. Th
 
 ## Events
 
-`GET /espectre/v1/events` is the only JSON SSE connection. The C++ frontends publish `health`, `device`, `sensing`, `wifi`, `ota`, `motion`, and `fault` according to their capability catalog. Micro publishes only `motion`. Resource events carry complete snapshots. MQTT configuration, diagnostics, discovery results, and CSI never appear in this stream.
+`GET /espectre/v1/events` is the only JSON SSE connection. The C++ frontends publish `health`, `device`, `sensing`, `wifi`, `ota`, `motion`, and `fault` according to their capability catalog. Resource events carry complete snapshots. MQTT configuration, diagnostics, discovery results, and CSI never appear in this stream.
 
 A `motion` event is produced for each detector evaluation:
 
@@ -281,9 +279,7 @@ A `fault` event reports a runtime error without changing a resource payload:
 {"timestamp_ms":42000,"message":"runtime fault"}
 ```
 
-Each SSE connection receives a `: heartbeat` comment every 10 seconds. There is no replay. C++ frontends support at most two event clients, and Micro supports one. Persistent send failures close the affected stream.
-
-Micro retains one in-flight event of at most 4,096 bytes and one queued heartbeat. Its stream uses `Cache-Control: no-store` and closes after a send error. A peer close or reset does not increment `direct_http.send_failures`; timeout and backpressure failures do.
+Each SSE connection receives a `: heartbeat` comment every 10 seconds. There is no replay. C++ frontends support at most two event clients. Persistent send failures close the affected stream.
 
 ## CSI collection
 
@@ -355,9 +351,9 @@ Application results use `application/json` and the result object shown above. Th
 | `409` | `busy`, `conflict`, `busy_raw_collection` | The request conflicts with active calibration, discovery, CSI, or OTA work |
 | `200` or `202` | `unavailable`, `internal_error` | Dispatch reached the operation, but its backend could not complete it; the route's synchronous or asynchronous status is retained |
 
-Micro returns an application JSON result with HTTP `503` when a requested snapshot is unavailable. MQTT has no HTTP status; subscribers use `accepted` and `code` in `commands/result`. A command outside the published MQTT command set returns code `forbidden`.
+MQTT has no HTTP status; subscribers use `accepted` and `code` in `commands/result`. A command outside the published MQTT command set returns code `forbidden`.
 
-The HTTP service can reject a request before application dispatch. These failures are not canonical result objects. C++ frontends return `text/plain; charset=utf-8`; Micro also uses plain text for some early failures. Clients must inspect the HTTP status and `Content-Type` before parsing JSON.
+The HTTP service can reject a request before application dispatch. These failures are not canonical result objects. C++ frontends return `text/plain; charset=utf-8`. Clients must inspect the HTTP status and `Content-Type` before parsing JSON.
 
 | HTTP status | Pre-dispatch failure |
 | --- | --- |
@@ -375,8 +371,6 @@ The HTTP service can reject a request before application dispatch. These failure
 ## Security and versioning
 
 Direct HTTP is a trusted-LAN surface. Firmware enforces exact browser Origin allowlists, Private Network Access preflight, bounded bodies, queues, clients, and request rates. It binds to the station interface and does not expose stored Wi-Fi or MQTT passwords. `/mqtt` may gain independent protection only through an additive security extension.
-
-Micro requires an `Origin` header and accepts only `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev` in published firmware. Development builds can enable `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED` to also accept HTTP loopback hosts (`localhost`, `127.0.0.1`, or `[::1]`) with an optional valid port.
 
 During the 3.0.0 release-candidate phase, the application contract remains `1.0`: Direct uses `/espectre/v1`, the default MQTT prefix is `espectre/v1/devices`, and DNS-SD advertises `protovers=1.0`. Diagnostic field selection changes within this pre-release contract: an unselected request returns a catalog, while `fields: ["*"]` returns all values. Use matching firmware and clients; there is no automatic fallback to the earlier diagnostics response. An explicitly configured MQTT prefix remains a user setting.
 

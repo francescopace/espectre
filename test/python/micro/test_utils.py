@@ -18,6 +18,7 @@ from micro_espectre.device_utils import (
     HT20_CLASSIC_ONLY_NULL_BINS,
     assess_ht20_sensing_phy,
     impute_ht20_lltf_detector_bins,
+    prepare_ht20_detector_input,
     select_csi_capture_profile,
 )
 from utils import (
@@ -817,9 +818,25 @@ class TestInvalidFirstCsiWord:
     def test_compact_invalid_live_pairs_are_rejected(self, length):
         assert normalize_ht20_csi_payload(bytearray([7] * length), first_word_invalid=True)[0] is None
 
-    def test_classic_and_ambiguous_invalid_pairs_are_rejected(self):
-        for payload in (_layout_packet(HT20_CLASSIC_ONLY_NULL_BINS), bytearray(128)):
-            assert normalize_ht20_csi_payload(payload, first_word_invalid=True)[0] is None
+    @pytest.mark.parametrize('length', [128, 256])
+    def test_classic_invalid_pairs_are_zeroed_at_their_centered_positions(self, length):
+        payload = _layout_packet(HT20_CLASSIC_ONLY_NULL_BINS) * (length // 128)
+        payload[:4] = b'\x7f\x80\x7f\x80'
+        original = bytes(payload)
+        normalized, raw_len, _ = normalize_ht20_csi_payload(payload, first_word_invalid=True)
+        expected = bytearray(payload[64:128] + payload[:64])
+        expected[64:68] = b'\x00' * 4
+        assert raw_len == length
+        assert normalized == expected
+        assert bytes(payload) == original
+        # The default sensing band never reads DC or the missing +1 tone.
+        from config import DEFAULT_SUBCARRIERS
+        from tools.lib.csi_features import TURB_IQR_AGGREGATION_WIDTH
+        half_width = (TURB_IQR_AGGREGATION_WIDTH - 1) // 2
+        assert all(abs(bin_index - 33) > half_width for bin_index in DEFAULT_SUBCARRIERS)
+
+    def test_ambiguous_invalid_pairs_are_rejected(self):
+        assert normalize_ht20_csi_payload(bytearray(128), first_word_invalid=True)[0] is None
 
 
 def test_hardware_rx_error_is_rejected_before_fast_path():
@@ -829,3 +846,36 @@ def test_hardware_rx_error_is_rejected_before_fast_path():
     result = assess_ht20_sensing_frame(frame, bytearray(128), static_fast_path=True)
     assert result['disposition'] == 'drop'
     assert result['reason_code'] == 'rx_error'
+
+
+@pytest.mark.parametrize('lltf', [False, True])
+@pytest.mark.parametrize('source_layout', [LAYOUT_BINS_CLASSIC, LAYOUT_BINS_CENTERED])
+@pytest.mark.parametrize('invalid', [False, True])
+def test_detector_preparation_uses_metadata_and_preserves_raw(lltf, source_layout, invalid):
+    raw = bytearray(range(128))
+    raw[:8] = b'\x00' * 8
+    raw[64:68] = b'\x00' * 4
+    original = bytes(raw)
+    scratch = bytearray(128)
+    result = prepare_ht20_detector_input(raw, scratch, lltf=lltf,
+                                        first_word_invalid=invalid, source_layout=source_layout)
+    expected = bytearray(original)
+    if lltf:
+        for target, source in device_utils_module.HT20_LLTF_DETECTOR_BIN_SOURCES:
+            expected[target * 2:target * 2 + 2] = original[source * 2:source * 2 + 2]
+    if invalid and source_layout == LAYOUT_BINS_CLASSIC:
+        expected[66:68] = original[68:70]
+    assert result == expected
+    assert bytes(raw) == original
+    assert result[64:66] == b'\x00\x00'
+    if lltf or (invalid and source_layout == LAYOUT_BINS_CLASSIC):
+        assert result is scratch
+    else:
+        assert result is raw
+
+
+def test_detector_preparation_rejects_unknown_invalid_word_mapping():
+    raw = bytearray(128)
+    scratch = bytearray([7] * 128)
+    assert prepare_ht20_detector_input(raw, scratch, lltf=True, first_word_invalid=True) is None
+    assert scratch == bytearray([7] * 128)

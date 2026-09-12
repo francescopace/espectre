@@ -121,27 +121,47 @@ inline bool zero_ht20_lltf_missing_bins(int8_t* csi_data, size_t csi_len) {
 }
 
 /**
- * Fill LLTF's missing edge tones in a private detector input buffer.
+ * Prepare a private centered detector buffer from normalized raw CSI.
  *
- * Each missing I/Q pair is copied from the nearest live physical tone, -26 or
- * +26. Keep the normalized raw view zero-filled and call this helper only on a
- * separate detector buffer.
+ * Fill LLTF edge tones from -26/+26 and hardware-invalid classic +1 from +2.
+ * Source metadata, never a zero value, selects the latter. DC and guards stay
+ * unchanged. Call only on a private detector buffer, after raw delivery splits.
  *
- * @param csi_data Centered, interleaved I/Q HT20 payload to update in place.
+ * @param csi_data Private centered, interleaved I/Q HT20 buffer to update.
  * @param csi_len Payload length in bytes; must equal HT20_CSI_LEN.
- * @return true when the payload was updated, or false for invalid input.
+ * @param lltf Whether the capture profile lacks the LLTF edge tones.
+ * @param first_word_invalid Whether the first four source bytes were invalid.
+ * @param source_layout Original source ordering, before centered normalization.
+ * @return true for a prepared buffer, or false for invalid input or unknown
+ *         ordering of a flagged source; invalid input is not modified.
  */
-inline bool impute_ht20_lltf_detector_bins(int8_t* csi_data, size_t csi_len) {
-    if (csi_data == nullptr || csi_len != HT20_CSI_LEN) {
+inline bool prepare_ht20_detector_input(
+        int8_t* csi_data, size_t csi_len, bool lltf,
+        bool first_word_invalid = false,
+        Ht20BinLayout source_layout = Ht20BinLayout::UNKNOWN) {
+    if (csi_data == nullptr || csi_len != HT20_CSI_LEN ||
+        (first_word_invalid && source_layout != Ht20BinLayout::CLASSIC &&
+         source_layout != Ht20BinLayout::CENTERED)) {
         return false;
     }
-    for (uint8_t target_bin : HT20_LLTF_MISSING_BINS) {
-        const uint16_t target = static_cast<uint16_t>(target_bin) * 2U;
-        const uint16_t source = target_bin < HT20_DC_SUBCARRIER ? 12U : 116U;
-        csi_data[target] = csi_data[source];
-        csi_data[target + 1U] = csi_data[source + 1U];
+    if (lltf) {
+        for (uint8_t target_bin : HT20_LLTF_MISSING_BINS) {
+            const uint16_t target = static_cast<uint16_t>(target_bin) * 2U;
+            const uint16_t source = target_bin < HT20_DC_SUBCARRIER ? 12U : 116U;
+            csi_data[target] = csi_data[source];
+            csi_data[target + 1U] = csi_data[source + 1U];
+        }
+    }
+    if (first_word_invalid && source_layout == Ht20BinLayout::CLASSIC) {
+        csi_data[66] = csi_data[68];
+        csi_data[67] = csi_data[69];
     }
     return true;
+}
+
+/** Prepare the legacy LLTF-only detector view in a private buffer. */
+inline bool impute_ht20_lltf_detector_bins(int8_t* csi_data, size_t csi_len) {
+    return prepare_ht20_detector_input(csi_data, csi_len, true);
 }
 
 /**

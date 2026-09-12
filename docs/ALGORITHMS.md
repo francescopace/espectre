@@ -344,8 +344,6 @@ The same production feature set is used by:
 
 Lightweight startup uses up to 10 seconds of valid, ready coverage after temporal warmup. A clean `quiet -> motion -> quiet` pattern can finish earlier. For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
 
-Micro-ESPectre bounds the calibration attempt in wall-clock time: it aborts after 15 seconds without admitted CSI or after `max(15000, 2 * CALIBRATION_DURATION_MS + SEGMENTATION_WINDOW_SIZE_MS)` milliseconds overall, even if sparse packets continue arriving. Its deployment settings are in [README.md](../src/python/micro_espectre/README.md#runtime-behavior).
-
 Both profiles use the same fixed subcarrier set and temporal-admission contract. Their feature extraction, working state, readiness gates, motion metric, and threshold-calibration behavior differ.
 
 ## References

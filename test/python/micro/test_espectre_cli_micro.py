@@ -1457,7 +1457,7 @@ def test_verify_installation_raises_when_required_checks_fail(monkeypatch) -> No
 
 
 @pytest.mark.parametrize('he', [False, True])
-def test_csi_quality_patch_filters_hardware_errors_and_cleans_only_guards(tmp_path, he):
+def test_csi_quality_patch_filters_hardware_errors_and_preserves_partial_word_metadata(tmp_path, he):
     """Compile the patched callback to test admission, not generated source text."""
     path = tmp_path / 'ports' / 'esp32' / 'network_wlan_csi.c'
     path.parent.mkdir(parents=True)
@@ -1504,7 +1504,24 @@ static void reset_counters(void) {
     csi_state_t *state = &native_state;
     state->callbacks = 0;
 }
-static struct { uint16_t len; int8_t data[256]; } frame;
+static struct {
+    uint16_t len;
+    uint8_t rx_state;
+    uint8_t _reserved : 1;
+    int8_t data[256];
+} frame;
+typedef struct { mp_obj_t items[23]; } mp_obj_list_t;
+static mp_obj_list_t list;
+static mp_obj_list_t *mp_obj_list_optional_arg(mp_obj_t obj, unsigned len) {
+    (void)obj; assert(len == 23); return &list;
+}
+#define MP_OBJ_NEW_SMALL_INT(value) (value)
+static mp_obj_t read_quality(void) {
+    mp_obj_t result_in = 0;
+    mp_obj_list_t *result = mp_obj_list_optional_arg(result_in, 22);
+    result->items[21] = MP_OBJ_NEW_SMALL_INT(frame.rx_state);
+    return result->items[22];
+}
 static unsigned accepted;
 static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {
     (void)ctx;
@@ -1512,6 +1529,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {
     csi_state_t *state = &native_state;
     __atomic_fetch_add(&state->callbacks, 1, __ATOMIC_RELAXED);
     frame.len = info->len;
+    frame.rx_state = info->rx_ctrl.rx_state;
     memcpy(frame.data, info->buf, frame.len);
     ++accepted;
 }
@@ -1537,8 +1555,8 @@ int main(void) {
     const uint8_t guards[] = {2,3,61,62,63};
     for (unsigned i=0;i<sizeof(guards);++i) payload[guards[i]*2]=payload[guards[i]*2+1]=0;
     wifi_csi_rx_cb(NULL, &info); assert(accepted == 2);
-    for (unsigned i=0;i<4;++i) assert(frame.data[i] == 0 && payload[i] == 7);
-    assert(memcmp(frame.data+4,payload+4,124) == 0);
+    assert(read_quality() == 1);
+    assert(memcmp(frame.data,payload,128) == 0);
     info.len=256;
     wifi_csi_rx_cb(NULL, &info); assert(accepted == 3);
     info.len=114;
@@ -1578,6 +1596,27 @@ int main(void) {
             }
         }
     }
+
+    // A classic packet is admitted with its source bytes and flag intact.
+    memset(payload, 7, sizeof(payload));
+    const uint8_t classic_guards[] = {29,30,31,33,34,35};
+    for (unsigned i=0;i<sizeof(classic_guards);++i) payload[classic_guards[i]*2]=payload[classic_guards[i]*2+1]=0;
+    info = (wifi_csi_info_t){.buf=payload, .len=128, .first_word_invalid=true};
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+    info.rx_ctrl.rx_channel_estimate_info_vld = 1;
+#endif
+    unsigned before = accepted;
+    wifi_csi_rx_cb(NULL, &info);
+    assert(accepted == before + 1 && read_quality() == 1);
+    assert(memcmp(frame.data, payload, 128) == 0);
+    info.first_word_invalid = false;
+    wifi_csi_rx_cb(NULL, &info);
+    assert(read_quality() == 0);
+    memset(payload, 0, sizeof(payload));
+    info.first_word_invalid = true;
+    before = accepted;
+    wifi_csi_rx_cb(NULL, &info);
+    assert(accepted == before);
 
     reset_counters();
     assert((*methods[0].getter)(0) == 0);

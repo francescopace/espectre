@@ -247,14 +247,15 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   }
 
   if (data->first_word_invalid && normalized.valid()) {
-    // Never mutate the Wi-Fi driver's buffer. The invalid bytes have already
-    // been proven to be centered guard pairs, independent of their values.
+    // Resolve source ordering before zeroing the invalid pairs. In classic
+    // order they map to centered DC/+1, outside the default detector band.
+    // Keep them missing in raw output and never mutate the driver buffer.
+    bin_layout_ = detect_ht20_bin_layout(data->buf, HT20_CSI_LEN, true);
     if (normalized.data != remap_scratch_.data()) {
       std::copy_n(normalized.data, HT20_CSI_LEN, remap_scratch_.data());
     }
     std::fill_n(remap_scratch_.data(), 4U, int8_t{0});
     normalized.data = remap_scratch_.data();
-    bin_layout_ = Ht20BinLayout::CENTERED;
     sanitized_first_word_packets_.fetch_add(1U, std::memory_order_relaxed);
   }
 

@@ -740,8 +740,43 @@ void test_high_accuracy_detector_move_semantics_and_cv_state(void) {
     TEST_ASSERT_FALSE(std::isnan(assigned.get_motion_metric()));
 }
 
+void test_detector_csi_preparation_uses_metadata_and_preserves_other_tones(void) {
+    for (bool lltf : {false, true}) {
+        for (bool invalid : {false, true}) {
+            for (Ht20BinLayout layout : {Ht20BinLayout::CLASSIC, Ht20BinLayout::CENTERED}) {
+                std::array<int8_t, HT20_CSI_LEN> data{};
+                for (unsigned i = 0; i < data.size(); ++i) data[i] = static_cast<int8_t>(i);
+                data[64] = data[65] = data[66] = data[67] = 0;
+                const auto original = data;
+                auto expected = original;
+                if (lltf) {
+                    for (uint8_t bin : HT20_LLTF_MISSING_BINS) {
+                        const unsigned source = bin < HT20_DC_SUBCARRIER ? 12 : 116;
+                        expected[bin * 2] = original[source];
+                        expected[bin * 2 + 1] = original[source + 1];
+                    }
+                }
+                if (invalid && layout == Ht20BinLayout::CLASSIC) {
+                    expected[66] = original[68];
+                    expected[67] = original[69];
+                }
+                TEST_ASSERT_TRUE(prepare_ht20_detector_input(data.data(), data.size(), lltf, invalid, layout));
+                TEST_ASSERT_TRUE(data == expected);
+            }
+        }
+    }
+    std::array<int8_t, HT20_CSI_LEN> data{};
+    data.fill(7);
+    const auto original = data;
+    TEST_ASSERT_FALSE(prepare_ht20_detector_input(data.data(), data.size(), true, true));
+    TEST_ASSERT_TRUE(data == original);
+    TEST_ASSERT_FALSE(prepare_ht20_detector_input(nullptr, HT20_CSI_LEN, true));
+    TEST_ASSERT_FALSE(prepare_ht20_detector_input(data.data(), HT20_CSI_LEN - 2, true));
+}
+
 int process(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_detector_csi_preparation_uses_metadata_and_preserves_other_tones);
     RUN_TEST(test_utils_statistical_helpers_cover_edge_cases);
     RUN_TEST(test_temporal_csi_sampler_matches_fixed_slot_contract);
     RUN_TEST(test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets);

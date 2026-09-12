@@ -1,6 +1,6 @@
 # CSI acquisition and traffic
 
-The sensing runtime obtains channel state information (CSI) from Wi-Fi frames, validates the capture, and normalizes it before passing samples to the detector or raw collection. This reference covers the shared C++ acquisition path and [Micro-ESPectre's acquisition differences](#micro-espectre-acquisition). Micro's deployment settings are documented in its [README.md](../src/python/micro_espectre/README.md).
+The shared C++ sensing runtime obtains channel state information (CSI) from Wi-Fi frames, validates the capture, and normalizes it before passing samples to the detector or raw collection.
 
 [SDK.md](SDK.md#shared-sensing-options) owns configuration defaults and ranges. [API.md](API.md#external-csi-traffic) owns the external traffic contract and collection format; [ALGORITHMS.md](ALGORITHMS.md#detector-timing) owns temporal admission and detector processing.
 
@@ -31,7 +31,7 @@ Subnet and limited broadcast do not produce reliable HT20 CSI. Use the destinati
 
 ### Pacing
 
-The C++ generator, Micro-ESPectre native generator, and host UDP generator preserve the configured send phase through ordinary scheduler jitter. If the next deadline would fall less than half a period after a send, they restart the phase from that send time to avoid a close catch-up pair. Socket failures use local backoff; the runtime does not chase occupancy by changing the target.
+The C++ generator and host UDP generator preserve the configured send phase through ordinary scheduler jitter. If the next deadline would fall less than half a period after a send, they restart the phase from that send time to avoid a close catch-up pair. Socket failures use local backoff; the runtime does not chase occupancy by changing the target.
 
 Internal IP traffic and the host UDP generator request DSCP 46 treatment. A particular WMM priority or improvement in delivery is not guaranteed. [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md) records the pacing decision and measurements.
 
@@ -61,9 +61,9 @@ Supported first-party firmware uses an associated Wi-Fi station and does not ena
 
 Capture validates hardware quality before normalization, calibration, sensing, or collection, independently of the traffic generator. A nonzero `rx_state` rejects the packet on every supported chip. On HE-capable chips (C5/C6), a nonzero `rxend_state` or a cleared `rx_channel_estimate_info_vld` also rejects it. Unsupported metadata fields are not read on classic chips. Hardware estimate length is not used as a validity gate; payload length and layout validation still apply to the original CSI buffer.
 
-MicroPython includes native hardware-quality rejections in `csi_filtered_total` and `csi_filtered_pps`, and counts those callbacks in `csi_callbacks_total`. The dedicated native `csi_hw_errors()` counter counts only hardware-quality rejections, including faults accompanied by malformed buffers, once per callback. Buffer-only failures remain in the overall filtered count, and native ring overflow stays separate. Per-reason quality counters are available on the C++ frontends.
+Per-reason quality counters are available on the C++ frontends.
 
-`first_word_invalid` identifies the first four source bytes, not the first four normalized bytes. A frame is retained only when its full-width centered ordering can be identified independently of those bytes: the invalid guard pairs are zeroed in a private buffer. Compact, classic-order, and ambiguous flagged frames are rejected because their invalid pairs may affect live tones. No replacement live tones are synthesized. Quality-drop counters cover all capture callbacks, including background traffic, and do not by themselves identify generator-specific failures. Quality errors take priority over missing or malformed payloads and do not participate in the format-drop reset streak; valid-stream gaps remain subject to temporal admission. RSSI and sequence metadata are not additional validity gates.
+`first_word_invalid` identifies the first four source bytes, not the first four normalized bytes. A full-width frame (128 or 256 source bytes) is retained when its centered or classic ordering can be identified independently of those bytes. The invalid pairs are zeroed in a private buffer before sensing or raw delivery. In centered source ordering they are guard pairs; in classic ordering they map to centered bins 32 and 33 (DC and physical subcarrier +1). The default turbulence band and its five-tone aggregation neighborhoods exclude both bins, so their measured tones are preserved. High Accuracy also consumes the wider channel profile, so the private detector view imputes the missing +1 tone from +2 as described below. Raw output keeps the existing `first_word_invalid` flag and marks those pairs as zero, without synthesizing replacement live tones; consumers selecting +1 must treat it as missing. Compact and ambiguous flagged frames remain rejected: their missing source pairs cannot be handled under this contract without potentially changing the detector band. Quality-drop counters cover all capture callbacks, including background traffic, and do not by themselves identify generator-specific failures. Quality errors take priority over missing or malformed payloads and do not participate in the format-drop reset streak; valid-stream gaps remain subject to temporal admission. RSSI and sequence metadata are not additional validity gates.
 
 Missing valid CSI makes sensing unavailable. A high callback rate does not establish usable input, and collection traffic itself can generate additional ACKs. Compare accepted input, temporal occupancy, and readiness when evaluating a generator. [TROUBLESHOOTING.md](TROUBLESHOOTING.md#no-csi-or-insufficient-input) gives the diagnostic sequence.
 
@@ -80,25 +80,21 @@ Supported HT20 payload variants are normalized onto the same internal 64-subcarr
 | Double HT20 payload | `256 B = 2 x 64 SC` | collapse to one `128 B` half | `64 SC / 128 B` |
 | Double short HT estimate | `228 B = 2 x 57 SC` | collapse to one `57 SC` half, then pad `4` left and `3` right | `64 SC / 128 B` |
 
-The shared C++ and Python normalizers support compact 106-byte LLTF estimates (53 signed 8-bit I/Q pairs) as well as full-width LLTF. Compact estimates require legacy LLTF admission. Their centered ordering is `-26..+26`, with DC at pair 26. Normalization pads six bins on the left and five on the right, placing DC at bin 32 in the existing 128-byte payload and leaving absent bins zero-filled. The detector applies its separate LLTF edge-tone imputation.
+Normalization supports compact 106-byte LLTF estimates (53 signed 8-bit I/Q pairs) as well as full-width LLTF. Compact estimates require legacy LLTF admission. Their centered ordering is `-26..+26`, with DC at pair 26. Normalization pads six bins on the left and five on the right, placing DC at bin 32 in the existing 128-byte payload and leaving absent bins zero-filled. The detector applies its separate LLTF edge-tone imputation.
 
 This mapping accepts 8-bit components; it does not decode packed 12-bit samples. C5 LLTF capture selects 8-bit mode. The ordering was confirmed on C5 hardware; evidence and the limits of that observation are in [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
 
 ## Detector input and raw collection
 
-The CSI callback classifies packet provenance against the traffic mode before data reaches sensing or collection. Accepted sensing frames pass through `TemporalCsiSampler`. Accepted raw frames bypass temporal sampling and enter a preallocated SPSC ring drained by a dedicated task-notified HTTP worker. Raw collection therefore retains packets that the detector may classify as excess within a temporal slot.
+The CSI callback classifies packet provenance against the traffic mode before data reaches sensing or collection. Accepted sensing frames pass through one `prepare_ht20_detector_input` step and then `TemporalCsiSampler`. The preparation step uses a private centered buffer to fill LLTF edge tones from -26/+26 and a hardware-invalid classic +1 tone from +2. Only the capture profile, the hardware flag, and the original bin ordering select these replacements; a valid zero is never treated as evidence of missing data. DC and guard bins are left unchanged. The raw branch runs before this preparation and retains zeros plus the original hardware flag. C++ and Python use the same preparation policy for calibration and detection. Accepted raw frames bypass temporal sampling and enter a preallocated SPSC ring drained by a dedicated task-notified HTTP worker. Raw collection therefore retains packets that the detector may classify as excess within a temporal slot.
 
 [ALGORITHMS.md](ALGORITHMS.md#detector-timing) defines admission, window geometry, and readiness. [API.md](API.md#csi-collection) defines collection sessions, framing, and observable drop accounting; [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) covers dataset collection.
 
-## Micro-ESPectre acquisition
+### Raw queue validation
 
-Micro-ESPectre reuses the native managed `ping`, `dns`, and `dns_tcp` generators. It does not expose `wifi_raw`, runtime traffic changes, a UDP marker listener, or multicast membership. `TRAFFIC_GENERATOR_TARGET_IP` applies the destination rules in [SDK.md](SDK.md#traffic-destination); an empty value follows the gateway. `TRAFFIC_GENERATOR_ENABLED = False` requires an external source of Wi-Fi traffic without the managed UDP ingress used by the C++ frontends.
+On 2026-09-12, a Native hardware comparison tested 512-, 256-, and 128-byte raw queue slots on ESP32-C3 and ESP32-C5 with a pinned access point and host traffic at 100 and 500 pps. All three slot sizes produced valid normalized records. Intermittent queue drops occurred at multiple sizes, so these short runs do not establish a throughput advantage for larger slots.
 
-Micro requests automatic band selection when the MicroPython station API supports it and otherwise configures 2.4 GHz. Its profile selector uses `lltf20` on ESP32 and ESP32-S2, `vht20` on a 5 GHz ESP32-C5 association, and `ht20` otherwise. The same limits on uncharacterized 5 GHz sensing apply. Classic-MAC payloads are rotated from Espressif's `0~31, -32~-1` ordering to the centered convention before detector processing.
-
-`CSI_BUFFER_SIZE` sets the number of native ring records. `CSI_CAPTURE_MAX_DATA_LEN` sets their fixed stride: the default `256` bytes accommodates doubled HT20 payloads. A `128`-byte stride is suitable only when every captured frame fits the canonical payload; larger frames are truncated before normalization. Normalization and temporal admission then prepare the detector input as described in [ALGORITHMS.md](ALGORITHMS.md#detector-timing).
-
-When no frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, Micro first rearms CSI. If the stall persists, it stops Direct, reconnects Wi-Fi, creates a fresh capture ring, recalibrates, and republishes discovery. This recovery is implemented in [runtime_main.py](../src/python/micro_espectre/runtime_main.py) and [wifi_bootstrap.py](../src/python/micro_espectre/wifi_bootstrap.py).
+In the same comparison, classic ESP32 capture rejected frames with invalid first words before they reached the queue at all three slot sizes. Those runs could not measure raw throughput on that board: a stream with no accepted CSI cannot validate queue performance. The results cover only the tested Native configurations. The 128-byte slot size follows the normalized capture bound documented in [SDK.md](SDK.md#raw-csi-storage); changing slot capacity does not resolve capture-quality failures.
 
 ## Compatibility limits
 

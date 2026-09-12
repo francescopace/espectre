@@ -171,7 +171,7 @@ if (!espectre::set_log_sink(sink)) {
 
 The `enabled` callback decides whether a level and tag should be formatted. The `write` callback receives the level, tag, source line, format string, and a `va_list` that remains valid only for that call. ESPectre copies the callback value but does not own its context. Keep the context alive until `clear_log_sink()`, and register, replace, or clear the sink only while no runtime is active. Callbacks may arrive from the runtime owner task, ESP-IDF service tasks, or CSI capture paths, so they must be thread-safe, bounded, non-blocking, and must not call the ESPectre logger recursively.
 
-The shipped frontends provide the reference adapters. ESPHome sends messages to its logger. Native, Matter, and the Micro-ESPectre native bindings use ESP-IDF Log v2 and pass each callback's `va_list` to `esp_log_va`. ESP-IDF adds the standard level, timestamp, tag, and line ending, so these adapters do not need their own formatting buffer. Micro-ESPectre keeps the ESP-IDF dependency in its frontend module; its core-only and focused traffic components remain logger-independent and share the sink implementation linked from core. The shared SDK components remain independent of `esp_log`.
+The shipped frontends provide the reference adapters. ESPHome sends messages to its logger. Native and Matter use ESP-IDF Log v2 and pass each callback's `va_list` to `esp_log_va`. ESP-IDF adds the standard level, timestamp, tag, and line ending, so these adapters do not need their own formatting buffer. The shared SDK components remain independent of `esp_log`.
 
 ## Header map
 
@@ -225,6 +225,16 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Raw CSI packet callbacks are the deliberate exception: they run synchronously in the Wi-Fi CSI capture context. Keep them bounded, non-blocking, and allocation-free, and copy accepted samples into a preallocated bounded queue when another task must process them. Returning false reports a caller-owned drop or backpressure event; it does not stop collection.
 
 Stopping raw collection synchronizes with any packet callback already in progress before releasing its context. The caller can reclaim that context after `stop_raw_collection()` succeeds. Raw callbacks must follow the owner-task rule for runtime controls; they must not stop collection themselves.
+
+### Raw CSI storage
+
+`prepare_ht20_detector_input` prepares a private centered buffer after the raw branch: it handles both LLTF edge tones and hardware-invalid classic +1, using explicit source metadata. The existing `impute_ht20_lltf_detector_bins` helper remains a compatible LLTF-only wrapper. See [CSI.md](CSI.md#detector-input-and-raw-collection) for the shared preparation policy.
+
+The built-in capture pipeline normalizes LLTF, HT, and VHT samples to `HT20_CSI_LEN`: 128 bytes containing 64 complex subcarriers. `RawCsiPacketView` exposes this normalized view. Size capture queues for the normalized payload. `RAW_CSI_MAX_PAYLOAD_BYTES` defines the separate 512-byte payload limit for stored and transmitted records.
+
+`EspIdfDirectHttpService` uses a 16-slot raw queue with 128 payload bytes per slot and sends records in batches of up to four. It allocates raw buffers when a session starts and releases them when it stops.
+
+The queue can overflow during a stalled send, regardless of each slot's payload capacity. Inspect `raw_csi.raw_drop_total` separately from capture-quality rejections; see [CSI.md](CSI.md#capture-quality).
 
 ### Lifecycle
 

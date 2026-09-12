@@ -8,7 +8,7 @@ The deployed runtime provides Lightweight detection and calibration, internal pi
 
 The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy and pure-Python Lightweight implementations live under `tools/lib/` for host-side research and C++/Python validation; `micro deploy` does not copy them to the device.
 
-The project builds a pinned mainline MicroPython revision for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. It senses through an associated Wi-Fi station without promiscuous mode. Start with 2.4 GHz; see [CSI.md](../../../docs/CSI.md#micro-espectre-acquisition) for band and capture differences, and [SETUP.md](../../../docs/SETUP.md#sensor-placement) for placement and the first sensing check. Recording requirements are in [ML_DATA_COLLECTION.md](../../../docs/ML_DATA_COLLECTION.md#data-privacy).
+The project builds a pinned mainline MicroPython revision for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. It senses through an associated Wi-Fi station without promiscuous mode. Start with 2.4 GHz. The CSI acquisition section below describes band and capture behavior; [SETUP.md](../../../docs/SETUP.md#sensor-placement) covers placement and the first sensing check. Recording requirements are in [ML_DATA_COLLECTION.md](../../../docs/ML_DATA_COLLECTION.md#data-privacy).
 
 ## Build and deploy
 
@@ -56,9 +56,25 @@ Defaults live in [config.py](config.py). Put deployment-specific overrides in `c
 | `MOTION_ON_HITS`, `MOTION_OFF_HITS` | Consecutive evaluated hits required to change motion state |
 | `ENABLE_LOWPASS_FILTER`, `LOWPASS_CUTOFF`, `ENABLE_HAMPEL_FILTER`, `HAMPEL_WINDOW`, `HAMPEL_THRESHOLD` | Optional preprocessing; both filters are disabled by default |
 
-`TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`, with `ping` as the default. An empty `TRAFFIC_GENERATOR_TARGET_IP` uses the Wi-Fi gateway; a unicast IPv4 address overrides it. Disabling the generator requires external traffic, but Micro has no UDP marker listener or multicast join. See [CSI.md](../../../docs/CSI.md#micro-espectre-acquisition) for traffic, buffer, and recovery details.
-
 Use [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for temporal admission, filters, and calibration, and [TROUBLESHOOTING.md](../../../docs/TROUBLESHOOTING.md#tuning-essentials) for tuning guidance. Apply supported configuration changes through deployment on Micro-ESPectre.
+
+Micro-ESPectre bounds the calibration attempt in wall-clock time: it aborts after 15 seconds without admitted CSI or after `max(15000, 2 * CALIBRATION_DURATION_MS + SEGMENTATION_WINDOW_SIZE_MS)` milliseconds overall, even if sparse packets continue arriving.
+
+## CSI acquisition
+
+Micro-ESPectre reuses the native managed traffic generators. `TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`, with `ping` as the default. `TRAFFIC_GENERATOR_TARGET_IP` follows the destination rules in [SDK.md](../../../docs/SDK.md#traffic-destination); an empty value uses the Wi-Fi gateway. Micro does not expose `wifi_raw`, runtime traffic changes, a UDP marker listener, or multicast membership. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external source of Wi-Fi traffic.
+
+The native generator preserves the configured send phase through ordinary scheduler jitter. If the next deadline would fall less than half a period after a send, it restarts the phase from that send time to avoid a close catch-up pair. Socket failures use local backoff.
+
+Micro requests automatic band selection when the MicroPython station API supports it and otherwise configures 2.4 GHz. Its profile selector uses `lltf20` on ESP32 and ESP32-S2, `vht20` on a 5 GHz ESP32-C5 association, and `ht20` otherwise. Detection quality on 5 GHz remains uncharacterized. Classic-MAC payloads are rotated from Espressif's `0~31, -32~-1` ordering to the centered convention before detector processing. [CSI.md](../../../docs/CSI.md#normalization) describes the shared normalized layout and capture-quality rules.
+
+`CSI_BUFFER_SIZE` sets the number of native ring records. `CSI_CAPTURE_MAX_DATA_LEN` sets their fixed stride: the default `256` bytes accommodates doubled HT20 payloads. A `128`-byte stride is suitable only when every captured frame fits the canonical payload; larger frames are truncated before normalization. Normalization and temporal admission then prepare the detector input as described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md#detector-timing).
+
+MicroPython includes native hardware-quality rejections in `csi_filtered_total` and `csi_filtered_pps`, and counts those callbacks in `csi_callbacks_total`. The dedicated native `csi_hw_errors()` counter counts only hardware-quality rejections, including faults accompanied by malformed buffers, once per callback. Buffer-only failures remain in the overall filtered count, and native ring overflow stays separate. MicroPython appends `first_word_invalid` at index 22 of its native CSI frame list and normalizes the original source bytes before calibration or sensing; this requires rebuilding and flashing the Micro firmware as well as deploying the matching application.
+
+The diagnostics fields `csi_hw_error_total` and `csi_hw_error_pps` use the dedicated native hardware counter. Older firmware without that counter reports these measurements as unavailable and prints `hwerr:--` in the periodic sensing log. Rebuild and flash the firmware to enable them.
+
+When no frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, Micro first rearms CSI. If the stall persists, it stops Direct, reconnects Wi-Fi, creates a fresh capture ring, recalibrates, and republishes discovery. This recovery is implemented in [runtime_main.py](runtime_main.py) and [wifi_bootstrap.py](wifi_bootstrap.py).
 
 ## Direct HTTP surface
 
@@ -68,11 +84,15 @@ Micro-ESPectre provides read-only status and diagnostics, motion events, and man
 ./espectre devices --frontend micro
 ```
 
-Only one Monitor or SSE client can connect at a time. Recalibration affects the current session. [API.md](../../../docs/API.md) defines the supported resources, request limits, events, and Origin policy.
+[API.md](../../../docs/API.md) defines the shared resource payloads and support matrix. Micro accepts at most 512 request bytes. It accepts `fields` on diagnostics; its other supported routes accept no parameters, so omit the body or send `{}`. Non-empty bodies require `Content-Type: application/json`. The service allows 20 requests per one-second window. Oversized bodies receive HTTP `413` and close the connection; incomplete bodies close it without executing the request. Manual recalibration is queued onto the main loop and affects only the current session.
 
-Browser Auto-discovery can list Micro when a Native, ESPHome, or Matter responder is on the LAN. Micro does not provide peer discovery itself; otherwise, enter its IP or unique hostname. See [DISCOVERY.md](../../../docs/DISCOVERY.md#browser-bootstrap).
+An unavailable snapshot returns an application JSON result with HTTP `503`. Some failures before application dispatch return plain text. Check the HTTP status and `Content-Type` before parsing JSON.
 
-For local browser development, build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` and follow [README.md](../../../docs/web/README.md#local-preview). Published board profiles keep loopback origins disabled.
+Only one Monitor or SSE client can connect at a time. Micro publishes only `motion` events and sends a `: heartbeat` comment every 10 seconds, with no replay. It retains one in-flight event of at most 4,096 bytes and one queued heartbeat. The stream uses `Cache-Control: no-store` and closes after a send error. A peer close or reset does not increment `direct_http.send_failures`; timeout and backpressure failures do.
+
+Micro publishes its DNS-SD record but cannot answer the bootstrap name or `GET /espectre/v1/devices`. Browser Auto-discovery can list it when a Native, ESPHome, or Matter responder is on the LAN. Without a responder, enter the private device IP or unique `espectre-<device-id>.local` hostname, or use a remembered endpoint. See [DISCOVERY.md](../../../docs/DISCOVERY.md#browser-bootstrap) for the shared discovery contract.
+
+Published firmware requires an `Origin` header and accepts only `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev`. For local browser development, build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` to also accept HTTP loopback hosts (`localhost`, `127.0.0.1`, or `[::1]`) with an optional valid port. Follow [README.md](../../../docs/web/README.md#local-preview) for the local preview workflow. Published board profiles keep loopback origins disabled.
 
 ## Commands
 

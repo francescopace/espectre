@@ -606,7 +606,7 @@ bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
   }
   const uint64_t sequence = raw_offer_sequence_.fetch_add(1U, std::memory_order_relaxed) + 1U;
   if (packet.csi == nullptr || packet.csi_len == 0U ||
-      packet.csi_len > RAW_CSI_MAX_PAYLOAD_BYTES || (packet.csi_len & 1U) != 0U) {
+      packet.csi_len > kRawSlotPayloadBytes || (packet.csi_len & 1U) != 0U) {
     raw_drop_total_.fetch_add(1U, std::memory_order_relaxed);
     raw_producer_active_.fetch_sub(1U, std::memory_order_release);
     return false;

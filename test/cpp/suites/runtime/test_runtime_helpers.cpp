@@ -12,6 +12,7 @@
 #include "csi_capture_service.h"
 #include "csi_format_classifier.h"
 #include "csi_format.h"
+#include "csi_features.h"
 #include "csi_platform_config.h"
 #include "runtime_config_utils.h"
 #include "mqtt_payload_assembler.h"
@@ -228,14 +229,29 @@ void test_csi_quality_rejects_hardware_errors_and_preserves_valid_tones(void) {
     service.process_packet(&info);
     TEST_ASSERT_EQUAL(5, captured.callback_count);
     TEST_ASSERT_EQUAL(1, service.invalid_first_word_packets());
-    payload.fill(12);
+    for (unsigned i = 0; i < payload.size(); ++i) payload[i] = static_cast<int8_t>(i % 119 + 1);
     for (uint8_t bin : HT20_CLASSIC_ONLY_NULL_BINS) {
         payload[bin * 2] = payload[bin * 2 + 1] = 0;
     }
-    service.process_packet(&info);
-    TEST_ASSERT_EQUAL(5, captured.callback_count);
-    TEST_ASSERT_EQUAL(2, service.invalid_first_word_packets());
-    TEST_ASSERT_EQUAL(2, service.filtered_packets());
+    const auto required_bins = detail::required_amplitude_bins(
+        DEFAULT_SUBCARRIERS, HT20_SELECTED_BAND_SIZE, TURB_IQR_AGGREGATION_WIDTH);
+    TEST_ASSERT_FALSE(required_bins[32]);
+    TEST_ASSERT_FALSE(required_bins[33]);
+    const auto original_classic = payload;
+    for (uint16_t length : {128, 256}) {
+        info.len = length;
+        service.process_packet(&info);
+        TEST_ASSERT_TRUE(captured.first_word_invalid);
+        for (unsigned i = 0; i < 128; ++i) {
+            const int8_t expected = i >= 64 && i < 68 ? 0 : original_classic[(i + 64) % 128];
+            TEST_ASSERT_EQUAL_INT8(expected, captured.payload[i]);
+        }
+        TEST_ASSERT_TRUE(payload == original_classic);
+    }
+    TEST_ASSERT_EQUAL(7, captured.callback_count);
+    TEST_ASSERT_EQUAL(2, service.sanitized_first_word_packets());
+    TEST_ASSERT_EQUAL(1, service.invalid_first_word_packets());
+    TEST_ASSERT_EQUAL(1, service.filtered_packets());
     TEST_ASSERT_EQUAL(ESP_OK, service.disable());
     TEST_ASSERT_EQUAL(ESP_OK, service.enable(CsiCaptureProfile::LLTF20));
     info.len = 106;
@@ -245,8 +261,8 @@ void test_csi_quality_rejects_hardware_errors_and_preserves_valid_tones(void) {
     info.rx_ctrl.sig_mode = 0;
 #endif
     service.process_packet(&info);
-    TEST_ASSERT_EQUAL(5, captured.callback_count);
-    TEST_ASSERT_EQUAL(3, service.invalid_first_word_packets());
+    TEST_ASSERT_EQUAL(7, captured.callback_count);
+    TEST_ASSERT_EQUAL(2, service.invalid_first_word_packets());
 }
 
 #if !CONFIG_SOC_WIFI_HE_SUPPORT

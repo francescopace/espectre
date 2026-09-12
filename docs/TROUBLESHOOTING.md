@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with CSI occupancy and traffic, then check placement and detector behavior. Use the browser connectivity section if you cannot reach the device controls. These procedures cover the maintained C++ frontends; Micro-ESPectre users can apply the shared diagnostic checks, with configuration and controls described in its [README.md](../src/python/micro_espectre/README.md).
+Start with CSI occupancy and traffic, then check placement and detector behavior. Use the browser connectivity section if you cannot reach the device controls. These procedures cover the maintained C++ frontends.
 
 ## Contents
 

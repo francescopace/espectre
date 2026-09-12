@@ -35,7 +35,7 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "csi-quality-v3"
+MICROPYTHON_PATCH_REVISION = "csi-quality-v4"
 PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
@@ -775,7 +775,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_rearm_obj, network_wlan_csi_rearm);
 
 
 def _configure_project_csi_quality(micropython_dir: Path) -> None:
-    """Reject invalid hardware estimates before publishing a MicroPython frame."""
+    """Reject hardware faults and preserve partial-word metadata for normalization."""
     esp32_dir = micropython_dir / "ports" / "esp32"
     path = esp32_dir / "network_wlan_csi.c"
     source = path.read_text(encoding="utf-8")
@@ -807,25 +807,24 @@ static bool espectre_csi_hardware_error(const wifi_csi_info_t *info) {
     }
     #endif
     if (info->first_word_invalid) {
-        // Only independently identified, full-width centered guards can be
-        // cleaned. Compact and classic-order first pairs contain live tones.
+        // Resolve full-width ordering without reading the invalid source pairs.
+        // Compact layouts can overlap the detector band and remain unsupported.
         if (info->buf == NULL || (info->len != 128 && info->len != 256)) {
             return true;
         }
-        static const uint8_t guard_bins[] = {2, 3, 61, 62, 63};
-        static const uint8_t live_bins[] = {29, 30, 31, 33, 34, 35};
-        for (unsigned i = 0; i < sizeof(guard_bins); ++i) {
-            const unsigned offset = guard_bins[i] * 2;
-            if (info->buf[offset] != 0 || info->buf[offset + 1] != 0) {
-                return true;
-            }
+        static const uint8_t centered_nulls[] = {2, 3, 61, 62, 63};
+        static const uint8_t classic_nulls[] = {29, 30, 31, 33, 34, 35};
+        unsigned centered_energy = 0, classic_energy = 0;
+        for (unsigned i = 0; i < sizeof(centered_nulls); ++i) {
+            const unsigned offset = centered_nulls[i] * 2;
+            centered_energy += info->buf[offset] != 0 || info->buf[offset + 1] != 0;
         }
-        for (unsigned i = 0; i < sizeof(live_bins); ++i) {
-            const unsigned offset = live_bins[i] * 2;
-            if (info->buf[offset] == 0 && info->buf[offset + 1] == 0) {
-                return true;
-            }
+        for (unsigned i = 0; i < sizeof(classic_nulls); ++i) {
+            const unsigned offset = classic_nulls[i] * 2;
+            classic_energy += info->buf[offset] != 0 || info->buf[offset + 1] != 0;
         }
+        return !((centered_energy == 0 && classic_energy == sizeof(classic_nulls)) ||
+                 (classic_energy == 0 && centered_energy == sizeof(centered_nulls)));
     }
     return false;
 }
@@ -842,9 +841,22 @@ static bool espectre_csi_hardware_error(const wifi_csi_info_t *info) {
                             "        }\n"
                             "        return;\n"
                             "    }\n", 1)
-    source = source.replace(copy, copy + "\n        if (info->first_word_invalid) {\n"
-                            "            memset(frame.data, 0, frame.len < 4 ? frame.len : 4);\n"
-                            "        }", 1)
+    # Carry the hardware flag through the native ring and reusable Python list.
+    # The Python normalizer needs the source ordering before it can zero pairs.
+    metadata_replacements = (
+        ("    uint8_t _reserved : 1;", "    uint8_t first_word_invalid : 1;"),
+        ("    frame.rx_state = info->rx_ctrl.rx_state;",
+         "    frame.rx_state = info->rx_ctrl.rx_state;\n"
+         "    frame.first_word_invalid = info->first_word_invalid;"),
+        ("mp_obj_list_optional_arg(result_in, 22)", "mp_obj_list_optional_arg(result_in, 23)"),
+        ("    result->items[21] = MP_OBJ_NEW_SMALL_INT(frame.rx_state);",
+         "    result->items[21] = MP_OBJ_NEW_SMALL_INT(frame.rx_state);\n"
+         "    result->items[22] = MP_OBJ_NEW_SMALL_INT(frame.first_word_invalid);"),
+    )
+    for old, new in metadata_replacements:
+        if old not in source:
+            raise RuntimeError(f"MicroPython CSI quality metadata anchor is missing: {path}: {old}")
+        source = source.replace(old, new, 1)
     source = source.replace(field, field + "    volatile uint32_t filtered;\n    volatile uint32_t hw_errors;\n", 1)
     source = source.replace(reset, reset + "    state->filtered = 0;\n    state->hw_errors = 0;\n")
     # Keep native counter reads and MicroPython registration identical.

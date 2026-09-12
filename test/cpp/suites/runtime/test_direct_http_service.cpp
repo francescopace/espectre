@@ -761,7 +761,10 @@ void assert_raw_get_opens_automatic_session_and_emits_v2_frame(const char *origi
   TEST_ASSERT_TRUE(service.raw_diagnostics().binary_bound);
   TEST_ASSERT_EQUAL_STRING("application/octet-stream", g_httpd_mock.response_type);
 
-  const int8_t csi[] = {1, -2, 3, -4};
+  int8_t csi[HT20_CSI_LEN]{};
+  for (size_t index = 0U; index < sizeof(csi); ++index) {
+    csi[index] = static_cast<int8_t>(static_cast<int>(index) - 64);
+  }
   RawCsiPacketView packet{};
   packet.csi = csi;
   packet.csi_len = sizeof(csi);
@@ -793,6 +796,11 @@ void assert_raw_get_opens_automatic_session_and_emits_v2_frame(const char *origi
   TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, header->version);
   TEST_ASSERT_EQUAL(100000U, header->device_ticks_us);
   TEST_ASSERT_EQUAL(1U, header->fresh_record_total);
+  TEST_ASSERT_EQUAL(sizeof(csi), header->csi_len_bytes);
+  TEST_ASSERT_EQUAL(0, std::memcmp(csi,
+                                 g_httpd_mock.sent_payloads[0] + sizeof(RawCsiHttpFramePrefix) +
+                                     sizeof(RawCsiRecordHeaderV8),
+                                 sizeof(csi)));
   TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_FALSE(service.raw_diagnostics().active);
 }
@@ -1031,10 +1039,14 @@ void test_raw_assigns_sequence_before_rejecting_an_invalid_offer() {
 
   RawCsiPacketView invalid{};
   TEST_ASSERT_FALSE(service.offer_raw_packet(invalid));
+  int8_t oversized[HT20_CSI_LEN + 2U]{};
+  invalid.csi = oversized;
+  invalid.csi_len = sizeof(oversized);
+  TEST_ASSERT_FALSE(service.offer_raw_packet(invalid));
   const RawCsiSessionDiagnostics diagnostics = service.raw_diagnostics();
-  TEST_ASSERT_EQUAL(1U, diagnostics.stream_sequence);
+  TEST_ASSERT_EQUAL(2U, diagnostics.stream_sequence);
   TEST_ASSERT_EQUAL(0U, diagnostics.fresh_record_total);
-  TEST_ASSERT_EQUAL(1U, diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(2U, diagnostics.raw_drop_total);
   TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
                     diagnostics.fresh_record_total + diagnostics.raw_drop_total);
 }
