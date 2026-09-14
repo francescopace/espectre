@@ -14,10 +14,18 @@
 
 #include "esp_event.h"
 #include "esp_wifi.h"
+#include "esp_private/wifi.h"
 #include "standalone_wifi_service.h"
 #include "wifi_lifecycle.h"
+#include "wifi_tx_rate.h"
+#include "native_wifi.h"
 
 using namespace espectre;
+
+constexpr bool FIXED_STA_RATE = WIFI_TX_RATE_MBPS > 0U && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED;
+
+// The Wi-Fi bridge's frontend logging adapter is outside the radio contract.
+void espectre_native_ensure_log_sink() {}
 
 namespace espectre {
 
@@ -48,9 +56,191 @@ void setUp(void) {
   // into an already configured station explicitly.
   g_esp_netif_mock.ip_addr = 0U;
   esp_wifi_mock_reset();
+  g_esp_wifi_fixed_rate_mock = {};
 }
 
 void tearDown(void) {}
+
+void test_wifi_lifecycle_applies_station_rate_before_services_and_checks_ap_capabilities(void) {
+  for (unsigned phy = 0U; phy < 4U; ++phy) {
+    esp_event_mock_reset();
+    WiFiLifecycleManager manager;
+    g_esp_wifi_fixed_rate_mock = {};
+    // Model a rate retained from the previous AP before IPv4 is available.
+    g_esp_wifi_fixed_rate_mock.enabled = FIXED_STA_RATE;
+    g_esp_wifi_mock.current_ap_info.primary = phy == 3U ? 36U : 6U;
+    g_esp_wifi_mock.current_ap_info.phy_11g = phy == 1U;
+    g_esp_wifi_mock.current_ap_info.phy_11n = phy == 2U;
+    const bool expected_fixed = FIXED_STA_RATE && phy != 0U;
+    unsigned connections = 0U;
+    TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) {
+      TEST_ASSERT_EQUAL(expected_fixed, g_esp_wifi_fixed_rate_mock.enabled);
+      ++connections;
+    }, []() {}));
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    TEST_ASSERT_EQUAL(expected_fixed, g_esp_wifi_fixed_rate_mock.enabled);
+    TEST_ASSERT_EQUAL(0U, connections);
+
+    ip_event_got_ip_t event{};
+    event.ip_info.ip.addr = 0x0101A8C0U;
+    esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    TEST_ASSERT_EQUAL(1U, connections);
+    TEST_ASSERT_EQUAL(expected_fixed ? 1U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+    TEST_ASSERT_EQUAL(FIXED_STA_RATE && !expected_fixed ? 1U : 0U,
+                      g_esp_wifi_fixed_rate_mock.disable_calls);
+    if (expected_fixed) {
+      TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_fixed_rate_mock.interface);
+      TEST_ASSERT_EQUAL(WIFI_OFDM_TX_RATE, g_esp_wifi_fixed_rate_mock.rate);
+    }
+    esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    TEST_ASSERT_EQUAL(1U, connections);
+    TEST_ASSERT_EQUAL(expected_fixed ? 1U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+    manager.unregister_handlers();
+  }
+}
+
+void test_wifi_lifecycle_reapplies_station_rate_on_reconnect_and_ap_change(void) {
+  WiFiLifecycleManager manager;
+  unsigned connections = 0U;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers(
+      [&](const esp_netif_ip_info_t &) { ++connections; }, []() {}));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  // A driver restart may lose its fixed rate; the next connection reapplies it.
+  g_esp_wifi_fixed_rate_mock.enabled = false;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 2U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+
+  // Roaming with retained IPv4 must also reconsider an 802.11b-only AP.
+  g_esp_netif_mock.ip_addr = event.ip_info.ip.addr;
+  g_esp_wifi_mock.current_ap_info.phy_11g = false;
+  g_esp_wifi_mock.current_ap_info.phy_11n = false;
+  ++g_esp_wifi_mock.current_ap_info.bssid[5];
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 1U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+
+  g_esp_wifi_mock.current_ap_info.phy_11n = true;
+  ++g_esp_wifi_mock.current_ap_info.bssid[5];
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 3U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+  TEST_ASSERT_EQUAL(4U, connections);
+  manager.unregister_handlers();
+}
+
+void test_wifi_lifecycle_rate_failure_blocks_services_without_automatic_fallback(void) {
+  WiFiLifecycleManager manager;
+  unsigned connections = 0U;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers(
+      [&](const esp_netif_ip_info_t &) { ++connections; }, []() {}));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  g_esp_wifi_fixed_rate_mock.enable_result = ESP_FAIL;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? ESP_FAIL : ESP_OK, manager.process_pending_events());
+  // GOT_IP must not conceal an earlier association policy failure.
+  g_esp_wifi_fixed_rate_mock.enable_result = ESP_OK;
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? ESP_FAIL : ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 0U : 1U, connections);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 1U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+  TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+  TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
+  manager.unregister_handlers();
+}
+
+void test_wifi_lifecycle_reports_failure_to_clear_fixed_rate_for_b_only_ap(void) {
+  WiFiLifecycleManager manager;
+  unsigned connections = 0U;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers(
+      [&](const esp_netif_ip_info_t &) { ++connections; }, []() {}));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  g_esp_wifi_mock.current_ap_info.phy_11g = false;
+  g_esp_wifi_mock.current_ap_info.phy_11n = false;
+  g_esp_wifi_fixed_rate_mock.enabled = FIXED_STA_RATE;
+  g_esp_wifi_fixed_rate_mock.disable_result = ESP_FAIL;
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? ESP_FAIL : ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 0U : 1U, connections);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 1U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+  manager.unregister_handlers();
+}
+
+void test_wifi_lifecycle_requires_ap_info_before_applying_fixed_station_rate(void) {
+  WiFiLifecycleManager manager;
+  unsigned connections = 0U;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers(
+      [&](const esp_netif_ip_info_t &) { ++connections; }, []() {}));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? ESP_ERR_WIFI_NOT_CONNECT : ESP_OK,
+                    manager.process_pending_events());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? 0U : 1U, connections);
+  TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+  manager.unregister_handlers();
+}
+
+void test_micro_wifi_policy_handles_association_and_preserves_driver_errors(void) {
+  g_esp_event_mock.register_results[0] = ESP_FAIL;
+  g_esp_event_mock.register_result_count = 1;
+  TEST_ASSERT_EQUAL(ESP_FAIL, espectre_native_wifi_prepare_tx_rate());
+  TEST_ASSERT_EQUAL(ESP_OK, espectre_native_wifi_prepare_tx_rate());
+  TEST_ASSERT_EQUAL(ESP_OK, espectre_native_wifi_prepare_tx_rate());
+  TEST_ASSERT_EQUAL(2U, g_esp_event_mock.register_call_count);
+
+  // The native event handler applies the rate without a generator or IPv4.
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(ESP_OK, espectre_native_wifi_apply_tx_rate());
+
+  g_esp_wifi_mock.current_ap_info.phy_11g = false;
+  g_esp_wifi_mock.current_ap_info.phy_11n = false;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
+
+  g_esp_wifi_mock.current_ap_info.phy_11g = true;
+  g_esp_wifi_fixed_rate_mock.enable_result = ESP_FAIL;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  const unsigned enable_calls = g_esp_wifi_fixed_rate_mock.enable_calls;
+  // The Python-side readiness check must report the association error,
+  // even if another driver call would succeed by the time it runs.
+  g_esp_wifi_fixed_rate_mock.enable_result = ESP_OK;
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE ? ESP_FAIL : ESP_OK,
+                    espectre_native_wifi_apply_tx_rate());
+  TEST_ASSERT_EQUAL(enable_calls, g_esp_wifi_fixed_rate_mock.enable_calls);
+
+  TEST_ASSERT_EQUAL(ESP_OK, espectre_native_wifi_prepare_tx_rate());
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, espectre_native_wifi_apply_tx_rate());
+  TEST_ASSERT_EQUAL(FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
+  TEST_ASSERT_EQUAL(2U, g_esp_event_mock.register_call_count);
+}
 
 void test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous(void) {
   WiFiLifecycleManager manager;
@@ -1077,6 +1267,12 @@ void test_standalone_wifi_service_apply_started_policy_and_reconnect_logic(void)
 
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_wifi_lifecycle_applies_station_rate_before_services_and_checks_ap_capabilities);
+  RUN_TEST(test_wifi_lifecycle_reapplies_station_rate_on_reconnect_and_ap_change);
+  RUN_TEST(test_wifi_lifecycle_rate_failure_blocks_services_without_automatic_fallback);
+  RUN_TEST(test_wifi_lifecycle_reports_failure_to_clear_fixed_rate_for_b_only_ap);
+  RUN_TEST(test_wifi_lifecycle_requires_ap_info_before_applying_fixed_station_rate);
+  RUN_TEST(test_micro_wifi_policy_handles_association_and_preserves_driver_errors);
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
   RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
   RUN_TEST(test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets);

@@ -12,6 +12,7 @@
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"
+#include "wifi_tx_rate.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -419,6 +420,14 @@ esp_err_t WiFiLifecycleManager::init() {
     return ps_err;
   }
 
+  // A late registration may miss association. Otherwise preserve that
+  // event's result, including errors, until the next connection attempt.
+  if (!station_tx_rate_attempted_) {
+    station_tx_rate_err_ = apply_station_tx_rate();
+    station_tx_rate_attempted_ = true;
+  }
+  if (station_tx_rate_err_ != ESP_OK) return station_tx_rate_err_;
+
   ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI lifecycle ready");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG, band_policy_);
   ready_ = true;
@@ -437,6 +446,8 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   connected_callback_ = connected_cb;
   disconnected_callback_ = disconnected_cb;
   band_policy_ = band_policy;
+  station_tx_rate_attempted_ = false;
+  station_tx_rate_err_ = ESP_OK;
   
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
@@ -581,6 +592,8 @@ void WiFiLifecycleManager::unregister_handlers() {
   }
 
   pending_events_.clear();
+  station_tx_rate_attempted_ = false;
+  station_tx_rate_err_ = ESP_OK;
   csi_rx_refresh_callback_ = {};
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
@@ -614,6 +627,8 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     }
     if (event.type == PendingWifiEventType::DISCONNECTED) {
       roaming_ = event.roaming && (ready_ || roaming_);
+      station_tx_rate_attempted_ = false;
+      station_tx_rate_err_ = ESP_OK;
       ready_ = false;
       active_ip_info_ = {};
       if (disconnected_callback_) {
@@ -623,15 +638,21 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     }
 
     if (event.type == PendingWifiEventType::ASSOCIATED) {
-      // Initial association and ordinary reconnects must wait for GOT_IP.
-      // Roaming can retain the IP stack and omit that event altogether.
-      if (!ready_ && !roaming_) {
-        continue;
-      }
+      const bool restore_session = ready_ || roaming_;
       if (ready_ && disconnected_callback_) {
         disconnected_callback_();
       }
       ready_ = false;
+      // Configure the new AP before waiting for IPv4. A rate retained from
+      // the previous AP must not prevent DHCP on an 802.11b-only network.
+      station_tx_rate_err_ = apply_station_tx_rate();
+      station_tx_rate_attempted_ = true;
+      if (station_tx_rate_err_ != ESP_OK) return station_tx_rate_err_;
+      // Initial association and ordinary reconnects must wait for GOT_IP.
+      // Roaming can retain the IP stack and omit that event altogether.
+      if (!restore_session) {
+        continue;
+      }
       roaming_ = false;
       active_ip_info_ = {};
       esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");

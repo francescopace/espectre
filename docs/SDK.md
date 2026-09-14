@@ -106,7 +106,7 @@ ESPHome maps sensing options from YAML under `espectre:` and uses its native `wi
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
-The shared integer setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `0` for Auto or `6`, `12`, or `24` for a fixed rate in Mbps. It defaults to `6` on all supported targets. Kconfig bounds the input to `0-24`; firmware compilation rejects values other than `0`, `6`, `12`, and `24`. Builds without this Kconfig symbol also default to `6`. This is a build-time radio policy, not a `RuntimeConfig` field or runtime-writable setting. [CSI.md](CSI.md#internal-generators) describes raw injection, station-rate scope, and compatibility limits.
+The shared integer setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `0` for Auto or `6`, `12`, or `24` for a fixed rate in Mbps. It defaults to `6` on all supported targets. Kconfig bounds the input to `0-24`; firmware compilation rejects values other than `0`, `6`, `12`, and `24`. Builds without this Kconfig symbol also default to `6`. The shared Wi-Fi lifecycle owns station-rate configuration across connections, independently of sensing or traffic generator state. This is a build-time radio policy, not a `RuntimeConfig` field or runtime-writable setting. [CSI.md](CSI.md#internal-generators) describes raw injection, station-rate scope, and compatibility limits.
 
 Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; [API.md](API.md#sensing-update-and-calibration) defines accepted runtime values.
 

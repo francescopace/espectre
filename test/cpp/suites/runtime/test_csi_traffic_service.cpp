@@ -81,21 +81,6 @@ void test_csi_traffic_service_selects_internal_generator(void) {
   TEST_ASSERT_EQUAL(0x1234U, service.internal_icmp_identifier());
 }
 
-void test_csi_traffic_service_repeats_generator_cleanup_after_task_stops(void) {
-  FakeCsiTrafficGenerator generator;
-  FakeCsiTrafficIngress ingress;
-  CsiTrafficService service(generator, ingress);
-  CsiTrafficServiceConfig config;
-  config.mode = CsiTrafficMode::INTERNAL;
-  service.init(config);
-  TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
-  service.stop();
-  TEST_ASSERT_FALSE(generator.is_running());
-  service.stop();
-  TEST_ASSERT_EQUAL(2U, generator.stop_calls);
-  TEST_ASSERT_EQUAL(0U, ingress.stop_calls);
-}
-
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
   RuntimeConfig runtime_config;
   runtime_config.csi_target_pps = 94U;
@@ -125,7 +110,6 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics);
   RUN_TEST(test_csi_traffic_service_selects_internal_generator);
-  RUN_TEST(test_csi_traffic_service_repeats_generator_cleanup_after_task_stops);
   RUN_TEST(test_csi_traffic_projection_keeps_mode_separate_from_positive_target);
   return UNITY_END();
 }

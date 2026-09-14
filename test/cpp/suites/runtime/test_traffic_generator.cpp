@@ -21,9 +21,6 @@
 using namespace espectre;
 
 namespace {
-#ifndef ESPECTRE_TEST_FIXED_STA_RATE
-#define ESPECTRE_TEST_FIXED_STA_RATE 1
-#endif
 #ifndef ESPECTRE_TEST_EXPECTED_TX_RATE
 #define ESPECTRE_TEST_EXPECTED_TX_RATE WIFI_PHY_RATE_6M
 #endif
@@ -84,177 +81,81 @@ void tearDown(void) {
     }
 }
 
-void test_fixed_sta_rate_covers_every_internal_generator_and_running_lifecycle(void) {
+void test_internal_generators_preserve_station_rate_through_start_pause_and_stop(void) {
     prepare_lifecycle_test();
     g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
     TrafficGeneratorManager manager;
+    for (const bool fixed_rate : {false, true}) {
+        for (const RuntimeTrafficMode mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
+                                             RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
+            g_esp_wifi_fixed_rate_mock = {};
+            g_esp_wifi_fixed_rate_mock.enabled = fixed_rate;
+            g_freertos_task_mock.create_calls = 0U;
+            manager.init(100U, mode);
+            TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
+            TEST_ASSERT_EQUAL(fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
+            if (mode == RuntimeTrafficMode::WIFI_RAW) {
+                TEST_ASSERT_EQUAL(EXPECTED_TX_RATE, g_esp_wifi_mock.raw_rate_config.rate);
+            }
+            TEST_ASSERT_EQUAL(100U, manager.current_rate_pps());
+            TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
+            TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+            manager.pause();
+            TEST_ASSERT_EQUAL(fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
+            manager.resume();
+            manager.stop();
+            TEST_ASSERT_FALSE(manager.is_running());
+            TEST_ASSERT_EQUAL(fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
+            manager.stop();
+            TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+            TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+            if (mode != RuntimeTrafficMode::WIFI_RAW) {
+                TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
+            }
+        }
+    }
+}
+
+void test_ping_socket_failure_preserves_station_rate_and_does_not_create_task(void) {
+    prepare_lifecycle_test();
+    fail_socket_creation = true;
+    g_esp_wifi_fixed_rate_mock.enabled = true;
+    TrafficGeneratorManager manager;
+    manager.init(100U, RuntimeTrafficMode::PING);
+    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
+    TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_FALSE(manager.is_running());
+}
+
+void test_task_failure_preserves_station_rate_and_closes_socket(void) {
+    prepare_lifecycle_test();
+    g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
+    g_freertos_task_mock.create_result = pdFAIL;
+    g_esp_wifi_fixed_rate_mock.enabled = true;
+    TrafficGeneratorManager manager;
     for (const RuntimeTrafficMode mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
                                          RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
-        g_esp_wifi_fixed_rate_mock = {};
         g_freertos_task_mock.create_calls = 0U;
         manager.init(100U, mode);
-        TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-        const bool expect_fixed_rate = ESPECTRE_TEST_FIXED_STA_RATE;
-        TEST_ASSERT_EQUAL(expect_fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
-        TEST_ASSERT_EQUAL(expect_fixed_rate ? 1U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
-        TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_fixed_rate_mock.interface);
-        if (expect_fixed_rate) {
-            TEST_ASSERT_EQUAL(EXPECTED_TX_RATE, g_esp_wifi_fixed_rate_mock.rate);
-        }
-        if (mode == RuntimeTrafficMode::WIFI_RAW) {
-            TEST_ASSERT_EQUAL(EXPECTED_TX_RATE, g_esp_wifi_mock.raw_rate_config.rate);
-        }
-        TEST_ASSERT_EQUAL(100U, manager.current_rate_pps());
-        TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
+        TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
         TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
-        manager.pause();
-        TEST_ASSERT_EQUAL(expect_fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
-        manager.resume();
-        manager.stop();
         TEST_ASSERT_FALSE(manager.is_running());
-        TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-        TEST_ASSERT_EQUAL(expect_fixed_rate ? 1U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
         manager.stop();
-        TEST_ASSERT_EQUAL(expect_fixed_rate ? 1U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+        TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
+        TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+        TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
         if (mode != RuntimeTrafficMode::WIFI_RAW) {
             TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
         }
     }
 }
 
-void test_ping_socket_failure_does_not_change_radio_or_create_task(void) {
+void test_switching_to_external_traffic_preserves_station_rate(void) {
     prepare_lifecycle_test();
-    fail_socket_creation = true;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.create_calls);
-    TEST_ASSERT_FALSE(manager.is_running());
-}
-
-void test_station_rate_requires_ofdm_capable_access_point(void) {
-    prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
-    for (unsigned phy = 0U; phy < 4U; ++phy) {
-        g_esp_wifi_fixed_rate_mock = {};
-        g_esp_wifi_mock.current_ap_info.primary = phy == 3U ? 36U : 6U;
-        g_esp_wifi_mock.current_ap_info.phy_11g = phy == 1U;
-        g_esp_wifi_mock.current_ap_info.phy_11n = phy == 2U;
-        manager.init(100U, RuntimeTrafficMode::PING);
-        TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-        const bool expect_fixed_rate = ESPECTRE_TEST_FIXED_STA_RATE && phy != 0U;
-        TEST_ASSERT_EQUAL(expect_fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
-        TEST_ASSERT_EQUAL(expect_fixed_rate ? 1U : 0U, g_esp_wifi_fixed_rate_mock.enable_calls);
-        manager.stop();
-        TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-    }
-}
-
-void test_ping_association_lookup_failure_closes_socket_before_task_creation(void) {
-    prepare_lifecycle_test();
-    g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-#if ESPECTRE_TEST_FIXED_STA_RATE
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.create_calls);
-    TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
-#else
-    TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-#endif
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
-    manager.stop();
-}
-
-void test_ping_rate_failure_closes_socket_before_task_creation(void) {
-    prepare_lifecycle_test();
-    g_esp_wifi_fixed_rate_mock.enable_result = ESP_FAIL;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-#if ESPECTRE_TEST_FIXED_STA_RATE
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(1U, g_esp_wifi_fixed_rate_mock.enable_calls);
-    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.create_calls);
-    TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
-    TEST_ASSERT_FALSE(manager.is_running());
-#else
-    TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
-#endif
-    manager.stop();
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-}
-
-void test_raw_sta_rate_failure_does_not_start_injection(void) {
-    prepare_lifecycle_test();
-    g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
-    g_esp_wifi_fixed_rate_mock.enable_result = ESP_FAIL;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::WIFI_RAW);
-#if ESPECTRE_TEST_FIXED_STA_RATE
-    TEST_ASSERT_FALSE(manager.start(0U));
-    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.create_calls);
-#else
-    TEST_ASSERT_TRUE(manager.start(0U));
-#endif
-    TEST_ASSERT_EQUAL(0U, g_esp_wifi_mock.raw_tx_call_count);
-    TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-    manager.stop();
-}
-
-void test_ping_task_failure_restores_radio_and_closes_socket(void) {
-    prepare_lifecycle_test();
-    g_freertos_task_mock.create_result = pdFAIL;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_FALSE(manager.is_running());
-    TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-    TEST_ASSERT_EQUAL((ESPECTRE_TEST_FIXED_STA_RATE) ? 1U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-    TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
-}
-
-void test_failed_rate_restore_retains_ownership_until_explicit_cleanup(void) {
-    prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-    TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_FAIL;
-    manager.stop();
-    TEST_ASSERT_FALSE(manager.is_running());
-    TEST_ASSERT_EQUAL(ESPECTRE_TEST_FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
-    manager.init(100U, RuntimeTrafficMode::DNS);
-#if ESPECTRE_TEST_FIXED_STA_RATE
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
-    TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
-#endif
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_OK;
-    TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(ESPECTRE_TEST_FIXED_STA_RATE,
-                      g_esp_wifi_fixed_rate_mock.enabled);
-    manager.stop();
-    TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-}
-
-void test_failed_startup_cleanup_can_be_retried_by_stop(void) {
-    prepare_lifecycle_test();
-    g_freertos_task_mock.create_result = pdFAIL;
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_FAIL;
-    TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
-    TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
-    TEST_ASSERT_EQUAL(ESPECTRE_TEST_FIXED_STA_RATE, g_esp_wifi_fixed_rate_mock.enabled);
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_OK;
-    manager.stop();
-    TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
-    TEST_ASSERT_EQUAL((ESPECTRE_TEST_FIXED_STA_RATE) ? 2U : 0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-}
-
-void test_external_service_start_retries_failed_ping_radio_cleanup(void) {
-    prepare_lifecycle_test();
+    g_esp_wifi_fixed_rate_mock.enabled = true;
     TrafficGeneratorManager generator;
     espectre::test::FakeCsiTrafficIngress ingress;
     CsiTrafficService service(generator, ingress);
@@ -264,20 +165,19 @@ void test_external_service_start_retries_failed_ping_radio_cleanup(void) {
     config.rate_pps = 100U;
     service.init(config);
     TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_FAIL;
     service.stop();
     TEST_ASSERT_FALSE(generator.is_running());
-    TEST_ASSERT_EQUAL(ESPECTRE_TEST_FIXED_STA_RATE,
-                      g_esp_wifi_fixed_rate_mock.enabled);
+    TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
 
     config.mode = CsiTrafficMode::EXTERNAL;
     service.init(config);
-    g_esp_wifi_fixed_rate_mock.disable_result = ESP_OK;
     TEST_ASSERT_TRUE(service.start());
-    TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
     TEST_ASSERT_FALSE(generator.is_running());
     TEST_ASSERT_TRUE(ingress.is_running());
     service.stop();
+    TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
+    TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
 }
 
 // ============================================================================
@@ -572,16 +472,10 @@ void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(voi
 
 int process(void) {
     UNITY_BEGIN();
-    RUN_TEST(test_fixed_sta_rate_covers_every_internal_generator_and_running_lifecycle);
-    RUN_TEST(test_ping_socket_failure_does_not_change_radio_or_create_task);
-    RUN_TEST(test_station_rate_requires_ofdm_capable_access_point);
-    RUN_TEST(test_ping_association_lookup_failure_closes_socket_before_task_creation);
-    RUN_TEST(test_ping_rate_failure_closes_socket_before_task_creation);
-    RUN_TEST(test_raw_sta_rate_failure_does_not_start_injection);
-    RUN_TEST(test_ping_task_failure_restores_radio_and_closes_socket);
-    RUN_TEST(test_failed_rate_restore_retains_ownership_until_explicit_cleanup);
-    RUN_TEST(test_failed_startup_cleanup_can_be_retried_by_stop);
-    RUN_TEST(test_external_service_start_retries_failed_ping_radio_cleanup);
+    RUN_TEST(test_internal_generators_preserve_station_rate_through_start_pause_and_stop);
+    RUN_TEST(test_ping_socket_failure_preserves_station_rate_and_does_not_create_task);
+    RUN_TEST(test_task_failure_preserves_station_rate_and_closes_socket);
+    RUN_TEST(test_switching_to_external_traffic_preserves_station_rate);
     RUN_TEST(test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause);
     
     // SendErrorState tests

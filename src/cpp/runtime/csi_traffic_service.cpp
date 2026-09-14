@@ -37,8 +37,6 @@ bool CsiTrafficService::start(uint32_t target_addr) {
     case CsiTrafficMode::INTERNAL:
       return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
     case CsiTrafficMode::EXTERNAL:
-      // Retry pending generator cleanup before external ingress starts.
-      traffic_generator_.stop();
       return traffic_ingress_.is_running() || traffic_ingress_.start();
     default:
       return false;
@@ -46,8 +44,9 @@ bool CsiTrafficService::start(uint32_t target_addr) {
 }
 
 void CsiTrafficService::stop() {
-  // A stopped task can still own radio state after a failed cleanup.
-  traffic_generator_.stop();
+  if (traffic_generator_.is_running()) {
+    traffic_generator_.stop();
+  }
   if (traffic_ingress_.is_running()) {
     traffic_ingress_.stop();
   }

@@ -35,29 +35,13 @@
 #include "lwip/sockets.h"
 #include "sta_socket_helpers.h"
 #include "task_scheduling_config.h"
-
-#ifndef CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS
-#define CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS 6
-#endif
-
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
-#include "esp_private/wifi.h"
-#endif
+#include "wifi_tx_rate.h"
 
 namespace espectre {
 
 namespace {
 
 static const char *const TAG = "TrafficGen";
-
-constexpr unsigned MANAGED_TX_RATE_MBPS = CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS;
-static_assert(MANAGED_TX_RATE_MBPS == 0U || MANAGED_TX_RATE_MBPS == 6U ||
-              MANAGED_TX_RATE_MBPS == 12U || MANAGED_TX_RATE_MBPS == 24U,
-              "Managed Wi-Fi TX rate must be 0 (auto), 6, 12, or 24 Mbps");
-// Raw ACK CSI needs OFDM even when station rate selection is automatic.
-constexpr wifi_phy_rate_t MANAGED_OFDM_TX_RATE =
-    MANAGED_TX_RATE_MBPS == 24U ? WIFI_PHY_RATE_24M :
-    MANAGED_TX_RATE_MBPS == 12U ? WIFI_PHY_RATE_12M : WIFI_PHY_RATE_6M;
 
 constexpr uint8_t DNS_QUERY_TEMPLATE[] = {
     0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
@@ -412,49 +396,22 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
     ESPECTRE_LOGE(TAG, "Previous traffic generator task is still stopping");
     return false;
   }
-  if (!restore_sta_tx_rate_()) return false;
   if (target_pps_ == 0U || (mode_ != RuntimeTrafficMode::WIFI_RAW && target_addr == 0U)) {
     ESPECTRE_LOGE(TAG, "Traffic rate or target IP is unavailable");
     return false;
   }
   target_addr_ = target_addr;
 
-  wifi_ap_record_t ap{};
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
-  const bool needs_ap_info = true;
-#else
-  const bool needs_ap_info = mode_ == RuntimeTrafficMode::WIFI_RAW;
-#endif
-  if (needs_ap_info) {
-    const esp_err_t ap_err = esp_wifi_sta_get_ap_info(&ap);
-    if (ap_err != ESP_OK) {
-      ESPECTRE_LOGE(TAG, "Failed to inspect associated AP for %s: %s",
-                   generator_traffic_mode_name(mode_), esp_err_to_name(ap_err));
-      return false;
-    }
-  }
-
   if (mode_ == RuntimeTrafficMode::WIFI_RAW) {
+    wifi_ap_record_t ap{};
     uint8_t station_mac[6]{};
-    if (esp_wifi_get_mac(WIFI_IF_STA, station_mac) != ESP_OK ||
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK ||
+        esp_wifi_get_mac(WIFI_IF_STA, station_mac) != ESP_OK ||
         build_null_data_frame(ap.bssid, station_mac, null_data_frame_, sizeof(null_data_frame_)) == 0U) {
       ESPECTRE_LOGE(TAG, "Associated AP or station MAC is unavailable");
       return false;
     }
-    // Raw injection defaults to DSSS on 2.4 GHz; its ACKs cannot supply LLTF CSI.
-#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
-    wifi_tx_rate_config_t rate_config{};
-    rate_config.phymode = ap.primary > 14U ? WIFI_PHY_MODE_11A : WIFI_PHY_MODE_11G;
-    rate_config.rate = MANAGED_OFDM_TX_RATE;
-    const esp_err_t rate_err = esp_wifi_config_80211_tx(WIFI_IF_STA, &rate_config);
-#else
-    // ESP-IDF 5.5.5 accepts the newer API but leaves raw TX at 1 Mbps on ESP32/S2/S3/C3.
-    const esp_err_t rate_err = esp_wifi_config_80211_tx_rate(WIFI_IF_STA, MANAGED_OFDM_TX_RATE);
-#endif
-    if (rate_err != ESP_OK) {
-      ESPECTRE_LOGE(TAG, "Failed to configure raw OFDM TX rate: %s", esp_err_to_name(rate_err));
-      return false;
-    }
+    if (apply_raw_tx_rate(ap) != ESP_OK) return false;
   }
 
   DnsTcpTrafficProtocol dns_tcp_protocol;
@@ -468,25 +425,6 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
     if (sock_ < 0) return false;
   }
 
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
-  if (ap.primary > 14U || ap.phy_11g || ap.phy_11n) {
-    // The selected fixed OFDM rate applies to all station traffic,
-    // including Direct, and is released when this generator stops. An AP
-    // supporting only 802.11b cannot receive OFDM, so retain automatic rates.
-    const esp_err_t rate_err =
-        esp_wifi_internal_set_fix_rate(WIFI_IF_STA, true, MANAGED_OFDM_TX_RATE);
-    if (rate_err != ESP_OK) {
-      if (sock_ >= 0) close(sock_);
-      sock_ = -1;
-      ESPECTRE_LOGE(TAG, "Failed to configure managed OFDM TX rate: %s", esp_err_to_name(rate_err));
-      return false;
-    }
-    fixed_sta_tx_rate_enabled_ = true;
-    ESPECTRE_LOGI(TAG, "%s enabled station OFDM %u Mbps TX rate",
-                 generator_traffic_mode_name(mode_), MANAGED_TX_RATE_MBPS);
-  }
-#endif
-
   current_rate_pps_.store(target_pps_, std::memory_order_relaxed);
   reset_runtime_state_();
   running_.store(true, std::memory_order_relaxed);
@@ -498,7 +436,6 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
     task_exited_.store(true, std::memory_order_relaxed);
     if (sock_ >= 0) close(sock_);
     sock_ = -1;
-    (void)restore_sta_tx_rate_();
     ESPECTRE_LOGE(TAG, "Failed to create traffic generator task (result=%d)", static_cast<int>(result));
     return false;
   }
@@ -548,7 +485,6 @@ void TrafficGeneratorManager::resume() {
 
 void TrafficGeneratorManager::stop() {
   if (!is_running() && task_exited_.load(std::memory_order_acquire)) {
-    (void)restore_sta_tx_rate_();
     return;
   }
   running_.store(false, std::memory_order_release);
@@ -567,22 +503,7 @@ void TrafficGeneratorManager::stop() {
     }
     task_exited_.store(true, std::memory_order_release);
   }
-  (void)restore_sta_tx_rate_();
   ESPECTRE_LOGI(TAG, "Traffic generator stopped");
-}
-
-bool TrafficGeneratorManager::restore_sta_tx_rate_() {
-  if (!fixed_sta_tx_rate_enabled_) return true;
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
-  const esp_err_t err =
-      esp_wifi_internal_set_fix_rate(WIFI_IF_STA, false, MANAGED_OFDM_TX_RATE);
-  if (err != ESP_OK) {
-    ESPECTRE_LOGE(TAG, "Failed to restore automatic station TX rate: %s", esp_err_to_name(err));
-    return false;
-  }
-#endif
-  fixed_sta_tx_rate_enabled_ = false;
-  return true;
 }
 
 void TrafficGeneratorManager::traffic_task_(void *arg) {

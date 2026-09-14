@@ -488,7 +488,9 @@ On 2026-09-14, the project adopted 6 Mbps as the shared default after the classi
 Standardize managed CSI traffic as follows:
 
 - default `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` to 6 Mbps on every supported target, including builds without Kconfig; retain explicit Auto (`0`), 12, and 24 Mbps overrides, and the existing station-rate compatibility guards;
-- fail generator startup and report driver rate-configuration errors explicitly; do not mask lifecycle or configuration faults by silently switching station rates to Auto;
+- centralize station and raw TX-rate configuration in the shared Wi-Fi rate component; the Wi-Fi lifecycle requests station configuration before connected services start and reevaluates the AP on reconnection or roaming, while the generator requests raw configuration through that component; retain the station rate when sensing stops or traffic selection changes;
+- reuse that station-rate policy in Micro-ESPectre Wi-Fi setup and recovery through a native Wi-Fi binding, independently of the native traffic generator;
+- fail Wi-Fi lifecycle initialization on station-rate configuration errors and `wifi_raw` startup on raw injection rate errors; report driver errors explicitly, and do not mask lifecycle or configuration faults by silently switching station rates to Auto;
 - expose explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff, and experimental `wifi_raw` for Null Data requests and LLTF ACK capture;
 - keep `ping` as the shared schema default and the published Native, Matter, ESPHome, and Micro-ESPectre product configuration default; keep `dns` and `dns_tcp` as explicit operator selections;
 - preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;

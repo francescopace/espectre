@@ -8,6 +8,16 @@ config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
         localhost, 127.0.0.1, or [::1]. Published firmware must leave
         this disabled.
 
+config ESPECTRE_WIFI_TX_RATE_MBPS
+    int "Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
+    range 0 24
+    default 6
+    help
+        Use the shared Wi-Fi TX rate policy after station connection,
+        independently of traffic generation. Zero keeps automatic rates.
+        Fixed OFDM requires TX A-MPDU disabled and an OFDM-capable AP.
+        Values other than 0, 6, 12, and 24 fail firmware compilation.
+
 menu "Advanced task scheduling"
 
 config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY

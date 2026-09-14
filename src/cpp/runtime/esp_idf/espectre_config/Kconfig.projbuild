@@ -137,20 +137,22 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
         depends on ESPECTRE_CSI_CAPTURE_PROFILE_AUTO || ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
         help
             Send non-QoS Null Data frames directly to the associated AP BSSID.
-            Selects LLTF20 capture for ACKs. Uses the managed Wi-Fi TX rate
+            Selects LLTF20 capture for ACKs. Uses the shared Wi-Fi TX rate
             below, or OFDM 6 Mbps when that policy selects automatic rates.
 endchoice
 
 config ESPECTRE_WIFI_TX_RATE_MBPS
-    int "Managed Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
+    int "Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
     range 0 24
     default 6
     help
         Supported values are 0, 6, 12, and 24; other values are rejected
         when compiling the firmware. Zero keeps the driver's automatic
         station rate selection. A fixed OFDM rate applies to raw injection
-        and, with TX A-MPDU disabled, all station transmissions while any
-        internal generator runs, including Direct and MQTT. Raw injection
+        and, with TX A-MPDU disabled, all station transmissions, including
+        Direct and MQTT. The Wi-Fi lifecycle applies it after connection
+        and reevaluates it on reconnection or roaming, independently of
+        sensing and internal or external traffic selection. Raw injection
         uses OFDM 6 Mbps under automatic selection because its ACKs must
         provide LLTF CSI. Station rate selection remains automatic for an
         802.11b-only AP. This does not change the managed packet cadence

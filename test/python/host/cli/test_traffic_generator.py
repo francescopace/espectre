@@ -60,6 +60,8 @@ class MockNativeTraffic:
 mock_native_traffic = MagicMock()
 mock_native_traffic.TrafficGenerator = MockNativeTraffic
 sys.modules["espectre_native_traffic"] = mock_native_traffic
+mock_native_wifi = MagicMock()
+sys.modules["espectre_native_wifi"] = mock_native_wifi
 
 if not hasattr(time, "ticks_ms"):
     time.ticks_ms = lambda: int(time.time() * 1000)
@@ -73,6 +75,11 @@ from traffic_generator import (  # noqa: E402
     TrafficGenerator,
 )
 import wifi_bootstrap  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_native_wifi():
+    mock_native_wifi.reset_mock(return_value=True, side_effect=True)
 
 
 @pytest.fixture
@@ -97,6 +104,68 @@ def mock_wlan():
 @pytest.fixture
 def traffic_gen():
     return TrafficGenerator()
+
+
+@pytest.mark.parametrize("rearm_csi", [False, True])
+def test_station_connection_applies_rate_before_capture_without_a_generator(
+    monkeypatch, mock_wlan, rearm_csi
+):
+    events = []
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(wifi_bootstrap.config, "TRAFFIC_GENERATOR_ENABLED", False)
+    mock_native_wifi.prepare_tx_rate.side_effect = lambda: events.append("prepare")
+    mock_wlan.connect.side_effect = lambda *_args, **_kwargs: events.append("connect")
+    mock_native_wifi.apply_tx_rate.side_effect = lambda: events.append("rate")
+    mock_wlan.csi_enable.side_effect = lambda **_kwargs: events.append("capture")
+
+    assert wifi_bootstrap._connect_station(mock_wlan, 1, rearm_csi=rearm_csi)
+
+    assert events == ["prepare", "connect", "rate", "capture"]
+    mock_native_wifi.apply_tx_rate.assert_called_once_with()
+
+
+@pytest.mark.parametrize("recover", [False, True])
+def test_station_rate_failure_propagates_before_capture(monkeypatch, mock_wlan, recover):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    mock_native_wifi.apply_tx_rate.side_effect = OSError(0x102)
+
+    with pytest.raises(OSError):
+        if recover:
+            wifi_bootstrap.recover_wifi(mock_wlan)
+        else:
+            wifi_bootstrap._connect_station(mock_wlan, 1)
+
+    mock_native_wifi.apply_tx_rate.assert_called_once_with()
+    mock_wlan.csi_enable.assert_not_called()
+
+
+def test_station_rate_is_reapplied_during_wifi_recovery(monkeypatch, mock_wlan):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+
+    assert wifi_bootstrap._connect_station(mock_wlan, 1)
+    assert wifi_bootstrap.recover_wifi(mock_wlan)
+
+    assert mock_native_wifi.apply_tx_rate.call_count == 2
+
+
+def test_station_rate_handler_failure_prevents_connection(mock_wlan):
+    mock_native_wifi.prepare_tx_rate.side_effect = OSError(0x102)
+
+    with pytest.raises(OSError):
+        wifi_bootstrap._connect_station(mock_wlan, 1)
+
+    mock_wlan.connect.assert_not_called()
+    mock_wlan.csi_enable.assert_not_called()
+
+
+def test_station_connection_timeout_does_not_apply_rate(monkeypatch, mock_wlan):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    mock_wlan.isconnected.return_value = False
+
+    assert not wifi_bootstrap._connect_station(mock_wlan, 0)
+
+    mock_native_wifi.apply_tx_rate.assert_not_called()
+    mock_wlan.csi_enable.assert_not_called()
 
 
 def test_station_radio_prefers_auto_band_on_dual_band_firmware(mock_wlan):

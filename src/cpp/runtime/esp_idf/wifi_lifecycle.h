@@ -32,6 +32,8 @@ using wifi_csi_rx_refresh_callback_t = std::function<void(esp_err_t)>;
  *
  * Manages WiFi connection events and coordinates service lifecycle.
  * Handles startup sequence: CSI → Traffic Generator → Band Calibration
+ * Applies station TX rate policy before connected callbacks, independently
+ * of whether sensing uses an internal generator or external traffic.
  *
  * The STA-start handler applies the short radio policy synchronously, before
  * association. Connect/disconnect callbacks run from process_pending_events(),
@@ -146,6 +148,8 @@ class WiFiLifecycleManager {
   // ESP_ERR_INVALID_STATE this is seeded with.
   std::atomic<bool> started_policy_attempted_{false};
   WifiBandPolicy band_policy_{WifiBandPolicy::BAND_2G};
+  esp_err_t station_tx_rate_err_{ESP_OK};
+  bool station_tx_rate_attempted_{false};
   bool ready_{false};
   bool roaming_{false};
   esp_netif_ip_info_t active_ip_info_{};

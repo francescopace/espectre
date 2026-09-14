@@ -14,6 +14,8 @@ target_sources(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/native_log_sink.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_traffic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_traffic.c
+    ${CMAKE_CURRENT_LIST_DIR}/native_wifi.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/native_wifi.c
 )
 
 target_include_directories(usermod_espectre_native_components INTERFACE

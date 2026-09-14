@@ -3,6 +3,7 @@
 """Memory-conscious Wi-Fi bootstrap for the Micro-ESPectre device runtime."""
 
 import gc
+import espectre_native_wifi
 import network
 import time
 
@@ -107,6 +108,7 @@ def _restart_csi_capture(wlan):
 def _connect_station(wlan, timeout_seconds, *, rearm_csi=False):
     bssid = _configured_bssid()
     channel = int(getattr(config, "WIFI_CHANNEL", 0)) if bssid else 0
+    espectre_native_wifi.prepare_tx_rate()
     wlan.connect(
         config.WIFI_SSID,
         config.WIFI_PASSWORD,
@@ -119,6 +121,7 @@ def _connect_station(wlan, timeout_seconds, *, rearm_csi=False):
     if not wlan.isconnected():
         return False
     wlan.config(pm=wlan.PM_NONE)
+    espectre_native_wifi.apply_tx_rate()
     if rearm_csi:
         _restart_csi_capture(wlan)
     else:
@@ -134,6 +137,7 @@ def recover_wifi(wlan, timeout_seconds=30, force_reconnect=False):
     """Reconnect a stale station link and rebuild the CSI capture boundary."""
     if wlan.isconnected() and not force_reconnect:
         wlan.config(pm=wlan.PM_NONE)
+        espectre_native_wifi.apply_tx_rate()
         _restart_csi_capture(wlan)
         time.sleep(1)
         return True
