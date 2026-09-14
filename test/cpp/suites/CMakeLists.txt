@@ -92,20 +92,6 @@ target_compile_definitions(test_traffic_generator_ampdu PRIVATE
     CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=1
 )
 
-foreach(rate IN ITEMS 12 24)
-    add_espectre_test(test_traffic_generator_${rate}m
-        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
-        LIBRARIES espectre_runtime_testlib
-    )
-    target_sources(test_traffic_generator_${rate}m PRIVATE
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
-    )
-    target_compile_definitions(test_traffic_generator_${rate}m PRIVATE
-        CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=${rate}
-        ESPECTRE_TEST_EXPECTED_TX_RATE=WIFI_PHY_RATE_${rate}M
-    )
-endforeach()
-
 # Explicit choices override the shared default; C5 exercises the modern raw API.
 foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
     add_espectre_test(test_traffic_generator_${variant}
@@ -117,19 +103,19 @@ foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
     )
 endforeach()
 target_compile_definitions(test_traffic_generator_auto PRIVATE
-    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 target_compile_definitions(test_traffic_generator_s2_auto PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32S2=1
-    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 target_compile_definitions(test_traffic_generator_c5_auto PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1
-    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 target_compile_definitions(test_traffic_generator_c5_fixed PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1
-    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=24 ESPECTRE_TEST_EXPECTED_TX_RATE=WIFI_PHY_RATE_24M
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"6\"
 )
 
 add_espectre_test(test_runtime_helpers
@@ -205,7 +191,7 @@ add_espectre_test(test_wifi_lifecycle
 )
 
 # Station rates belong to Wi-Fi startup, independently of traffic generation.
-foreach(variant IN ITEMS s2 auto ampdu 12m 24m)
+foreach(variant IN ITEMS s2 auto ampdu 6m)
     add_espectre_test(test_wifi_lifecycle_${variant}
         "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle.cpp"
         LIBRARIES espectre_runtime_testlib
@@ -218,20 +204,18 @@ target_compile_definitions(test_wifi_lifecycle_s2 PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32S2=1
 )
 target_compile_definitions(test_wifi_lifecycle_auto PRIVATE
-    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 target_compile_definitions(test_wifi_lifecycle_ampdu PRIVATE
     CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=1
 )
-foreach(rate IN ITEMS 12 24)
-    target_compile_definitions(test_wifi_lifecycle_${rate}m PRIVATE
-        CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=${rate}
-    )
-endforeach()
+target_compile_definitions(test_wifi_lifecycle_6m PRIVATE
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"6\"
+)
 
 # Exercise the MicroPython Wi-Fi bridge against the same station-rate policy.
 foreach(target IN ITEMS test_wifi_lifecycle test_wifi_lifecycle_s2 test_wifi_lifecycle_auto
-                        test_wifi_lifecycle_ampdu test_wifi_lifecycle_12m test_wifi_lifecycle_24m)
+                        test_wifi_lifecycle_ampdu test_wifi_lifecycle_6m)
     target_sources(${target} PRIVATE
         "${ESPECTRE_REPO_ROOT}/src/python/micro_espectre/firmware/native_components/native_wifi.cpp"
     )

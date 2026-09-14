@@ -71,7 +71,8 @@ void test_wifi_lifecycle_applies_station_rate_before_services_and_checks_ap_capa
     g_esp_wifi_mock.current_ap_info.primary = phy == 3U ? 36U : 6U;
     g_esp_wifi_mock.current_ap_info.phy_11g = phy == 1U;
     g_esp_wifi_mock.current_ap_info.phy_11n = phy == 2U;
-    const bool expected_fixed = FIXED_STA_RATE && phy != 0U;
+    const bool expected_fixed = FIXED_STA_RATE &&
+        (WIFI_TX_RATE_MBPS == 6.5f ? phy == 2U : phy != 0U);
     unsigned connections = 0U;
     TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) {
       TEST_ASSERT_EQUAL(expected_fixed, g_esp_wifi_fixed_rate_mock.enabled);
@@ -96,7 +97,7 @@ void test_wifi_lifecycle_applies_station_rate_before_services_and_checks_ap_capa
                       g_esp_wifi_fixed_rate_mock.disable_calls);
     if (expected_fixed) {
       TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_fixed_rate_mock.interface);
-      TEST_ASSERT_EQUAL(WIFI_OFDM_TX_RATE, g_esp_wifi_fixed_rate_mock.rate);
+      TEST_ASSERT_EQUAL(WIFI_STATION_TX_RATE, g_esp_wifi_fixed_rate_mock.rate);
     }
     esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
     TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
@@ -225,6 +226,7 @@ void test_micro_wifi_policy_handles_association_and_preserves_driver_errors(void
   TEST_ASSERT_FALSE(g_esp_wifi_fixed_rate_mock.enabled);
 
   g_esp_wifi_mock.current_ap_info.phy_11g = true;
+  g_esp_wifi_mock.current_ap_info.phy_11n = true;
   g_esp_wifi_fixed_rate_mock.enable_result = ESP_FAIL;
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
   const unsigned enable_calls = g_esp_wifi_fixed_rate_mock.enable_calls;

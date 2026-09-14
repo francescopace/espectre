@@ -770,6 +770,7 @@ void test_capture_profile_selection_and_source_constraints(void) {
             }
         }
     }
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, select_csi_capture_profile(6U));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, select_csi_capture_profile(6U, true));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, select_csi_capture_profile(6U, false, CsiCapturePolicy::LLTF));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, select_csi_capture_profile(6U, false, CsiCapturePolicy::HT_VHT));

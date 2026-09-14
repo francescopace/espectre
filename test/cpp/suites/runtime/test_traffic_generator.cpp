@@ -21,10 +21,7 @@
 using namespace espectre;
 
 namespace {
-#ifndef ESPECTRE_TEST_EXPECTED_TX_RATE
-#define ESPECTRE_TEST_EXPECTED_TX_RATE WIFI_PHY_RATE_6M
-#endif
-constexpr wifi_phy_rate_t EXPECTED_TX_RATE = ESPECTRE_TEST_EXPECTED_TX_RATE;
+constexpr wifi_phy_rate_t EXPECTED_TX_RATE = WIFI_PHY_RATE_6M;
 TrafficGeneratorManager *active_generator = nullptr;
 int last_test_socket = -1;
 bool fail_socket_creation = false;

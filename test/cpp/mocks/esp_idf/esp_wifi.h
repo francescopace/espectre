@@ -35,7 +35,8 @@ typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3 } wifi_phy_mode_t;
 typedef enum {
   WIFI_PHY_RATE_24M = 0x09,
   WIFI_PHY_RATE_12M = 0x0A,
-  WIFI_PHY_RATE_6M = 0x0B
+  WIFI_PHY_RATE_6M = 0x0B,
+  WIFI_PHY_RATE_MCS0_LGI = 0x10
 } wifi_phy_rate_t;
 typedef struct {
   wifi_phy_mode_t phymode;

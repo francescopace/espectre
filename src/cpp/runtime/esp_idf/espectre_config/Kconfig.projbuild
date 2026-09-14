@@ -103,8 +103,8 @@ choice ESPECTRE_CSI_CAPTURE_PROFILE
     prompt "CSI capture profile"
     default ESPECTRE_CSI_CAPTURE_PROFILE_AUTO
     help
-        Build-time capture selection. AUTO uses LLTF20 on ESP32 and S2,
-        VHT20 on a supported 5 GHz link, and HT20 otherwise. Internal wifi_raw
+        Build-time capture selection. AUTO uses VHT20 on a supported 5 GHz
+        link and HT20 otherwise, including on ESP32 and S2. Internal wifi_raw
         uses LLTF20 in AUTO. LLTF always uses LLTF20. HT-VHT uses VHT20 on a
         supported 5 GHz link and HT20 otherwise, including on ESP32 and S2.
         Changing this selection requires a rebuild.
@@ -138,27 +138,28 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
         depends on ESPECTRE_CSI_CAPTURE_PROFILE_AUTO || ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
         help
             Send non-QoS Null Data frames directly to the associated AP BSSID.
-            Selects LLTF20 capture for ACKs. Uses the shared Wi-Fi TX rate
-            below, or OFDM 6 Mbps when that policy selects automatic rates.
+            Selects LLTF20 capture for ACKs and legacy OFDM 6 Mbps injection,
+            independently of the station TX rate selected below.
             Unavailable on ESP32-C6 because ACK CSI is not usable.
 endchoice
 
 config ESPECTRE_WIFI_TX_RATE_MBPS
-    int "Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
-    range 0 24
-    default 6
+    string "Wi-Fi TX rate (0=auto, 6, or 6.5 Mbps)"
+    default "6.5" if IDF_TARGET_ESP32
+    default "0"
     help
-        Supported values are 0, 6, 12, and 24; other values are rejected
-        when compiling the firmware. Zero keeps the driver's automatic
-        station rate selection. A fixed OFDM rate applies to raw injection
-        and, with TX A-MPDU disabled, all station transmissions, including
-        Direct and MQTT. The Wi-Fi lifecycle applies it after connection
+        Supported values are 0, 6, and 6.5; other values are rejected
+        when compiling the firmware. Zero keeps automatic station rates.
+        6.5 selects HT20 MCS0 with long GI; 6 selects legacy OFDM.
+        With TX A-MPDU disabled, a fixed rate applies to all station
+        transmissions, including Direct and MQTT, when the AP supports the
+        selected PHY. The Wi-Fi lifecycle applies it after connection
         and reevaluates it on reconnection or roaming, independently of
         sensing and internal or external traffic selection. Raw injection
-        uses OFDM 6 Mbps under automatic selection because its ACKs must
-        provide LLTF CSI. Station rate selection remains automatic for an
-        802.11b-only AP. This does not change the managed packet cadence
-        or the AP's rate.
+        always uses legacy OFDM 6 Mbps, independently of station rate
+        selection. Station rates remain automatic when the AP lacks the
+        required PHY. This does not change the managed packet cadence or
+        the AP's rate.
 
 config ESPECTRE_EVALUATION_INTERVAL_MS
     int "Evaluation interval (milliseconds)"

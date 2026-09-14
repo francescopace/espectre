@@ -9,25 +9,33 @@
 #include "sdkconfig.h"
 #include "esp_wifi.h"
 #include "espectre_log.h"
+#include <string_view>
 
 #ifndef CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS
-#define CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS 6
+#if CONFIG_IDF_TARGET_ESP32
+#define CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS "6.5"
+#else
+#define CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS "0"
+#endif
 #endif
 
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
+#if !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
 #include "esp_private/wifi.h"
 #endif
 
 namespace espectre {
 
-constexpr unsigned WIFI_TX_RATE_MBPS = CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS;
-static_assert(WIFI_TX_RATE_MBPS == 0U || WIFI_TX_RATE_MBPS == 6U ||
-              WIFI_TX_RATE_MBPS == 12U || WIFI_TX_RATE_MBPS == 24U,
-              "Wi-Fi TX rate must be 0 (auto), 6, 12, or 24 Mbps");
-// Raw ACK CSI needs OFDM even when station rate selection is automatic.
-constexpr wifi_phy_rate_t WIFI_OFDM_TX_RATE =
-    WIFI_TX_RATE_MBPS == 24U ? WIFI_PHY_RATE_24M :
-    WIFI_TX_RATE_MBPS == 12U ? WIFI_PHY_RATE_12M : WIFI_PHY_RATE_6M;
+constexpr std::string_view WIFI_TX_RATE_SETTING = CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS;
+constexpr float WIFI_TX_RATE_MBPS =
+    WIFI_TX_RATE_SETTING == "0" ? 0.0f :
+    WIFI_TX_RATE_SETTING == "6" ? 6.0f :
+    WIFI_TX_RATE_SETTING == "6.5" ? 6.5f : -1.0f;
+static_assert(WIFI_TX_RATE_MBPS >= 0.0f,
+              "Wi-Fi TX rate must be 0 (auto), 6, or 6.5 Mbps");
+// Raw Null Data retains legacy OFDM for ACK CSI under Auto and HT selection.
+constexpr wifi_phy_rate_t WIFI_OFDM_TX_RATE = WIFI_PHY_RATE_6M;
+constexpr wifi_phy_rate_t WIFI_STATION_TX_RATE =
+    WIFI_TX_RATE_MBPS == 6.5f ? WIFI_PHY_RATE_MCS0_LGI : WIFI_OFDM_TX_RATE;
 
 inline esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap) {
   // Raw injection defaults to DSSS on 2.4 GHz; its ACKs cannot supply LLTF CSI.
@@ -48,7 +56,8 @@ inline esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap) {
 }
 
 inline esp_err_t apply_station_tx_rate() {
-#if CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS > 0 && !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
+#if !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
+  if constexpr (WIFI_TX_RATE_MBPS == 0.0f) return ESP_OK;
   wifi_ap_record_t ap{};
   const esp_err_t ap_err = esp_wifi_sta_get_ap_info(&ap);
   if (ap_err != ESP_OK) {
@@ -59,19 +68,22 @@ inline esp_err_t apply_station_tx_rate() {
 
   // Station TX policy belongs to the connection, independently of sensing
   // and traffic generation. Reevaluate it for every AP, including roaming
-  // from an OFDM network to an 802.11b-only AP that requires automatic rates.
-  const bool fixed_rate = ap.primary > 14U || ap.phy_11g || ap.phy_11n;
+  // to an AP without the PHY required by the selected rate.
+  const bool fixed_rate = WIFI_TX_RATE_MBPS == 6.5f
+      ? ap.phy_11n : (ap.primary > 14U || ap.phy_11g || ap.phy_11n);
   const esp_err_t err =
-      esp_wifi_internal_set_fix_rate(WIFI_IF_STA, fixed_rate, WIFI_OFDM_TX_RATE);
+      esp_wifi_internal_set_fix_rate(WIFI_IF_STA, fixed_rate, WIFI_STATION_TX_RATE);
   if (err != ESP_OK) {
     ESPECTRE_LOGE("WiFiRate", "Failed to configure station TX rate: %s",
                   esp_err_to_name(err));
     return err;
   }
   if (fixed_rate) {
-    ESPECTRE_LOGI("WiFiRate", "Station OFDM %u Mbps TX rate enabled", WIFI_TX_RATE_MBPS);
+    ESPECTRE_LOGI("WiFiRate", "Station %s %s Mbps TX rate enabled",
+                  WIFI_TX_RATE_MBPS == 6.5f ? "HT20 MCS0 LGI" : "OFDM",
+                  WIFI_TX_RATE_SETTING.data());
   } else {
-    ESPECTRE_LOGI("WiFiRate", "Station TX rate remains automatic for 802.11b-only AP");
+    ESPECTRE_LOGI("WiFiRate", "Station TX rate remains automatic: AP lacks the selected PHY");
   }
 #endif
   return ESP_OK;

@@ -363,12 +363,12 @@ class TestHt20Assessment:
 
 
 class TestCsiCaptureProfile:
-    def test_esp32_and_s2_always_use_lltf20(self):
-        assert select_csi_capture_profile("ESP32", 6) == "lltf20"
-        assert select_csi_capture_profile("esp32", 36) == "lltf20"
-        assert select_csi_capture_profile("S2", 6) == "lltf20"
-        assert select_csi_capture_profile("esp32-s2", 36) == "lltf20"
-        assert select_csi_capture_profile("esp32s2", 6) == "lltf20"
+    def test_esp32_and_s2_use_ht20(self):
+        assert select_csi_capture_profile("ESP32", 6) == "ht20"
+        assert select_csi_capture_profile("esp32", 36) == "ht20"
+        assert select_csi_capture_profile("S2", 6) == "ht20"
+        assert select_csi_capture_profile("esp32-s2", 36) == "ht20"
+        assert select_csi_capture_profile("esp32s2", 6) == "ht20"
 
     def test_c5_uses_vht20_only_on_5ghz(self):
         assert select_csi_capture_profile("C5", 6) == "ht20"

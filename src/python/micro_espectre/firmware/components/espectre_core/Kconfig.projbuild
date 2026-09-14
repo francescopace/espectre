@@ -9,14 +9,15 @@ config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
         this disabled.
 
 config ESPECTRE_WIFI_TX_RATE_MBPS
-    int "Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
-    range 0 24
-    default 6
+    string "Wi-Fi TX rate (0=auto, 6, or 6.5 Mbps)"
+    default "6.5" if IDF_TARGET_ESP32
+    default "0"
     help
         Use the shared Wi-Fi TX rate policy after station connection,
         independently of traffic generation. Zero keeps automatic rates.
-        Fixed OFDM requires TX A-MPDU disabled and an OFDM-capable AP.
-        Values other than 0, 6, 12, and 24 fail firmware compilation.
+        6.5 selects HT20 MCS0 with long GI; 6 selects legacy OFDM.
+        Fixed rates require TX A-MPDU disabled and AP support for the PHY.
+        Values other than 0, 6, and 6.5 fail firmware compilation.
 
 menu "Advanced task scheduling"
 

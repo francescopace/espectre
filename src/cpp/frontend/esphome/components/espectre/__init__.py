@@ -552,11 +552,9 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_PM_ENABLE", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE", False)
     
-    # Use the shared high-rate Wi-Fi and lwIP baseline required by raw HTTP.
-    # RX AMPDU remains disabled because sensing consumes individual CSI frames;
-    # TX aggregation and larger queues prevent the managed traffic source from
-    # becoming the cadence bottleneck.
-    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", True)
+    # Match the other frontends' aggregation policy: disabling TX AMPDU allows
+    # fixed station TX rates, and RX AMPDU stays disabled for CSI capture.
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_RX_ENABLED", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM", 16)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM", 128)
