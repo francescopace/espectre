@@ -134,11 +134,13 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
 
     config ESPECTRE_TRAFFIC_GENERATOR_MODE_WIFI_RAW
         bool "Wi-Fi raw (Null Data to AP)"
+        depends on !IDF_TARGET_ESP32C6
         depends on ESPECTRE_CSI_CAPTURE_PROFILE_AUTO || ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
         help
             Send non-QoS Null Data frames directly to the associated AP BSSID.
             Selects LLTF20 capture for ACKs. Uses the shared Wi-Fi TX rate
             below, or OFDM 6 Mbps when that policy selects automatic rates.
+            Unavailable on ESP32-C6 because ACK CSI is not usable.
 endchoice
 
 config ESPECTRE_WIFI_TX_RATE_MBPS

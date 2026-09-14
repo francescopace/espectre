@@ -108,6 +108,8 @@ In the same comparison, classic ESP32 capture rejected frames with invalid first
 
 ## Compatibility limits
 
-`wifi_raw` is experimental. Some device, driver, and AP combinations produce usable ACK CSI; others do not. The tested ESP32-C6 revision 0.1 with ESP-IDF 5.5.5 produced invalid ACK estimates, while the paired C5 control produced valid estimates. Use `ping` for that failing C6 configuration. This result does not establish behavior on other revisions or SDK releases.
+`wifi_raw` is experimental and disabled on ESP32-C6. Kconfig and ESPHome YAML reject the selection, the web and Home Assistant controls omit it, and the shared runtime rejects it through every frontend. A previously persisted `wifi_raw` selection is ignored on C6 at startup, preserving the configured source. Use `ping`, `dns`, or `dns_tcp` instead.
+
+On the tested ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, ACK frames produced invalid CSI estimates, so `wifi_raw` could not provide usable sensing input. The paired C5 control produced valid estimates. We reported this failure to Espressif in [esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062) to track its resolution. The C6 restriction applies to the entire target pending validation; the experiment does not establish behavior on other revisions or SDK releases.
 
 The hardware trials, including frame-length and PHY comparisons, remain in [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation). Detector accuracy and benchmark results are tracked separately in [README.md](performance/README.md).

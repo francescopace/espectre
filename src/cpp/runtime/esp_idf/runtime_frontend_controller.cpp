@@ -225,7 +225,7 @@ bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTraffi
   if (!runtime_capture_profile_supports_traffic(effective_config.csi_capture_profile, mode)) {
     return false;
   }
-  if (!runtime_traffic_mode_valid(mode)) {
+  if (!runtime_traffic_mode_supported(mode)) {
     return false;
   }
   const bool staged_for_next_setup =

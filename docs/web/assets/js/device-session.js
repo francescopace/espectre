@@ -345,7 +345,18 @@
         syncDiagnosticsPolling();
     }
 
+    function syncTrafficGeneratorOptions() {
+        const select = document.getElementById('sense-generator-mode');
+        const wifiRawOption = select && Array.from(select.options).find((option) => option.value === 'wifi_raw');
+        if (wifiRawOption) {
+            const unsupported = conn.chip.replaceAll('-', '') === 'ESP32C6';
+            wifiRawOption.hidden = unsupported;
+            wifiRawOption.disabled = unsupported;
+        }
+    }
+
     function syncSensingControls() {
+        syncTrafficGeneratorOptions();
         const detector = document.getElementById('sense-detector')?.value;
         $$('[data-device-command]').forEach((panel) => {
             const supported = conn.mode === 'demo'
@@ -397,6 +408,7 @@
             conn.deviceName = data.label || data.name;
         }
         if (data.chip) conn.chip = String(data.chip).toUpperCase();
+        syncTrafficGeneratorOptions();
         if (data.firmware_version || data.firmware || data.version) {
             conn.firmwareVersion = data.firmware_version || data.firmware || data.version;
         }
@@ -765,6 +777,7 @@
             firmware
         ) || '—';
         conn.chip = chip;
+        syncTrafficGeneratorOptions();
         conn.firmwareVersion = firmware;
         conn.deviceBannerSub = conn.mode === 'direct'
             ? deviceIdentity

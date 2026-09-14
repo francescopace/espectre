@@ -141,10 +141,11 @@ bool EspIdfRuntime::setup() {
   if (generator_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
   } else if (has_saved_generator_mode &&
+             runtime_traffic_mode_supported(saved_generator_mode) &&
              runtime_capture_profile_supports_traffic(config_.csi_capture_profile, saved_generator_mode)) {
     config_.traffic_generator_mode = saved_generator_mode;
   } else if (has_saved_generator_mode) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with the configured CSI profile");
+    ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with this target or CSI profile");
   }
 
   uint8_t saved_motion_on_hits = config_.motion_on_hits;
@@ -421,8 +422,8 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
-  if (!runtime_traffic_mode_valid(mode)) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Invalid traffic generator mode");
+  if (!runtime_traffic_mode_supported(mode)) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Invalid or unsupported traffic generator mode");
     return false;
   }
   if (mode == config_.traffic_generator_mode) {

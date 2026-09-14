@@ -443,7 +443,16 @@ def _runtime_wifi_band_policy():
     return _WIFI_BAND_POLICY_BY_MODE[band_mode]
 
 
+def _traffic_generator_modes():
+    modes = ["ping", "dns", "dns_tcp"]
+    if get_esp32_variant() != esp32_const.VARIANT_ESP32C6:
+        modes.append("wifi_raw")
+    return modes
+
+
 def _validate_capture_profile(config):
+    if config[CONF_TRAFFIC_GENERATOR_MODE] not in _traffic_generator_modes():
+        raise cv.Invalid("wifi_raw is not supported on ESP32-C6; use ping, dns, or dns_tcp")
     profile = config[CONF_CSI_CAPTURE_PROFILE]
     if config[CONF_TRAFFIC_GENERATOR_MODE] == "wifi_raw" and profile not in ("auto", "lltf"):
         raise cv.Invalid("wifi_raw requires csi_capture_profile: auto or lltf")
@@ -669,7 +678,7 @@ async def to_code(config):
 
     traffic_generator_mode = await select.new_select(
         config[CONF_TRAFFIC_GENERATOR_MODE_SELECT],
-        options=["ping", "dns", "dns_tcp", "wifi_raw"],
+        options=_traffic_generator_modes(),
     )
     cg.add(traffic_generator_mode.set_parent(var))
     cg.add(traffic_generator_mode.set_csi_traffic_mode(False))

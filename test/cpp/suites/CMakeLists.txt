@@ -187,6 +187,18 @@ add_espectre_test(test_runtime_detector_switch
     LIBRARIES espectre_runtime_testlib
 )
 
+# Exercise C6 traffic eligibility through the same runtime and frontend paths.
+add_espectre_test(test_runtime_detector_switch_c6
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_detector_switch.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+target_sources(test_runtime_detector_switch_c6 PRIVATE
+    "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
+)
+target_compile_definitions(test_runtime_detector_switch_c6 PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C6=1
+)
+
 add_espectre_test(test_wifi_lifecycle
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_lifecycle.cpp"
     LIBRARIES espectre_runtime_testlib

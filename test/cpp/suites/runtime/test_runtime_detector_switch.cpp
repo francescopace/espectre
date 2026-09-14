@@ -27,6 +27,9 @@
 #include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime_traffic_mode_store.h"
+#include "runtime_config_utils.h"
+#include "runtime_frontend_controller.h"
+#include "frontend_ha_mqtt_helpers.h"
 
 using namespace espectre;
 using namespace espectre::test;
@@ -64,6 +67,12 @@ class DetectorListener : public IRuntimeListener {
 };
 
 bool accept_raw_packet(void *, const RawCsiPacketView &) { return true; }
+
+#if defined(CONFIG_IDF_TARGET_ESP32C6) && CONFIG_IDF_TARGET_ESP32C6
+constexpr bool kSupportsWifiRaw = false;
+#else
+constexpr bool kSupportsWifiRaw = true;
+#endif
 
 }  // namespace
 
@@ -851,7 +860,7 @@ void test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change(vo
     RuntimeConfig config;
     config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
     config.segmentation_threshold = 0.73f;
-    config.traffic_generator_mode = RuntimeTrafficMode::WIFI_RAW;
+    config.traffic_generator_mode = kSupportsWifiRaw ? RuntimeTrafficMode::WIFI_RAW : RuntimeTrafficMode::PING;
     FakeCsiTrafficGenerator traffic_generator;
     FakeCsiTrafficIngress traffic_ingress;
     EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -884,7 +893,7 @@ void test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change(vo
     TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
     TEST_ASSERT_TRUE(traffic_generator.is_running());
     TEST_ASSERT_EQUAL(starts + 1U, traffic_generator.start_calls);
-    TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, traffic_generator.mode);
+    TEST_ASSERT_EQUAL(config.traffic_generator_mode, traffic_generator.mode);
     TEST_ASSERT_EQUAL(ip.ip_info.gw.addr, traffic_generator.gateway_addr);
     TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
     TEST_ASSERT_FALSE(runtime.is_calibrating());
@@ -915,7 +924,19 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     const int calibration_starts = listener.calibration_starts;
     const int calibration_finishes = listener.calibration_finishes;
     const uint32_t configure_calls = runtime.csi_pipeline_.capture_service_.enable_attempts();
-    TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+    TEST_ASSERT_EQUAL(kSupportsWifiRaw, runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+    if (!kSupportsWifiRaw) {
+      TEST_ASSERT_EQUAL(RuntimeTrafficMode::PING, generator.mode);
+      TEST_ASSERT_EQUAL(configure_calls, runtime.csi_pipeline_.capture_service_.enable_attempts());
+      TEST_ASSERT_EQUAL(calibration_starts, listener.calibration_starts);
+      TEST_ASSERT_EQUAL(calibration_finishes, listener.calibration_finishes);
+      RuntimeTrafficMode saved{};
+      bool has_saved = false;
+      TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&saved, &has_saved));
+      TEST_ASSERT_FALSE(has_saved);
+      runtime.shutdown();
+      continue;
+    }
     TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, generator.mode);
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
     // Classic ESP32 already captures LLTF20: switching the source leaves CSI armed.
@@ -969,10 +990,58 @@ void test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_
   }
 }
 
+void test_traffic_source_target_support_applies_to_config_controls_persistence_and_discovery(void) {
+  TEST_ASSERT_FALSE(runtime_traffic_mode_supported(static_cast<RuntimeTrafficMode>(0xff)));
+  for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
+                          RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
+    nvs_mock_reset();
+    esp_event_mock_reset();
+    const bool supported = mode != RuntimeTrafficMode::WIFI_RAW || kSupportsWifiRaw;
+    TEST_ASSERT_EQUAL(supported, runtime_traffic_mode_supported(mode));
+    RuntimeConfig config;
+    config.traffic_generator_mode = mode;
+    TEST_ASSERT_EQUAL(supported ? RuntimeConfigError::NONE : RuntimeConfigError::TRAFFIC_GENERATOR_MODE,
+                      validate_runtime_config(config));
+    RuntimeFrontendController controller;
+    TEST_ASSERT_EQUAL(supported, controller.set_traffic_generator_mode_runtime(mode));
+    TEST_ASSERT_EQUAL(supported ? mode : RuntimeConfig{}.traffic_generator_mode,
+                      controller.config().traffic_generator_mode);
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    {
+      EspIdfRuntime runtime(config, generator, ingress);
+      TEST_ASSERT_EQUAL(supported, runtime.setup());
+      runtime.shutdown();
+    }
+    // Seed a value saved by older firmware, including a now-unsupported mode.
+    TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(mode));
+    esp_event_mock_reset();
+    config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+    EspIdfRuntime restored(config, generator, ingress);
+    TEST_ASSERT_TRUE(restored.setup());
+    TEST_ASSERT_EQUAL(supported ? mode : config.traffic_generator_mode,
+                      restored.config_.traffic_generator_mode);
+    restored.shutdown();
+  }
+  FrontendHaMqttSettings settings;
+  settings.traffic_generator_mode_object_id = "traffic_generator_mode";
+  const auto messages = build_frontend_ha_discovery_messages(settings, {}, false, false, true);
+  const auto message = std::find_if(messages.begin(), messages.end(), [](const auto &entry) {
+    return entry.topic.find("/traffic_generator_mode/config") != std::string::npos;
+  });
+  TEST_ASSERT_TRUE(message != messages.end());
+  const std::string &discovery = message->payload;
+  TEST_ASSERT_EQUAL(kSupportsWifiRaw, discovery.find("\"wifi_raw\"") != std::string::npos);
+  for (const char *mode : {"\"ping\"", "\"dns\"", "\"dns_tcp\""}) {
+    TEST_ASSERT_TRUE(discovery.find(mode) != std::string::npos);
+  }
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_traffic_source_target_support_applies_to_config_controls_persistence_and_discovery);
   RUN_TEST(test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_changes);
   RUN_TEST(test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality_gap);
   RUN_TEST(test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change);

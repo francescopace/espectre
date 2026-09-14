@@ -181,7 +181,7 @@ espectre:
   traffic_generator_target_ip: "" # Empty uses the gateway; set an IPv4 address to override
 ```
 
-The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change.
+The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change. ESP32-C6 rejects `traffic_generator_mode: wifi_raw` and omits that option from the select entity; see [CSI.md](../../../../docs/CSI.md#compatibility-limits).
 
 ### External Traffic Mode
 

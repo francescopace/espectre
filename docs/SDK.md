@@ -81,7 +81,7 @@ For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror 
 
 ## Shared sensing options
 
-The shared C++ configuration uses defaults and validators from [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). The table below summarizes that reference for ESPHome, Native, Matter, and SDK integrations. Frontend syntax and overrides belong in the respective README.
+The shared C++ configuration uses defaults and validators from [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). `runtime_traffic_mode_supported()` also checks target availability: ESP32-C6 rejects `wifi_raw`, including runtime changes and persisted selections, as described in [CSI.md](CSI.md#compatibility-limits). The table below summarizes that reference for ESPHome, Native, Matter, and SDK integrations. Frontend syntax and overrides belong in the respective README.
 
 ESPHome maps sensing options from YAML under `espectre:` and uses its native `wifi.band_mode` for band selection. Native and Matter read the shared ESP-IDF sensing menu, with frontend overrides in `app/sdkconfig.defaults`. SDK integrations assign `RuntimeConfig` fields before setup.
 

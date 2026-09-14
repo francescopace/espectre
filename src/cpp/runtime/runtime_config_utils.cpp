@@ -9,6 +9,10 @@
  */
 #include "runtime_config_utils.h"
 
+#if __has_include("sdkconfig.h")
+#include "sdkconfig.h"
+#endif
+
 #include <cmath>
 #include <cstring>
 
@@ -92,6 +96,13 @@ uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gatew
   return address;
 }
 
+bool runtime_traffic_mode_supported(RuntimeTrafficMode mode) {
+#if defined(CONFIG_IDF_TARGET_ESP32C6) && CONFIG_IDF_TARGET_ESP32C6
+  if (mode == RuntimeTrafficMode::WIFI_RAW) return false;
+#endif
+  return runtime_traffic_mode_valid(mode);
+}
+
 bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeTrafficMode mode) {
   return mode != RuntimeTrafficMode::WIFI_RAW || profile == CsiCapturePolicy::AUTO ||
          profile == CsiCapturePolicy::LLTF;
@@ -109,7 +120,7 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
                                RUNTIME_CSI_TARGET_PPS_MAX)) {
     return RuntimeConfigError::CSI_TARGET_PPS;
   }
-  if (!runtime_traffic_mode_valid(config.traffic_generator_mode)) {
+  if (!runtime_traffic_mode_supported(config.traffic_generator_mode)) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_MODE;
   }
   if (!runtime_capture_profile_supports_traffic(config.csi_capture_profile, config.traffic_generator_mode)) {

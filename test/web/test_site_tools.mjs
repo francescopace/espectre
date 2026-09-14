@@ -33,6 +33,26 @@ function loadFlashCore(globals = {}) {
     return loadFlashRuntime(globals).window.ESPectreFlashCore;
 }
 
+describe('Monitor traffic source availability', () => {
+    it('disables wifi_raw on C6 and restores it when the connected chip changes', () => {
+        const options = ['ping', 'dns', 'dns_tcp', 'wifi_raw'].map((value) => ({ value }));
+        const context = vm.createContext({
+            window: {}, HTMLElement: class {}, customElements: { get: () => true },
+            document: { getElementById: (id) => id === 'sense-generator-mode' ? { options } : null },
+        });
+        vm.runInContext(read('docs/web/assets/js/device-session.js'), context);
+        for (const chip of ['ESP32-C6', 'ESP32-C5', 'esp32c6', 'ESP32-S3', 'ESP32-C6', '']) {
+            vm.runInContext(`conn.chip = ''; applyDeviceIdentity({ chip: ${JSON.stringify(chip)} });`, context);
+            const unsupported = chip.toUpperCase().replaceAll('-', '') === 'ESP32C6';
+            assert.equal(options[3].hidden, unsupported);
+            assert.equal(options[3].disabled, unsupported);
+            for (const option of options.slice(0, 3)) {
+                assert.ok(!option.hidden && !option.disabled);
+            }
+        }
+    });
+});
+
 function flashReadFixture(contents) {
     const reads = [];
     const writes = [];
