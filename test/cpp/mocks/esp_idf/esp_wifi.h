@@ -32,7 +32,11 @@ typedef enum {
 typedef enum { WIFI_IF_STA = 0, WIFI_IF_AP, WIFI_IF_MAX } wifi_interface_t;
 
 typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3 } wifi_phy_mode_t;
-typedef enum { WIFI_PHY_RATE_6M = 0x0B } wifi_phy_rate_t;
+typedef enum {
+  WIFI_PHY_RATE_24M = 0x09,
+  WIFI_PHY_RATE_12M = 0x0A,
+  WIFI_PHY_RATE_6M = 0x0B
+} wifi_phy_rate_t;
 typedef struct {
   wifi_phy_mode_t phymode;
   wifi_phy_rate_t rate;
@@ -268,6 +272,8 @@ typedef struct {
   int8_t rssi;
   uint8_t primary;
   uint8_t bssid[6];
+  bool phy_11g;
+  bool phy_11n;
 } wifi_ap_record_t;
 
 typedef struct {

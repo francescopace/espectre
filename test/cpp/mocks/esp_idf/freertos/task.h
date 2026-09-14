@@ -19,6 +19,18 @@ extern "C" {
 // Task creation
 typedef void (*TaskFunction_t)(void *);
 
+#ifdef __cplusplus
+struct FreeRtosTaskMock {
+  BaseType_t create_result{pdPASS};
+  bool defer_execution{false};
+  unsigned create_calls{0U};
+  TaskFunction_t pending_function{nullptr};
+  void *pending_argument{nullptr};
+};
+
+inline FreeRtosTaskMock g_freertos_task_mock;
+#endif
+
 static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
                                      const char *const pcName,
                                      uint32_t usStackDepth, void *pvParameters,
@@ -28,6 +40,17 @@ static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
   (void)usStackDepth;
   (void)uxPriority;
   (void)pxCreatedTask;
+#ifdef __cplusplus
+  ++g_freertos_task_mock.create_calls;
+  if (g_freertos_task_mock.create_result != pdPASS) {
+    return g_freertos_task_mock.create_result;
+  }
+  if (g_freertos_task_mock.defer_execution) {
+    g_freertos_task_mock.pending_function = pvTaskCode;
+    g_freertos_task_mock.pending_argument = pvParameters;
+    return pdPASS;
+  }
+#endif
   // For testing: execute task function synchronously instead of in a thread.
   if (pvTaskCode != NULL) {
     pvTaskCode(pvParameters);

@@ -33,8 +33,6 @@
 
 **Release tasks**:
 
-- [x] Benchmark the C++ Direct raw CSI queue with fixed 512-, 256-, and 128-byte payload bounds, then reduce its internal fixed-slot size to 128 bytes without changing the published raw-record contract or advertised capabilities. [SDK.md](SDK.md#raw-csi-storage) records the memory saving and hardware-validation limits.
-- [ ] Run a classic ESP32/ESP32-S2 A/B with HTTPD task priorities 1 and 4; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
 - [ ] Authenticate Native OTA images independently of HTTPS: enable ESP-IDF signed-app verification during updates on every supported Native target, sign every channel artifact with release-managed keys, reject unsigned or invalid images, document key custody, rotation, and USB recovery, and validate upgrades, corrupt images, and rollback behavior. Record Secure Boot v2 and hardware anti-rollback as production provisioning requirements rather than silently enabling irreversible eFuse policy in general-purpose builds.
 - [ ] Protect the existing `PATCH /mqtt` and `DELETE /mqtt` resources with per-device administrator pairing and encrypted Security2 sessions.
 - [ ] Complete the dataset collection backlog; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.

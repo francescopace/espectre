@@ -68,6 +68,71 @@ add_espectre_test(test_traffic_generator
     LIBRARIES espectre_runtime_testlib
 )
 
+# Verify that another target uses the shared fixed station rate default.
+add_espectre_test(test_traffic_generator_s2
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+target_sources(test_traffic_generator_s2 PRIVATE
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+)
+target_compile_definitions(test_traffic_generator_s2 PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32S2=1
+)
+
+# Fixed station rates are unavailable when the Wi-Fi driver uses TX A-MPDU.
+add_espectre_test(test_traffic_generator_ampdu
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+target_sources(test_traffic_generator_ampdu PRIVATE
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+)
+target_compile_definitions(test_traffic_generator_ampdu PRIVATE
+    CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=1
+    ESPECTRE_TEST_FIXED_STA_RATE=0
+)
+
+foreach(rate IN ITEMS 12 24)
+    add_espectre_test(test_traffic_generator_${rate}m
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
+        LIBRARIES espectre_runtime_testlib
+    )
+    target_sources(test_traffic_generator_${rate}m PRIVATE
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    )
+    target_compile_definitions(test_traffic_generator_${rate}m PRIVATE
+        CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=${rate}
+        ESPECTRE_TEST_EXPECTED_TX_RATE=WIFI_PHY_RATE_${rate}M
+    )
+endforeach()
+
+# Explicit choices override the shared default; C5 exercises the modern raw API.
+foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
+    add_espectre_test(test_traffic_generator_${variant}
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
+        LIBRARIES espectre_runtime_testlib
+    )
+    target_sources(test_traffic_generator_${variant} PRIVATE
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    )
+endforeach()
+target_compile_definitions(test_traffic_generator_auto PRIVATE
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0 ESPECTRE_TEST_FIXED_STA_RATE=0
+)
+target_compile_definitions(test_traffic_generator_s2_auto PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32S2=1
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0 ESPECTRE_TEST_FIXED_STA_RATE=0
+)
+target_compile_definitions(test_traffic_generator_c5_auto PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=0 ESPECTRE_TEST_FIXED_STA_RATE=0
+)
+target_compile_definitions(test_traffic_generator_c5_fixed PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=24 ESPECTRE_TEST_EXPECTED_TX_RATE=WIFI_PHY_RATE_24M
+)
+
 add_espectre_test(test_runtime_helpers
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_helpers.cpp"
     LIBRARIES espectre_runtime_testlib

@@ -41,7 +41,16 @@ typedef uint32_t UBaseType_t;
 #define configMAX_PRIORITIES 25
 
 // Mock FreeRTOS functions (no-ops for testing)
-static inline void vTaskDelay(TickType_t xTicksToDelay) { (void)xTicksToDelay; }
+#ifdef __cplusplus
+inline void (*g_freertos_delay_hook)(void) = nullptr;
+#endif
+
+static inline void vTaskDelay(TickType_t xTicksToDelay) {
+  (void)xTicksToDelay;
+#ifdef __cplusplus
+  if (g_freertos_delay_hook != nullptr) g_freertos_delay_hook();
+#endif
+}
 
 static inline TickType_t xTaskGetTickCount(void) { return 0; }
 

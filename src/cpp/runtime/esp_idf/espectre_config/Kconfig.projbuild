@@ -137,8 +137,24 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
         depends on ESPECTRE_CSI_CAPTURE_PROFILE_AUTO || ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
         help
             Send non-QoS Null Data frames directly to the associated AP BSSID.
-            Selects LLTF20 capture for ACKs and leaves the TX rate to the driver.
+            Selects LLTF20 capture for ACKs. Uses the managed Wi-Fi TX rate
+            below, or OFDM 6 Mbps when that policy selects automatic rates.
 endchoice
+
+config ESPECTRE_WIFI_TX_RATE_MBPS
+    int "Managed Wi-Fi TX rate (0=auto, 6, 12, or 24 Mbps)"
+    range 0 24
+    default 6
+    help
+        Supported values are 0, 6, 12, and 24; other values are rejected
+        when compiling the firmware. Zero keeps the driver's automatic
+        station rate selection. A fixed OFDM rate applies to raw injection
+        and, with TX A-MPDU disabled, all station transmissions while any
+        internal generator runs, including Direct and MQTT. Raw injection
+        uses OFDM 6 Mbps under automatic selection because its ACKs must
+        provide LLTF CSI. Station rate selection remains automatic for an
+        802.11b-only AP. This does not change the managed packet cadence
+        or the AP's rate.
 
 config ESPECTRE_EVALUATION_INTERVAL_MS
     int "Evaluation interval (milliseconds)"
@@ -188,15 +204,12 @@ menu "Advanced task scheduling"
 config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY
     int "Direct HTTPD task priority"
     range 1 10
-    default 4 if IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2
     default 1
     help
         FreeRTOS priority for the ESP-IDF HTTP server task used by Direct.
-        Classic ESP32 and ESP32-S2 builds keep it above best-effort managed
-        traffic so Direct control remains responsive under CSI load. Other
-        targets retain the ESPectre default. Higher values preempt
-        lower-priority ESPectre work; excessive values can starve sensing,
-        transport workers, and system networking.
+        Defaults to 1 on every target. Higher values preempt lower-priority
+        ESPectre work; excessive values can starve sensing, transport
+        workers, and system networking.
 
 config ESPECTRE_DIRECT_WORKER_TASK_PRIORITY
     int "Direct response and SSE worker priority"

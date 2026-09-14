@@ -61,13 +61,10 @@ def test_native_loop_priority_is_frontend_owned() -> None:
     )
 
 
-def test_httpd_priority_uses_validated_target_overrides() -> None:
+def test_httpd_priority_uses_shared_default_for_all_targets() -> None:
     block = _config_block(SHARED_KCONFIG, "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY")
-    assert re.search(
-        r"(?m)^\s*default 4 if IDF_TARGET_ESP32 \|\| IDF_TARGET_ESP32S2\s*$",
-        block,
-    )
-    assert re.search(r"(?m)^\s*default 1\s*$", block)
+    defaults = re.findall(r"(?m)^\s*default[ \t]+([^\n]+)$", block)
+    assert [value.strip() for value in defaults] == ["1"]
     for frontend in ("native", "matter"):
         app_dir = CPP_ROOT / "frontend" / frontend / "app"
         for defaults in app_dir.glob("sdkconfig.defaults.*"):

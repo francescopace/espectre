@@ -414,6 +414,65 @@ The demonstrated ACK failure is in the C6 driver/hardware short-frame CSI path b
 
 Local evidence is under `/private/tmp/espectre-c5-c6-raw-investigation`, including probe sources, firmware images, serial logs, configuration snapshots, disassembly, and machine-readable results. All temporary production hooks were removed after acquisition.
 
+### S3/C3 station TX-rate comparison
+
+On 2026-09-13, Native firmware compared automatic station TX-rate selection with fixed OFDM 6 Mbps across `ping`, `dns`, `dns_tcp`, and `wifi_raw` on one ESP32-S3 and one ESP32-C3. Each cell scored 60 seconds after five consecutive ready observations, with a 100-pps CSI target, HTTPD task priority 1, TX A-MPDU disabled, one persistent SSE client, and one health/diagnostics HTTP pair per second without request retries. IP generators retained HT20 capture with ACK dumping off; `wifi_raw` retained LLTF20 with ACK dumping on.
+
+The retained comparisons used the same verified AP before and after every cell, with the other device's sensing disabled. An initial S3 Auto arm used another AP and was excluded; the matched S3 order was fixed 6 Mbps followed by Auto. C3 ran Auto followed by fixed 6 Mbps. Its first fixed-rate arm was also excluded because an S3 reboot could have restarted sensing; the replacement reused the same C3 firmware with S3 disabled and checked during and after acquisition. Sensing enablement is not persistent across reboot, and the last reported TX rate can remain cached after the generator stops.
+
+Values below are Auto → fixed 6 Mbps. HTTP p95 pools the 120 scored health and diagnostics requests per cell.
+
+| Device | Generator | Mean occupancy | HTTP p95 |
+| --- | --- | --- | --- |
+| ESP32-S3 | `ping` | 93.45% → 94.43% | 40.20 → 44.03 ms |
+| ESP32-S3 | `dns` | 75.07% → 96.75% | 39.93 → 43.41 ms |
+| ESP32-S3 | `dns_tcp` | 97.28% → 95.52% | 41.40 → 44.42 ms |
+| ESP32-S3 | `wifi_raw` | 99.80% → 99.83% | 39.03 → 42.14 ms |
+| ESP32-C3 | `ping` | 84.97% → 87.15% | 44.09 → 43.70 ms |
+| ESP32-C3 | `dns` | 88.78% → 87.90% | 42.74 → 42.17 ms |
+| ESP32-C3 | `dns_tcp` | 87.80% → 85.68% | 43.99 → 44.60 ms |
+| ESP32-C3 | `wifi_raw` | 91.68% → 92.03% | 41.67 → 42.38 ms |
+
+All 1,920 scored HTTP requests in the retained comparisons succeeded. Every cell started and ended ready. S3 had no observed `ready=false` event in either policy. C3 Auto PING had four brief false-readiness events, totaling approximately 0.486 seconds by host observation; the other retained C3 cells had none. Maximum HTTP latency at fixed 6 Mbps was 52.92 ms on S3 and 49.49 ms on C3, compared with 299.25 ms in C3 Auto DNS. A separate simultaneous 30-second PING check with both devices at 6 Mbps completed another 120/120 HTTP requests without observed false-readiness events. Both devices were left on the required AP with fixed 6 Mbps, PING enabled, and sensing ready.
+
+Fixed 6 Mbps was functional in these workloads, but occupancy changes were mixed. These are single, sequential samples on one AP, without randomized or repeated matched arms; mean RSSI differed by up to 1.68 dB on S3 and 4.08 dB on C3. The large S3 DNS difference is an observation, not an isolated causal estimate or evidence of a universal gain. These measurements did not change production defaults. Firmware/configuration hashes and successful driver rate logs establish policy selection, not on-air PHY. Fixed selection affects station TX while an internal generator runs, including Direct traffic, and does not select the AP's downlink rate. Raw injection was already 6 Mbps in both arms. This check does not establish long-duration stability, maximum throughput, or behavior with TX A-MPDU enabled.
+
+Local evidence is retained under `data/untracked/wifi_tx_rate_other/20260913`. The matched arms are `s3-auto-same-ap`, `s3-fixed6`, `c3-auto`, and `c3-fixed6-isolated`; excluded arms remain archived. `comparison.json`, `same-ap-artifact-audit.json`, and `campaign-summary.json` record metrics, hash/configuration checks, request accounting, association identities, exclusions, and final firmware state. The simultaneous smoke check is reported separately from the A/B cells.
+
+### C5 station TX-rate comparison
+
+On 2026-09-14, the same 60-second, 100-pps Native protocol compared Auto and fixed OFDM 6 Mbps on ESP32-C5 revision 1.0 with ESP-IDF 5.5.5. Capture remained AUTO, HTTPD priority remained 1, and TX A-MPDU remained disabled. Every cell verified the required 2.4-GHz AP before and after acquisition. Read-only checks after flashing and after sampling verified that the C6 peer remained disabled; cached TX-rate diagnostics were not used as evidence of a stopped generator.
+
+| Generator | Mean occupancy, Auto → 6 Mbps | HTTP p95, Auto → 6 Mbps |
+| --- | --- | --- |
+| `ping` | 89.55% → 89.27% | 35.48 → 36.10 ms |
+| `dns` | 87.72% → 92.58% | 35.82 → 35.42 ms |
+| `dns_tcp` | 88.33% → 90.03% | 34.74 → 35.67 ms |
+| `wifi_raw` | 95.48% → 93.77% | 32.07 → 35.93 ms |
+
+All 960 scored HTTP requests succeeded. Every cell started and ended ready, with no observed false-readiness events. Maximum HTTP latency across both policies was 64.80 ms. Fixed-rate calls succeeded for all four generators, and the audit found no rate-configuration, restoration, send-failure, or fatal serial messages. All 52 archived hashes matched. Mean RSSI was 0.25–3.22 dB stronger in the fixed-rate samples, so the occupancy differences do not isolate the rate alone. Raw injection remained 6 Mbps in both policies. These observations establish operation in the tested workload, without a uniform occupancy gain or 5-GHz validation.
+
+Evidence is retained under `data/untracked/wifi_tx_rate_c5c6/20260914`, including the `c5-auto` and `c5-fixed6` arms, AP and peer checks, firmware/configuration hashes, serial logs, `comparison.json`, and `artifact-audit.json`. These measurements did not change production defaults.
+
+### C6 station TX-rate comparison
+
+On 2026-09-14, ESP32-C6 revision 0.1 with ESP-IDF 5.5.5 completed the same Auto → fixed OFDM 6 Mbps comparison: four 60-second cells per policy, a 100-pps CSI target, HTTPD priority 1, TX A-MPDU disabled, HT20/ACK-off capture for IP generators, and LLTF20/ACK-on capture for `wifi_raw`. Every cell verified AP `E6:FA:C4:20:19:DE` on channel 5 before and after sampling. The user confirmed that only C6 remained powered; boundary mDNS observations found no other advertised ESPectre. This physical isolation differs from the earlier C5 run's online peer checks and does not establish continuous radio silence.
+
+| Generator | Mean occupancy, Auto → 6 Mbps | HTTP p95, Auto → 6 Mbps |
+| --- | --- | --- |
+| `ping` | 87.87% → 87.80% | 41.64 → 42.18 ms |
+| `dns` | 86.48% → 87.02% | 42.41 → 41.67 ms |
+| `dns_tcp` | 81.40% → 82.92% | 40.74 → 43.49 ms |
+| `wifi_raw` | 0.00% → 0.00% | 39.01 → 37.13 ms |
+
+All 960 scored HTTP requests succeeded. The IP cells started and ended ready. Auto DNS TCP had one approximately 23-ms false-readiness interval by host observation; the other IP cells had none. Fixed-rate HTTP p95 remained below 44 ms, and its maximum was 51.55 ms. Fixed-rate driver calls succeeded for every generator, with no recorded rate-configuration, restoration, send-failure, or fatal serial messages. This clean firmware does not expose an instrumented internal ENOMEM counter.
+
+The two raw cells were deliberate negative controls and skipped the normal readiness gate. Both remained `ready=false` for their entire 60-second windows, with zero accepted CSI, zero admitted CSI, and zero occupancy despite approximately 109 CSI callbacks/s and successful HTTP responses. Raw injection remained 6 Mbps in both arms; fixing station TX at 6 Mbps did not resolve the previously documented C6 ACK-estimate failure.
+
+IP occupancy differences were small, and the single sequential pair does not establish an improvement. Mean RSSI changed by approximately −0.12, −0.47, +1.17, and −3.00 dB for PING, DNS, DNS TCP, and raw, respectively. Together with C5, these trials establish operation of the selected station-rate policy in the tested workloads on this AP; they do not establish universal AP compatibility, long-duration stability, a throughput ceiling, or C5 5-GHz behavior. At measurement time, production defaults were classic ESP32 at 6 Mbps and other targets at Auto.
+
+The completed C6 arms are `c6-auto-usb` and `c6-fixed6-usb` under `data/untracked/wifi_tx_rate_c5c6/20260914`. Earlier `c6-auto` and `c6-auto-rom-flash` attempts failed during setup and contain no scored acquisition; the complete Auto image was subsequently restored and hash-verified before measurement. `comparison-c5c6-final.json`, its Markdown table, and `campaign-summary-final.json` cover the four completed C5/C6 arms, all 1,920 successful HTTP requests, and the archived hash checks. The C6 was left on fixed 6 Mbps with PING enabled and ready; C5 was already disconnected by the user.
+
 ### Timing and admission findings
 
 The packet's useful sensing instant is reception by the device, when the PHY estimates CSI from HT-LTF. AP transmit time is not directly available to the device, and callback processing time describes software latency rather than the RF channel sample. A CSI result cannot be deferred arbitrarily and recalculated later without retaining the original RF samples; the callback exposes the estimate already associated with that received packet.
@@ -424,8 +483,12 @@ Packets counted as same-slot excess still contain valid CSI, but they do not add
 
 ## Decision
 
+On 2026-09-14, the project adopted 6 Mbps as the shared default after the classic ESP32, S3, C3, C5, and C6 trials. This is a common configuration policy, not a claim of universal AP compatibility or improved occupancy on every chip. Fixed-rate S2 hardware validation, other AP configurations, and C5 5-GHz sensing remain outside those trials. The C6 raw ACK CSI failure remains independent of this default. Explicit saved build configurations continue to override the default.
+
 Standardize managed CSI traffic as follows:
 
+- default `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` to 6 Mbps on every supported target, including builds without Kconfig; retain explicit Auto (`0`), 12, and 24 Mbps overrides, and the existing station-rate compatibility guards;
+- fail generator startup and report driver rate-configuration errors explicitly; do not mask lifecycle or configuration faults by silently switching station rates to Auto;
 - expose explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff, and experimental `wifi_raw` for Null Data requests and LLTF ACK capture;
 - keep `ping` as the shared schema default and the published Native, Matter, ESPHome, and Micro-ESPectre product configuration default; keep `dns` and `dns_tcp` as explicit operator selections;
 - preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;

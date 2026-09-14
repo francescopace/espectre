@@ -96,6 +96,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
  private:
   static void traffic_task_(void *arg);
   void reset_runtime_state_();
+  bool restore_sta_tx_rate_();
 
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
@@ -104,6 +105,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
   RuntimeTrafficMode mode_{RuntimeTrafficMode::PING};
   uint16_t icmp_identifier_{0U};
   uint8_t null_data_frame_[TRAFFIC_NULL_DATA_FRAME_SIZE]{};
+  bool fixed_sta_tx_rate_enabled_{false};
   std::atomic<uint32_t> current_rate_pps_{0U};
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};

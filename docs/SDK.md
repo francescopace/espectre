@@ -106,6 +106,8 @@ ESPHome maps sensing options from YAML under `espectre:` and uses its native `wi
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
+The shared integer setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `0` for Auto or `6`, `12`, or `24` for a fixed rate in Mbps. It defaults to `6` on all supported targets. Kconfig bounds the input to `0-24`; firmware compilation rejects values other than `0`, `6`, `12`, and `24`. Builds without this Kconfig symbol also default to `6`. This is a build-time radio policy, not a `RuntimeConfig` field or runtime-writable setting. [CSI.md](CSI.md#internal-generators) describes raw injection, station-rate scope, and compatibility limits.
+
 Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; [API.md](API.md#sensing-update-and-calibration) defines accepted runtime values.
 
 Runtime-writable controls are a subset of startup configuration. Inspect the advertised capabilities and use the corresponding runtime setters or the operations in [API.md](API.md#sensing-update-and-calibration). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#tuning-essentials) explains when to adjust a setting; [CSI.md](CSI.md) describes traffic and capture behavior.
@@ -359,14 +361,14 @@ The shared runtime defines these priorities:
 
 | Kconfig option | Default | Owner |
 |----------------|---------|-------|
-| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `4` on classic ESP32 and ESP32-S2, otherwise `1` | Direct HTTP server |
+| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `1` | Direct HTTP server |
 | `CONFIG_ESPECTRE_DIRECT_WORKER_TASK_PRIORITY` | `2` | Direct control responses and SSE delivery |
 | `CONFIG_ESPECTRE_RAW_WORKER_TASK_PRIORITY` | `3` | Raw CSI HTTP delivery |
 | `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY` | `1` | Managed PING or DNS traffic |
 
 The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY`, with a default of `5`, for its frontend and sensing loop. A custom integration owns the task that calls `RuntimeFrontendController::loop()` and must select that task's priority as part of its own scheduling policy.
 
-Classic ESP32 and ESP32-S2 builds default the Direct HTTP server priority to `4`, keeping control requests above best-effort managed traffic while CSI is active. Other supported targets default it to `1`. This is an explicit validated target policy, not an inference from scheduler topology; custom integrations can still override it after workload-specific validation.
+The Direct HTTP server defaults to priority `1` on every target. Custom integrations can override it after workload-specific validation. Existing `sdkconfig` files retain explicitly saved priorities; set `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1` to adopt the shared default in those builds.
 
 See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
 

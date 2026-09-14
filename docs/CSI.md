@@ -21,6 +21,14 @@ The runtime preserves an explicit source selection across ordinary delivery prob
 
 The default is `ping`. The IP-based generators use `traffic_generator_target_ip`, or the current Wi-Fi gateway when it is empty. The runtime uses the same resolved address for sending and identifying IP responses, and refreshes it after reconnection. [SDK.md](SDK.md#traffic-destination) describes address validation and startup configuration.
 
+The shared build-time Wi-Fi TX-rate policy defaults to fixed OFDM 6 Mbps on all supported targets. All supported targets can set `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` to `0` (Auto), `6`, `12`, or `24`, as described in [SDK.md](SDK.md#shared-sensing-options). Auto leaves station rates automatic while `wifi_raw` retains OFDM 6 Mbps injection so its ACKs can supply LLTF CSI.
+
+With a fixed rate selected, `wifi_raw` injects at that rate. With TX A-MPDU disabled, all four internal generators also hold station transmissions at the selected rate while running on an OFDM-capable AP: a 5 GHz AP or one supporting 802.11g or 802.11n. This includes Direct and MQTT traffic while `wifi_raw` runs. Stopping the generator restores automatic station TX rate selection; the configured packet cadence and the AP's downlink rate are unchanged.
+
+An 802.11b-only AP retains automatic station rate selection. Builds with TX A-MPDU enabled also retain automatic station rate selection because the driver does not support fixed rates with TX aggregation enabled. These station limits do not change the selected raw injection rate. The OFDM-capability check does not verify whether an AP has administratively disabled the selected rate; the receiver must support it. A rejected fixed-rate driver call fails generator startup and is logged as an error; it does not trigger an automatic-rate fallback. Successful configuration does not establish reception by the AP.
+
+The 6 Mbps policy avoided the TX queue saturation and Direct TCP stalls observed under automatic rate selection in the tested Native PING workload. A subsequent comparison of all four generators at 6, 12, and 24 Mbps on the same AP found no clear sustainable throughput gain at the higher rates, so 6 Mbps remains the default. Ref: [ADR](adr/2026-08-23-standardize-managed-csi-traffic-sources.md).
+
 `wifi_raw` sends 24-byte non-QoS Null Data frames using the station MAC, the associated AP BSSID, and driver-managed sequence numbers. It refreshes the BSSID when the generator restarts after association, including roaming with unchanged IP and channel. The configured IP destination has no effect on this mode.
 
 ### External sources

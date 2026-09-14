@@ -30,6 +30,8 @@ void esp_wifi_mock_reset(void) {
   g_esp_wifi_mock.get_ap_info_result = ESP_OK;
   g_esp_wifi_mock.current_ap_info.rssi = -55;
   g_esp_wifi_mock.current_ap_info.primary = 6;
+  g_esp_wifi_mock.current_ap_info.phy_11g = true;
+  g_esp_wifi_mock.current_ap_info.phy_11n = true;
   g_esp_wifi_mock.scan_start_result = ESP_OK;
   g_esp_wifi_mock.scan_stop_result = ESP_OK;
   g_esp_wifi_mock.scan_get_ap_num_result = ESP_OK;
