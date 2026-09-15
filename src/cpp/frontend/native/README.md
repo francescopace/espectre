@@ -18,6 +18,8 @@ Complete the local build prerequisites in [CLI.md](../../../../docs/CLI.md#local
 
 `--ota-channel` sets the default channel for OTA requests. See [CLI.md](../../../../docs/CLI.md#native-and-matter) for build, upload, and console options. Improv Serial uses the target's primary serial console, including TinyUSB CDC on maintained USB-OTG configurations that need it.
 
+Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S2, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files.
+
 ## Direct HTTP
 
 After Wi-Fi connects, run `./espectre devices --frontend native` to find the Direct endpoint. Use Device settings for configuration and OTA, and Monitor for sensing controls and diagnostics. The endpoint never returns stored Wi-Fi or MQTT passwords.

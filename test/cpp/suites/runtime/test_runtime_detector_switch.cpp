@@ -924,6 +924,7 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     const int calibration_starts = listener.calibration_starts;
     const int calibration_finishes = listener.calibration_finishes;
     const uint32_t configure_calls = runtime.csi_pipeline_.capture_service_.enable_attempts();
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
     TEST_ASSERT_EQUAL(kSupportsWifiRaw, runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
     if (!kSupportsWifiRaw) {
       TEST_ASSERT_EQUAL(RuntimeTrafficMode::PING, generator.mode);
@@ -939,8 +940,8 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     }
     TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, generator.mode);
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
-    // Classic ESP32 already captures LLTF20: switching the source leaves CSI armed.
-    TEST_ASSERT_EQUAL(configure_calls, runtime.csi_pipeline_.capture_service_.enable_attempts());
+    // AUTO starts on HT20; wifi_raw switches to LLTF20 and rearms CSI.
+    TEST_ASSERT_EQUAL(configure_calls + 1U, runtime.csi_pipeline_.capture_service_.enable_attempts());
     TEST_ASSERT_EQUAL(algorithm == DetectionAlgorithm::LIGHTWEIGHT, runtime.is_calibrating());
     TEST_ASSERT_EQUAL(calibration_starts + (algorithm == DetectionAlgorithm::LIGHTWEIGHT ? 1 : 0),
                       listener.calibration_starts);
@@ -953,7 +954,7 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, saved);
     TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
     TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
-    TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
     runtime.stop_sensing_services_();
   }
 }

@@ -1,0 +1,3 @@
+# ESP32-S3-specific product overrides.
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

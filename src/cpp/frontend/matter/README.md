@@ -36,6 +36,8 @@ The flash command prints the onboarding codes captured from the first boot. To r
 
 The first build downloads and compiles the managed `esp_matter` dependency; no manual clone is required. See [CLI.md](../../../../docs/CLI.md#native-and-matter) for Windows commands, build backends, and cache controls.
 
+Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files; ESP32-S2 is not supported by this frontend.
+
 ### Commissioning Window Behavior
 
 An uncommissioned device opens a 300-second window with BLE discovery. Removing the last fabric stops ESPectre services and schedules a restart after two seconds to restore BLE. The device reuses its persisted onboarding codes; the restart is canceled if a fabric exists when the timer expires. Pairing and fabric-management screens depend on the controller.

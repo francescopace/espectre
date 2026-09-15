@@ -1,3 +1,7 @@
+# ESP32-S2-specific product overrides.
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
 # Use the USB-OTG peripheral through TinyUSB. The S2 ROM USB CDC implementation
 # is not a reliable bidirectional application console on every host, while the
 # shared TinyUSB console preserves the same stdin/stdout contract used by

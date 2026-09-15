@@ -1,0 +1,3 @@
+# ESP32-C3-specific product overrides.
+
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
