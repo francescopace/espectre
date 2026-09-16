@@ -79,6 +79,25 @@ def test_direct_evidence_counts_censored_attempts_as_failures():
     assert "1/2 Direct control attempts failed (1 censored)" in reasons
 
 
+@pytest.mark.parametrize("missing_boundary", [0, 2])
+def test_direct_evidence_requires_both_available_transport_counter_boundaries(missing_boundary):
+    samples = [
+        {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1, "direct_send_failures": 0},
+        {"host_elapsed_seconds": 1.0, "timestamp_ms": 2_000, "uptime": 2, "direct_send_failures": None},
+        {"host_elapsed_seconds": 2.0, "timestamp_ms": 3_000, "uptime": 3, "direct_send_failures": 0},
+    ]
+    _metrics, reasons = bench.analyze_direct_evidence(
+        samples, [], duration_seconds=3, require_motion=False, require_detection_timing=False,
+    )
+    assert not any("counter boundary values" in reason for reason in reasons)
+
+    samples[missing_boundary]["direct_send_failures"] = None
+    _metrics, reasons = bench.analyze_direct_evidence(
+        samples, [], duration_seconds=3, require_motion=False, require_detection_timing=False,
+    )
+    assert "Direct transport did not report both send failure counter boundary values" in reasons
+
+
 def test_direct_evidence_uses_device_time_when_host_clock_hides_a_gap():
     samples = [
         {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},

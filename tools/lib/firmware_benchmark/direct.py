@@ -120,28 +120,28 @@ def wait_for_micro_direct_endpoint(
     raise RuntimeError("Micro-ESPectre launcher did not report a Direct-ready event")
 
 BENCHMARK_DIAGNOSTIC_FIELDS = (
-    "wifi_channel",
-    "wifi_rssi_dbm",
     "csi_admitted_pps",
     "csi_occupancy",
     "free_memory_kb",
-    "minimum_free_memory_kb",
-    "largest_free_memory_kb",
-    "task_stack_high_water_bytes",
-    "cpu_frequency_mhz",
     "performance_window_ready",
     "runtime_load_percent",
     "loop_avg_us",
     "loop_max_us",
-    "detection_timing_supported",
     "detection_samples",
     "detection_sum_us",
-    "detection_avg_us",
     "detection_min_us",
     "detection_max_us",
+)
+BENCHMARK_INITIAL_DIAGNOSTIC_FIELDS = (
+    "detection_timing_supported",
     "direct_http.rejected_connections",
     "direct_http.send_failures",
-    "direct_http.dropped_motion_events",
+)
+BENCHMARK_FINAL_DIAGNOSTIC_FIELDS = (
+    "minimum_free_memory_kb",
+    "largest_free_memory_kb",
+    "direct_http.rejected_connections",
+    "direct_http.send_failures",
 )
 
 
@@ -175,33 +175,33 @@ def normalize_direct_diagnostics(
         occupancy = 100.0 * occupied / window if occupied is not None and window and window > 0 else None
     direct_http = payload.get("direct_http") if isinstance(payload.get("direct_http"), dict) else {}
     assert isinstance(direct_http, dict)
+    detection_samples = _integer(payload.get("detection_samples"))
+    detection_sum_us = _integer(payload.get("detection_sum_us"))
+    detection_avg_us = None
+    if detection_samples is not None and detection_sum_us is not None:
+        detection_avg_us = detection_sum_us // detection_samples if detection_samples > 0 else 0
 
     return {
         "host_elapsed_seconds": round(host_elapsed_seconds, 6),
         "timestamp_ms": timestamp_ms,
         "uptime": _integer(payload.get("uptime")),
-        "wifi_channel": _integer(payload.get("wifi_channel")),
-        "wifi_rssi_dbm": _integer(payload.get("wifi_rssi_dbm")),
         "csi_admitted_pps": admitted_pps,
         "csi_occupancy_percent": occupancy,
         "free_memory_kb": _numeric(payload.get("free_memory_kb")),
         "minimum_free_memory_kb": _numeric(payload.get("minimum_free_memory_kb")),
         "largest_free_memory_kb": _numeric(payload.get("largest_free_memory_kb")),
-        "task_stack_high_water_bytes": _integer(payload.get("task_stack_high_water_bytes")),
-        "cpu_frequency_mhz": _integer(payload.get("cpu_frequency_mhz")),
         "performance_window_ready": payload.get("performance_window_ready") is True,
         "runtime_load_percent": _numeric(payload.get("runtime_load_percent")),
         "loop_avg_us": _integer(payload.get("loop_avg_us")),
         "loop_max_us": _integer(payload.get("loop_max_us")),
         "detection_timing_supported": payload.get("detection_timing_supported") is True,
-        "detection_samples": _integer(payload.get("detection_samples")),
-        "detection_sum_us": _integer(payload.get("detection_sum_us")),
-        "detection_avg_us": _integer(payload.get("detection_avg_us")),
+        "detection_samples": detection_samples,
+        "detection_sum_us": detection_sum_us,
+        "detection_avg_us": detection_avg_us,
         "detection_min_us": _integer(payload.get("detection_min_us")),
         "detection_max_us": _integer(payload.get("detection_max_us")),
         "direct_rejected_connections": _integer(direct_http.get("rejected_connections")),
         "direct_send_failures": _integer(direct_http.get("send_failures")),
-        "direct_dropped_motion_events": _integer(direct_http.get("dropped_motion_events")),
     }
 
 def normalize_direct_events(events: Sequence[DirectEvent], *, from_index: int) -> list[dict[str, object]]:
@@ -277,7 +277,7 @@ def direct_handshake(
     chip: str,
     identity: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, dict[str, object]]:
-    resources = ("capabilities", "device", "health", "sensing", "wifi", "diagnostics")
+    resources = ("capabilities", "device", "sensing", "wifi", "diagnostics")
     cached = {key: value for key, value in (identity or {}).items() if key in {"capabilities", "device"}}
     capabilities = getattr(client, "capabilities", None)
     if "capabilities" not in cached and isinstance(capabilities, dict):
@@ -287,7 +287,8 @@ def direct_handshake(
         if resource in cached:
             responses[resource] = cached[resource]
         elif resource == "diagnostics":
-            responses[resource] = client.request("get", resource, {"fields": ["direct_http"]})
+            fields = ["direct_http"] if frontend == "micro" else ["uptime"]
+            responses[resource] = client.request("get", resource, {"fields": fields})
         else:
             responses[resource] = client.request("get", resource)
     capabilities = responses["capabilities"]
@@ -508,6 +509,8 @@ def capture_direct_window(
     samples: list[dict[str, object]] = []
     attempts: list[dict[str, object]] = []
     previous_raw: dict[str, object] | None = None
+    initial_diagnostics: dict[str, object] | None = None
+    final_diagnostics: dict[str, object] | None = None
     events_start = len(client.events)
     if open_event_stream:
         # C++ frontends open this stream before readiness so the scored path is
@@ -522,7 +525,7 @@ def capture_direct_window(
                     raise
                 time.sleep(0.5)
     if require_fresh_timestamp:
-        previous_raw = client.request("get", "diagnostics", {"fields": list(BENCHMARK_DIAGNOSTIC_FIELDS)})
+        previous_raw = client.request("get", "diagnostics", {"fields": ["uptime"]})
         events_start = len(client.events)
     started = time.monotonic()
     deadline = started + duration_seconds
@@ -533,50 +536,54 @@ def capture_direct_window(
             if now < next_sample:
                 time.sleep(min(next_sample - now, 0.05))
                 continue
-            sampled_at = now
-            for method in ("health", "diagnostics"):
-                request_started = time.monotonic()
-                if isinstance(getattr(client, "last_request_timing", None), dict):
-                    client.last_request_timing = {}
-                error: Exception | None = None
-                raw: dict[str, object] | None = None
-                try:
-                    if method == "diagnostics":
-                        raw = client.request("get", method, {"fields": list(BENCHMARK_DIAGNOSTIC_FIELDS)})
-                    else:
-                        raw = client.request("get", method)
-                except (OSError, RuntimeError, TimeoutError) as exc:
-                    error = exc
-                sampled_at = time.monotonic()
-                timing = getattr(client, "last_request_timing", None)
-                timing = timing if isinstance(timing, dict) else {}
-                duration_ms = timing.get("host_total_ms")
-                if not isinstance(duration_ms, (int, float)) or isinstance(duration_ms, bool):
-                    duration_ms = round((sampled_at - request_started) * 1000.0, 3)
-                failed_phase = timing.get("host_failed_phase")
-                if error is not None and not isinstance(failed_phase, str):
-                    failed_phase = "request"
-                censored = bool(timing.get("host_censored", _exception_is_timeout(error)))
-                error_type = timing.get("host_error_type")
-                if not isinstance(error_type, str):
-                    error_type = type(error).__name__ if error is not None else None
-                attempts.append(
-                    {
-                        "method": method,
-                        "host_elapsed_seconds": sampled_at - started,
-                        "duration_ms": duration_ms,
-                        "failed_phase": failed_phase,
-                        "response_bytes": _integer(timing.get("host_response_bytes")),
-                        "expected_response_bytes": _integer(
-                            timing.get("host_expected_response_bytes")
-                        ),
-                        "censored": censored if error is not None else False,
-                        "succeeded": error is None,
-                        "error_type": error_type,
-                    }
-                )
-                if error is not None or raw is None or method != "diagnostics":
-                    continue
+            request_started = time.monotonic()
+            if isinstance(getattr(client, "last_request_timing", None), dict):
+                client.last_request_timing = {}
+            error: Exception | None = None
+            raw: dict[str, object] | None = None
+            fields = list(BENCHMARK_DIAGNOSTIC_FIELDS)
+            if initial_diagnostics is None:
+                fields.extend(BENCHMARK_INITIAL_DIAGNOSTIC_FIELDS)
+            final_sample = request_started + sample_interval_seconds >= deadline
+            if final_sample:
+                fields.extend(field for field in BENCHMARK_FINAL_DIAGNOSTIC_FIELDS if field not in fields)
+            try:
+                raw = client.request("get", "diagnostics", {"fields": fields})
+            except (OSError, RuntimeError, TimeoutError) as exc:
+                error = exc
+            sampled_at = time.monotonic()
+            timing = getattr(client, "last_request_timing", None)
+            timing = timing if isinstance(timing, dict) else {}
+            duration_ms = timing.get("host_total_ms")
+            if not isinstance(duration_ms, (int, float)) or isinstance(duration_ms, bool):
+                duration_ms = round((sampled_at - request_started) * 1000.0, 3)
+            failed_phase = timing.get("host_failed_phase")
+            if error is not None and not isinstance(failed_phase, str):
+                failed_phase = "request"
+            censored = bool(timing.get("host_censored", _exception_is_timeout(error)))
+            error_type = timing.get("host_error_type")
+            if not isinstance(error_type, str):
+                error_type = type(error).__name__ if error is not None else None
+            attempts.append(
+                {
+                    "method": "diagnostics",
+                    "host_elapsed_seconds": sampled_at - started,
+                    "duration_ms": duration_ms,
+                    "failed_phase": failed_phase,
+                    "response_bytes": _integer(timing.get("host_response_bytes")),
+                    "expected_response_bytes": _integer(
+                        timing.get("host_expected_response_bytes")
+                    ),
+                    "censored": censored if error is not None else False,
+                    "succeeded": error is None,
+                    "error_type": error_type,
+                }
+            )
+            if error is None and raw is not None:
+                if initial_diagnostics is None:
+                    initial_diagnostics = raw
+                if final_sample:
+                    final_diagnostics = raw
                 timestamp = _integer(raw.get("timestamp_ms"))
                 previous_timestamp = (
                     _integer(previous_raw.get("timestamp_ms"))
@@ -589,6 +596,7 @@ def capture_direct_window(
                         host_elapsed_seconds=sampled_at - started,
                         previous=previous_raw,
                     )
+                    sample["detection_timing_supported"] = initial_diagnostics.get("detection_timing_supported") is True
                     sample.update(timing)
                     samples.append(sample)
                     previous_raw = raw
@@ -600,6 +608,19 @@ def capture_direct_window(
             client.stop_events()
             if settle_event_disconnect:
                 _wait_for_direct_event_stream_closed(client)
+    if samples:
+        # Boundary values remain useful even when Micro's cached timestamp
+        # caused that response to be excluded from the time series.
+        for boundary, payload, keys in (
+            (samples[0], initial_diagnostics, ("direct_rejected_connections", "direct_send_failures")),
+            (samples[-1], final_diagnostics, (
+                "minimum_free_memory_kb", "largest_free_memory_kb",
+                "direct_rejected_connections", "direct_send_failures",
+            )),
+        ):
+            if payload is not None:
+                normalized = normalize_direct_diagnostics(payload, host_elapsed_seconds=0.0)
+                boundary.update({key: normalized[key] for key in keys})
     return samples, normalize_direct_events(client.events, from_index=events_start), attempts
 
 def wait_for_direct_runtime_ready(
@@ -1061,6 +1082,7 @@ def _verify_direct_radio_pin(
     requested_bssid: str,
     *,
     requested_channel: int = 0,
+    expected_sensing_enabled: bool,
 ) -> None:
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < deadline:
@@ -1073,14 +1095,23 @@ def _verify_direct_radio_pin(
             requested_bssid,
             requested_channel=requested_channel,
         ):
-            return
+            # A forced reassociation can still expose the old matching AP
+            # while the frontend has paused sensing for its Wi-Fi transition.
+            # Let that transition restore sensing before preparing the case;
+            # enabling it here can interrupt the scan and lose the PATCH reply.
+            sensing = client.request("get", "sensing")
+            if sensing.get("enabled") is expected_sensing_enabled:
+                return
         if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
             raise RuntimeError(
                 "Direct frontend rejected staged Wi-Fi configuration: "
                 f"{wifi.get('apply_message', '')}"
             )
         time.sleep(1.0)
-    raise RuntimeError("Direct Wi-Fi configuration did not match the benchmark radio pin")
+    raise RuntimeError(
+        "Direct Wi-Fi configuration did not match the benchmark radio pin "
+        "or restore the previous sensing state"
+    )
 
 
 def run_direct_frontend_cases(
@@ -1371,6 +1402,7 @@ def run_direct_frontend_cases(
                     client,
                     target_bssid,
                     requested_channel=target_channel,
+                    expected_sensing_enabled=baseline_before_radio_pin["sensing"].get("enabled") is True,
                 )
                 bssid_evidence["verified"] = True
         for case in selected_cases:

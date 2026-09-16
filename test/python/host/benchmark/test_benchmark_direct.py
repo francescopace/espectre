@@ -638,7 +638,6 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
             "frontend": "micro",
             "chip": "esp32c3",
         },
-        "health": {"status": "ok", "online": True},
         "sensing": {
             "enabled": True,
             "detector": "lightweight",
@@ -656,7 +655,7 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
     class FakeClient:
         def request(self, verb, resource, data=None):
             if resource == "diagnostics":
-                assert data and data["fields"]
+                assert data == {"fields": ["direct_http"]}
             assert verb == "get"
             return responses[resource]
 
@@ -831,7 +830,11 @@ def test_direct_capture_can_leave_event_collection_closed():
     assert client.started is False
     assert client.stopped is False
 
-def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch):
+@pytest.mark.parametrize("sample_interval_seconds", [1.0, 4.5])
+@pytest.mark.parametrize("require_fresh_timestamp", [False, True])
+def test_direct_capture_preserves_diagnostics_cadence_and_freshness(
+    monkeypatch, sample_interval_seconds, require_fresh_timestamp,
+):
     class FakeClock:
         now = 0.0
 
@@ -847,15 +850,9 @@ def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch)
         events = []
 
         def __init__(self):
-            self.responses = iter(
-                (
-                    {"timestamp_ms": 1_000},
-                    {"timestamp_ms": 1_000},
-                    {"timestamp_ms": 2_000},
-                    {"timestamp_ms": 2_000},
-                    {"timestamp_ms": 2_000},
-                )
-            )
+            self.baseline_pending = require_fresh_timestamp
+            self.timestamps = iter([1_000, 2_000, 3_000, 3_000])
+            self.requests = []
 
         def start_events(self):
             pass
@@ -864,36 +861,86 @@ def test_direct_capture_keeps_only_fresh_diagnostics_when_requested(monkeypatch)
             pass
 
         def request(self, verb, resource, data=None):
-            if resource == "diagnostics":
-                assert data and data["fields"]
-            assert verb == "get"
-            if resource == "health":
-                return {"status": "ok", "online": True}
-            assert resource == "diagnostics"
-            return next(self.responses)
+            assert (verb, resource) == ("get", "diagnostics")
+            if self.baseline_pending:
+                self.baseline_pending = False
+                assert data == {"fields": ["uptime"]}
+                return {"timestamp_ms": 1_000, "uptime": 1}
+            index = len(self.requests)
+            fields = list(bench.BENCHMARK_DIAGNOSTIC_FIELDS)
+            if index == 0:
+                fields.extend(bench.BENCHMARK_INITIAL_DIAGNOSTIC_FIELDS)
+            if index == 3:
+                fields.extend(bench.BENCHMARK_FINAL_DIAGNOSTIC_FIELDS)
+            assert data == {"fields": fields}
+            self.requests.append(data)
+            available = {
+                "csi_admitted_pps": 95,
+                "csi_occupancy": 0.85,
+                "free_memory_kb": 120,
+                "minimum_free_memory_kb": 110 - index,
+                "largest_free_memory_kb": 100 - index,
+                "performance_window_ready": True,
+                "runtime_load_percent": 45,
+                "loop_avg_us": 10,
+                "loop_max_us": 20,
+                "detection_timing_supported": True,
+                "detection_samples": 3,
+                "detection_sum_us": 10 + index,
+                "detection_min_us": 2,
+                "detection_max_us": 5,
+                "direct_http.rejected_connections": 7 + index,
+                "direct_http.send_failures": 0,
+            }
+            response = {"timestamp_ms": next(self.timestamps), "uptime": index + 1}
+            for field in fields:
+                if field.startswith("direct_http."):
+                    response.setdefault("direct_http", {})[field.split(".")[1]] = available[field]
+                else:
+                    response[field] = available[field]
+            return response
 
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
 
     samples, _events, attempts = bench.capture_direct_window(
         FakeClient(),
-        duration_seconds=4,
-        require_fresh_timestamp=True,
+        duration_seconds=int(4 * sample_interval_seconds),
+        sample_interval_seconds=sample_interval_seconds,
+        require_fresh_timestamp=require_fresh_timestamp,
     )
 
-    assert [sample["timestamp_ms"] for sample in samples] == [2_000]
-    assert [attempt["method"] for attempt in attempts] == [
-        "health",
-        "diagnostics",
-        "health",
-        "diagnostics",
-        "health",
-        "diagnostics",
-        "health",
-        "diagnostics",
-    ]
+    assert [sample["timestamp_ms"] for sample in samples] == (
+        [2_000, 3_000] if require_fresh_timestamp else [1_000, 2_000, 3_000, 3_000]
+    )
+    assert [attempt["method"] for attempt in attempts] == ["diagnostics"] * 4
+    assert [attempt["host_elapsed_seconds"] for attempt in attempts] == pytest.approx(
+        [index * sample_interval_seconds for index in range(4)], abs=0.05,
+    )
+    assert all(sample["detection_timing_supported"] for sample in samples)
+    assert [sample["detection_avg_us"] for sample in samples] == (
+        [3, 4] if require_fresh_timestamp else [3, 3, 4, 4]
+    )
+    assert samples[0]["direct_rejected_connections"] == 7
+    assert samples[-1]["direct_rejected_connections"] == 10
+    assert samples[-1]["minimum_free_memory_kb"] == 107
+    assert samples[-1]["largest_free_memory_kb"] == 97
+    assert all(sample["minimum_free_memory_kb"] is None for sample in samples[:-1])
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples, [], duration_seconds=int(4 * sample_interval_seconds),
+        require_motion=False, require_detection_timing=True, attempts=attempts,
+        sample_interval_seconds=sample_interval_seconds,
+    )
+    assert metrics.occupancy_mean == 85
+    assert metrics.detection_avg_us_mean == 3.5
+    assert metrics.detection_samples == (6 if require_fresh_timestamp else 12)
+    assert metrics.heap_min == 107 * 1024
+    assert metrics.heap_largest_last == 97 * 1024
+    assert "Direct transport recorded a rejected connection during the scored window" in reasons
+    assert "Direct diagnostics did not report detector timing" not in reasons
 
-def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeypatch):
+@pytest.mark.parametrize("failed_call", [1, 2, 3])
+def test_direct_capture_records_censored_failure_and_keeps_successful_samples(monkeypatch, failed_call):
     class FakeClock:
         now = 0.0
 
@@ -919,21 +966,15 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
             pass
 
         def request(self, verb, resource, data=None):
-            if resource == "diagnostics":
-                assert data and data["fields"]
-            assert verb == "get"
-            if resource == "health":
-                self.last_request_timing = {
-                    "host_total_ms": 10.0,
-                    "host_failed_phase": None,
-                    "host_response_bytes": 693,
-                    "host_expected_response_bytes": 693,
-                    "host_censored": False,
-                }
-                return {"status": "ok", "online": True}
-            assert resource == "diagnostics"
-            self.diagnostics_calls += 1
+            assert (verb, resource) == ("get", "diagnostics")
+            fields = list(bench.BENCHMARK_DIAGNOSTIC_FIELDS)
+            if self.diagnostics_calls == 0 or (failed_call == 1 and self.diagnostics_calls == 1):
+                fields.extend(bench.BENCHMARK_INITIAL_DIAGNOSTIC_FIELDS)
             if self.diagnostics_calls == 2:
+                fields.extend(bench.BENCHMARK_FINAL_DIAGNOSTIC_FIELDS)
+            assert data == {"fields": fields}
+            self.diagnostics_calls += 1
+            if self.diagnostics_calls == failed_call:
                 FakeClock.now += 0.5
                 self.last_request_timing = {
                     "host_total_ms": 500.0,
@@ -965,13 +1006,15 @@ def test_direct_capture_records_censored_failure_and_keeps_later_samples(monkeyp
         duration_seconds=3,
     )
 
-    assert [sample["timestamp_ms"] for sample in samples] == [1_000, 3_000]
-    assert len(attempts) == 6
+    assert [sample["timestamp_ms"] for sample in samples] == [
+        index * 1_000 for index in range(1, 4) if index != failed_call
+    ]
+    assert len(attempts) == 3
     failed = [attempt for attempt in attempts if not attempt["succeeded"]]
     assert failed == [
         {
             "method": "diagnostics",
-            "host_elapsed_seconds": 1.5,
+            "host_elapsed_seconds": failed_call - 0.5,
             "duration_ms": 500.0,
             "failed_phase": "body",
             "response_bytes": 178,
@@ -1017,7 +1060,7 @@ def test_direct_preparation_reuses_identity_and_limits_requests(monkeypatch, nee
     assert result["sensing"]["detector"] == "lightweight"
     assert result["sensing"]["enabled"] is True
     assert [resource for verb, resource, _ in calls if verb == "get"] == (
-        ["health", "sensing", "wifi", "diagnostics"] + (["sensing"] if needs_update else [])
+        ["sensing", "wifi", "diagnostics"] + (["sensing"] if needs_update else [])
     )
     assert [call for call in calls if call[0] != "get"] == (
         [("patch", "sensing", {"detector": "lightweight", "enabled": True})] if needs_update else []
@@ -1025,28 +1068,32 @@ def test_direct_preparation_reuses_identity_and_limits_requests(monkeypatch, nee
 
 
 @pytest.mark.parametrize("cached_capabilities", [False, True])
-def test_direct_handshake_reads_new_identity_and_reuses_connection_probe(cached_capabilities):
+@pytest.mark.parametrize("frontend", ["native", "esphome", "matter"])
+def test_direct_handshake_reads_new_identity_and_reuses_connection_probe(cached_capabilities, frontend):
     calls = []
     capabilities = {"operations": []}
 
     class FakeClient:
         def request(self, verb, resource, data=None):
             if resource == "diagnostics":
-                assert data and data["fields"]
+                assert data == {"fields": ["uptime"]}
             calls.append(resource)
             return {
                 "capabilities": capabilities,
-                "device": {"frontend": "native", "chip": "esp32c3"},
+                "device": {"frontend": frontend, "chip": "esp32c3"},
             }.get(resource, {})
 
     client = FakeClient()
     if cached_capabilities:
         client.capabilities = capabilities
-    result = bench.direct_handshake(client, frontend="native", chip="c3")
+    result = bench.direct_handshake(client, frontend=frontend, chip="c3")
 
     assert result["capabilities"] == capabilities
     assert "device" in calls
     assert calls.count("capabilities") == (0 if cached_capabilities else 1)
+    assert calls == ([] if cached_capabilities else ["capabilities"]) + [
+        "device", "sensing", "wifi", "diagnostics",
+    ]
 
 
 @pytest.mark.parametrize("stream_behavior", ["ready", "lost", "interrupted_readiness"])
@@ -1269,7 +1316,13 @@ def test_direct_runtime_readiness_rejects_a_later_reboot(monkeypatch):
 
     assert FakeClock.now == 3.0
 
-def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
+@pytest.mark.parametrize(
+    ("detection_samples", "detection_sum_us", "expected_average"),
+    [(3, 10, 3), (0, 0, 0), (None, None, None), (3, None, None)],
+)
+def test_direct_diagnostics_normalization_derives_shared_metrics(
+    detection_samples, detection_sum_us, expected_average,
+):
     previous = {
         "timestamp_ms": 1_000,
         "csi_admitted_total": 100,
@@ -1279,12 +1332,12 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
     current = {
         "timestamp_ms": 2_000,
         "uptime": 2,
-        "wifi_channel": 10,
-        "wifi_rssi_dbm": -57,
         "csi_admitted_total": 184,
         "csi_occupancy_slots": 84,
         "csi_window_slots": 100,
         "free_memory_kb": 120.0,
+        "detection_samples": detection_samples,
+        "detection_sum_us": detection_sum_us,
         "direct_http": {
             "send_failures": 0,
         },
@@ -1294,10 +1347,9 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
 
     assert normalized["csi_admitted_pps"] == 84.0
     assert normalized["csi_occupancy_percent"] == 84.0
-    assert normalized["wifi_channel"] == 10
-    assert normalized["wifi_rssi_dbm"] == -57
     assert normalized["free_memory_kb"] == 120.0
     assert normalized["direct_send_failures"] == 0
+    assert normalized["detection_avg_us"] == expected_average
 
 @pytest.mark.parametrize("frontend", ["native", "esphome"])
 def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
@@ -1346,6 +1398,11 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
     client = FakeClient()
     monitor_process = SimpleNamespace(poll=lambda: None)
     readiness_calls = []
+    radio_pin_checks = []
+    handshakes = iter([
+        {"sensing": {"enabled": True}, "diagnostics": {"uptime": 10}},
+        {"sensing": {"enabled": False}, "diagnostics": {"uptime": 11}},
+    ])
 
     def fake_flash(_case, _chip, _port, result, **_kwargs):
         result.flash = CommandResult(["flash"], 0, 1.0, "")
@@ -1378,7 +1435,7 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
     monkeypatch.setattr(
         bench,
         "direct_handshake",
-        lambda *_args, **_kwargs: {"config": {}, "diagnostics": {"uptime": 10}},
+        lambda *_args, **_kwargs: next(handshakes),
     )
     monkeypatch.setattr(bench, "_verify_default_runtime_baseline", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(bench, "_verify_native_baseline", lambda *_args, **_kwargs: None)
@@ -1388,7 +1445,9 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
         "_apply_direct_radio_pin",
         lambda *_args, **_kwargs: (True, "11:22:33:44:55:66"),
     )
-    monkeypatch.setattr(bench, "_verify_direct_radio_pin", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        bench, "_verify_direct_radio_pin", lambda *_args, **kwargs: radio_pin_checks.append(kwargs)
+    )
     monkeypatch.setattr(bench, "_verify_no_bssid_reboot", lambda *_args: None)
     monkeypatch.setattr(bench, "prepare_direct_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", stop_at_readiness)
@@ -1408,15 +1467,18 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
     results = bench.run_direct_frontend_cases([case], "s3", "/dev/cu.test")
 
     assert len(readiness_calls) == 1
+    assert radio_pin_checks[0]["expected_sensing_enabled"] is True
     assert "allow_reboot_recovery" not in readiness_calls[0]
     assert results[0].reasons == ["stop after readiness policy capture"]
 
 
-def test_native_radio_pin_accepts_committed_values_after_reassociation():
+@pytest.mark.parametrize("sensing_enabled", [True, False])
+def test_native_radio_pin_accepts_committed_values_after_reassociation(sensing_enabled):
     class FakeClient:
         def request(self, verb: str, resource: str, data=None):
-            if resource == "diagnostics":
-                assert data and data["fields"]
+            if resource == "sensing":
+                assert verb == "get"
+                return {"enabled": sensing_enabled}
             assert (verb, resource) == ("get", "wifi")
             return {
                 "configured": True,
@@ -1429,7 +1491,54 @@ def test_native_radio_pin_accepts_committed_values_after_reassociation():
         FakeClient(),
         "AA:BB:CC:DD:EE:FF",
         requested_channel=6,
+        expected_sensing_enabled=sensing_enabled,
     )
+
+
+def test_radio_pin_waits_for_sensing_to_resume_after_same_bssid_reassociation(monkeypatch):
+    sensing_states = iter([False, False, True])
+    calls = []
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    class FakeClient:
+        def request(self, verb, resource, data=None):
+            calls.append((verb, resource))
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": next(sensing_states)}
+            assert resource == "wifi"
+            return {"configured": True, "bssid": "aa:bb:cc:dd:ee:ff", "channel": 6}
+
+    bench._verify_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        requested_channel=6,
+        expected_sensing_enabled=True,
+    )
+
+    assert calls == [("get", "wifi"), ("get", "sensing")] * 3
+
+
+def test_radio_pin_rejects_a_transition_that_never_restores_sensing(monkeypatch):
+    monotonic = iter([0.0, 0.0, float(bench.WIFI_CONNECT_WAIT_SECONDS + 1)])
+    monkeypatch.setattr(bench.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    class FakeClient:
+        def request(self, verb, resource, data=None):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": False}
+            assert resource == "wifi"
+            return {"configured": True, "bssid": "aa:bb:cc:dd:ee:ff", "channel": 6}
+
+    with pytest.raises(RuntimeError, match="sensing"):
+        bench._verify_direct_radio_pin(
+            FakeClient(),
+            "AA:BB:CC:DD:EE:FF",
+            requested_channel=6,
+            expected_sensing_enabled=True,
+        )
 
 
 def test_radio_pin_verification_fails_when_the_association_does_not_match(monkeypatch):
@@ -1441,6 +1550,7 @@ def test_radio_pin_verification_fails_when_the_association_does_not_match(monkey
             SimpleNamespace(request=lambda *_args: {}),
             "AA:BB:CC:DD:EE:FF",
             requested_channel=6,
+            expected_sensing_enabled=True,
         )
 
 

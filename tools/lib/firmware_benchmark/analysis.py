@@ -255,16 +255,13 @@ def analyze_direct_evidence(
     if require_detection_timing and metrics.detection_samples <= 0:
         reasons.append("Direct diagnostics did not report detector timing")
 
-    stack_values = [
-        value for sample in samples if (value := _integer(sample.get("task_stack_high_water_bytes"))) is not None
-    ]
-    if stack_values and min(stack_values) <= 0:
-        reasons.append("Direct diagnostics reported an empty task stack high-water mark")
     for key, label in (
         ("direct_rejected_connections", "rejected connection"),
         ("direct_send_failures", "send failure"),
     ):
         values = [value for sample in samples if (value := _integer(sample.get(key))) is not None]
-        if len(values) > 1 and values[-1] > values[0]:
+        if len(values) == 1:
+            reasons.append(f"Direct transport did not report both {label} counter boundary values")
+        elif len(values) > 1 and values[-1] > values[0]:
             reasons.append(f"Direct transport recorded a {label} during the scored window")
     return metrics, reasons
