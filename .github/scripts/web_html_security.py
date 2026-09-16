@@ -121,7 +121,45 @@ class PassiveApiFragmentParser(HTMLParser):
         raise ValueError("API reference contains an unsafe processing instruction")
 
 
-SCRIPT_BLOCK_RE = re.compile(r"\s*<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
+class ScriptBlockParser(HTMLParser):
+    """Locate script elements without treating HTML as a regular expression."""
+
+    def __init__(self, fragment: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.fragment = fragment
+        self.line_offsets = [0, *(match.end() for match in re.finditer("\n", fragment))]
+        self.script_start: int | None = None
+        self.script_ranges: list[tuple[int, int]] = []
+
+    def source_offset(self) -> int:
+        line, column = self.getpos()
+        return self.line_offsets[line - 1] + column
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            self.script_start = self.source_offset()
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            start = self.source_offset()
+            self.script_ranges.append((start, start + len(self.get_starttag_text())))
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self.script_start is not None:
+            end = self.fragment.index(">", self.source_offset()) + 1
+            self.script_ranges.append((self.script_start, end))
+            self.script_start = None
+
+    def without_scripts(self) -> str:
+        parts = []
+        previous = 0
+        for start, end in self.script_ranges:
+            parts.append(self.fragment[previous:start])
+            previous = end
+        parts.append(self.fragment[previous:])
+        return "".join(parts)
+
+
 EVENT_HANDLER_RE = re.compile(
     r"\s+on[a-z][a-z0-9_:-]*\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)",
     re.IGNORECASE,
@@ -136,7 +174,10 @@ def validate_passive_api_fragment(fragment: str) -> None:
 
 def passivize_api_fragment(fragment: str) -> str:
     """Remove renderer-provided executable markup, then validate the result."""
-    passive = SCRIPT_BLOCK_RE.sub("", fragment)
+    parser = ScriptBlockParser(fragment)
+    parser.feed(fragment)
+    parser.close()
+    passive = parser.without_scripts()
     passive = EVENT_HANDLER_RE.sub("", passive)
     validate_passive_api_fragment(passive)
     return passive

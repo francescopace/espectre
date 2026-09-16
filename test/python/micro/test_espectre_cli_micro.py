@@ -604,7 +604,7 @@ def test_micro_build_tracks_sdk_changes_and_return_to_checkout(
         )
 
     selections = []
-    for index, ((command, environment), sdk_root) in enumerate(zip(configure_calls, [*sdk_roots, checkout_sdk])):
+    for index, ((command, environment), sdk_root) in enumerate(zip(configure_calls, [*sdk_roots, checkout_sdk], strict=True)):
         selection = next(arg.split("=", 1)[1] for arg in command if arg.startswith("-DESPECTRE_SDK_ROOT="))
         selections.append(selection)
         assert environment["ESPECTRE_SDK_ROOT"] == selection

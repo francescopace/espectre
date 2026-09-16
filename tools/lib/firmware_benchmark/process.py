@@ -7,12 +7,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
 import threading
 import time
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 from tools.lib.firmware_benchmark.analysis import strip_ansi
 from tools.lib.firmware_benchmark.models import CommandResult
@@ -54,20 +55,26 @@ def run_command(
     line_callback: Callable[[str], None] | None = None,
     output_redactor: Callable[[str], str] | None = None,
     redactions: Sequence[str] = (),
+    sensitive_arguments: Mapping[int, str] | None = None,
 ) -> CommandResult:
-    def redact(value: str) -> str:
-        redacted = output_redactor(value) if output_redactor is not None else value
-        for sensitive in redactions:
-            if sensitive:
-                redacted = redacted.replace(sensitive, "<redacted>")
-        return redacted
+    sensitive_arguments = sensitive_arguments or {}
+    secrets = sorted({value for value in (*redactions, *sensitive_arguments.values()) if value},
+                     key=len, reverse=True)
+    redaction_pattern = re.compile("|".join(re.escape(value) for value in secrets)) if secrets else None
 
-    display_parts = [redact(str(part)) for part in command]
+    def redact(value: str) -> str:
+        # Replace longer secrets first in one pass, without redacting the replacement text.
+        redacted = redaction_pattern.sub("<redacted>", value) if redaction_pattern else value
+        return output_redactor(redacted) if output_redactor is not None else redacted
+
+    display_parts = ["<redacted>" if index in sensitive_arguments else redact(str(part))
+                     for index, part in enumerate(command)]
     display_command = " ".join(display_parts)
     print(f"\n{output_prefix}$ {display_command}", flush=True)
     started = time.monotonic()
     process = subprocess.Popen(
-        [str(part) for part in command],
+        # Secrets enter argv only here; command and its logged form contain placeholders.
+        [str(sensitive_arguments.get(index, part)) for index, part in enumerate(command)],
         cwd=REPO_ROOT,
         env=child_environment(env),
         stdout=subprocess.PIPE,

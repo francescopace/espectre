@@ -103,9 +103,12 @@ def test_commission_matter_device_uses_ephemeral_storage_and_redactions(
     command = observed["command"]
     assert isinstance(command, list)
     assert command[1:3] == ["pairing", "code-wifi"]
-    assert "hex:4d6174746572204c6162" in command
-    assert "hex:6d61747465722d736563726574" in command
-    assert "12704227053" in command
+    assert command[4:7] == ["<redacted>"] * 3
+    assert observed["kwargs"]["sensitive_arguments"] == {
+        4: "hex:4d6174746572204c6162",
+        5: "hex:6d61747465722d736563726574",
+        6: "12704227053",
+    }
     assert not Path(observed["storage"]).exists()
     assert "12704227053" in observed["kwargs"]["redactions"]
     assert evidence.controller == "chip-tool"
@@ -180,3 +183,34 @@ def test_run_command_redacts_command_and_output(capsys):
     assert "matter-secret" not in " ".join(result.command)
     assert "matter-secret" not in result.output
     assert "matter-secret" not in capsys.readouterr().out
+
+
+def test_run_command_keeps_overlapping_secrets_out_of_logs_and_results(capsys, monkeypatch):
+    from tools.lib.firmware_benchmark import process
+
+    ssid = "Lab"
+    password = "Lab-secret"
+    ssid_argument = f"hex:{ssid.encode().hex()}"
+    password_argument = f"hex:{password.encode().hex()}"
+    launched = []
+    popen = process.subprocess.Popen
+
+    def capture_command(command, **kwargs):
+        launched.append(command)
+        return popen(command, **kwargs)
+
+    monkeypatch.setattr(process.subprocess, "Popen", capture_command)
+    result = run_command(
+        [sys.executable, "-c", "import sys; print(*sys.argv[1:], sep='\\n')",
+         "<redacted>", "<redacted>"],
+        redactions=(ssid, password, ssid_argument, password_argument, "redacted"),
+        sensitive_arguments={3: password, 4: password_argument},
+    )
+
+    assert result.returncode == 0
+    assert launched[0][-2:] == [password, password_argument]
+    assert result.output == "<redacted>\n<redacted>\n"
+    assert result.command[-2:] == ["<redacted>", "<redacted>"]
+    captured = capsys.readouterr().out
+    assert "-secret" not in captured
+    assert "2d736563726574" not in captured

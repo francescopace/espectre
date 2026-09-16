@@ -4,40 +4,52 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0-rc2] - in progress
+## [3.0.0-rc2] - 2026-09-16 - Signed firmware, CSI capture controls, and standalone SDK builds
 
-### Changes
+### Highlights
 
-- Use public SDK headers in Native, Matter, ESPHome, and Micro-ESPectre. Allow builds against an extracted SDK through `ESPECTRE_SDK_ROOT` and validate the generated ESPHome schema against the selected SDK. Micro-ESPectre keeps its core-only integration, with public traffic, Wi-Fi rate, and diagnostic contracts. Move shared Improv Serial support to the frontend.
-- Pin `improv/improv` to `1.2.7` from the ESP Component Registry for Native and Matter. Host provisioning tests use the same archive and verify its checksum. The SDK has no Improv dependency; ESPHome uses its own Improv integration.
+- Verify browser downloads with signed catalogs; Native and ESPHome require signed OTA updates.
+- Build all first-party frontends against extracted SDK bundles through `ESPECTRE_SDK_ROOT`.
+- Select CSI capture profiles at build time and try experimental `wifi_raw` traffic on supported chips.
+- Read selected diagnostics over Direct HTTP and MQTT, including frontend loop timing.
 
-- Add software-only OTA signature enforcement to published Native and ESPHome firmware, with temporary test keys for non-publishing CI and unsigned local builds by default. Signed catalogs authenticate all frontend artifacts before browser USB flashing, including Matter, and USB updates preserve application signatures. Release-key provisioning is required before publication; migration from official images to personal builds requires USB. Hardware Secure Boot, eFuses, CLI verification, and Native startup rollback remain unchanged. See [SETUP.md](SETUP.md#official-images-and-personal-builds) for the operator USB versus OTA workflow and [CONTRIBUTING.md](../CONTRIBUTING.md#firmware-signing-for-maintainers) for key custody.
+### Firmware and sensing
 
-- Reduce the shared C++ Direct raw CSI queue from 512 to 128 payload bytes per slot, saving 6 KiB of heap during collection in Native, ESPHome, Matter, and SDK integrations. Preserve the public 512-byte payload limit, binary framing, queue depth, and advertised capabilities. Document the normalized capture bound in the SDK.
+- Native OTA uses the shared firmware catalog; rolling firmware and SDK manifests use channel names.
+- Reject invalid CSI and report stale sensing as unavailable, preserving raw CSI framing.
+- Add `auto`, `lltf`, and `ht-vht` capture profiles; 5 GHz detection remains uncharacterized. See [CSI.md](CSI.md#capture-profiles).
+- `wifi_raw` requires `auto` or `lltf` and is disabled on ESP32-C6; `ping` remains the default.
+- Allow custom IPv4 destinations for internal traffic generators. See [SDK.md](SDK.md#traffic-destination).
+- Default station TX rates to 6.5 Mbps on classic ESP32 and Auto elsewhere, independently of sensing.
+- Resume CSI after reassociation or roaming with retained IPv4 state, without requiring another `GOT_IP` event.
+- Pin CPU clocks per target, reclaim Native IRAM, and save 6 KiB in the C++ raw CSI queue.
 
-- SDK API change: remove the unused `RuntimeDiagnosticsSample::csi_classified_pps` and `csi_provenance_rejected_pps` members; the provenance-rejection total remains available. Remove the unused `TemporalCsiSampler` counters `duplicate_packets`, `missing_timestamp_packets`, and `gap_resets` from C++, Python, and the MicroPython binding; rejection and reset behavior remains unchanged. Remove unread internal capture counters, and share one loop-duration accumulator for load and average timing in C++ and MicroPython. Remove `csi_classified_total` and `csi_estimate_length_mismatch_total` from diagnostics and internal snapshots, including their callback counters. Keep provenance-rejection and sanitized-first-word totals; sensing behavior is unchanged.
+### SDK and diagnostics
 
-- The release-candidate application API adds diagnostic field selection across Direct HTTP and MQTT while retaining version `1.0`. Requests without `fields` return a typed field catalog, explicit selections return values, and `["*"]` returns all values. Direct keeps `/espectre/v1`, discovery advertises `1.0`, and the default MQTT prefix stays `espectre/v1/devices`. Web tools, benchmark, collection, and CLI callers request their fields explicitly; the Monitor uses the device-aggregated hardware-error total. Upgrade clients and firmware together.
+- Derive SDK versions from packaged metadata or integrator overrides, independently of firmware versions; missing or incomplete metadata uses `0.0.0`.
+- Move Improv Serial support outside the SDK and share command validators with ESPHome controls.
+- Micro-ESPectre Direct validates JSON and parameters; non-empty bodies require the JSON media type.
+- Share `csi_hw_error_pps` across C++ and MicroPython, and expose C++ frontend loop duration as `loop_time_ms`.
 
-- Simplify periodic sensing logs to TX, CSI callbacks, accepted CSI, hardware-error rate, occupancy, channel, RSSI, movement score, threshold, and state. C++ and MicroPython logs and diagnostics share `csi_hw_error_pps`; MicroPython firmware exposes a dedicated native hardware-error counter, while older firmware reports the rate as unavailable.
+### Web tools, builds, and maintenance
 
-- Reject hardware reception and estimate errors before sensing and collection, retain recognizable full-width CSI with `first_word_invalid` by zeroing only the affected pairs (including classic ESP32 DC/+1), centrally impute LLTF edges and invalid +1 only in the private detector buffer, and expose capture-quality counters without changing the public CSI record format. C++ readiness requires a valid, recent detector window, and all C++ frontends publish availability transitions; missing CSI no longer advertises a ready quiet state. MicroPython counts native quality rejections in its shared diagnostics. Host tools decode the existing LLTF record marker as `lltf` instead of `unknown`.
-- The C++ frontends add experimental `wifi_raw`, a paced Null Data source addressed to the associated AP BSSID. Usable ACK CSI depends on the device and driver; `ping` remains the default. [CSI.md](CSI.md#compatibility-limits) records the tested compatibility limits. It reuses the existing generator task and the shared Wi-Fi TX-rate policy. Runtime selection uses LLTF20 ACK capture, reconfigures CSI only when needed, and recalibrates only Lightweight. LLTF20 also admits local ACKs alongside the configured IP traffic source. C++ and Python normalize compact 106-byte LLTF into the existing 64-bin layout using the centered ordering observed on C5 hardware; C5 selects 8-bit LLTF samples.
-- Add the shared C++ build-time setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS`, defaulting to OFDM 6 Mbps on all supported targets, with Auto (`0`), `6`, `12`, and `24` options. It controls raw injection and, with TX A-MPDU disabled on an OFDM-capable AP, all station transmissions, including Direct and MQTT. The Wi-Fi lifecycle applies the station rate before connected services start and reevaluates it on reconnection or roaming; stopping sensing or an internal generator leaves the rate unchanged. ESPHome now disables TX A-MPDU, matching Native and Matter. Auto retains 6 Mbps raw injection for LLTF ACK capture. Driver errors fail the corresponding Wi-Fi initialization or raw generator startup explicitly. [CSI.md](CSI.md#internal-generators) describes the compatibility limits and the classic ESP32 Direct stalls avoided in the tested 6 Mbps workload.
-- Default the shared C++ Direct HTTP server task to priority `1` on every target, removing the classic ESP32 and ESP32-S2 priority `4` exceptions. Existing builds with an explicitly saved priority must update `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` to adopt the new default.
-- Micro-ESPectre applies the same station TX-rate policy during Wi-Fi setup and recovery, independently of the native traffic generator. The new `espectre_native_wifi` module propagates driver errors before CSI starts. Rebuild and flash Micro firmware before deploying the updated application.
-- The shared C++ Wi-Fi lifecycle handles reassociation and roaming with retained IPv4 state without requiring a new `GOT_IP` event. It restarts CSI and traffic through the existing callbacks, refreshing the `wifi_raw` target even when IP and channel stay unchanged.
-- ESPHome embeds `esphome.project.version`, or a numeric component source ref, into the ESP-IDF application version; otherwise, it keeps ESPHome's default. ESPHome, Native, and Matter share the same runtime firmware version helper.
-- Micro-ESPectre Direct validates JSON and registered route parameters before reading snapshots or queuing recalibration. Invalid bodies and unexpected fields fail with HTTP 400, and non-empty bodies require the JSON media type.
-- Command parameter validation uses one registered callback path for SDK and frontend routes before dispatch. Invalid threshold and motion hit ranges fail during parsing; ESPHome entity controls use the same validators. Command executors now require successfully parsed input, while direct runtime APIs keep their argument checks.
-- SDK API change: OTA services, firmware version comparison, release catalogs, and OTA protocol types move to shared frontend code. Native registers its OTA routes and events through the SDK's generic protocol extension catalog. `RuntimeFrontendController::quiesce_for_ota()` becomes the general-purpose `quiesce()` operation.
-- SDK API change: firmware version detection moves to the first-party frontend helper `frontend_firmware_version()`. Integrators previously calling `espectre_firmware_version()` must supply their application version through the existing runtime interfaces. SDK version macros and `espectre_sdk_version()` remain available.
-- SDK identity comes only from packaged version metadata or a complete integrator override. Missing or incomplete metadata uses `0.0.0` without failing compilation. Git, firmware versions, and ESPHome source refs no longer set the SDK version.
-- ESPHome firmware now builds against ESPHome `2026.9.0`. The matching host packages in `requirements.txt` are aligned with that pin. Ruff, NumPy, Matplotlib, and ESP-IDF SBOM tooling are also updated.
-- Website dependencies are updated to Rollup `4.63.1`, `@rollup/plugin-commonjs` `29.0.3`, `@rollup/plugin-node-resolve` `16.0.3`, and `improv-wifi-serial-sdk` `2.8.1`, including the fix for CVE-2026-27606 in Rollup. Dependabot now checks those packages weekly on `develop`, and website CI audits the committed lockfile, including build dependencies, failing for known vulnerabilities rated low or higher.
-- Firmware builds use one Espressif-generated SBOM for distribution and dependency checks. Development audits report findings in job summaries and GitHub Code scanning; release gates block license violations, scanner failures, and applicable high, critical, or unscored CVEs.
-- The Code Analysis workflow combines CodeQL security analysis for C/C++, Python, JavaScript/TypeScript, and GitHub Actions with informational Ruff, ESLint, and Cppcheck quality reports in GitHub Code scanning and job summaries. It runs on pushes to `main` and `develop`, pull requests targeting `develop`, a weekly schedule, and manual dispatch. Cppcheck scans tracked first-party C/C++ translation units and their included headers across all frontends and tests, excluding vendored translation units; analysis without firmware SDK build configurations complements the existing builds. Raw Cppcheck reports remain available as artifacts; documented style exclusions and exact rule/file/message matches for reviewed false positives keep the uploaded report focused, while scanner notes stay separate from findings in the summary. CI coverage summaries retain the existing blocking thresholds. All integrations use features available for public repositories without GitHub Code Quality.
-- Local caches and CI output are consolidated under `.cache/`, including firmware and SDK packages, audit and coverage reports, NPZ data, Ruff, pytest, and Docker toolchain homes.
+- Show the newest Release or Preview firmware on the home badge, and suggest replacement routes on 404 pages.
+- Reduce benchmark HTTP traffic, recover stale SSE readiness, and report setup failures with diagnostic evidence.
+- Update ESPHome to `2026.9.0`, host dependencies, and website packages, including the Rollup security fix.
+- Add dependency audits and quality reports; block releases on license violations, scanner failures, and applicable high, critical, or unscored CVEs.
+- Store build packages, caches, and audit output under `.cache/`.
+
+### Breaking changes and migration
+
+- Diagnostics without `fields` return a catalog; use explicit fields or `["*"]` for values. Upgrade clients and firmware together. See [API.md](API.md#diagnostics).
+- OTA services, version comparison, release catalogs, and OTA types move from the SDK runtime to shared frontend code.
+- Replace `RuntimeFrontendController::quiesce_for_ota()` with `quiesce()`; replace `espectre_firmware_version()` calls by supplying the application version through runtime interfaces.
+- Remove `RuntimeDiagnosticsSample::csi_classified_pps` and `csi_provenance_rejected_pps`, plus diagnostics `csi_classified_total` and `csi_estimate_length_mismatch_total`.
+- Remove `TemporalCsiSampler` counters `duplicate_packets`, `missing_timestamp_packets`, and `gap_resets`.
+- Convert `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` overrides to strings `"0"`, `"6"`, or `"6.5"`, or remove them to adopt target defaults.
+- Update saved `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` overrides to adopt the new default of `1`.
+- Rebuild and flash Micro-ESPectre firmware before deploying the application, which now requires `espectre_native_wifi`.
+- Use USB when switching between unsigned personal builds and signed official firmware. Matter still has no OTA. See [SETUP.md](SETUP.md#official-images-and-personal-builds).
 
 ---
 

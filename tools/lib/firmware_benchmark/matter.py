@@ -168,9 +168,9 @@ def commission_matter_device(onboarding: MatterOnboardingData) -> MatterCommissi
             "pairing",
             "code-wifi",
             str(node_id),
-            ssid_argument,
-            password_argument,
-            onboarding.manual_code,
+            "<redacted>",
+            "<redacted>",
+            "<redacted>",
             "--storage-directory",
             storage_directory,
             "--timeout",
@@ -180,6 +180,11 @@ def commission_matter_device(onboarding: MatterOnboardingData) -> MatterCommissi
             result = run_command(
                 command,
                 timeout=float(timeout_seconds + 15),
+                sensitive_arguments={
+                    4: ssid_argument,
+                    5: password_argument,
+                    6: onboarding.manual_code,
+                },
                 redactions=(
                     ssid,
                     password,

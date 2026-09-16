@@ -436,8 +436,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.validate-run.outputs.head_sha }}
+          ref: refs/heads/main
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the checked-out Pages revision
+        env:
+          EXPECTED_SHA: ${{ needs.validate-run.outputs.head_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Set up firmware verification
         uses: ./.github/actions/setup-firmware-signing

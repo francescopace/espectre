@@ -279,7 +279,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
             {}};
   }
   const bool started = peer_discovery_->start([this, connection_token, request_id = request.command_id,
-                                               command_name = request.command](PeerDiscoverySnapshot snapshot) {
+                                               command_name = request.command](const PeerDiscoverySnapshot &snapshot) {
     if (this->service_ == nullptr) {
       return;
     }

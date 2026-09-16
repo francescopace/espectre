@@ -87,7 +87,7 @@ HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaRele
   status_.manifest_url = espectre_ota_manifest_url(frontend_.c_str(), chip_.c_str(), default_channel_);
 }
 
-HttpsOtaService::~HttpsOtaService() { shutdown(); }
+HttpsOtaService::~HttpsOtaService() { HttpsOtaService::shutdown(); }
 
 void HttpsOtaService::shutdown() {
   shutdown_requested_.store(true, std::memory_order_release);

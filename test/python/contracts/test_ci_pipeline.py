@@ -1099,6 +1099,27 @@ def test_sdk_api_fragment_security_rejects_active_markup() -> None:
             security.passivize_api_fragment(fragment)
 
 
+@pytest.mark.parametrize("script", [
+    '<script>alert(1)</script>',
+    '<SCRIPT>alert(1)</SCRIPT>',
+    '<script data-label=">">alert(1)</script>',
+    '<script>alert(1)</script\t\n bar>',
+    '<script src="https://example.com/script.js"/>',
+])
+def test_sdk_api_fragment_removes_script_elements(script: str) -> None:
+    security = load_script("web_html_security")
+    fragment = f'<article>before\n{script}<code>&lt;script&gt;</code>after</article>'
+    assert security.passivize_api_fragment(fragment) == (
+        '<article>before\n<code>&lt;script&gt;</code>after</article>'
+    )
+
+
+def test_sdk_api_fragment_rejects_unclosed_script() -> None:
+    security = load_script("web_html_security")
+    with pytest.raises(ValueError, match="unsafe HTML tag: script"):
+        security.passivize_api_fragment('<article><script>alert(1)')
+
+
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:
     indexnow = load_script("notify_indexnow")
     sitemap = tmp_path / "sitemap.xml"

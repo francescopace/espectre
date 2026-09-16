@@ -38,14 +38,6 @@
       "reason": "The mock provides storage for an opaque SDK handle; the field is not application state."
     },
     {
-      "rule": "virtualCallInConstructor",
-      "file": "src/cpp/frontend/ota_service_https.cpp",
-      "messages": [
-        "Virtual function 'shutdown' is called from destructor '~HttpsOtaService()' at line 91. Dynamic binding is not used."
-      ],
-      "reason": "The destructor intentionally invokes its own shutdown implementation; derived dispatch is not needed."
-    },
-    {
       "rule": "unreadVariable",
       "file": "src/cpp/frontend/ota_service_https.cpp",
       "messages": [
@@ -69,6 +61,30 @@
         "Variable 'payload[bin*2]' is assigned a value that is never used."
       ],
       "reason": "The payload aliases info.buf and is consumed by the capture service; callback counts verify the resulting rejection."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "test/cpp/suites/runtime/test_csi_pipeline.cpp",
+      "messages": [
+        "The comparison 'source == original' is always true because 'source' and 'original' represent the same value."
+      ],
+      "reason": "The source buffer aliases info.buf and is passed through CSI callbacks; this assertion protects its immutability."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "test/cpp/suites/runtime/test_runtime_helpers.cpp",
+      "messages": [
+        "The comparison 'payload == original_classic' is always true because 'payload' and 'original_classic' represent the same value."
+      ],
+      "reason": "The payload aliases info.buf and is passed to the capture service; this assertion protects the caller-owned buffer."
+    },
+    {
+      "rule": "knownConditionTrueFalse",
+      "file": "test/cpp/suites/runtime/test_runtime_detector_switch.cpp",
+      "messages": [
+        "Condition 'supported' is always true"
+      ],
+      "reason": "Wi-Fi raw traffic is supported on every scanned target except ESP32-C6; the same test checks both target configurations."
     },
     {
       "rule": "knownConditionTrueFalse",

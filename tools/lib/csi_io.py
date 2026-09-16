@@ -276,9 +276,9 @@ def get_default_bind_host() -> str:
     """Determine a safe default bind interface."""
     import os
 
-    env_host = os.getenv("CSI_BIND_HOST", "").strip()
-    if env_host:
-        return env_host
+    env_host = os.getenv("CSI_BIND_HOST")
+    if env_host and env_host.strip():
+        return str(ipaddress.ip_address(env_host.strip()))
 
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:

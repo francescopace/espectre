@@ -4,9 +4,9 @@
 
 | Milestone | Status | Starts when | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | Released | Current | Validate the first complete candidate of the shared sensing platform |
-| **v3.0.0-rc2** | Planned | `rc1` findings are resolved | Close release blockers and validate the final v3 candidate |
-| **v3.0.0** | Planned | `rc2` passes its release gates | Ship the supported shared sensing platform and firmware frontends |
+| **v3.0.0-rc1** | Released | September 5, 2026 | Publish the first complete candidate of the shared sensing platform |
+| **v3.0.0-rc2** | Release preparation | `rc1` feedback is reviewed | Validate signed firmware, sensing fixes, and SDK packaging |
+| **v3.0.0** | Planned | `rc2` is published | Ship the supported shared sensing platform and firmware frontends |
 | **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Apple Home over Matter leaves a documented product gap | Add a dedicated Apple Home frontend when HomeKit solves that gap |
@@ -17,34 +17,17 @@
 | **v4.2.0** | Demand-gated | Multi-node deployments need managed operations | Add optional fleet, history, update, and alert workflows |
 | **v5.0.0** | Exploratory | Practical sensing hardware exposes suitable measurements | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
-## v3.0.0-rc1 - First Release Candidate
-
-**Product outcome**: validate the first complete candidate of the shared v3 sensing platform before freezing the stable release contract.
-
-**Current state**: the shared C++ architecture, ESPHome, Native, and Matter frontends, browser tools, CLI, SDK packages, and release workflows are implemented in the current v3 candidate. The active [CHANGELOG.md](CHANGELOG.md) records the cumulative candidate behavior. Hardware, compatibility, security, corpus, and artifact findings remain release inputs until the candidate is tagged.
-
-**Exit criteria**: publish one reproducible candidate commit and its aligned firmware, SDK, web, and compliance artifacts. Record every stable-release blocker against `v3.0.0-rc2` before changing the candidate status.
-
-## v3.0.0-rc2 - Second Release Candidate
-
-**Product outcome**: resolve findings from the first candidate and prove that the v3.0.0 contract is ready for stable release.
-
-**Scope**: compatibility, correctness, security, packaging, documentation, and release-process fixes discovered during `v3.0.0-rc1`. New sensing outputs and frontends stay outside the release. Security work may narrow or protect an existing v3 surface when the current design cannot meet the stable-release boundary safely.
-
-**Release tasks**:
-
-- [ ] Protect the existing `PATCH /mqtt` and `DELETE /mqtt` resources with per-device administrator pairing and encrypted Security2 sessions.
-- [ ] Complete the dataset collection backlog; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
-
-**Exit criteria**: every `rc1` release blocker is closed, required validation and release gates pass on the candidate commit, and firmware, SDK, web, and vendor artifacts are reproducible and aligned with the candidate documentation.
-
 ## v3.0.0 - Stable Release
 
-**Product outcome**: publish the supported v3 platform baseline validated by the two release candidates.
+**Product outcome**: publish the supported v3 platform baseline after candidate validation and closure of the remaining security and corpus work.
 
-**Scope**: release the contract and artifacts accepted in `v3.0.0-rc2`. Only fixes for stable-release blockers may land after the second candidate.
+**Scope**: resolve `rc2` findings, complete the gates below, and freeze the stable application and SDK contracts. New sensing outputs and frontends stay in later milestones.
 
-**Exit criteria**: no release blockers remain, every required gate passes on the release commit, release notes describe the final cumulative behavior and migration path, and published artifacts match the tagged source. The release evidence records first-use setup coverage, sensing readiness after Wi-Fi recovery, detector alarms and misses in the maintained replay gates, and OTA recovery for every supported path.
+**Remaining release gates**:
+
+- [ ] Complete the dataset collection backlog and pass dataset-quality, training, and C++/Python parity gates on the final corpus. See [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) and [ML_TRAINING.md](ML_TRAINING.md).
+
+**Exit criteria**: no release blockers remain, required gates pass on the release commit, and published artifacts match the tagged source and documentation. Release evidence covers first-use setup, sensing readiness after Wi-Fi recovery, detector alarms and misses, and OTA recovery for every supported path.
 
 ## v3.1.0 - Matter Compatibility and Production Readiness
 
@@ -225,7 +208,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [API.md](API.md), [DISCOVERY.md](DISCOVERY.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **September 3, 2026**
+Last update: **September 16, 2026**
 
 For discussion and proposed changes:
 

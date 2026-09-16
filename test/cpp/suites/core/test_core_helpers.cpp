@@ -114,7 +114,7 @@ void test_l1_reconfiguration_and_moves_preserve_profile_history(void) {
         reused.configure(20U, lag);
         L1DeltaTracker fresh;
         fresh.configure(20U, lag);
-        for (uint16_t packet = 0U; packet < 2U * lag + 20U; ++packet) {
+        for (unsigned int packet = 0U; packet < 2U * lag + 20U; ++packet) {
             float amplitudes[HT20_SELECTED_BAND_SIZE];
             for (uint8_t tone = 0U; tone < HT20_SELECTED_BAND_SIZE; ++tone) {
                 amplitudes[tone] = 1U + (packet * (tone + 1U)) % 23U;

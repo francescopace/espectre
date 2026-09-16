@@ -1263,7 +1263,7 @@ def test_run_idf_build_tracks_sdk_changes_and_return_to_checkout(
     assert len(set(selections)) == 3
     assert selections[-1] == ""
     assert len({cmd[cmd.index("-B") + 1] for cmd in build_commands}) == 1
-    for sdk_root, selection, command in zip(sdk_roots, selections, calls):
+    for sdk_root, selection, command in zip(sdk_roots, selections[:-1], calls[:-1], strict=True):
         if backend == "local":
             assert selection == str(sdk_root.resolve())
         else:

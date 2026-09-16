@@ -29,11 +29,11 @@ describe('website security and asset contracts', () => {
     });
 
     it('does not load third-party scripts before analytics consent', () => {
-        const externalScripts = [...index.matchAll(/<script[^>]+src="(https?:[^"]+)"/g)]
+        const externalScripts = [...index.matchAll(/<script\b[^>]+src="(https?:[^"]+)"/gi)]
             .map((match) => match[1]);
         assert.deepEqual(externalScripts, []);
         assert.doesNotMatch(index, /unpkg\.com|jsdelivr\.net|fonts\.googleapis\.com|fonts\.gstatic\.com/);
-        const firstPartyScripts = [...index.matchAll(/<script\b([^>]*)>/g)]
+        const firstPartyScripts = [...index.matchAll(/<script\b([^>]*)>/gi)]
             .map((match) => match[1])
             .filter((attributes) => /src="\/assets\/js\//.test(attributes));
         assert.ok(firstPartyScripts.length > 0);
