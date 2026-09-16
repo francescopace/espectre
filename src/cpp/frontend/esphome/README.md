@@ -198,7 +198,9 @@ For raw collection, keep Direct API enabled and follow [CLI.md](../../../../docs
 
 ## Build and Consumption
 
-The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile updates from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+
+Checked-in example YAML and ordinary Device Builder builds keep signing disabled. Adoption does not bypass the verifier already on the device. You may instead enable ESPHome's `signed_ota_verification` with your own signing key. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA after an official image, and [CONTRIBUTING.md](../../../../CONTRIBUTING.md#firmware-signing-for-maintainers) for key custody.
 
 ### As an ESPHome external component
 

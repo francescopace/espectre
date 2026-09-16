@@ -277,6 +277,9 @@ def verify_firmware_channel(channel: str) -> None:
             f"Expected {len(expected)} {channel} firmware artifacts and images, "
             f"found {artifact_count} manifest entries and {len(binaries)} images"
         )
+    from firmware_signing import verify_manifest
+
+    verify_manifest(manifest, firmware_dir=channel_dir)
 
 
 def verify_sdk_api_version() -> None:
@@ -342,6 +345,8 @@ def verify(args: argparse.Namespace) -> None:
         "routes.json",
         "assets/js/app.js",
         "assets/js/flash-tool.js",
+        "assets/js/firmware-auth.mjs",
+        "assets/firmware-signing-keys.json",
         "assets/js/route-registry.js",
         "assets/js/espectre-direct.js",
         "assets/css/styles.css",

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "keys": [
+    {
+      "id": "c480fc53a561f26d6027abea274b4196045effbeaa7b9f5535fe87d0878a19a3",
+      "algorithm": "rsa3072",
+      "spki": "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAt58oyT/52M5KOsOyHeN86qaz8832feA/JEn9DUG/FGACtXIni3nVV50BztD1akxQzlej7nA29J2YhXtTVRIhuxKzeAvE66Vv8HvWr4jwAVKZdKwzHDVeeIQrjCBN0iwDGymVgFq9UeiBYIQf+pylhwgzECbkr+oD56BGPMv3DWrXTJdiFMJYh+g8rLyXUibVSxNPGp1PO8DanoOdyXnoHKkzkZEwZPAFKp0ArQ9KWg3GdLfaqbkDpNHOx7UYi2r5QGO49emWwA/pLQJ3nS2bGdmCP3s0KVZvuRcOrlhdkunkNaDepLQif7hKTLI7A/lJA1LKVNUtD8bpCC1odF0TNuO0ANFL2cIqdw5VfjBep2GulWQmCilePllRQPp5Wm9QRpvs85ev7IrhUKPqeQ8MbcZINE8KL33DSO++KWewP8+82wGCTOYc7uQT05rqr1DMVQfUK7sfoXLByC2th+fnoHorXZce22crQqgeF3fJMjGIjrAXeT757EsoPdBChpKXAgMBAAE="
+    },
+    {
+      "id": "5418eaf17b5b81d4ed2d26c5ba38be9a054167c18c92c61b83fedc63ca8e66b3",
+      "algorithm": "ecdsa_v1",
+      "spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEH6HXMfhy9GOC2/hsUCxRjYegsGUjL3OCMfODZc/Htr9u30GUci45KwETs4Ihe+lwcL+1fItEH1glmbx22rIisg=="
+    }
+  ]
+}

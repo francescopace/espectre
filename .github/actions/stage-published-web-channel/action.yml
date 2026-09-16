@@ -95,19 +95,27 @@ runs:
 
         gh release download "${resolved_tag}" \
           --pattern '*.bin' \
+          --pattern 'firmware-manifest-*.json' \
           --pattern 'firmware-compliance-*.zip' \
           --pattern '*-sbom.spdx.json' \
           --pattern '*-THIRD_PARTY_NOTICES.txt' \
           --pattern '*-third-party-licenses.zip' \
           --dir "${firmware_dir}" \
           --clobber
+        catalog="${firmware_dir}/firmware-manifest-${WEB_CHANNEL}.json"
+        if [[ ! -f "${catalog}" ]] || ! python3 -c \
+          'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("authentication") else 1)' "${catalog}"; then
+          echo "::warning::Omitting unsigned legacy ${WEB_CHANNEL} firmware; rebuild and publish the channel with signing enabled."
+          echo "staged=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
         gh release download "${resolved_tag}" \
           --pattern 'espectre-sdk-*' \
           --pattern 'sdk-manifest-*.json' \
           --dir "${sdk_dir}" \
           --clobber
 
-        python3 .github/scripts/stage_web_firmware.py \
+        python3 .github/scripts/stage_web_firmware.py --require-signature \
           --firmware-dir "${firmware_dir}" \
           --output-dir "${FIRMWARE_OUTPUT_DIR}" \
           --channel "${WEB_CHANNEL}" \

@@ -33,7 +33,6 @@
 
 **Release tasks**:
 
-- [ ] Authenticate Native OTA images independently of HTTPS: enable ESP-IDF signed-app verification during updates on every supported Native target, sign every channel artifact with release-managed keys, reject unsigned or invalid images, document key custody, rotation, and USB recovery, and validate upgrades, corrupt images, and rollback behavior. 
 - [ ] Protect the existing `PATCH /mqtt` and `DELETE /mqtt` resources with per-device administrator pairing and encrypted Security2 sessions.
 - [ ] Complete the dataset collection backlog; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
 

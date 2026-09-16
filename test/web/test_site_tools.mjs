@@ -9,6 +9,8 @@
 import { before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createHash, generateKeyPairSync, sign, constants } from 'node:crypto';
+import { verifyCatalog, verifyArtifact, authenticateDownload } from '../../docs/web/assets/js/firmware-auth.mjs';
 import { AnsiUp } from '../../docs/web/node_modules/ansi_up/ansi_up.js';
 import { rollup } from '../../docs/web/node_modules/rollup/dist/es/rollup.js';
 import serialConfig from '../../docs/web/rollup.config.mjs';
@@ -1332,7 +1334,16 @@ describe('website tool contracts', () => {
         factory[0x20017] = 0;
         const parts = core.preservedParts({ factory, update: null });
         assert.deepEqual(Array.from(parts, (part) => part.address), [0, 0x8000, 0xE000, 0x20000]);
-        assert.deepEqual(Array.from(parts, (part) => part.data.length), [32, 0xC00, 0x2000, 32]);
+        assert.deepEqual(Array.from(parts, (part) => part.data.length), [32, 0xC00, 0x2000, 0x10000]);
+        // A signed app has padding and a signature after the ESP image checksum.
+        // Both factory-only and application-only updates must preserve that tail.
+        factory[0x21000] = 0xE7;
+        factory[0x21FFF] = 0x42;
+        assert.equal(core.preservedParts({ factory, update: null }).at(-1).data[0x1000], 0xE7);
+        const signedApp = factory.slice(0x20000, 0x22000);
+        const signedPart = core.preservedParts({ factory, update: signedApp }).at(-1);
+        assert.equal(signedPart.data.length, signedApp.length);
+        assert.equal(signedPart.data.at(-1), 0x42);
         assert.equal(parts.some((part) => part.address === 0x9000), false);
         assert.equal(parts.some((part) => part.address === 0x30000), false);
     });
@@ -1398,5 +1409,209 @@ describe('website tool contracts', () => {
         const relay = template.match(/data-connection-panel="relay"[\s\S]*?<\/section>/)?.[0] || '';
         assert.match(relay, /class="btn-primary" disabled/);
         assert.doesNotMatch(relay, /<input|<select|js-connect/);
+    });
+});
+
+describe('Firmware artifact authentication', () => {
+    let keys;
+    before(() => { keys = generateKeyPairSync('rsa', { modulusLength: 3072 }); });
+
+    function fixture() {
+        const bytes = new Uint8Array([0xE9, 1, 2, 3, 4]);
+        const artifact = {
+            chip: 'esp32c6', chip_family: 'ESP32-C6', build_type: 'factory', filename: 'espectre-matter-3.0.0-esp32c6.bin',
+            url: '/artifacts/firmware/release/espectre-matter-3.0.0-esp32c6.bin',
+            size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'),
+        };
+        const manifest = {
+            channel: 'release', version: '3.0.0', release_tag: '3.0.0', commit: 'a'.repeat(40),
+            frontends: { matter: { artifacts: [artifact] } },
+        };
+        const payload = Buffer.from(JSON.stringify({
+            format: 'espectre-firmware-v1', channel: manifest.channel, version: manifest.version,
+            release_tag: manifest.release_tag, commit: manifest.commit,
+            artifacts: [{ ...artifact, frontend: 'matter', url: undefined }],
+        }));
+        const spki = keys.publicKey.export({ type: 'spki', format: 'der' });
+        const id = createHash('sha256').update(spki).digest('hex');
+        manifest.authentication = {
+            key_id: id, payload: payload.toString('base64'),
+            signature: sign('sha256', payload, { key: keys.privateKey,
+                padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }).toString('base64'),
+        };
+        return { manifest, artifact, bytes,
+            registry: { schema_version: 1, keys: [{ id, algorithm: 'rsa3072', spki: spki.toString('base64') }] } };
+    }
+
+    it('verifies signatures and hashes while allowing staging URL changes', async () => {
+        const { manifest, artifact, bytes, registry } = fixture();
+        artifact.url = '/another/staging/path/' + artifact.filename;
+        const inventory = await verifyCatalog(manifest, registry, { channel: 'release' });
+        await verifyArtifact(inventory, 'matter', artifact, bytes);
+        await assert.rejects(verifyArtifact(inventory, 'native', artifact, bytes));
+        await assert.rejects(verifyArtifact(inventory, 'matter', artifact, bytes.slice(1)));
+        const corrupt = bytes.slice();
+        corrupt[2] ^= 1;
+        await assert.rejects(verifyArtifact(inventory, 'matter', artifact, corrupt));
+    });
+
+    it('rejects unsigned catalogs, unknown keys, invalid signatures, and altered identities', async () => {
+        const { manifest, registry } = fixture();
+        const unsigned = { ...manifest, authentication: undefined };
+        await assert.rejects(verifyCatalog(unsigned, registry));
+        await assert.rejects(verifyCatalog(manifest, { schema_version: 1, keys: [] }));
+        await assert.rejects(verifyCatalog(manifest, registry, { channel: 'develop' }));
+        for (const [field, value] of [['version', '3.1.0'], ['channel', 'preview'], ['release_tag', 'snapshot'], ['commit', 'b']]) {
+            await assert.rejects(verifyCatalog({ ...manifest, [field]: value }, registry));
+        }
+        for (const field of ['payload', 'signature']) {
+            const altered = structuredClone(manifest);
+            const data = Buffer.from(altered.authentication[field], 'base64');
+            data[0] ^= 1;
+            altered.authentication[field] = data.toString('base64');
+            await assert.rejects(verifyCatalog(altered, registry));
+        }
+        for (const [field, value] of [['chip', 'esp32s3'], ['chip_family', 'ESP32-S3'], ['size', 1], ['sha256', '0'.repeat(64)]]) {
+            const altered = structuredClone(manifest);
+            altered.frontends.matter.artifacts[0][field] = value;
+            await assert.rejects(verifyCatalog(altered, registry));
+        }
+        const duplicate = structuredClone(manifest);
+        duplicate.frontends.matter.artifacts.push(duplicate.frontends.matter.artifacts[0]);
+        await assert.rejects(verifyCatalog(duplicate, registry));
+    });
+
+    it('blocks erase and write after a signature or hash failure and writes the verified bytes', async (t) => {
+        const { manifest, artifact, bytes, registry } = fixture();
+        t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => registry }));
+        const core = loadFlashCore();
+        for (const fail of ['signature', 'hash', null]) {
+            let downloads = 0;
+            const operations = [];
+            const catalog = structuredClone(manifest);
+            if (fail === 'signature') catalog.authentication.signature = 'AA==';
+            const downloaded = bytes.slice();
+            if (fail === 'hash') downloaded[1] ^= 1;
+            const operation = core.programImage({
+                download: () => authenticateDownload(catalog, 'matter', [artifact], async () => {
+                    downloads += 1;
+                    return downloaded;
+                }, new URL('https://espectre.dev/tools/flash/')),
+                erase: true,
+                onErase() {}, onWrite() {},
+                eraseFlash: async () => operations.push('erase'),
+                writeFlash: async ([received]) => {
+                    assert.equal(received, downloaded);
+                    operations.push('write');
+                },
+            });
+            if (fail) {
+                await assert.rejects(operation);
+                assert.deepEqual(operations, []);
+            } else {
+                await operation;
+                assert.deepEqual(operations, ['erase', 'write']);
+            }
+            assert.equal(downloads, fail === 'signature' ? 0 : 1);
+        }
+    });
+
+    it('always verifies on development hosts and requires approval before erase or write', async (t) => {
+        const core = loadFlashCore();
+        for (const host of ['localhost', '127.0.0.1', '[::1]', 'test.espectre.dev']) {
+            for (const failure of ['unsigned', 'key', 'signature', 'hash', 'registry', null]) {
+                for (const approve of [false, true]) {
+                    const { manifest, artifact, bytes, registry } = fixture();
+                    if (failure === 'unsigned') delete manifest.authentication;
+                    if (failure === 'key') registry.keys = [];
+                    if (failure === 'signature') manifest.authentication.signature = 'AA==';
+                    if (failure === 'hash') bytes[1] ^= 1;
+                    t.mock.method(globalThis, 'fetch', async () => ({
+                        ok: failure !== 'registry', json: async () => registry,
+                    }));
+                    const operations = [];
+                    const operation = core.programImage({
+                        download: () => authenticateDownload(manifest, 'matter', [artifact], async () => {
+                            operations.push('download');
+                            return bytes;
+                        }, new URL(`https://${host}/tools/flash/`), async (error) => {
+                            assert.ok(error instanceof Error);
+                            operations.push('confirm');
+                            return approve;
+                        }),
+                        erase: true, onErase() {}, onWrite() {},
+                        eraseFlash: async () => operations.push('erase'),
+                        writeFlash: async ([received]) => {
+                            assert.equal(received, bytes);
+                            operations.push('write');
+                        },
+                    });
+                    if (failure && !approve) {
+                        await assert.rejects(operation);
+                        assert.deepEqual(operations, ['download', 'confirm']);
+                    } else {
+                        await operation;
+                        assert.deepEqual(operations, failure
+                            ? ['download', 'confirm', 'erase', 'write'] : ['download', 'erase', 'write']);
+                    }
+                }
+            }
+        }
+    });
+
+    it('never offers an override on production, LAN, or lookalike hosts', async () => {
+        const { manifest, artifact, bytes } = fixture();
+        delete manifest.authentication;
+        for (const host of ['espectre.dev', 'www.espectre.dev', '192.168.1.2', 'localhost.example',
+            'test.espectre.dev.example', 'other.espectre.dev', 'example.test.espectre.dev']) {
+            let prompts = 0;
+            let downloads = 0;
+            await assert.rejects(authenticateDownload(manifest, 'matter', [artifact], async () => {
+                downloads += 1;
+                return bytes;
+            }, new URL(`https://${host}/?unsigned=1`), () => { prompts += 1; return true; }));
+            assert.equal(prompts, 0);
+            assert.equal(downloads, 0);
+        }
+    });
+
+    it('asks again for every attempt and defaults to rejection without explicit approval', async () => {
+        const { manifest, artifact, bytes } = fixture();
+        delete manifest.authentication;
+        const args = [manifest, 'matter', [artifact], async () => bytes, new URL('http://localhost/')];
+        await assert.rejects(authenticateDownload(...args));
+        await assert.rejects(authenticateDownload(...args, () => 'true'));
+        let prompts = 0;
+        const confirm = () => { prompts += 1; return prompts === 1; };
+        assert.equal((await authenticateDownload(...args, confirm))[0], bytes);
+        await assert.rejects(authenticateDownload(...args, confirm));
+        assert.equal(prompts, 2);
+    });
+
+    it('asks once after all downloads and never overrides a failed firmware download', async (t) => {
+        const { manifest, artifact, bytes, registry } = fixture();
+        t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => registry }));
+        bytes[1] ^= 1;
+        const artifacts = [artifact, { ...artifact, filename: 'unlisted.bin', url: '/unlisted.bin' }];
+        const location = new URL('https://test.espectre.dev/');
+        const downloads = [];
+        let prompts = 0;
+        const result = await authenticateDownload(manifest, 'matter', artifacts, async (url) => {
+            downloads.push(url);
+            return bytes;
+        }, location, () => {
+            assert.deepEqual(downloads, artifacts.map((item) => item.url));
+            prompts += 1;
+            return true;
+        });
+        assert.equal(prompts, 1);
+        assert.equal(result.length, artifacts.length);
+        for (const received of result) assert.equal(received, bytes);
+        const downloadError = new Error('Download failed');
+        await assert.rejects(authenticateDownload(manifest, 'matter', artifacts, async (url) => {
+            if (url === artifacts[1].url) throw downloadError;
+            return bytes;
+        }, location, () => { prompts += 1; return true; }), (error) => error === downloadError);
+        assert.equal(prompts, 1);
     });
 });

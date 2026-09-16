@@ -1112,11 +1112,20 @@
 
     async function flashDownloadFirmware(erase) {
         flashSetState('download');
-        flashSetProgress(5, 'Downloading firmware…');
-        const factory = await flashFetchBinary(flash.selectedArtifact.url);
-        const update = !erase && flash.selectedUpdateArtifact
-            ? await flashFetchBinary(flash.selectedUpdateArtifact.url)
-            : null;
+        flashSetProgress(5, 'Downloading and verifying firmware…');
+        const auth = await import('./firmware-auth.mjs');
+        const frontend = document.getElementById('flash-frontend').value;
+        const manifest = flash.manifests[flash.loadedChannel];
+        if (!manifest || manifest.channel !== flash.loadedChannel) {
+            throw new Error('The selected firmware catalog is no longer available.');
+        }
+        const artifacts = [flash.selectedArtifact];
+        if (!erase && flash.selectedUpdateArtifact) artifacts.push(flash.selectedUpdateArtifact);
+        const [factory, update = null] = await auth.authenticateDownload(
+            manifest, frontend, artifacts, flashFetchBinary, window.location,
+            (error) => window.confirm('Firmware verification failed.\n\n' + error.message
+                + '\n\nInstall this unverified firmware anyway? Only continue if you trust this build.')
+        );
         return { factory, update };
     }
 
@@ -1357,11 +1366,12 @@
         }
         let app = payload.update;
         if (app) {
-            const length = flashEspImageLength(app);
-            app = app.slice(0, length);
+            flashEspImageLength(app);
         } else {
-            const length = flashEspImageLength(payload.factory, appPartition.address);
-            app = payload.factory.slice(appPartition.address, appPartition.address + length);
+            flashEspImageLength(payload.factory, appPartition.address);
+            // Signature blocks and secure padding follow the ESP image checksum.
+            // Preserve the app partition instead of stripping those trailing bytes.
+            app = payload.factory.slice(appPartition.address, appPartition.address + appPartition.size);
         }
         if (app.length > appPartition.size) {
             const error = new Error('The application image does not fit the published partition layout.');

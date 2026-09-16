@@ -45,6 +45,7 @@ env/
 
 # ESPHome
 .esphome/
+src/cpp/frontend/esphome/examples/.signed-*.yaml
 secrets.yaml
 
 #ESP-IDF app build artifacts

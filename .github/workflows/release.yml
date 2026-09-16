@@ -100,26 +100,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Compile
+      - name: Compile signed ESPHome firmware
+        id: esphome-artifacts
         env:
           ESPECTRE_GIT_VERSION: ${{ github.ref_name }}
-        run: esphome -s component_source local -s project_version "${GITHUB_REF_NAME}" compile "${{ matrix.config }}"
-      
+          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ secrets.FIRMWARE_SIGNING_KEY_ESP32 }}
+        run: |
+          TARGET=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+          python .github/scripts/build_signed_firmware.py esphome \
+            --config "${{ matrix.config }}" --target "$TARGET" \
+            --version "${{ github.ref_name }}"
+
       - name: Rename firmware files
         run: |
           mkdir -p .cache/firmware
           VERSION="${GITHUB_REF_NAME}"
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          find src/cpp/frontend/esphome/examples/.esphome/build -name "firmware.factory.bin" -exec cp {} .cache/firmware/ \;
-          find src/cpp/frontend/esphome/examples/.esphome/build -name "firmware.ota.bin" -exec cp {} .cache/firmware/ \;
-          mv ".cache/firmware/firmware.factory.bin" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}.bin"
-          mv ".cache/firmware/firmware.ota.bin" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}-ota.bin"
+          cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}.bin"
+          cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}-ota.bin"
 
       - name: Build ESPHome compliance artifacts
         env:
           ESPECTRE_GIT_VERSION: ${{ github.ref_name }}
         run: |
-          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
+          PROJECT_DESCRIPTION="${{ steps.esphome-artifacts.outputs.project_description }}"
           test -n "${PROJECT_DESCRIPTION}"
           for FIRMWARE in .cache/firmware/espectre-esphome-*.bin; do
             python .github/scripts/build_firmware_compliance.py \
@@ -248,6 +253,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up firmware signing
+        uses: ./.github/actions/setup-firmware-signing
+
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache native toolchain
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -260,8 +268,10 @@ jobs:
       - name: Build native firmware
         run: |
           mkdir -p .cache/firmware
-          bash .github/scripts/build_native_firmware.sh
+          python .github/scripts/build_signed_firmware.py native
         env:
+          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ secrets.FIRMWARE_SIGNING_KEY_ESP32 }}
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ github.ref_name }}-${{ matrix.target }}.bin
           NATIVE_OTA_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
@@ -543,7 +553,12 @@ jobs:
       - name: List SDK files
         run: ls -la sdk/
 
+      - name: Set up firmware signing
+        uses: ./.github/actions/setup-firmware-signing
+
       - name: Verify firmware matrix and build release manifests
+        env:
+          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
         run: |
           python .github/scripts/build_firmware_manifest.py \
             --firmware-dir firmware \
@@ -553,7 +568,14 @@ jobs:
             --release-tag "${GITHUB_REF_NAME}" \
             --commit "${GITHUB_SHA}" \
             --compliance-url-prefix "https://espectre.dev/artifacts/firmware/release" \
-            --require-complete-matrix
+            --require-complete-matrix --sign
+
+      - name: Upload signed firmware catalog
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signed-firmware-catalog
+          path: firmware/firmware-manifest-*.json
+          if-no-files-found: error
 
       - name: Build firmware compliance bundle
         run: |
@@ -684,6 +706,15 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Set up firmware verification
+        uses: ./.github/actions/setup-firmware-signing
+
+      - name: Download signed firmware catalog
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: signed-firmware-catalog
+          path: release-firmware
+
       - name: Download release firmware artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -700,7 +731,7 @@ jobs:
 
       - name: Stage release web firmware
         run: |
-          python .github/scripts/stage_web_firmware.py \
+          python .github/scripts/stage_web_firmware.py --require-signature \
             --firmware-dir release-firmware \
             --output-dir docs/web/artifacts/firmware/release \
             --channel release \

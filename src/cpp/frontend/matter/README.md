@@ -117,7 +117,7 @@ The per-device onboarding flow removes the shared Matter test passcode, but the 
 
 ## OTA
 
-Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service.
+Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service. Matter firmware does not enforce an application signature on the device. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for catalog verification and the shared USB workflow.
 
 ## Matter-Specific Troubleshooting
 

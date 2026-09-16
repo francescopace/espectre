@@ -10,7 +10,7 @@ From the repository root, run:
 python -m http.server 8090 --directory docs/web
 ```
 
-Open `http://localhost:8090`. Native development firmware accepts loopback Origins only when `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y`; published firmware keeps this exception disabled. Flash, Improv Serial, and the Matter QR reader require a Chromium-based browser.
+Open `http://localhost:8090`. The USB installer always attempts firmware verification. On `localhost`, `127.0.0.1`, `[::1]`, and `test.espectre.dev`, a verification failure asks for explicit confirmation before continuing; no query parameter is needed. Production verification failures block installation. Native development firmware accepts loopback Origins only when `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y`; published firmware keeps this exception disabled. Flash, Improv Serial, and the Matter QR reader require a Chromium-based browser.
 
 The hosted Direct workflow is validated with Chrome 151 or later on macOS. Physical coverage on Windows and native Linux is still pending, and local discovery depends on the operating system's mDNS support. Other browsers are not guaranteed to work. A local HTTP preview does not prove hosted compatibility.
 
@@ -82,6 +82,20 @@ The home badge compares the Release and Preview firmware manifest versions and l
 Commit CI runs website tests, builds pages and the API reference, and verifies the site without downloading published channels. Before deployment, the Snapshot and Release workflows stage firmware and SDK artifacts from the source CI run or current tag for the channel being updated, recover the other supported published channels, and require verification of every staged channel.
 
 The shared `build-pages` action stages dependencies, runs the web tests, builds static routes and the API reference, and verifies the output before upload. `build_sitemap.py` generates the ignored `sitemap.xml` from `routes.json` and the SDK channels present in the staged Pages tree. Its `lastmod` dates come from the owning Git commits and staged SDK manifests, so Pages builds require full Git history. After deployment, IndexNow receives this exact generated sitemap inventory.
+
+### Firmware Signature Verification
+
+The installer attempts to authenticate every firmware download before erasing or writing flash. [firmware-auth.mjs](assets/js/firmware-auth.mjs) is the executable verification example used by [flash-tool.js](assets/js/flash-tool.js): `verifyCatalog()` verifies the catalog signature and metadata, `verifyArtifact()` checks an image's size and SHA-256, and `authenticateDownload()` returns the same downloaded byte arrays passed to the flasher. In production, any missing signature, unknown key, altered metadata, unavailable verification keys, or digest mismatch blocks installation.
+
+The same checks run on `localhost`, `127.0.0.1`, `[::1]`, and `test.espectre.dev`. Only these exact hosts allow a verification failure to be overridden through explicit confirmation for that installation attempt. The installer asks once, after downloading all selected images, and uses those same bytes if approved. Canceling or dismissing the prompt blocks installation; approval is never remembered for another attempt. Firmware download failures always block installation. Query parameters do not change verification or confirmation policy.
+
+The catalog keeps `schema_version: 1` and adds `size` and `sha256` to artifacts, plus an `authentication` object with `key_id`, `payload`, and `signature`. Payload and signature use standard Base64. Web Crypto verifies RSA-PSS with SHA-256, MGF1-SHA-256, and a 32-byte salt against the original decoded payload bytes, before parsing JSON. There is no browser-side JSON reserialization step. [firmware-signing-keys.json](assets/firmware-signing-keys.json) holds trusted public keys as Base64 DER SubjectPublicKeyInfo (`spki`); key IDs are SHA-256 fingerprints of that DER representation.
+
+The signed payload contains `format: "espectre-firmware-v1"`, channel, version, release tag, source commit, and an inventory binding each artifact's frontend, chip, chip family, build type, filename, size, and SHA-256. Download URLs, generation timestamps, and presentation metadata remain outside the signed payload. Staging may rewrite URLs and retain only factory images, but it preserves the authentication object and validates every retained artifact against the original inventory. Publication and deployment gates also verify file hashes. Unsigned historical channels are omitted until rebuilt with signing enabled; they are never silently re-signed while downloading them for a deployment.
+
+Factory images are authenticated in full, including the bootloader and partition table. During a USB update that preserves device data, the flasher preserves the complete application partition or OTA image, including trailing ESP-IDF signatures and padding. Local NVS and Matter commissioning data retain their existing preservation behavior.
+
+This verification trusts the deployed website code and public-key registry. A compromise that can replace that code can bypass its checks. Device-side OTA verification remains independent of the website; Matter currently has only browser-side artifact verification. This catalog format does not enforce freshness or prevent replay of a previously signed catalog. Key enrollment, custody, rotation, and recovery are documented in [CONTRIBUTING.md](../../CONTRIBUTING.md#firmware-signing-for-maintainers). The operator USB versus OTA workflow is in [SETUP.md](../SETUP.md#official-images-and-personal-builds).
 
 ## Routing and Analytics
 

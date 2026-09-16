@@ -182,7 +182,12 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set up firmware signing
+        uses: ./.github/actions/setup-firmware-signing
+
       - name: Verify firmware matrix and build rolling manifests
+        env:
+          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
         run: |
           python .github/scripts/build_firmware_manifest.py \
             --firmware-dir firmware \
@@ -192,7 +197,14 @@ jobs:
             --release-tag "${{ steps.snapshot.outputs.tag }}" \
             --commit "${{ needs.validate-run.outputs.head_sha }}" \
             --compliance-url-prefix "https://espectre.dev/artifacts/firmware/${{ steps.snapshot.outputs.channel }}" \
-            --require-complete-matrix
+            --require-complete-matrix --sign
+
+      - name: Upload signed firmware catalog
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: signed-firmware-catalog
+          path: firmware/firmware-manifest-*.json
+          if-no-files-found: error
 
       - name: Build firmware compliance bundle
         run: |
@@ -427,6 +439,15 @@ jobs:
           ref: ${{ needs.validate-run.outputs.head_sha }}
           fetch-depth: 0
 
+      - name: Set up firmware verification
+        uses: ./.github/actions/setup-firmware-signing
+
+      - name: Download signed firmware catalog
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: signed-firmware-catalog
+          path: preview-firmware
+
       - name: Download preview firmware artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -447,7 +468,7 @@ jobs:
 
       - name: Stage preview web firmware
         run: |
-          python .github/scripts/stage_web_firmware.py \
+          python .github/scripts/stage_web_firmware.py --require-signature \
             --firmware-dir preview-firmware \
             --output-dir docs/web/artifacts/firmware/preview \
             --channel preview \

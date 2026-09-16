@@ -12,6 +12,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True, help="Human-readable version label")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag used to download the assets")
     parser.add_argument("--commit", help="Optional source commit SHA for preview and develop builds")
+    parser.add_argument("--sign", action="store_true", help="Require trusted OTA images and sign the catalog using FIRMWARE_SIGNING_KEY_RSA")
     parser.add_argument("--url-prefix", help="Optional URL prefix used instead of GitHub Releases for web firmware assets")
     parser.add_argument(
         "--compliance-url-prefix",
@@ -264,6 +266,8 @@ def build_manifest(args: argparse.Namespace) -> dict:
             "algorithm": parsed["algorithm"],
             "build_type": parsed["build_type"],
             "filename": filename,
+            "size": asset_path.stat().st_size,
+            "sha256": hashlib.sha256(asset_path.read_bytes()).hexdigest(),
             "url": build_artifact_url(filename, args.release_tag, args.url_prefix),
             "compliance": compliance_artifacts(
                 asset_path,
@@ -275,6 +279,13 @@ def build_manifest(args: argparse.Namespace) -> dict:
 
     if getattr(args, "require_complete_matrix", False):
         validate_complete_matrix(manifest)
+
+    if getattr(args, "sign", False):
+        from firmware_signing import RSA_SECRET, private_key_from_secret, sign_manifest, verify_published_apps
+
+        key = private_key_from_secret(RSA_SECRET, "rsa3072")
+        verify_published_apps(manifest, firmware_dir)
+        sign_manifest(manifest, key)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

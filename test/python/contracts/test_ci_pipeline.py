@@ -1498,7 +1498,7 @@ def test_sitemap_verifier_requires_accurate_dates(
 
 
 def test_pages_verifier_enforces_exact_artifact_contracts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, firmware_trust
 ) -> None:
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
@@ -1513,7 +1513,8 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
         for chip in sorted(verifier.EXPECTED_CHIPS_BY_FRONTEND[frontend]):
             filename = f"espectre-{frontend}-{chip}.bin"
             (firmware_dir / filename).write_bytes(b"firmware")
-            artifacts.append({"build_type": "factory", "chip": chip, "filename": filename})
+            artifacts.append({"build_type": "factory", "chip": chip, "chip_family": chip, "filename": filename,
+                              "size": 8, "sha256": hashlib.sha256(b"firmware").hexdigest()})
         frontends[frontend] = {"artifacts": artifacts}
     firmware_manifest = {
         "channel": "preview",
@@ -1521,6 +1522,8 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
         "frontends": frontends,
     }
     firmware_manifest_path = firmware_dir / "firmware-manifest-preview.json"
+    signing, key = firmware_trust
+    signing.sign_manifest(firmware_manifest, key)
     firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
     verifier.verify_firmware_channel("preview")
 
@@ -1648,7 +1651,10 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     ):
         source = (SCRIPTS_DIR / script_name).read_text(encoding="utf-8")
         assert IDF_DOCKER_IMAGE in source
-        assert 'BUILD_DIR="build-container-${' in source
+        if script_name == "build_native_firmware.sh":
+            assert 'BUILD_DIR="${NATIVE_BUILD_DIR:-build-container-${NATIVE_TARGET}}"' in source
+        else:
+            assert 'BUILD_DIR="build-container-${' in source
         assert 'detect_git_version.py' in source
         assert '-e ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION}"' in source
         assert ".espectre-requirements-\\${REQUIREMENTS_HASH}" in source
@@ -1675,3 +1681,141 @@ def test_website_sources_integrate_sdk_api_fragments_in_portal_page() -> None:
     assert 'data-page-path="sdk"' in api_orientation
     assert 'api-reference-index' not in api_orientation
     assert '<iframe' not in api_orientation
+
+
+@pytest.fixture(scope="module")
+def firmware_rsa_key():
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    return rsa.generate_private_key(65537, 3072)
+
+
+@pytest.fixture
+def firmware_trust(tmp_path, monkeypatch, firmware_rsa_key):
+    monkeypatch.syspath_prepend(str(SCRIPTS_DIR))
+    signing = importlib.import_module("firmware_signing")
+    registry = tmp_path / "firmware-signing-keys.json"
+    registry.write_text(json.dumps({"schema_version": 1, "keys": [signing.key_record(firmware_rsa_key)]}))
+    monkeypatch.setattr(signing, "PUBLIC_KEYS", registry)
+    return signing, firmware_rsa_key
+
+
+def test_signed_catalog_survives_staging_and_rejects_tampering(tmp_path, firmware_trust):
+    signing, key = firmware_trust
+    builder = load_script("build_firmware_manifest")
+    stager = importlib.import_module("stage_web_firmware")
+    source = tmp_path / "source"
+    source.mkdir()
+    filename = "espectre-matter-3.0.0-esp32c6.bin"
+    (source / filename).write_bytes(b"firmware")
+    args = argparse.Namespace(firmware_dir=source, output=source / "firmware-manifest-release.json",
+                              channel="release", version="3.0.0", release_tag="3.0.0",
+                              commit="a" * 40, url_prefix=None)
+    manifest = builder.build_manifest(args)
+    signing.sign_manifest(manifest, key)
+    args.output.write_text(json.dumps(manifest))
+    signing.verify_manifest(manifest, firmware_dir=source)
+    output = tmp_path / "web"
+    staged = stager.stage_web_firmware(argparse.Namespace(
+        firmware_dir=source, output_dir=output, channel="release", version="3.0.0",
+        release_tag="3.0.0", commit=None, url_prefix="/artifacts/firmware/release", require_signature=True))
+    web = json.loads(staged.read_text())
+    assert web["authentication"] == manifest["authentication"]
+    assert web["frontends"]["matter"]["artifacts"][0]["url"].startswith("/artifacts/")
+    signing.verify_manifest(web, firmware_dir=output)
+    for field, value in (("version", "3.1.0"), ("channel", "preview"), ("commit", "b" * 40)):
+        altered = {**web, field: value}
+        with pytest.raises(ValueError, match="identity"):
+            signing.verify_manifest(altered)
+    unsigned = {name: value for name, value in web.items() if name != "authentication"}
+    with pytest.raises(ValueError, match="not signed"):
+        signing.verify_manifest(unsigned)
+    with pytest.raises(ValueError, match="untrusted"):
+        signing.verify_manifest({**web, "authentication": {**web["authentication"], "key_id": "unknown"}})
+    corrupt = {**web, "authentication": {**web["authentication"], "signature": "AA=="}}
+    with pytest.raises(ValueError, match="signature"):
+        signing.verify_manifest(corrupt)
+    (output / filename).write_bytes(b"tampered")
+    with pytest.raises(ValueError, match="signed hash"):
+        signing.verify_manifest(web, firmware_dir=output)
+    web["frontends"]["matter"]["artifacts"][0]["chip"] = "esp32c3"
+    with pytest.raises(ValueError, match="metadata"):
+        signing.verify_manifest(web)
+
+
+def test_signing_requires_enrolled_release_secrets(monkeypatch, firmware_trust):
+    from cryptography.hazmat.primitives import serialization
+
+    signing, key = firmware_trust
+    monkeypatch.delenv(signing.RSA_SECRET, raising=False)
+    with pytest.raises(ValueError, match="not configured"):
+        signing.private_key_from_secret(signing.RSA_SECRET, "rsa3072")
+    monkeypatch.setenv(signing.RSA_SECRET, key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()).decode())
+    assert signing.key_record(signing.private_key_from_secret(signing.RSA_SECRET, "rsa3072")) == signing.key_record(key)
+    with pytest.raises(ValueError, match="enrolled"):
+        signing.private_key_from_secret(signing.RSA_SECRET, "ecdsa_v1")
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_esp_idf_signatures_reject_unsigned_corrupt_and_wrong_key_images(tmp_path, firmware_trust, legacy):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+    signing, rsa_key = firmware_trust
+    key = ec.generate_private_key(ec.SECP256R1()) if legacy else rsa_key
+    private = tmp_path / "test.pem"
+    private.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                          serialization.NoEncryption()))
+    image = tmp_path / "app.bin"
+    image.write_bytes(b"firmware payload" * 256)
+    with pytest.raises(ValueError, match="signature"):
+        signing.verify_app(image, key.public_key(), legacy=legacy)
+    subprocess.run([sys.executable, "-m", "espsecure", "sign-data", str(image), "--version", "1" if legacy else "2",
+                    "--keyfile", str(private)], check=True, capture_output=True)
+    signing.verify_app(image, key.public_key(), legacy=legacy)
+    signing.PUBLIC_KEYS.write_text(json.dumps({"schema_version": 1, "keys": [signing.key_record(key)]}))
+    factory = bytearray(b"\xff" * 0x20000)
+    factory[0x8000:0x8004] = b"\xaa\x50\x00\x10"
+    factory[0x8004:0x8008] = (0x10000).to_bytes(4, "little")
+    factory[0x8008:0x800C] = (0x10000).to_bytes(4, "little")
+    signed_app = image.read_bytes()
+    factory[0x10000:0x10000 + len(signed_app)] = signed_app
+    (tmp_path / "factory.bin").write_bytes(factory)
+    catalog = {"frontends": {
+        "native": {"artifacts": [
+            {"build_type": "ota", "chip": "esp32" if legacy else "esp32c6", "filename": "app.bin"},
+            {"build_type": "factory", "chip": "esp32" if legacy else "esp32c6", "filename": "factory.bin"},
+        ]}, "esphome": {"artifacts": []},
+    }}
+    signing.verify_published_apps(catalog, tmp_path)
+    factory[0x10000 + len(signed_app) - 1] ^= 1
+    (tmp_path / "factory.bin").write_bytes(factory)
+    with pytest.raises(ValueError, match="signed OTA app"):
+        signing.verify_published_apps(catalog, tmp_path)
+    wrong = ec.generate_private_key(ec.SECP256R1()) if legacy else rsa.generate_private_key(65537, 3072)
+    with pytest.raises(ValueError, match="signature"):
+        signing.verify_app(image, wrong.public_key(), legacy=legacy)
+    data = bytearray(image.read_bytes())
+    data[10] ^= 1
+    image.write_bytes(data)
+    with pytest.raises(ValueError, match="signature"):
+        signing.verify_app(image, key.public_key(), legacy=legacy)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_signed_build_gate_rejects_disabled_verification_and_efuse_policy(tmp_path, firmware_trust, legacy):
+    builder = load_script("build_signed_firmware")
+    config = tmp_path / "sdkconfig"
+    profile = builder.native_profile("/temporary/test.pem", legacy=legacy)
+    config.write_text(profile)
+    builder.validate_sdkconfig(config, legacy=legacy)
+    config.write_text(profile.replace("CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y",
+                                      "CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=n"))
+    with pytest.raises(ValueError, match="does not enforce"):
+        builder.validate_sdkconfig(config, legacy=legacy)
+    for name in ("SECURE_BOOT", "SECURE_FLASH_ENC_ENABLED", "BOOTLOADER_APP_ANTI_ROLLBACK"):
+        config.write_text(profile.replace(f"CONFIG_{name}=n", f"CONFIG_{name}=y"))
+        with pytest.raises(ValueError, match="eFuse"):
+            builder.validate_sdkconfig(config, legacy=legacy)

@@ -200,19 +200,17 @@ jobs:
         id: git-version
         run: echo "version=$(python3 .github/scripts/detect_git_version.py)" >> "$GITHUB_OUTPUT"
       
-      - name: Compile
+      - name: Compile signed ESPHome firmware
+        id: esphome-artifacts
         env:
           ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
+          FIRMWARE_SIGNING_KEY_RSA: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
         run: |
-          esphome -s component_source local -s project_version "${{ steps.git-version.outputs.version }}" compile "${{ matrix.config }}"
-
-      - name: Locate ESPHome firmware images
-        id: esphome-artifacts
-        run: |
-          FACTORY_BIN="$(python3 -c 'from pathlib import Path; matches = sorted(Path("src/cpp/frontend/esphome/examples/.esphome/build").glob("**/firmware.factory.bin")); assert matches, "firmware.factory.bin not found"; print(matches[0])')"
-          OTA_BIN="$(python3 -c 'from pathlib import Path; matches = sorted(Path("src/cpp/frontend/esphome/examples/.esphome/build").glob("**/firmware.ota.bin")); assert matches, "firmware.ota.bin not found"; print(matches[0])')"
-          echo "factory_bin=${FACTORY_BIN}" >> "$GITHUB_OUTPUT"
-          echo "ota_bin=${OTA_BIN}" >> "$GITHUB_OUTPUT"
+          TARGET=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
+          python .github/scripts/build_signed_firmware.py esphome \
+            --config "${{ matrix.config }}" --target "$TARGET" \
+            --version "${{ steps.git-version.outputs.version }}" ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) && '--test-key' || '' }}
 
       - name: Rename ESPHome firmware
         run: |
@@ -230,7 +228,7 @@ jobs:
         env:
           ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
         run: |
-          PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
+          PROJECT_DESCRIPTION="${{ steps.esphome-artifacts.outputs.project_description }}"
           test -n "${PROJECT_DESCRIPTION}"
           for FIRMWARE in .cache/firmware/espectre-esphome-*.bin; do
             python .github/scripts/build_firmware_compliance.py \
@@ -395,6 +393,9 @@ jobs:
             echo "ota_channel=preview" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set up firmware signing
+        uses: ./.github/actions/setup-firmware-signing
+
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache native toolchain
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -407,8 +408,10 @@ jobs:
       - name: Build native firmware
         run: |
           mkdir -p .cache/firmware
-          bash .github/scripts/build_native_firmware.sh
+          python .github/scripts/build_signed_firmware.py native ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) && '--test-key' || '' }}
         env:
+          FIRMWARE_SIGNING_KEY_RSA: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}.bin
           NATIVE_OTA_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}-ota.bin

@@ -58,6 +58,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 
 ### Data And Delivery
 
+- [`2026-09-16-sign-published-firmware-and-verify-browser-downloads.md`](2026-09-16-sign-published-firmware-and-verify-browser-downloads.md)
 - [`2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md`](2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
 - [`2026-07-29-make-dataset-quality-review-detector-agnostic.md`](2026-07-29-make-dataset-quality-review-detector-agnostic.md)

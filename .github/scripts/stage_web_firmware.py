@@ -99,6 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-tag", help="Release tag used for metadata")
     parser.add_argument("--url-prefix", help="Same-origin URL prefix used by the staged manifest")
     parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds")
+    parser.add_argument("--require-signature", action="store_true", help="Reject unsigned or modified publication inputs")
     parser.add_argument(
         "--from-local-builds",
         action="store_true",
@@ -203,6 +204,18 @@ def stage_web_firmware(args: argparse.Namespace) -> Path:
                 url_prefix=args.url_prefix,
             )
         )
+
+        source_path = firmware_dir / manifest_path.name
+        source = read_json(source_path) if source_path.is_file() else {}
+        if source.get("authentication") or getattr(args, "require_signature", False):
+            from firmware_signing import verify_manifest
+
+            verify_manifest(source, firmware_dir=firmware_dir)
+            # Preserve the publisher's commit, including when a rolling release
+            # points at a branch name. URL rewriting never re-signs downloaded files.
+            manifest["commit"] = source.get("commit")
+            manifest["authentication"] = source["authentication"]
+            verify_manifest(manifest, firmware_dir=firmware_dir)
 
         for frontend in manifest["frontends"].values():
             frontend["artifacts"] = [

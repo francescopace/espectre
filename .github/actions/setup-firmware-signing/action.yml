@@ -1,0 +1,19 @@
+name: Set up firmware signing
+description: Install the pinned host tools used to sign and verify firmware.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      with:
+        python-version: '3.14'
+    - name: Install signing dependencies
+      shell: bash
+      run: |
+        python - <<'PY'
+        from pathlib import Path
+        import subprocess
+        import sys
+        requirements = [line.split('#')[0].strip() for line in Path('requirements.txt').read_text().splitlines()
+                        if line.startswith(('cryptography==', 'esptool=='))]
+        subprocess.run([sys.executable, '-m', 'pip', 'install', *requirements], check=True)
+        PY

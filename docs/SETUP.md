@@ -66,3 +66,11 @@ If you selected High Accuracy, it uses its trained threshold and skips quiet-roo
 Walk through the monitored area and confirm that the movement score responds and the motion state changes. Stop moving and check that it returns to idle. Repeat the test from the positions you need to monitor.
 
 Use [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if CSI is missing, calibration stalls, or detection is unreliable. Its tuning section explains when to change the profile, threshold, or motion-hit settings.
+
+## Official images and personal builds
+
+The installer verifies each published download before it erases or writes flash. Official Native and ESPHome images also require signed OTA updates. Matter has no OTA implementation; update it with a full USB image. Matter firmware does not enforce an application signature on the device.
+
+Local builds stay unsigned by default. A signed official Native or ESPHome image rejects an unsigned or differently signed personal build over OTA, so install that first personal image over USB. A full official USB image restores the official OTA trust chain. The first transition from unsigned firmware cannot authenticate itself retroactively; use a trusted full USB image when establishing the initial trust chain.
+
+After adopting an official ESPHome image, the first personalized Device Builder image also needs USB; later unsigned Builder updates can use the network. Native HTTPS OTA, ESPHome consumption, and Matter USB updates are in the frontend READMEs. Key custody, rotation, and recovery are in [CONTRIBUTING.md](../CONTRIBUTING.md#firmware-signing-for-maintainers).
