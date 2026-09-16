@@ -455,6 +455,24 @@ def test_persistent_direct_retries_reads_but_never_replays_mutations(monkeypatch
         client.close()
 
 
+@pytest.mark.parametrize("persistent", [False, True])
+def test_direct_transport_failure_identifies_method_and_resource(monkeypatch, persistent):
+    def fail(*_args, **_kwargs):
+        raise TimeoutError("timed out")
+
+    client = DirectClient(
+        "http://192.0.2.10" + device_transport.DIRECT_PATH,
+        persistent_requests=persistent,
+        urlopen_factory=None if persistent else fail,
+    )
+    if persistent:
+        monkeypatch.setattr(client, "_persistent_request", fail)
+    with pytest.raises(DirectProtocolError, match="Direct HTTP PATCH sensing request failed: timed out") as error:
+        client.request("patch", "sensing", {"detector": "high_accuracy"})
+    assert isinstance(error.value.__cause__, TimeoutError)
+    assert "192.0.2.10" not in str(error.value)
+
+
 def test_direct_client_can_pace_requests(monkeypatch):
     clock = SimpleNamespace(now=0.0)
     sleeps: list[float] = []

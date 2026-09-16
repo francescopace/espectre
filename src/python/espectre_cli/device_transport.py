@@ -717,7 +717,9 @@ class DirectClient:
                     timeout=self.timeout if timeout is None else timeout,
                 )
             except (OSError, TimeoutError, http.client.HTTPException) as exc:
-                raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+                raise DirectProtocolError(
+                    f"Direct HTTP {http_method} {normalized_resource} request failed: {exc}"
+                ) from exc
             if status not in {200, 202}:
                 detail = raw[:512].decode("utf-8", errors="replace").strip()
                 raise DirectProtocolError(f"Direct HTTP {status}: {detail or 'request failed'}")
@@ -735,7 +737,9 @@ class DirectClient:
             detail = exc.read(512).decode("utf-8", errors="replace").strip()
             raise DirectProtocolError(f"Direct HTTP {exc.code}: {detail or exc.reason}") from exc
         except (TimeoutError, URLError) as exc:
-            raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+            raise DirectProtocolError(
+                f"Direct HTTP {http_method} {normalized_resource} request failed: {exc}"
+            ) from exc
         finally:
             if response is not None:
                 response.close()

@@ -413,7 +413,7 @@ def test_runtime_monitor_keeps_benchmark_physical_port(
         "/dev/cu.selected",
     )
 
-    assert results[0].reasons == ["stop after monitor"]
+    assert results[0].reasons == ["Direct connection failed: stop after monitor"]
     assert monitor_commands == [
         [
             str(bench.REPO_ROOT / "espectre"),
@@ -1096,7 +1096,7 @@ def test_direct_handshake_reads_new_identity_and_reuses_connection_probe(cached_
     ]
 
 
-@pytest.mark.parametrize("stream_behavior", ["ready", "lost", "interrupted_readiness"])
+@pytest.mark.parametrize("stream_behavior", ["ready", "lost", "interrupted_readiness", "missing_ready_event"])
 def test_direct_readiness_uses_sensing_events_with_polling_fallback(monkeypatch, stream_behavior):
     class FakeClock:
         now = 0.0
@@ -1120,13 +1120,17 @@ def test_direct_readiness_uses_sensing_events_with_polling_fallback(monkeypatch,
             assert verb == "get"
             if resource == "sensing":
                 self.sensing_reads += 1
-                return {"enabled": True, "ready": not self.events_active}
+                return {
+                    "enabled": True,
+                    "ready": not self.events_active
+                    or (stream_behavior == "missing_ready_event" and self.diagnostics_reads >= 2),
+                }
             assert resource == "diagnostics"
             self.diagnostics_reads += 1
             if self.diagnostics_reads == 2:
                 if stream_behavior == "lost":
                     self.events_active = False
-                else:
+                elif stream_behavior != "missing_ready_event":
                     self.events.append(DirectEvent("sensing", {"enabled": True, "ready": True}, FakeClock.now))
             if stream_behavior == "interrupted_readiness" and self.diagnostics_reads in {4, 5}:
                 self.events.append(DirectEvent(
@@ -1140,9 +1144,46 @@ def test_direct_readiness_uses_sensing_events_with_polling_fallback(monkeypatch,
     client = FakeClient()
     bench.wait_for_direct_runtime_ready(client, use_sensing_events=True)
 
-    assert client.sensing_reads == (6 if stream_behavior == "lost" else 1)
-    assert client.diagnostics_reads == (9 if stream_behavior == "interrupted_readiness" else 6)
+    assert client.sensing_reads == {"lost": 6, "missing_ready_event": 2}.get(stream_behavior, 1)
+    assert client.diagnostics_reads == {
+        "interrupted_readiness": 9,
+        "missing_ready_event": bench.DIRECT_STABLE_SAMPLE_COUNT * 2,
+    }.get(stream_behavior, 6)
     assert FakeClock.now == client.diagnostics_reads - 1
+
+
+@pytest.mark.parametrize("ready", [False, True])
+def test_direct_readiness_retains_unscored_evidence_on_success_and_timeout(monkeypatch, ready):
+    clock = SimpleNamespace(now=0.0)
+    evidence = []
+
+    class FakeClient:
+        def request(self, verb, resource, data=None):
+            assert verb == "get"
+            if resource == "sensing":
+                return {"enabled": True, "ready": ready, "calibrating": False}
+            assert resource == "diagnostics"
+            assert data == {"fields": ["csi_admitted_pps", "csi_occupancy"]}
+            return {
+                "timestamp_ms": int(clock.now * 1000),
+                "uptime": 40 + int(clock.now),
+                "csi_admitted_pps": 66.4,
+                "csi_occupancy": 0.66,
+            }
+
+    monkeypatch.setattr(bench.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(bench.time, "sleep", lambda seconds: setattr(clock, "now", clock.now + seconds))
+    if ready:
+        bench.wait_for_direct_runtime_ready(FakeClient(), evidence=evidence)
+        assert len(evidence) == bench.DIRECT_STABLE_SAMPLE_COUNT
+    else:
+        with pytest.raises(RuntimeError, match=r"occupancy=66\.0%"):
+            bench.wait_for_direct_runtime_ready(FakeClient(), timeout_seconds=10, evidence=evidence)
+        assert len(evidence) == 10
+    assert all(sample["ready_to_publish"] is ready for sample in evidence)
+    assert all(sample["csi_occupancy_percent"] == 66.0 for sample in evidence)
+    assert all(sample["csi_admitted_pps"] == 66.4 for sample in evidence)
+    assert [sample["uptime"] for sample in evidence] == list(range(40, 40 + len(evidence)))
 
 
 def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
@@ -1410,6 +1451,7 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
 
     def stop_at_readiness(_client, **kwargs):
         readiness_calls.append(kwargs)
+        kwargs["evidence"].append({"ready_to_publish": False, "csi_occupancy_percent": 66.0})
         raise RuntimeError("stop after readiness policy capture")
 
     monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
@@ -1470,6 +1512,9 @@ def test_forced_radio_pin_does_not_enable_readiness_reboot_recovery(monkeypatch)
     assert radio_pin_checks[0]["expected_sensing_enabled"] is True
     assert "allow_reboot_recovery" not in readiness_calls[0]
     assert results[0].reasons == ["stop after readiness policy capture"]
+    assert results[0].transport_evidence["readiness_samples"] == [
+        {"ready_to_publish": False, "csi_occupancy_percent": 66.0},
+    ]
 
 
 @pytest.mark.parametrize("sensing_enabled", [True, False])
@@ -1539,6 +1584,38 @@ def test_radio_pin_rejects_a_transition_that_never_restores_sensing(monkeypatch)
             requested_channel=6,
             expected_sensing_enabled=True,
         )
+
+
+@pytest.mark.parametrize("final_state", ["applied", "rolled_back", "recovery_required"])
+def test_radio_pin_requires_a_successful_completed_transition(monkeypatch, final_state):
+    states = iter(["verifying", "rolling_back", final_state])
+    calls = []
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    class FakeClient:
+        def request(self, verb, resource, data=None):
+            calls.append((verb, resource))
+            if resource == "sensing":
+                return {"enabled": True}
+            assert (verb, resource) == ("get", "wifi")
+            return {
+                "configured": True,
+                "bssid": "aa:bb:cc:dd:ee:ff",
+                "apply_state": next(states),
+            }
+
+    def verify():
+        bench._verify_direct_radio_pin(
+            FakeClient(), "aa:bb:cc:dd:ee:ff", expected_sensing_enabled=True,
+        )
+
+    if final_state == "applied":
+        verify()
+        assert calls == [("get", "wifi")] * 3 + [("get", "sensing")]
+    else:
+        with pytest.raises(RuntimeError, match="rejected staged Wi-Fi configuration"):
+            verify()
+        assert calls == [("get", "wifi")] * 3
 
 
 def test_radio_pin_verification_fails_when_the_association_does_not_match(monkeypatch):

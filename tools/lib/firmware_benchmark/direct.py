@@ -631,6 +631,7 @@ def wait_for_direct_runtime_ready(
     minimum_uptime_seconds: int = 0,
     initial_uptime_seconds: int | None = None,
     use_sensing_events: bool = False,
+    evidence: list[dict[str, object]] | None = None,
 ) -> None:
     """Wait for stable CSI readiness and reject device restarts."""
     deadline = time.monotonic() + timeout_seconds
@@ -641,14 +642,22 @@ def wait_for_direct_runtime_ready(
     last_sensing_enabled = False
     last_publish_ready = False
     last_admitted_pps = 0.0
+    last_occupancy: float | None = None
     last_uptime = 0
     sensing: dict[str, object] | None = None
+    unready_samples = 0
     event_index = len(getattr(client, "events", ()))
     while time.monotonic() < deadline:
         live_sensing = use_sensing_events and client.events_active
-        if sensing is None or not live_sensing:
+        # An open SSE stream does not guarantee delivery of every resource
+        # transition under backpressure. Refresh an unready snapshot so a lost
+        # ready event cannot pin the gate to stale state until the timeout.
+        if sensing is None or not live_sensing or unready_samples >= DIRECT_STABLE_SAMPLE_COUNT:
             sensing = client.request("get", "sensing")
-        diagnostics = client.request("get", "diagnostics", {"fields": ["csi_admitted_pps"]})
+            unready_samples = 0
+        diagnostics = client.request(
+            "get", "diagnostics", {"fields": ["csi_admitted_pps", "csi_occupancy"]}
+        )
         if live_sensing and not client.events_active:
             sensing = client.request("get", "sensing")
             live_sensing = False
@@ -665,10 +674,21 @@ def wait_for_direct_runtime_ready(
         uptime = sampled_uptime or 0
         sensing_enabled = sensing.get("enabled") is True
         publish_ready = sensing.get("ready") is True or not require_publish_ready
+        unready_samples = 0 if sensing_enabled and publish_ready else unready_samples + 1
         last_sensing_enabled = sensing_enabled
         last_publish_ready = publish_ready
         last_admitted_pps = admitted_pps
+        last_occupancy = _numeric(sample.get("csi_occupancy_percent"))
         last_uptime = uptime
+        if evidence is not None:
+            evidence.append({
+                "uptime": sampled_uptime,
+                "sensing_enabled": sensing_enabled,
+                "ready_to_publish": publish_ready,
+                "calibrating": sensing.get("calibrating") is True,
+                "csi_admitted_pps": admitted_pps,
+                "csi_occupancy_percent": last_occupancy,
+            })
         if not startup_window_extended and sampled_uptime is not None:
             # The readiness timeout can begin before the runtime reaches its
             # minimum uptime. Reserve enough time for that prerequisite and
@@ -701,11 +721,12 @@ def wait_for_direct_runtime_ready(
         else:
             stable_samples = 0
         time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
+    occupancy = f"{last_occupancy:.1f}%" if last_occupancy is not None else "unavailable"
     raise RuntimeError(
         f"Direct runtime did not produce {DIRECT_STABLE_SAMPLE_COUNT} consecutive ready CSI samples "
         f"(stable={stable_samples}, sensing_enabled={last_sensing_enabled}, "
         f"ready_to_publish={last_publish_ready}, admitted_pps={last_admitted_pps:.1f}, "
-        f"uptime={last_uptime}/{minimum_uptime_seconds})"
+        f"occupancy={occupancy}, uptime={last_uptime}/{minimum_uptime_seconds})"
     )
 
 class _TimedNonPersistentDirectClient(DirectClient):
@@ -1087,10 +1108,16 @@ def _verify_direct_radio_pin(
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < deadline:
         wifi = client.request("get", "wifi")
+        apply_state = wifi.get("apply_state")
+        if apply_state in {"rolled_back", "recovery_required"}:
+            raise RuntimeError(
+                "Direct frontend rejected staged Wi-Fi configuration: "
+                f"{wifi.get('apply_message', '')}"
+            )
         # A successful reconnect must expose the requested active association.
         # Native may additionally report a staged-apply state while ESPHome
         # and Matter keep their persisted pins outside the shared Wi-Fi snapshot.
-        if _direct_radio_pin_matches(
+        if apply_state not in {"verifying", "rolling_back"} and _direct_radio_pin_matches(
             wifi,
             requested_bssid,
             requested_channel=requested_channel,
@@ -1102,11 +1129,6 @@ def _verify_direct_radio_pin(
             sensing = client.request("get", "sensing")
             if sensing.get("enabled") is expected_sensing_enabled:
                 return
-        if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
-            raise RuntimeError(
-                "Direct frontend rejected staged Wi-Fi configuration: "
-                f"{wifi.get('apply_message', '')}"
-            )
         time.sleep(1.0)
     raise RuntimeError(
         "Direct Wi-Fi configuration did not match the benchmark radio pin "
@@ -1332,6 +1354,7 @@ def run_direct_frontend_cases(
         time.sleep(1.0)
     client: DirectClient | None = None
     results: list[BenchmarkResult] = []
+    setup_phase = "connection"
     try:
         timed_nonpersistent = _timed_nonpersistent_direct_enabled()
         if timed_nonpersistent:
@@ -1354,6 +1377,7 @@ def run_direct_frontend_cases(
             f"Direct SSE client: {'enabled' if sse_enabled else 'disabled'}",
             flush=True,
         )
+        setup_phase = "initial handshake"
         baseline = direct_handshake(client, frontend=frontend, chip=chip)
         _verify_default_runtime_baseline(
             baseline,
@@ -1373,6 +1397,7 @@ def run_direct_frontend_cases(
         }
         if frontend in {"native", "esphome", "matter"}:
             baseline_before_radio_pin = baseline
+            setup_phase = "BSSID apply"
             transition_expected, current_bssid = _apply_direct_radio_pin(
                 client,
                 target_bssid,
@@ -1386,6 +1411,7 @@ def run_direct_frontend_cases(
             )
             bssid_evidence["reassociation_exercised"] = transition_expected
             if transition_expected:
+                setup_phase = "BSSID reconnection"
                 _close_direct_client_after_radio_reassociation(client)
                 client = _reconnect_direct_after_radio_pin(
                     endpoint,
@@ -1398,6 +1424,7 @@ def run_direct_frontend_cases(
                 if frontend == "native":
                     _verify_native_baseline(baseline)
             if requested_bssid:
+                setup_phase = "BSSID verification"
                 _verify_direct_radio_pin(
                     client,
                     target_bssid,
@@ -1405,6 +1432,7 @@ def run_direct_frontend_cases(
                     expected_sensing_enabled=baseline_before_radio_pin["sensing"].get("enabled") is True,
                 )
                 bssid_evidence["verified"] = True
+        setup_phase = "runtime preparation"
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
             result.transport_evidence = {
@@ -1452,6 +1480,8 @@ def run_direct_frontend_cases(
                     )
                     time.sleep(fixed_warmup_seconds)
                 else:
+                    readiness_evidence: list[dict[str, object]] = []
+                    result.transport_evidence["readiness_samples"] = readiness_evidence
                     wait_for_direct_runtime_ready(
                         client,
                         timeout_seconds=benchmark_setting_int(
@@ -1465,6 +1495,7 @@ def run_direct_frontend_cases(
                         ),
                         use_sensing_events=sse_enabled
                         and "sensing" in baseline["capabilities"].get("events", []),
+                        evidence=readiness_evidence,
                     )
                 (
                     result.direct_samples,
@@ -1500,7 +1531,9 @@ def run_direct_frontend_cases(
         return results
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         remaining_cases = selected_cases[len(results):]
-        failed_results = _failed_direct_results(remaining_cases, bootstrap, str(exc))
+        failed_results = _failed_direct_results(
+            remaining_cases, bootstrap, f"Direct {setup_phase} failed: {exc}"
+        )
         results.extend(failed_results)
         if on_result is not None:
             for result in failed_results:
