@@ -36,6 +36,7 @@ updates:
       - dependency-name: "aioesphomeapi"
       - dependency-name: "click"
       - dependency-name: "colorama"
+      - dependency-name: "cryptography"
       - dependency-name: "esptool"
       - dependency-name: "jinja2"
       - dependency-name: "paho-mqtt"

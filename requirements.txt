@@ -1,28 +1,28 @@
 # Python dependencies for ESPectre
 
 # ESPHome build workflow
-esphome==2026.8.2
-aioesphomeapi==45.10.3  # required by ESPHome 2026.8.2
-esptool==5.3.1          # required by ESPHome 2026.8.2
-cryptography==50.0.0    # firmware and release catalog signatures
+esphome==2026.9.0
+aioesphomeapi==46.3.0   # required by ESPHome 2026.9.0
+esptool==5.3.1          # required by ESPHome 2026.9.0
+cryptography==50.0.1    # required by ESPHome 2026.9.0; firmware and release catalog signatures
 mpremote==1.29.0        # CLI wrapper coverage in Python tests
 mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro deploy
 pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests
-paho-mqtt==1.6.1        # required by ESPHome 2026.8.2 (avoid 2.x)
-click==8.3.3            # required by ESPHome 2026.8.2
-requests==2.34.2        # required by ESPHome 2026.8.2
-zeroconf==0.150.0       # required by ESPHome 2026.8.2; used for host device discovery
+paho-mqtt==1.6.1        # required by ESPHome 2026.9.0 (avoid 2.x)
+click==8.3.3            # required by ESPHome 2026.9.0
+requests==2.34.2        # required by ESPHome 2026.9.0
+zeroconf==0.151.2       # required by ESPHome 2026.9.0; used for host device discovery
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.3    # environment variables support
 PyYAML==6.0.3           # YAML parsing
 prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies
-ruff==0.16.6           # Python quality reports (SARIF)
+ruff==0.16.7           # Python quality reports (SARIF)
 cppcheck==1.5.1        # Cppcheck 2.17.1 wheel for C/C++ quality reports (SARIF)
-numpy==2.5.2            # ML environments must update through requirements-ml.txt
+numpy==2.5.3            # ML environments must update through requirements-ml.txt
 pytest==9.1.1           # test framework
 pytest-cov==7.1.0       # Python coverage
 pytest-xdist==3.8.0     # parallel Python test execution
@@ -33,8 +33,8 @@ Jinja2==3.1.6           # m.css SDK API fragment templates
 Pygments==2.21.0        # m.css SDK API syntax highlighting
 
 # Firmware dependency inventory and compliance checks
-esp-idf-sbom==1.3.1     # ESP-IDF SBOM generation and NVD checks
+esp-idf-sbom==1.4.0     # ESP-IDF SBOM generation and NVD checks
 license-expression==30.4.4  # SPDX license policy evaluation
 
 # Local analysis extras
-matplotlib==3.11.1      # Plotting and visualization
+matplotlib==3.11.2      # Plotting and visualization
