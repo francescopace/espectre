@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { index, read, routeBootstrap, routeManifest, routeRegistry, styles } from './fixtures/site_test_helpers.mjs';
+import { index, read, roadmapContent, routeBootstrap, routeManifest, routeRegistry, styles } from './fixtures/site_test_helpers.mjs';
 
 const errorSuggestions = JSON.parse(read('docs/web/404-suggestions.json'));
 
@@ -87,62 +87,71 @@ describe('website navigation contracts', () => {
         }
     });
 
-    it('selects the newest available firmware for the home badge and preserves the Flash link', async () => {
-        const source = read('docs/web/assets/js/app.js');
-        const start = source.indexOf('    let releaseBadgeChecked = false;');
-        const end = source.indexOf('    /*', start);
+    it('shares the published Release tag between home and roadmap badges and preserves the Flash links', async () => {
+        const source = read('docs/web/assets/js/navigation.js');
+        const start = source.indexOf('    let publishedReleaseTagPromise;');
+        const end = source.indexOf('    function activateCodeTab(', start);
         const scenarios = [
-            ['3.1.0', '3.0.0-12-gabcdef0', 'release'],
-            ['3.1.0', '3.1.0-1-gabcdef0', 'preview'],
-            ['3.1.0', '3.1.0', 'release'],
-            ['3.1.0', '3.1.0-0-gabcdef0', 'release'],
-            ['3.1.0', '3.1.0-rc2-5-gabcdef0', 'release'],
-            ['3.1.0-rc2', '3.1.0-rc2-5-gabcdef0', 'preview'],
-            ['3.1.0-rc10', '3.1.0-rc2-5-gabcdef0', 'release'],
-            ['3.9.0', '3.10.0-1-gabcdef0', 'preview'],
-            ['3.1.0', null, 'release'],
-            [null, '3.1.0-1-gabcdef0', 'preview'],
-            ['snapshot', '3.1.0-1-gabcdef0', 'preview'],
-            [new Error('Network unavailable'), '3.1.0-1-gabcdef0', 'preview'],
-            ['3.1.0', new SyntaxError('Invalid JSON'), 'release'],
-            [null, null, null],
-            ['snapshot', '', null],
+            [{ release_tag: '3.1.0', version: '3.1.0-1-gabcdef0' }, 'v3.1.0'],
+            [{ release_tag: 'v3.1.0-rc2', version: '3.1.0-rc2' }, 'v3.1.0-rc2'],
+            [{ version: '3.1.0' }, 'v3.1.0'],
+            [{ version: 'v3.1.0' }, 'v3.1.0'],
+            [{}, null],
+            [null, null],
+            [new Error('Network unavailable'), null],
+            [new SyntaxError('Invalid JSON'), null],
         ];
-        for (const [release, preview, expectedChannel] of scenarios) {
-            const versions = { release, preview };
-            const badge = { hidden: true, dataset: {} };
-            const label = { textContent: '' };
+        for (const [manifest, expectedTag] of scenarios) {
+            const badges = [{ hidden: true }, { hidden: false }];
+            const labels = badges.map((badge) => ({
+                dataset: {},
+                textContent: '',
+                closest: (selector) => {
+                    assert.equal(selector, '.release-badge');
+                    return badge;
+                }
+            }));
             const requests = [];
             const context = {
-                $: (selector) => selector === '.js-release-badge' ? badge : label,
-                console: { warn() {} },
-                fetch: async (url) => {
+                document: {
+                    querySelectorAll: (selector) => {
+                        assert.equal(selector, '[data-published-release-tag]:not([data-published-release-tag-initialized])');
+                        return labels.filter((label) => !label.dataset.publishedReleaseTagInitialized);
+                    }
+                },
+                fetch: async (url, options) => {
                     requests.push(url);
-                    const channel = url.split('/')[3];
-                    assert.equal(url, `/artifacts/firmware/${channel}/firmware-manifest-${channel}.json`);
-                    const version = versions[channel];
-                    if (version instanceof Error && !(version instanceof SyntaxError)) throw version;
+                    assert.equal(url, '/artifacts/firmware/release/firmware-manifest-release.json');
+                    assert.equal(options.cache, 'no-store');
+                    if (manifest instanceof Error && !(manifest instanceof SyntaxError)) throw manifest;
                     return {
-                        ok: version !== null,
-                        status: version === null ? 404 : 200,
+                        ok: manifest !== null,
+                        status: manifest === null ? 404 : 200,
                         json: async () => {
-                            if (version instanceof SyntaxError) throw version;
-                            return { version, release_tag: channel === 'preview' ? 'snapshot' : version };
+                            if (manifest instanceof SyntaxError) throw manifest;
+                            return manifest;
                         }
                     };
                 }
             };
-            await runInNewContext(source.slice(start, end) + '\nupdateReleaseBadge();', context);
-            assert.equal(badge.hidden, expectedChannel === null);
-            if (expectedChannel) {
-                assert.equal(badge.dataset.firmwareChannel, expectedChannel);
-                assert.equal(badge.dataset.firmwareVersion, versions[expectedChannel]);
+            await runInNewContext(source.slice(start, end) + `
+                initPublishedReleaseTags();
+                publishedReleaseTag().catch(() => {});
+            `, context);
+            assert.equal(badges[0].hidden, expectedTag === null);
+            assert.equal(badges[1].hidden, false);
+            for (const label of labels) {
+                if (expectedTag) assert.ok(label.textContent.startsWith(expectedTag));
+                else assert.equal(label.textContent, '');
             }
-            await runInNewContext('updateReleaseBadge();', context);
-            assert.equal(requests.length, 2);
+            runInNewContext('initPublishedReleaseTags();', context);
+            assert.equal(requests.length, 1);
         }
-        const badgeTag = index.match(/<a\b[^>]*class="[^"]*\bjs-release-badge\b[^"]*"[^>]*>/)?.[0];
-        assert.match(badgeTag, /href="\/tools\/flash\/"/);
+        for (const content of [index, roadmapContent]) {
+            const badge = content.match(/<a\b[^>]*class="[^"]*\brelease-badge\b[^"]*"[^>]*>[\s\S]*?<\/a>/)?.[0];
+            assert.match(badge, /href="\/tools\/flash\/"/);
+            assert.match(badge, /<span\b[^>]*\bdata-published-release-tag(?:\s|>)/);
+        }
     });
 
     it('keeps one route registry aligned with the SPA pages and static paths', () => {

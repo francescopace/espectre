@@ -269,6 +269,8 @@
             label.dataset.publishedReleaseTagInitialized = 'true';
             publishedReleaseTag().then((tag) => {
                 label.textContent = `${tag} available`;
+                const badge = label.closest('.release-badge');
+                if (badge) badge.hidden = false;
             }).catch(() => {
                 label.title = 'Published release unavailable';
             });
