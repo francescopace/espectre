@@ -81,6 +81,10 @@ The home badge compares the Release and Preview firmware manifest versions and l
 
 Commit CI runs website tests, builds pages and the API reference, and verifies the site without downloading published channels. Before deployment, the Snapshot and Release workflows stage firmware and SDK artifacts from the source CI run or current tag for the channel being updated, recover the other supported published channels, and require verification of every staged channel.
 
+Release publishes Pages through a second execution of the same `release.yml` workflow, dispatched automatically on `main`. The tag run builds and verifies the site, passes its run ID to the dispatch, and waits for its result. The dispatched run checks the source workflow, commit ancestry, and successful publication jobs, and uploads the original Pages archive without rebuilding firmware or recreating the release. This avoids the Pages behavior where a tag-triggered deployment reports success but continues serving an earlier artifact for the same commit. After deployment, the Release firmware catalog, SDK catalog, and signing-key registry must match the archive byte for byte before IndexNow is notified. A stale deployment fails after a bounded propagation wait.
+
+To retry only the website deployment while the source artifacts remain available, run `gh workflow run release.yml --ref main -f pages_run_id=<release-run-id>`. The source run must have successfully completed Validate Release Source, Create Release, and Publish Website. This starts only the deployment path; firmware builds, signing, and release publication remain exclusive to tag pushes.
+
 The shared `build-pages` action stages dependencies, runs the web tests, builds static routes and the API reference, and verifies the output before upload. `build_sitemap.py` generates the ignored `sitemap.xml` from `routes.json` and the SDK channels present in the staged Pages tree. Its `lastmod` dates come from the owning Git commits and staged SDK manifests, so Pages builds require full Git history. After deployment, IndexNow receives this exact generated sitemap inventory.
 
 ### Firmware Signature Verification

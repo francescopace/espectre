@@ -5,6 +5,12 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'      # Match: 2.5.0, 1.0.0, etc.
       - '[0-9]+.[0-9]+.[0-9]+-*'    # Match: 2.5.0-rc1, 2.5.0-beta, etc.
+  workflow_dispatch:
+    inputs:
+      pages_run_id:
+        description: Release run containing the verified github-pages artifact to deploy
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +22,7 @@ concurrency:
 jobs:
   validate-release:
     name: Validate Release Source
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -793,13 +800,60 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  dispatch-pages:
+    name: Dispatch Website Deployment
+    needs: publish-pages
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      actions: write
+
+    steps:
+      - name: Deploy through a branch dispatch and wait for its result
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            // A tag-triggered Pages deployment can silently retain an earlier
+            // artifact for the same SHA. A fresh branch dispatch avoids that path.
+            const response = await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'release.yml',
+              ref: 'main',
+              inputs: {
+                pages_run_id: String(context.runId),
+              },
+              headers: { 'X-GitHub-Api-Version': '2026-03-10' },
+            });
+            const runId = response.data.workflow_run_id;
+            if (!Number.isSafeInteger(runId)) {
+              throw new Error('The Pages dispatch did not return a workflow run ID.');
+            }
+            core.info(`Website deployment: ${response.data.html_url}`);
+            const deadline = Date.now() + 23 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const { data: run } = await github.rest.actions.getWorkflowRun({
+                ...context.repo, run_id: runId,
+              });
+              if (run.status === 'completed') {
+                if (run.conclusion !== 'success') {
+                  throw new Error(`Website deployment ${runId}: ${run.conclusion}. See ${run.html_url}`);
+                }
+                core.info('Website deployment and live catalog verification succeeded.');
+                return;
+              }
+              await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            throw new Error(`Timed out waiting for website deployment ${runId}.`);
+
   deploy-pages:
     name: Deploy Website
-    needs: publish-pages
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
+      actions: read
       pages: write
       id-token: write
     concurrency:
@@ -810,17 +864,90 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+      - name: Validate the source release artifact
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') {
+              throw new Error('Website deployment must be dispatched on main.');
+            }
+            const runId = Number(context.payload.inputs.pages_run_id);
+            if (!Number.isSafeInteger(runId) || runId <= 0) {
+              throw new Error('Source run ID must be a positive integer.');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              ...context.repo, run_id: runId,
+            });
+            const { data: workflow } = await github.rest.actions.getWorkflow({
+              ...context.repo, workflow_id: 'release.yml',
+            });
+            if (run.workflow_id !== workflow.id || run.event !== 'push' ||
+                run.head_repository?.full_name !== context.payload.repository.full_name) {
+              throw new Error('The source must be a Release push run in this repository.');
+            }
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              ...context.repo, basehead: `main...${run.head_sha}`,
+            });
+            if (!['behind', 'identical'].includes(comparison.status)) {
+              throw new Error('The source release commit must be reachable from main.');
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              ...context.repo, run_id: runId, filter: 'all', per_page: 100,
+            });
+            for (const name of ['Validate Release Source', 'Create Release', 'Publish Website']) {
+              // A retry of only failed jobs reuses successful jobs from earlier attempts.
+              const latest = jobs.filter(job => job.name === name)
+                .sort((left, right) => right.run_attempt - left.run_attempt)[0];
+              if (latest?.conclusion !== 'success') {
+                throw new Error(`Source release job has not succeeded: ${name}`);
+              }
+            }
+            core.setOutput('run_id', String(runId));
+            core.info(`Reusing the verified website from ${run.html_url}.`);
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download the verified Pages archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          name: github-pages
+          path: source-pages
+
+      - name: Upload the same Pages archive for this dispatch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: github-pages
+          path: source-pages/artifact.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+
+      - name: Verify the published catalogs and signing keys
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python3 .github/scripts/verify_web_deployment.py \
+            --archive source-pages/artifact.tar \
+            --base-url "${PAGE_URL}" \
+            --path artifacts/firmware/release/firmware-manifest-release.json \
+            --path artifacts/sdk/release/sdk-manifest-release.json \
+            --path assets/firmware-signing-keys.json
 
       - name: Download deployed sitemap inventory
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.source.outputs.run_id }}
           name: website-sitemap
           path: deployed-website
 
