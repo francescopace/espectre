@@ -5,7 +5,7 @@
 | Milestone | Status | Starts when | Product outcome |
 | --- | --- | --- | --- |
 | **v3.0.0-rc1** | Released | September 5, 2026 | Publish the first complete candidate of the shared sensing platform |
-| **v3.0.0-rc2** | Release preparation | `rc1` feedback is reviewed | Validate signed firmware, sensing fixes, and SDK packaging |
+| **v3.0.0-rc2** | Released | September 16, 2026 | Validate signed firmware, sensing fixes, and SDK packaging |
 | **v3.0.0** | Planned | `rc2` is published | Ship the supported shared sensing platform and firmware frontends |
 | **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
