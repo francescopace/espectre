@@ -11,6 +11,15 @@
  */
 #pragma once
 
+/**
+ * @file traffic_generator_manager.h
+ * @brief ESP-IDF managed traffic for firmware that owns its CSI capture path.
+ *
+ * Link ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES and its ESP-IDF dependencies.
+ * The firmware owns the object and calls stop() before destroying it or
+ * tearing down Wi-Fi. Call lifecycle and control methods from one owner task.
+ */
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +31,7 @@
 
 namespace espectre {
 
+/// @cond INTERNAL
 struct SendErrorState {
   uint32_t error_count{0};
   int64_t last_log_time{0};
@@ -70,27 +80,37 @@ size_t build_dns_query_payload(uint16_t transaction_id,
 size_t build_dns_tcp_query_frame(uint16_t transaction_id,
                                  uint8_t *buffer,
                                  size_t buffer_len);
+/// @endcond
 
+/** Paced ESP-IDF traffic generator with a firmware-owned lifecycle. */
 class TrafficGeneratorManager : public ICsiTrafficGenerator {
  public:
+  /** Configure the send rate and backend while stopped. */
   void init(uint32_t target_pps,
             RuntimeTrafficMode mode = RuntimeTrafficMode::PING) override;
 
+  /** Start sending to an IPv4 address in network byte order; WIFI_RAW ignores the address. */
   bool start(uint32_t target_addr) override;
+  /** Check send progress and report a stalled generator from the owner task. */
   void loop() override;
   void stop() override;
 
   bool is_running() const override { return running_.load(std::memory_order_relaxed); }
+  /** Suspend sends without destroying the worker. */
   void pause();
   void resume();
   bool is_paused() const { return paused_.load(std::memory_order_relaxed); }
 
   uint32_t target_rate_pps() const { return target_pps_; }
+  /** Send rate used by the worker, in packets per second. */
   uint32_t current_rate_pps() const { return current_rate_pps_.load(std::memory_order_relaxed); }
+  /** Number of successful sends in the current session. */
   uint32_t send_success_count() const override {
     return send_success_count_.load(std::memory_order_relaxed);
   }
+  /** Number of failed sends in the current session. */
   uint32_t send_error_count() const { return send_error_count_.load(std::memory_order_relaxed); }
+  /** ICMP identifier used to recognize this generator's ping replies. */
   uint16_t icmp_identifier() const override { return icmp_identifier_; }
 
  private:

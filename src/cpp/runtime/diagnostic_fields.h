@@ -2,8 +2,13 @@
 // Commercial licensing available under separate agreement; see LICENSING.md.
 #pragma once
 
-// Canonical diagnostic field metadata. Profiles: Native=1, bridge=2, Micro=4.
-// Dotted names select leaves while responses retain their nested objects.
+/**
+ * @file diagnostic_fields.h
+ * @brief C-compatible metadata for the canonical device diagnostic catalog.
+ *
+ * Profiles are bitmasks: Native=1, bridge=2, and Micro=4. Dotted field names
+ * select leaves while protocol responses retain their nested objects.
+ */
 typedef struct {
   const char *name;
   const char *type;
@@ -11,6 +16,7 @@ typedef struct {
   unsigned profiles;
 } espectre_diagnostic_field_t;
 
+/** Canonical diagnostic fields; filter by profile before exposing a catalog. */
 static const espectre_diagnostic_field_t espectre_diagnostic_fields[] = {
   {"timestamp_ms", "integer", "ms", 7U},
   {"uptime", "integer", "s", 7U},

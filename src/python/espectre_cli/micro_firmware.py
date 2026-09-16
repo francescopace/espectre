@@ -28,14 +28,14 @@ from .idf import (
     resolve_idf_build_dir_name,
     run_in_idf_environment,
 )
-from .idf_container import IDF_VERSION, run_toolchain_container
+from .idf_container import IDF_VERSION, container_sdk_root, run_toolchain_container
 
 
 MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "csi-quality-v4"
+MICROPYTHON_PATCH_REVISION = "sdk-boundary-v1"
 PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
@@ -150,7 +150,7 @@ def _configure_project_identity(micropython_dir: Path) -> None:
     source = cmake_path.read_text(encoding="utf-8")
     original = "project(micropython)"
     replacement = (
-        'include("${ESPECTRE_CORE_SDK_ROOT}/espectre_git_version.cmake")\n'
+        'include("${ESPECTRE_FRONTEND_ROOT}/../espectre_git_version.cmake")\n'
         'set(PROJECT_VER "${ESPECTRE_GIT_VERSION}")\n'
         f"project({PROJECT_FIRMWARE_PROJECT_NAME})"
     )
@@ -1402,6 +1402,10 @@ def _build_project_firmware_locked(
     if board is None or firmware_name is None:
         raise ValueError(f"Unsupported project firmware chip: {chip}")
 
+    sdk_root = Path(os.environ.get("ESPECTRE_SDK_ROOT") or REPO_ROOT / "src" / "cpp").expanduser().resolve()
+    if not sdk_root.is_dir():
+        raise RuntimeError(f"ESPectre SDK directory does not exist: {sdk_root}")
+
     resolved_backend = resolve_idf_build_backend(backend, pull_policy)
 
     workspace = cache_dir / "micro-esp32"
@@ -1478,10 +1482,12 @@ def _build_project_firmware_locked(
     jobs = str(max(1, min(8, os.cpu_count() or 1)))
     if resolved_backend.mode == "docker":
         build_root = Path("/work") / workspace.resolve().relative_to(REPO_ROOT.resolve())
-        core_sdk_root = Path("/work/src/cpp")
+        build_sdk_root = container_sdk_root(sdk_root, REPO_ROOT)
+        frontend_root = Path("/work/src/cpp/frontend")
     else:
         build_root = workspace.resolve()
-        core_sdk_root = (REPO_ROOT / "src" / "cpp").resolve()
+        build_sdk_root = str(sdk_root)
+        frontend_root = (REPO_ROOT / "src" / "cpp" / "frontend").resolve()
     core_component_dir = (
         build_root / "firmware-support" / "components" / "espectre_core"
     )
@@ -1491,8 +1497,8 @@ def _build_project_firmware_locked(
     extra_component_dirs = ";".join(
         (str(core_component_dir), str(traffic_component_dir))
     )
-    core_build_environment = {
-        "ESPECTRE_CORE_SDK_ROOT": str(core_sdk_root),
+    sdk_build_environment = {
+        "ESPECTRE_SDK_ROOT": build_sdk_root,
     }
     commands = [
         ["make", "-C", "micropython/mpy-cross", f"-j{jobs}"],
@@ -1509,7 +1515,8 @@ def _build_project_firmware_locked(
             f"-DMICROPY_FROZEN_MANIFEST={build_root / 'manifest.py'}",
             f"-DMICROPY_LIB_DIR={build_root / 'micropython-lib'}",
             f"-DUSER_C_MODULES={build_root / 'firmware-support' / 'native_components' / 'micropython.cmake'}",
-            f"-DESPECTRE_CORE_SDK_ROOT={core_sdk_root}",
+            f"-DESPECTRE_SDK_ROOT={build_sdk_root}",
+            f"-DESPECTRE_FRONTEND_ROOT={frontend_root}",
             f"-DEXTRA_COMPONENT_DIRS={extra_component_dirs}",
             "-DMICROPY_PY_BTREE=0",
         ],
@@ -1538,14 +1545,14 @@ def _build_project_firmware_locked(
             repo_root=REPO_ROOT,
             pull_policy=pull_policy,
             docker=resolved_backend.docker,
-            environment=core_build_environment,
+            environment=sdk_build_environment,
         )
     else:
         assert resolved_backend.idf_environment is not None
         process_env = dict(
             resolved_backend.idf_environment.process_env or os.environ
         )
-        process_env.update(core_build_environment)
+        process_env.update(sdk_build_environment)
         idf_environment = replace(
             resolved_backend.idf_environment,
             process_env=process_env,

@@ -318,8 +318,9 @@ def test_frontends_use_only_public_sdk_headers() -> None:
     sdk_headers = {p.resolve() for root in (CPP_ROOT / "core", CPP_ROOT / "runtime") for p in root.rglob("*.h")}
     by_name = {p.name: p for p in sdk_headers}
     violations = []
-    for source in (CPP_ROOT / "frontend").rglob("*"):
-        if source.suffix not in {".h", ".cpp"} or any(
+    roots = (CPP_ROOT / "frontend", REPO_ROOT / "src/python/micro_espectre/firmware/native_components")
+    for source in (path for root in roots for path in root.rglob("*")):
+        if source.suffix not in {".h", ".c", ".cpp"} or any(
             part in {".esphome", "managed_components"} or part.startswith("build") for part in source.parts
         ):
             continue
@@ -329,7 +330,7 @@ def test_frontends_use_only_public_sdk_headers() -> None:
                 candidates.append(by_name[include])
             target = next((p.resolve() for p in candidates if p.is_file()), None)
             if target in sdk_headers and target not in public:
-                violations.append(f"{source.relative_to(CPP_ROOT)} -> {include}")
+                violations.append(f"{source.relative_to(REPO_ROOT)} -> {include}")
     assert not violations, "Frontend includes private SDK headers: " + ", ".join(violations)
 
 

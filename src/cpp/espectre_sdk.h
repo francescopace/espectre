@@ -102,8 +102,10 @@
  *
  * Everything reachable from this header is the stable runtime surface and
  * follows the SDK version contract. The opt-in `espectre_core_sdk.h` facade is
- * the lower-level detector extension. Other headers are internal and can
- * change in any release. `docs/SDK.md` defines the exact guarantees.
+ * the lower-level detector extension. The optional services and MQTT facades
+ * expose supported ESP-IDF integration contracts. Headers included only as
+ * implementation dependencies can change in any release. `docs/SDK.md`
+ * defines the exact guarantees.
  *
  * @section sdk_licensing Licensing
  *
@@ -122,6 +124,7 @@
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_diagnostics.h"
+#include "runtime/diagnostic_fields.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_interface.h"
 #include "runtime/raw_csi.h"

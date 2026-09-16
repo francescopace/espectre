@@ -179,7 +179,7 @@ def build_toolchain_docker_command(
         ]
     )
     container_environment = dict(environment or {})
-    if frontend in {"native", "matter"} and (sdk_root := os.environ.get("ESPECTRE_SDK_ROOT")):
+    if frontend in {"native", "matter", "micro"} and (sdk_root := os.environ.get("ESPECTRE_SDK_ROOT")):
         sdk_path = Path(sdk_root).expanduser().resolve()
         if not sdk_path.is_dir():
             raise DockerBackendError(f"ESPectre SDK directory does not exist: {sdk_path}")

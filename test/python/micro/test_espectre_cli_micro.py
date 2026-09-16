@@ -22,6 +22,7 @@ import pytest
 
 from espectre_cli import micro
 from espectre_cli import micro_firmware
+from espectre_cli import idf, idf_container
 from espectre_cli.common import (
     FIRMWARE_CACHE_DIR,
     MICRO_CHIP_CHOICES,
@@ -530,6 +531,105 @@ def test_project_firmware_rejects_unsupported_chip(tmp_path: Path) -> None:
         micro_firmware.build_project_firmware(tmp_path, chip="h2", cache_dir=tmp_path)
 
 
+@pytest.mark.parametrize("backend", ["local", "docker"])
+@pytest.mark.parametrize("sdk_location", ["external", "checkout"])
+def test_micro_build_tracks_sdk_changes_and_return_to_checkout(
+    monkeypatch, tmp_path: Path, backend: str, sdk_location: str
+) -> None:
+    repo_root = tmp_path / "repo"
+    checkout_sdk = repo_root / "src" / "cpp"
+    checkout_sdk.mkdir(parents=True)
+    cache_dir = repo_root / ".firmware"
+    workspace = cache_dir / "micro-esp32"
+    sdk_parent = tmp_path if sdk_location == "external" else repo_root
+    sdk_roots = [sdk_parent / "sdk bundle a", sdk_parent / "sdk bundle b"]
+    for sdk_root in sdk_roots:
+        sdk_root.mkdir()
+    idf_dir = tmp_path / "idf"
+    idf_dir.mkdir()
+    (idf_dir / "version.txt").write_text("v5.5.5\n", encoding="utf-8")
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", install_dir=idf_dir)
+    monkeypatch.setattr(micro_firmware, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        micro_firmware, "resolve_idf_build_backend",
+        lambda *_args: idf.ResolvedIdfBuildBackend(
+            mode=backend, idf_environment=env, docker="docker"
+        ),
+    )
+    monkeypatch.setattr(
+        micro_firmware, "_checkout_pinned_repository",
+        lambda _url, _commit, dest: dest.mkdir(parents=True, exist_ok=True),
+    )
+    monkeypatch.setattr(
+        micro_firmware, "_prepare_micropython_patch_revision",
+        lambda dest: dest / ".espectre-patch-revision",
+    )
+    for name in vars(micro_firmware):
+        if name.startswith("_configure_project_"):
+            monkeypatch.setattr(micro_firmware, name, lambda *_args: None)
+    monkeypatch.setattr(micro_firmware, "_align_idf_lockfile", lambda *_args: None)
+
+    configure_calls = []
+    docker_calls = []
+
+    def record_build(commands, environment):
+        configure = next(cmd for cmd in commands if cmd[:2] == ["cmake", "-S"])
+        configure_calls.append((configure, environment))
+        build_dir = workspace / configure[configure.index("-B") + 1]
+        build_dir.mkdir(parents=True, exist_ok=True)
+        (build_dir / "firmware.bin").write_bytes(b"test firmware")
+
+    def run_local(command, environment, **_kwargs):
+        if command[:2] == ["cmake", "-S"]:
+            record_build([command], environment.process_env)
+
+    def run_docker(**kwargs):
+        docker_calls.append(idf_container.build_toolchain_docker_command(
+            kwargs["docker"], frontend=kwargs["frontend"], workdir=kwargs["workdir"],
+            commands=kwargs["commands"], repo_root=kwargs["repo_root"],
+            environment=kwargs["environment"],
+        ))
+        record_build(kwargs["commands"], kwargs["environment"])
+
+    monkeypatch.setattr(micro_firmware, "run_in_idf_environment", run_local)
+    monkeypatch.setattr(micro_firmware, "run_toolchain_container", run_docker)
+
+    for sdk_root in [*sdk_roots, None]:
+        if sdk_root is None:
+            monkeypatch.delenv("ESPECTRE_SDK_ROOT")
+        else:
+            monkeypatch.setenv("ESPECTRE_SDK_ROOT", str(sdk_root))
+        micro_firmware.build_project_firmware(
+            micro.PYTHON_SRC_DIR, chip="c3", backend=backend, cache_dir=cache_dir
+        )
+
+    selections = []
+    for index, ((command, environment), sdk_root) in enumerate(zip(configure_calls, [*sdk_roots, checkout_sdk])):
+        selection = next(arg.split("=", 1)[1] for arg in command if arg.startswith("-DESPECTRE_SDK_ROOT="))
+        selections.append(selection)
+        assert environment["ESPECTRE_SDK_ROOT"] == selection
+        if backend == "local":
+            assert selection == str(sdk_root)
+            assert f"-DESPECTRE_FRONTEND_ROOT={checkout_sdk / 'frontend'}" in command
+        else:
+            assert f"ESPECTRE_SDK_ROOT={selection}" in docker_calls[index]
+            assert "-DESPECTRE_FRONTEND_ROOT=/work/src/cpp/frontend" in command
+            if sdk_root.is_relative_to(repo_root):
+                assert selection == f"/work/{sdk_root.relative_to(repo_root).as_posix()}"
+            else:
+                assert f"{sdk_root}:{selection}:ro" in docker_calls[index]
+    assert len(set(selections)) == 3
+    assert len({cmd[cmd.index("-B") + 1] for cmd, _ in configure_calls}) == 1
+
+
+def test_micro_build_rejects_missing_sdk_before_preparing_firmware(monkeypatch, tmp_path: Path) -> None:
+    missing_sdk = tmp_path / "missing sdk"
+    monkeypatch.setenv("ESPECTRE_SDK_ROOT", str(missing_sdk))
+    monkeypatch.setattr(micro_firmware, "resolve_idf_build_backend", lambda *_args: pytest.fail("must validate SDK first"))
+    with pytest.raises(RuntimeError, match="SDK directory does not exist"):
+        micro_firmware.build_project_firmware(micro.PYTHON_SRC_DIR, chip="c3", cache_dir=tmp_path)
+
+
 def test_project_firmware_uses_shared_cpp_identity(tmp_path: Path) -> None:
     cmake_path = tmp_path / "ports" / "esp32" / "CMakeLists.txt"
     cmake_path.parent.mkdir(parents=True)
@@ -540,7 +640,7 @@ def test_project_firmware_uses_shared_cpp_identity(tmp_path: Path) -> None:
     script = tmp_path / "verify.cmake"
     script.write_text(
         "cmake_minimum_required(VERSION 3.16)\n"
-        f'set(ESPECTRE_CORE_SDK_ROOT "{micro_firmware.REPO_ROOT / "src" / "cpp"}")\n'
+        f'set(ESPECTRE_FRONTEND_ROOT "{micro_firmware.REPO_ROOT / "src/cpp/frontend"}")\n'
         "macro(project name)\n"
         f'  file(WRITE "{identity}" "${{name}}\\n${{PROJECT_VER}}\\n")\n'
         "endmacro()\n"
@@ -1118,7 +1218,7 @@ def test_project_boards_cover_micro_chip_registry_and_only_esp32_override() -> N
     component_kconfig = (core_component / "Kconfig.projbuild").read_text(encoding="utf-8")
     assert "ESPECTRE_CORE_SOURCES" in component_cmake
     assert "idf_component_register" in component_cmake
-    assert "$ENV{ESPECTRE_CORE_SDK_ROOT}" in component_cmake
+    assert "$ENV{ESPECTRE_SDK_ROOT}" in component_cmake
     assert "        log\n" not in component_cmake
     assert "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" in component_kconfig
     assert "ESPECTRE_TRAFFIC_TASK_PRIORITY" in component_kconfig
@@ -1130,8 +1230,7 @@ def test_project_boards_cover_micro_chip_registry_and_only_esp32_override() -> N
         / "espectre_runtime_traffic"
         / "CMakeLists.txt"
     ).read_text(encoding="utf-8")
-    assert "traffic_generator_manager.cpp" in traffic_component
-    assert "sta_socket_helpers.cpp" in traffic_component
+    assert "ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES" in traffic_component
     assert "ESPECTRE_CORE_SOURCES" not in traffic_component
     assert "        espectre_core\n" in traffic_component
     assert "        log\n" not in traffic_component

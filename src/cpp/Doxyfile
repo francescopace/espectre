@@ -53,6 +53,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/runtime_sensing_schema.h \
                          src/cpp/runtime/runtime_config_utils.h \
                          src/cpp/runtime/runtime_diagnostics.h \
+                         src/cpp/runtime/diagnostic_fields.h \
                          src/cpp/runtime/csi_traffic_types.h \
                          src/cpp/runtime/espectre_protocol.h \
                          src/cpp/runtime/protocol_json.h \
@@ -90,6 +91,10 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/runtime_direct_http_bridge.h \
                          src/cpp/runtime/esp_idf/standalone_wifi_service.h \
                          src/cpp/runtime/esp_idf/task_scheduling_config.h \
+                         src/cpp/runtime/esp_idf/traffic_generator_manager.h \
+                         src/cpp/runtime/esp_idf/wifi_tx_rate.h \
+                         src/cpp/runtime/csi_traffic_service.h \
+                         src/cpp/runtime/udp_datagram_socket.h \
                          src/cpp/runtime/esp_idf/wifi_band_helpers.h \
                          src/cpp/runtime/esp_idf/wifi_bssid_pin_service.h \
                          src/cpp/runtime/esp_idf/wifi_lifecycle.h \

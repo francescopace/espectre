@@ -41,6 +41,8 @@ Application and configuration changes need only `micro deploy`, followed by `mic
 
 The embedded `micro-espectre` application descriptor reports the ESPectre firmware build version. A later filesystem deployment does not change that version. Older images with empty descriptors need a firmware rebuild and flash to populate them.
 
+Set `ESPECTRE_SDK_ROOT` to the absolute path of an extracted SDK's `src/cpp` directory to build against that bundle. Local and Docker builds support this selection; unsetting it returns to the SDK in the checkout. Docker mounts external bundles read-only. The firmware version comes from the frontend checkout, independently of the SDK version. See [SDK.md](../../../docs/SDK.md#first-party-sdk-consumers) for build commands.
+
 ## Runtime behavior
 
 Defaults live in [config.py](config.py). Put deployment-specific overrides in `config_local.py`, then deploy and restart. These settings cannot be changed through Direct HTTP.
@@ -130,6 +132,8 @@ Confirm that `config_local.py` exists, contains the intended SSID and password, 
 ## Implementation
 
 [runtime_main.py](runtime_main.py) owns calibration, diagnostics, and the device loop. Native bindings expose the SDK's Lightweight detector and temporal sampler, plus the shared traffic generator. Startup fails if the core module is absent or incompatible; there is no on-device Python detector fallback. See [SDK.md](../../../docs/SDK.md#core-only) for the core interface and logging contract.
+
+The firmware links `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES` from the SDK's source registry. Detector and logging bindings use `espectre_core_sdk.h`. Traffic, Wi-Fi transmit-rate policy, and the C diagnostic catalog use their focused public headers. These components keep MicroPython in charge of the runtime lifecycle.
 
 [native_direct.c](firmware/native_components/native_direct.c) owns HTTP framing, CORS, mDNS, and transport counters; MicroPython supplies resource snapshots. Telemetry runs at `EVALUATION_INTERVAL_MS` only while an SSE client is connected. Health refreshes once per second. Full diagnostics and garbage collection prefer an empty CSI ring, with at most 500 ms of additional deferral under backlog.
 

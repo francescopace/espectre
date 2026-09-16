@@ -191,6 +191,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
 | `runtime/runtime_diagnostics.h` | Capture and link counters, rate sampling, diagnostic selection, and catalog serialization |
+| `runtime/diagnostic_fields.h` | C-compatible diagnostic field metadata and firmware profile masks |
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
 | `runtime/csi_raw_record.h` | Transport-neutral CSI V8 record layout and historical V7 capture parsing |
 | `runtime/raw_csi.h` | Optional raw-collection runtime state, session configuration, diagnostics, and Direct binary framing |
@@ -222,6 +223,8 @@ Include `espectre_services_sdk.h` to use ESPectre's command engine, transports, 
 
 Your firmware owns the service objects, which can be allocated statically. Their public methods and configuration types are supported integration contracts. Private members and their implementation headers are not independent extension points. The sensing facade excludes these platform services and detector implementations.
 
+Firmware that owns CSI capture can use `TrafficGeneratorManager` and the Wi-Fi transmit-rate helpers without linking the full runtime. Include their public headers directly to keep platform dependencies limited to the services you use. C consumers can include `runtime/diagnostic_fields.h` for the canonical diagnostic catalog without a C++ facade.
+
 | Header | Use it for |
 |--------|------------|
 | `espectre_mqtt_sdk.h` | Opt-in ESP-IDF MQTT transport implementation |
@@ -242,10 +245,14 @@ Your firmware owns the service objects, which can be allocated statically. Their
 | `runtime/esp_idf/runtime_direct_http_bridge.h` | Runtime Direct HTTP Bridge |
 | `runtime/esp_idf/standalone_wifi_service.h` | Standalone Wi-Fi Service |
 | `runtime/esp_idf/task_scheduling_config.h` | ESP-IDF Task Scheduling Configuration |
+| `runtime/esp_idf/traffic_generator_manager.h` | Managed ESP-IDF traffic with a firmware-owned lifecycle |
 | `runtime/esp_idf/wifi_band_helpers.h` | Wi-Fi Band Helpers |
 | `runtime/esp_idf/wifi_bssid_pin_service.h` | Wi-Fi BSSID Pin Service |
 | `runtime/esp_idf/wifi_lifecycle.h` | Wi-Fi Lifecycle Manager |
 | `runtime/esp_idf/wifi_provisioning_service.h` | Wi-Fi Provisioning Service |
+| `runtime/esp_idf/wifi_tx_rate.h` | Apply the shared station and raw-frame transmit-rate policy |
+| `runtime/csi_traffic_service.h` | Traffic generation and ingress interfaces, configuration, and lifecycle |
+| `runtime/udp_datagram_socket.h` | UDP socket interface and peer addressing |
 | `runtime/espectre_banner.h` | Banner |
 | `runtime/frontend_command_engine.h` | Frontend Command Engine |
 | `runtime/mqtt_payload_assembler.h` | MQTT Payload Assembler |
@@ -396,15 +403,16 @@ The shared component does not require ESP-IDF's `log` component. A product that 
 
 ### First-party SDK consumers
 
-Native, Matter, and ESPHome use the same public SDK headers as external integrators. Their build lists live in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. By default, the frontends compile the SDK from the current checkout along with the firmware. To use an extracted SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
+Native, Matter, ESPHome, and Micro-ESPectre use the same public SDK headers as external integrators. Native, Matter, and ESPHome keep their build lists in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. Micro-ESPectre links the core and managed traffic groups through its MicroPython components. By default, the frontends compile the SDK from the current checkout along with the firmware. To use an extracted SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
 
 ```bash
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre native build --chip c3
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre matter build --chip c3
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre esphome build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre micro build --chip c3
 ```
 
-Native and Matter pass the selected SDK path to CMake. Changing or unsetting `ESPECTRE_SDK_ROOT` triggers reconfiguration of an existing build. Their Docker backend forwards the selection and mounts bundles outside the checkout read-only at distinct container paths. Use `--backend docker` with either command to select that backend.
+Native, Matter, and Micro-ESPectre pass the selected SDK path to CMake. Changing or unsetting `ESPECTRE_SDK_ROOT` reconfigures an existing build. Their Docker backend forwards the selection and mounts bundles outside the checkout read-only at distinct container paths. Add `--backend docker` to select that backend. Micro-ESPectre resolves its firmware version from the frontend checkout independently of the selected SDK.
 
 Improv Serial, firmware version helpers, and OTA helpers belong to the frontends. Native and Matter link the shared Improv service and declare its external dependency. The SDK provisioning group accepts credentials through its public service; the firmware chooses the onboarding protocol.
 
@@ -439,6 +447,8 @@ See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation caden
 | `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
 
 Each group is off by default, so a minimal integration does not link transport code it never calls. ESP-IDF resolves component requirements before menuconfig. The vendored component therefore declares every optional stack dependency up front, while the source switches control what reaches the firmware image. Its manifest constrains the Espressif mDNS version for Direct builds. Source-list integrations declare their selected stack dependencies themselves.
+
+For a core-only integration with managed traffic, link `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES`. The traffic group requires ESP-IDF's `esp_netif`, `esp_timer`, `esp_wifi`, `freertos`, and `lwip` components. The full ESP-IDF runtime already includes this group; add it separately only when using the focused integration. Micro-ESPectre uses this path while MicroPython owns capture, calibration, and event delivery.
 
 Shared frontend code owns Improv Serial; the SDK archive and manifest exclude it. You can implement `IMqttTransport` or `IDirectHttpService` without enabling a group because the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
 

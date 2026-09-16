@@ -6,6 +6,15 @@
  */
 #pragma once
 
+/**
+ * @file wifi_tx_rate.h
+ * @brief Shared ESP-IDF station and raw-frame transmit-rate policy.
+ *
+ * Apply the station policy after association, including reassociation, before
+ * starting CSI. The CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS build setting selects
+ * Auto, OFDM 6 Mbps, or HT20 MCS0 with long GI. Driver errors reach the caller.
+ */
+
 #include "sdkconfig.h"
 #include "esp_wifi.h"
 #include "espectre_log.h"
@@ -37,6 +46,7 @@ constexpr wifi_phy_rate_t WIFI_OFDM_TX_RATE = WIFI_PHY_RATE_6M;
 constexpr wifi_phy_rate_t WIFI_STATION_TX_RATE =
     WIFI_TX_RATE_MBPS == 6.5f ? WIFI_PHY_RATE_MCS0_LGI : WIFI_OFDM_TX_RATE;
 
+/** Configure raw-frame OFDM transmission for the associated AP's band. */
 inline esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap) {
   // Raw injection defaults to DSSS on 2.4 GHz; its ACKs cannot supply LLTF CSI.
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
@@ -55,6 +65,7 @@ inline esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap) {
   return err;
 }
 
+/** Apply station policy; Auto and TX A-MPDU builds leave driver rate selection unchanged. */
 inline esp_err_t apply_station_tx_rate() {
 #if !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
   if constexpr (WIFI_TX_RATE_MBPS == 0.0f) return ESP_OK;

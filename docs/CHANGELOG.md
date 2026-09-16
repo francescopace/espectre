@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changes
 
-- Use the public sensing and optional services SDK headers in Native, Matter, and ESPHome. Allow builds against an extracted SDK through `ESPECTRE_SDK_ROOT` and validate the generated ESPHome schema against the selected SDK. Move shared Improv Serial support to the frontend.
+- Use public SDK headers in Native, Matter, ESPHome, and Micro-ESPectre. Allow builds against an extracted SDK through `ESPECTRE_SDK_ROOT` and validate the generated ESPHome schema against the selected SDK. Micro-ESPectre keeps its core-only integration, with public traffic, Wi-Fi rate, and diagnostic contracts. Move shared Improv Serial support to the frontend.
 - Pin `improv/improv` to `1.2.7` from the ESP Component Registry for Native and Matter. Host provisioning tests use the same archive and verify its checksum. The SDK has no Improv dependency; ESPHome uses its own Improv integration.
 
 - Add software-only OTA signature enforcement to published Native and ESPHome firmware, with temporary test keys for non-publishing CI and unsigned local builds by default. Signed catalogs authenticate all frontend artifacts before browser USB flashing, including Matter, and USB updates preserve application signatures. Release-key provisioning is required before publication; migration from official images to personal builds requires USB. Hardware Secure Boot, eFuses, CLI verification, and Native startup rollback remain unchanged. See [SETUP.md](SETUP.md#official-images-and-personal-builds) for the operator USB versus OTA workflow and [CONTRIBUTING.md](../CONTRIBUTING.md#firmware-signing-for-maintainers) for key custody.

@@ -3,8 +3,8 @@
 
 add_library(usermod_espectre_native_components INTERFACE)
 
-if(NOT ESPECTRE_CORE_SDK_ROOT)
-    message(FATAL_ERROR "ESPECTRE_CORE_SDK_ROOT must point to the ESPectre C++ SDK")
+if(NOT ESPECTRE_SDK_ROOT)
+    message(FATAL_ERROR "ESPECTRE_SDK_ROOT must point to the ESPectre C++ SDK")
 endif()
 
 target_sources(usermod_espectre_native_components INTERFACE
@@ -20,8 +20,8 @@ target_sources(usermod_espectre_native_components INTERFACE
 
 target_include_directories(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}
-    ${ESPECTRE_CORE_SDK_ROOT}
-    ${ESPECTRE_CORE_SDK_ROOT}/core
+    ${ESPECTRE_SDK_ROOT}
+    ${ESPECTRE_SDK_ROOT}/core
 )
 
 target_link_libraries(usermod INTERFACE usermod_espectre_native_components)
