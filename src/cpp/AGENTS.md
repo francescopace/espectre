@@ -3,7 +3,7 @@
 ## Architecture And Placement
 
 - Use ESP-IDF for firmware code, not Arduino. `C++`17 features are available.
-- Keep shared `core` and `runtime` code frontend-agnostic, and enforce `Frontend -> Runtime -> Core`.
+- Keep shared `core` and `runtime` code frontend-agnostic.
 - Follow ESPHome component conventions only inside `frontend/esphome/`. Do not assume ESPHome-specific patterns apply to Matter, Native, or shared runtime code.
 - Use `ESPECTRE_LOGD`, `ESPECTRE_LOGI`, `ESPECTRE_LOGW`, and `ESPECTRE_LOGE` in shared `core` and `runtime` code so frontends own the logging backend. Frontend-specific ESP-IDF code may use `ESP_LOG*` directly. Do not add blocking work in firmware `loop()` paths or callbacks.
 - Place algorithms and the CSI format in `core/`, platform-agnostic contracts in `runtime/`, ESP-IDF, FreeRTOS, or lwIP code in `runtime/esp_idf/`, and single-frontend code in `frontend/<name>/`.
@@ -19,8 +19,8 @@
 ## Published SDK Surface
 
 - Treat everything reachable from `espectre_sdk.h` as the published SDK surface.
-- Keep optional ESP-IDF integration services in `espectre_services_sdk.h` and the MQTT backend in `espectre_mqtt_sdk.h`; its public methods and configuration types are supported SDK contracts. Keep the sensing facade free of optional platform service headers.
-- First-party frontends must consume public SDK headers and support `ESPECTRE_SDK_ROOT` for a separately extracted SDK. Keep firmware-only sources, including Improv Serial, in the frontend source lists.
+- Keep optional ESP-IDF integration services in `espectre_services_sdk.h` and the MQTT backend in `espectre_mqtt_sdk.h`. Their public methods and configuration types are supported SDK contracts. Keep the sensing facade free of optional platform service headers.
+- First-party frontends must use public SDK headers and support `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. Keep firmware-only sources, including Improv Serial, in the frontend source lists.
 - Adding a public type requires updating the facade include, the `Doxyfile` INPUT list, and the header map in `docs/SDK.md` in the same change. `test/python/contracts/test_sdk_surface_invariants.py` enforces this.
 - Forward declarations are acceptable, but every public definition must still arrive through the facade. A type an integrator can name in a signature but cannot construct is a broken surface.
 - Adding or changing a member of `IEspectreRuntime`, `IRuntimeListener`, or a boundary interface breaks external implementers. Give new members a default implementation, or take the break deliberately and record it in the active changelog section.
@@ -38,21 +38,18 @@ python3 .github/scripts/generate_sdk_api.py
 
 ## Detection And Calibration Parity
 
-- Keep `C++` and Python algorithm trends aligned. Do not change the CSI format or shared detection or calibration behavior on only one path.
-- After changing detection or calibration logic, run both parity validations:
+- After changing shared detection or calibration behavior, run the owning regression tests and any additional gates listed in [README.md](../../test/cpp/README.md#source-ownership), followed by the Python performance targets and the C++/Python report comparison:
 
 ```bash
-cmake -S test/cpp -B test/cpp/build
-cmake --build test/cpp/build
-ctest --test-dir test/cpp/build -R test_motion_detection --output-on-failure
 .venv/bin/pytest test/python/performance/test_validation_real_data.py::TestPerformanceMetrics -q --tb=short
+.venv/bin/python tools/generate_performance_report.py
 ```
 
-- If either validation cannot run, report the exact command and blocker; use `docs/performance/README.md` for the current performance workflow.
+- The report generator runs the C++ replay suites, compares their aggregate metrics with Python, and regenerates `docs/performance/README.md`. Separate passing suites do not establish parity. Use the primary corpus and keep the comparison enabled; `--check-current` checks artifact freshness without running parity. See [README.md](../../test/cpp/README.md#performance-report-parity-gate) for the comparison contract.
 
 ## Review Rules
 
-- Review first-party `C++` for correctness, ownership, performance, duplication, and frontend consistency. Exclude generated, build, and vendored trees unless requested.
+- Review first-party `C++` for correctness, ownership, performance, duplication, and frontend consistency.
 - Put homogeneous shared behavior in the lowest layer that owns it, keep orchestration out of `core`, and model intentional frontend differences as explicit capabilities.
 - Compare ESPHome, Native, and Matter defaults, validation, lifecycle, events, reset behavior, error handling, and capabilities only where the reviewed behavior crosses those frontends.
 - Inspect CSI callbacks, runtime loops, and inference paths for blocking work, allocation, copying, per-element division or modulo, repeated I/O, excessive stack use, oversized buffers, and debug-only work active in release paths.

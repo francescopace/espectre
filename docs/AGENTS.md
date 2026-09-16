@@ -4,10 +4,9 @@
 
 - Use clear, concise, technical English and a neutral tone except in product-facing entry points. Prefer bullets or tables only when they improve readability.
 - Do not hard-wrap prose. Keep each paragraph and list item on one source line unless Markdown syntax requires a line break.
-- Use the Oxford comma, simple descriptive titles, filename-only text for internal links, and rare, purposeful emoji. Established entry points may retain branding.
+- Use simple descriptive titles, filename-only text for internal links, and rare, purposeful emoji. Established entry points may retain branding.
 - Keep one source of truth per topic. Secondary documents should summarize and link to the owner instead of repeating mutable formulas, metrics, commands, or corpus data.
-- Keep frontend-specific workflows, protocols, and firmware surfaces in the local frontend README files.
-- Verify current-state documentation against implementation, runtime schemas, and generated artifacts, and distinguish deployed, partial, and target behavior.
+- Keep frontend-specific setup and firmware workflows in the local frontend README files; link to `API.md` and `DISCOVERY.md` for shared contracts.
 - Make public compatibility, controller-support, privacy, and security claims only from repository evidence. Use a validation matrix when coverage is incomplete.
 
 ## Topic Owners
@@ -18,7 +17,6 @@
 - Use `ALGORITHMS.md`, `FEATURES.md`, `ML_DATA_COLLECTION.md`, and `ML_TRAINING.md` for detector behavior, feature inventory, collection, and training workflows.
 - Use `performance/README.md`, `LITERATURE.md`, and `data/auto_generated/DATASET_QUALITY_CHECK.md` for benchmark status, external research, collection backlog, and dataset quality.
 - Use `ROADMAP.md` for product outcomes, gates, and sequencing; `adr/*.md` for durable decisions; and `review/*.md` only for dated review context.
-- Large owner documents are targeted references. Search for the relevant heading or identifier, and do not read them in full unless the task truly spans the whole ledger.
 
 ## Durable Records
 
@@ -31,5 +29,6 @@
 
 ## Generated Material
 
-- Do not edit generated performance or dataset-quality reports manually. Regenerate them from the current corpus, and run the generator's `--check-current` mode before calling them current.
+- Regenerate performance and dataset-quality reports through their owning tools instead of editing them manually. Use `--check-current` with `tools/generate_performance_report.py` for the aggregate performance report and `tools/validate_dataset_quality.py` for dataset-quality reports, following the input-scope requirements in [README.md](../tools/README.md).
+- Per-chip firmware reports come from measured `tools/benchmark_firmware.py` runs. That tool has no `--check-current` mode; assess the report against its recorded run evidence and scope.
 - Follow `docs/web/AGENTS.md` before changing the public website.

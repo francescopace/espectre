@@ -12,13 +12,11 @@
 
 - Build a task-scoped file list before reading implementation details. Use the narrowest implementation, schema, test, or document that owns the requested behavior.
 - For repository changes or reviews, start with compact state such as `git status --short`, `git diff --stat`, and `git diff --name-only`. On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
-- Treat files over 500 lines or 40 KB as large. Locate symbols or Markdown headings with `rg`, then read bounded ranges of at most 160 lines. Do not use unbounded `cat`, `nl`, or `sed` on large files.
-- Keep normal command output below roughly 120 lines or 20 KB. Do not combine several large file reads, diffs, or verbose commands into one tool call; parallelize only when every result is independently small.
-- Read each owning document once per task and only at the relevant headings. Do not scan the entire documentation map unless ownership is ambiguous, and do not reread settled files unless new evidence invalidates the current understanding.
+- Locate symbols or Markdown headings with `rg`, and read only the relevant ranges of large files. As working defaults, treat files over 500 lines or 40 KB as large, and keep reads and command output around 120–160 lines or 20 KB; adjust when the task requires more context. Avoid unbounded dumps and repeated reads of settled material.
+- Batch independent, small reads; keep large reads and follow-up investigation separate.
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
 - For broad reviews, group files by subsystem and finish one group before loading the next. Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
-- Prefer concise test output. Run the narrow owner check with quiet or short-traceback options where supported, and rerun only failures verbosely. For noisy builds or hardware workflows, keep successful output to the summary and expose bounded diagnostic tails on failure.
-- Redirect verbose build, test, benchmark, and hardware output to a temporary log. On success, report only the exit status and summary. On failure, read at most the final 120 lines, then inspect narrower sections only as needed.
+- Prefer concise test output, such as `-q --tb=short` for pytest. Redirect verbose build, test, benchmark, and hardware output to a temporary log. Report the exit status and summary on success; on failure, inspect a bounded diagnostic tail and expand or rerun only where needed.
 - Never run an unbounded serial monitor in the foreground. Use a fixed duration, an event filter, or a temporary log, and read only the relevant interval.
 
 ## Source Of Truth
@@ -42,7 +40,8 @@
 
 - Preserve unrelated user changes in dirty worktrees and inspect the final scoped diff for accidental edits.
 - Run the narrowest relevant checks first, followed only by parity, integration, generated-artifact, or frontend gates required by the changed surface.
-- When tests fail, investigate the root cause. Never skip, disable, or weaken tests to make them pass, and ask before changing a supported behavior expectation.
+- Once the relevant and required checks pass, broaden or repeat them only for new changes, failures, or unresolved concerns.
+- When tests fail, investigate the root cause. Never skip, disable, or weaken tests to make them pass. Ask before changing a supported behavior expectation unless the user has already authorized that behavior change.
 - Do not claim that a check passed unless it ran successfully. Report checks not run with the exact command and blocker.
 - Update the owning documentation when public behavior, configuration, protocol, or operator workflow changes.
 - Do not mutate GitHub state, including commenting, closing, merging, labeling, pushing, or changing releases, unless the user explicitly requests it.
