@@ -10,9 +10,9 @@
  */
 #pragma once
 
+#include "espectre_sdk.h"
 #include "esphome/core/component.h"
 #include "esphome/components/number/number.h"
-#include "runtime_sensing_schema.h"
 
 namespace esphome {
 namespace espectre_component {

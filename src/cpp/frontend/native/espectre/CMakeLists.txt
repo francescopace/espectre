@@ -1,4 +1,4 @@
-include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../espectre_frontend_sources.cmake")
 
 set(espectre_native_sources
     ${ESPECTRE_FRONTEND_NATIVE_SOURCES}
@@ -7,6 +7,7 @@ set(espectre_native_sources
     ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
     ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES}
+    ${ESPECTRE_FRONTEND_IMPROV_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES}
     ${ESPECTRE_FRONTEND_OTA_SOURCES}
@@ -29,7 +30,7 @@ set(espectre_native_requires
     driver
     freertos
     heap
-    improv
+    improv__improv
     mdns
     log
 )
@@ -40,8 +41,11 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         ${ESPECTRE_SHARED_INCLUDE_DIRS}
+        "${ESPECTRE_FRONTEND_ROOT}"
     REQUIRES
         ${espectre_native_requires}
+    PRIV_REQUIRES
+        espectre_config
 )
 
 idf_component_optional_requires(PRIVATE esp_tinyusb espressif__esp_tinyusb)

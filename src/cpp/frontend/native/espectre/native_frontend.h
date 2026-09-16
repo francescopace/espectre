@@ -10,16 +10,14 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
 
-#include "frontend_command_engine.h"
 #include "native_direct_frontend.h"
-#include "frontend/ota_service.h"
-#include "runtime_event_mailbox.h"
-#include "runtime_frontend_controller.h"
+#include "ota_service.h"
 
 namespace espectre {
 

@@ -62,13 +62,8 @@ set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     ${ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES}
 )
 
-set(ESPECTRE_RUNTIME_ESP_IDF_IMPROV_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/improv_serial_service.cpp"
-)
-
 set(ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_config_store.cpp"
-    ${ESPECTRE_RUNTIME_ESP_IDF_IMPROV_SOURCES}
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_provisioning_service.cpp"
 )
 
@@ -86,51 +81,6 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_direct_http_bridge.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_bssid_pin_service.cpp"
 )
-
-set(ESPECTRE_FRONTEND_OTA_PROTOCOL_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/ota_protocol.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/ota_version.cpp"
-)
-
-set(ESPECTRE_FRONTEND_OTA_SOURCES
-    ${ESPECTRE_FRONTEND_OTA_PROTOCOL_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/frontend/ota_service_https.cpp"
-)
-
-set(ESPECTRE_FRONTEND_COMMON_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/frontend_firmware_version.cpp"
-)
-
-set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
-    ${ESPECTRE_FRONTEND_COMMON_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/esphome_log_sink.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/recalibrate_button.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensing_switch.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/detector_select.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/diagnostics_button.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/espectre.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/motion_hits_number.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensor_publisher.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/threshold_number.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/traffic_mode_select.cpp"
-)
-
-set(ESPECTRE_FRONTEND_MATTER_SOURCES
-    ${ESPECTRE_FRONTEND_COMMON_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_frontend.cpp"
-)
-
-set(ESPECTRE_FRONTEND_NATIVE_SOURCES
-    ${ESPECTRE_FRONTEND_COMMON_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/home_assistant_mqtt_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_command_bindings.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_direct_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/recovery_button_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mqtt_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
-)
-
-set(ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES)
 
 # SDK root. Exposes the `espectre_sdk.h` facade and lets integrators use
 # layer-prefixed includes such as "runtime/runtime_interface.h" instead of the

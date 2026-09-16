@@ -88,6 +88,8 @@ Frontend-specific schemas, transport bindings, and ecosystem integration belong 
 | Native | Compose Direct, MQTT, provisioning, Home Assistant discovery, and frontend OTA adapters around the shared runtime | [README.md](../src/cpp/frontend/native/README.md) |
 | Matter | Map runtime occupancy into Matter and expose the shared Direct bridge for detector controls | [README.md](../src/cpp/frontend/matter/README.md) |
 
+Frontends use the public sensing and optional services SDK headers. Their source lists are separate from the SDK source lists. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. Shared Improv Serial support lives in `frontend/`, outside the SDK. See [SDK.md](SDK.md#first-party-sdk-consumers) for the integration contract.
+
 Frontends own logger registration and keep the sink alive until the runtime shuts down. Shared code does not depend on ESPHome logging or ESP-IDF `esp_log`.
 
 ## Runtime contract

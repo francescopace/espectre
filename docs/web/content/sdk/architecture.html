@@ -64,7 +64,9 @@
     <div><strong>Product event</strong><span>frontend</span></div>
   </div>
 
-  <div class="note"><strong>Optional transports stay outside the sensing model.</strong> Direct HTTP, MQTT, provisioning, and OTA source groups are disabled until selected. A product can use the provided adapters, implement the boundary interfaces, or omit those capabilities. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional component groups</a>.</div>
+  <div class="note"><strong>Optional services stay outside the sensing facade.</strong> Include <code>espectre_services_sdk.h</code> for command handling, Direct HTTP, discovery, provisioning, and bootstrap helpers. Include <code>espectre_mqtt_sdk.h</code> separately for the ESP-IDF MQTT backend. Enable the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">source groups</a> your firmware needs, or implement the boundary interfaces with your own services.</div>
+
+  <p>The SDK provisioning service accepts credentials; your firmware supplies the onboarding protocol. Shared Improv Serial and OTA implementations live in the frontend sources and are excluded from the SDK bundle.</p>
 
   <div class="note"><strong>Logging follows the same ownership direction.</strong> Core and runtime emit through a portable sink. The frontend can connect ESPHome, <code>esp_log</code>, or another backend before setup, while a product that does not register a sink keeps the shared SDK silent.</div>
 

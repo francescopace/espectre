@@ -1,1 +1,1 @@
-rsource "../../../../Kconfig.projbuild"
+source "${ESPECTRE_SDK_ROOT}/Kconfig.projbuild"

@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
+#include "espectre_sdk.h"
 #include "home_assistant_mqtt_frontend.h"
 
 #include <esp_log.h>
@@ -18,7 +19,6 @@
 
 #include "native_frontend.h"
 #include "native_mqtt_frontend.h"
-#include "runtime_diagnostics.h"
 
 namespace espectre {
 

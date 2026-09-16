@@ -36,6 +36,11 @@ def test_every_cpp_production_source_has_an_explicit_test_owner() -> None:
         f"src/cpp/{path}"
         for path in re.findall(r'\$\{ESPECTRE_CPP_ROOT\}/([^"\s]+\.cpp)', cmake_source)
     }
+    frontend_source = (CPP_ROOT / "frontend" / "espectre_frontend_sources.cmake").read_text(encoding="utf-8")
+    expected.update(
+        f"src/cpp/frontend/{path}"
+        for path in re.findall(r'\$\{ESPECTRE_FRONTEND_ROOT\}/([^"\s]+\.cpp)', frontend_source)
+    )
     expected.update(FIRMWARE_WIRING_SOURCES)
     manifest = json.loads(OWNERSHIP_MANIFEST.read_text(encoding="utf-8"))
     test_cmake = CPP_TEST_CMAKE.read_text(encoding="utf-8")
@@ -120,6 +125,7 @@ def first_party_sources() -> list[Path]:
                 for filename in filenames
                 if Path(filename).suffix in SOURCE_SUFFIXES
             )
+    sources.extend(CPP_ROOT.glob("espectre*_sdk.h"))
     return sorted(sources)
 
 
@@ -128,7 +134,7 @@ def layer(path: Path) -> int:
     parts = path.relative_to(CPP_ROOT).parts
     if parts[0] == "core":
         return 0
-    if parts[0] == "runtime":
+    if parts[0] == "runtime" or parts in {("espectre_sdk.h",), ("espectre_services_sdk.h",), ("espectre_mqtt_sdk.h",), ("espectre_core_sdk.h",)}:
         return 1
     if parts[0] == "frontend":
         # Shared frontend helpers sit below concrete frontend implementations.

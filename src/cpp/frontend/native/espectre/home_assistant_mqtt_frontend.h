@@ -7,12 +7,10 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <cstdint>
 #include <string>
 
-#include "frontend_ha_mqtt_helpers.h"
-#include "mqtt_transport.h"
-#include "runtime_events.h"
 
 namespace espectre {
 

@@ -365,7 +365,6 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         "esp_http_client",
         "esp_http_server",
         "esp-tls",
-        "improv",
         "mdns",
     ):
         assert re.search(rf"(?m)^    {re.escape(dependency)}$", component_cmake)
@@ -817,10 +816,10 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str)
     source_manifest = builder.IDF_COMPONENT_MANIFEST.read_text(encoding="utf-8")
     assert yml.split("\ndependencies:\n", 1)[1] == source_manifest.split("\ndependencies:\n", 1)[1]
     assert f'version: "{builder.SDK_SUPPORTED_ESP_IDF}"' in yml
-    assert "https://github.com/improv-wifi/sdk-cpp.git" in yml
     assert "espressif/mdns:" in yml
     assert "espressif/esp_tinyusb:" in yml
-    assert '- if: "target in [esp32s2, esp32s3]"' in yml
+    assert "improv" not in yml
+    assert '- if: "target == esp32s2"' in yml
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
@@ -833,7 +832,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str)
     native_manifest = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "espectre" / "idf_component.yml"
     ).read_text(encoding="utf-8")
-    assert "https://github.com/improv-wifi/sdk-cpp.git" in native_manifest
+    assert 'improv/improv:\n    version: "1.2.7"' in native_manifest
+    assert "git:" not in native_manifest
     assert "espressif/mdns:" in native_manifest
 
     for relative_path in (
@@ -842,15 +842,21 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str)
     ):
         frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         assert "espressif/esp_tinyusb:" in frontend_manifest
-        assert '- if: "target in [esp32s2, esp32s3]"' in frontend_manifest
+        assert '- if: "target == esp32s2"' in frontend_manifest
 
     matter_manifest = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "espectre" / "idf_component.yml"
     ).read_text(encoding="utf-8")
+    assert 'improv/improv:\n    version: "1.2.7"' in matter_manifest
+    assert "git:" not in matter_manifest
     assert "espressif/mdns:" in matter_manifest
-    assert "espressif/esp_tinyusb:" in matter_manifest
-    assert '- if: "target == esp32s3"' in matter_manifest
+    assert "espressif/esp_tinyusb:" not in matter_manifest
     assert "esp32s2" not in matter_manifest
+    for relative_path in (
+        "src/cpp/frontend/matter/app/main/idf_component.yml",
+        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
+    ):
+        assert "improv" not in (REPO_ROOT / relative_path).read_text(encoding="utf-8")
     assert not (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults.esp32s2"
     ).exists()
@@ -1819,3 +1825,31 @@ def test_signed_build_gate_rejects_disabled_verification_and_efuse_policy(tmp_pa
         config.write_text(profile.replace(f"CONFIG_{name}=n", f"CONFIG_{name}=y"))
         with pytest.raises(ValueError, match="eFuse"):
             builder.validate_sdkconfig(config, legacy=legacy)
+
+
+def test_sdk_reference_keeps_public_nested_types_and_hides_private_types(tmp_path: Path) -> None:
+    generator = load_script("generate_sdk_api")
+    xml = tmp_path / "service.xml"
+    xml.write_text(
+        '<doxygen><compounddef id="service">'
+        '<innerclass refid="public_config" prot="public">Config</innerclass>'
+        '<innerclass refid="private_response" prot="private">CompletedResponse</innerclass>'
+        '<sectiondef kind="public-func"><memberdef prot="public" id="setup"/></sectiondef>'
+        '<sectiondef kind="private-attrib"><memberdef prot="private" id="queue"/></sectiondef>'
+        '</compounddef></doxygen>',
+        encoding="utf-8",
+    )
+    (tmp_path / "private_response.xml").write_text(
+        '<doxygen><compounddef id="private_response" prot="private"/></doxygen>', encoding="utf-8"
+    )
+    index = tmp_path / "index.xml"
+    index.write_text(
+        '<doxygenindex><compound refid="service"/><compound refid="private_response"/></doxygenindex>',
+        encoding="utf-8",
+    )
+    generator.prune_private_members(tmp_path)
+    compound = ET.parse(xml).getroot().find("compounddef")
+    assert compound is not None
+    assert [node.get("refid") for node in compound.findall("innerclass")] == ["public_config"]
+    assert [node.get("id") for node in compound.findall(".//memberdef")] == ["setup"]
+    assert [node.get("refid") for node in ET.parse(index).getroot().findall("compound")] == ["service"]

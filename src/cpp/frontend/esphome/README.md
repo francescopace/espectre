@@ -248,7 +248,7 @@ The repository CLI keeps the selected canonical YAML and loads the ESPectre comp
 
 ### Build Toolchain
 
-The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this component directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) reuses the canonical SDK build definition at [`CMakeLists.txt`](../../CMakeLists.txt), so ESPHome compiles `src/cpp/core/` and `src/cpp/runtime/esp_idf/` directly. No toolchain override or separate library package is required.
+The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) compiles the selected SDK through the canonical build definition at [`CMakeLists.txt`](../../CMakeLists.txt). During configuration, CMake checks the fingerprint of the generated Python schema against that SDK. No toolchain override or separate library package is required.
 
 ### Automatic SDK Configuration
 
@@ -308,6 +308,8 @@ esphome logs <your-config>.yaml --device espectre.local
 ```
 
 ## Implementation Map
+
+The frontend uses public SDK headers. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. See [SDK.md](../../../../docs/SDK.md#first-party-sdk-consumers) for source groups and validation.
 
 This map is for component maintainers; it is not required for normal installation or tuning.
 

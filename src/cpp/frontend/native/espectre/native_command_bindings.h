@@ -7,10 +7,10 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <cstdint>
 #include <string>
 
-#include "frontend_command_engine.h"
 
 namespace espectre {
 

@@ -1,5 +1,3 @@
-rsource "../../../../runtime/esp_idf/espectre_config/Kconfig.projbuild"
-
 menu "ESPectre Matter"
 
 config ESPECTRE_MATTER_NODE_LABEL

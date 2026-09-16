@@ -108,11 +108,28 @@ def run_doxygen(doxyfile: Path) -> None:
 
 def prune_private_members(xml_directory: Path) -> None:
     """Remove implementation-only members Doxygen leaves in the public XML."""
+    private_compounds = {
+        node.get("id")
+        for path in xml_directory.glob("*.xml")
+        for node in ET.parse(path).getroot().findall("compounddef")
+        if node.get("prot") == "private"
+    }
     for xml_path in xml_directory.glob("*.xml"):
         tree = ET.parse(xml_path)
         root = tree.getroot()
+        if any(node.get("id") in private_compounds for node in root.findall("compounddef")):
+            xml_path.unlink()
+            continue
         changed = False
+        for entry in list(root.findall("compound")):
+            if entry.get("refid") in private_compounds:
+                root.remove(entry)
+                changed = True
         for compound in root.findall(".//compounddef"):
+            for nested in list(compound.findall("innerclass")):
+                if nested.get("prot") == "private" or nested.get("refid") in private_compounds:
+                    compound.remove(nested)
+                    changed = True
             for section in list(compound.findall("sectiondef")):
                 for member in list(section.findall("memberdef")):
                     if member.get("prot") == "private":

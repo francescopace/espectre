@@ -26,6 +26,8 @@ REPO_ROOT = repo_root()
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 FACADE = CPP_ROOT / "espectre_sdk.h"
 CORE_FACADE = CPP_ROOT / "espectre_core_sdk.h"
+SERVICES_FACADE = CPP_ROOT / "espectre_services_sdk.h"
+MQTT_FACADE = CPP_ROOT / "espectre_mqtt_sdk.h"
 DOXYFILE = CPP_ROOT / "Doxyfile"
 SDK_GUIDE = REPO_ROOT / "docs" / "SDK.md"
 SDK_COMPONENT_CMAKE = CPP_ROOT / "CMakeLists.txt"
@@ -290,3 +292,51 @@ def test_supported_headers_appear_in_the_sdk_header_map() -> None:
         f"headers reachable from {FACADE.name} are missing from the {SDK_GUIDE.name} "
         f"header map: {missing}"
     )
+
+
+@pytest.mark.parametrize("header", sorted(set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE))), ids=lambda path: path.name)
+def test_services_facade_is_complete(header: Path) -> None:
+    """Integrators can construct every local type named by the services facade."""
+    reachable = include_closure(SERVICES_FACADE) + include_closure(MQTT_FACADE)
+    definitions = set().union(*(set(DEFINITION_PATTERN.findall(p.read_text())) for p in reachable))
+    declared = set(FORWARD_DECLARATION_PATTERN.findall(header.read_text()))
+    assert declared <= definitions, f"{header.name}: incomplete SDK types {sorted(declared - definitions)}"
+
+
+def test_services_facade_is_documented_without_exposing_detector_internals() -> None:
+    headers = {p.relative_to(CPP_ROOT).as_posix() for p in include_closure(SERVICES_FACADE) + include_closure(MQTT_FACADE)}
+    assert not headers & RUNTIME_INTERNAL_HEADERS
+    assert headers <= doxygen_input_headers()
+    guide = SDK_GUIDE.read_text(encoding="utf-8")
+    for header in headers:
+        assert f"`{header}`" in guide, f"missing services SDK header map entry: {header}"
+
+
+def test_frontends_use_only_public_sdk_headers() -> None:
+    """The first-party applications obey the same SDK boundary as external firmware."""
+    public = set(include_closure(FACADE)) | set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE)) | set(include_closure(CORE_FACADE))
+    sdk_headers = {p.resolve() for root in (CPP_ROOT / "core", CPP_ROOT / "runtime") for p in root.rglob("*.h")}
+    by_name = {p.name: p for p in sdk_headers}
+    violations = []
+    for source in (CPP_ROOT / "frontend").rglob("*"):
+        if source.suffix not in {".h", ".cpp"} or any(
+            part in {".esphome", "managed_components"} or part.startswith("build") for part in source.parts
+        ):
+            continue
+        for include in re.findall(r'^\s*#include\s*[<"]([^>"]+)[>"]', source.read_text(encoding="utf-8"), re.MULTILINE):
+            candidates = [source.parent / include, CPP_ROOT / include]
+            if "/" not in include and include in by_name:
+                candidates.append(by_name[include])
+            target = next((p.resolve() for p in candidates if p.is_file()), None)
+            if target in sdk_headers and target not in public:
+                violations.append(f"{source.relative_to(CPP_ROOT)} -> {include}")
+    assert not violations, "Frontend includes private SDK headers: " + ", ".join(violations)
+
+
+def test_esphome_schema_matches_the_public_sdk_contract() -> None:
+    """Python validation and firmware compilation must use the same sensing contract."""
+    import runpy
+
+    generator = runpy.run_path(str(REPO_ROOT / ".github" / "scripts" / "generate_esphome_schema.py"))
+    output = CPP_ROOT / "frontend" / "esphome" / "components" / "espectre" / "sensing_schema.py"
+    assert output.read_text(encoding="utf-8") == generator["render_schema"]()

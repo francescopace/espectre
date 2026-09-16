@@ -1,5 +1,9 @@
 include(FetchContent)
-include("${ESPECTRE_CPP_ROOT}/espectre_sources.cmake")
+include("${ESPECTRE_CPP_ROOT}/frontend/espectre_frontend_sources.cmake")
+
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
 
 find_package(ZLIB REQUIRED)
 
@@ -17,9 +21,8 @@ endif()
 
 FetchContent_Declare(
     ImprovWifiSdk
-    GIT_REPOSITORY https://github.com/improv-wifi/sdk-cpp.git
-    GIT_TAG 17898613a1c17062ca5af295ceb639b16b4930bf
-    GIT_SHALLOW FALSE
+    URL https://components-file.espressif.com/components/improv/improv/1.2.7/improv__improv-v1.2.7.zip
+    URL_HASH SHA256=83d2c1f5d4dc6e97e91328687731d19a51fd4527ba6b4f4f274a194b3281e8b5
 )
 FetchContent_MakeAvailable(ImprovWifiSdk)
 
@@ -120,7 +123,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_sysinfo_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/raw_csi_session_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_config_store.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/improv_serial_service.cpp"
+    "${ESPECTRE_FRONTEND_ROOT}/improv_serial_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_provisioning_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_bssid_pin_service.cpp"
 )
@@ -174,7 +177,7 @@ add_library(espectre_mqtt_transport_testlib STATIC
 add_library(espectre_frontend_ota_protocol_testlib STATIC ${ESPECTRE_FRONTEND_OTA_PROTOCOL_SOURCES})
 target_link_libraries(espectre_frontend_ota_protocol_testlib PUBLIC espectre_runtime_testlib)
 add_library(espectre_ota_https_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/frontend/ota_service_https.cpp"
+    "${ESPECTRE_FRONTEND_ROOT}/ota_service_https.cpp"
 )
 target_link_libraries(espectre_ota_https_testlib
     PUBLIC
@@ -230,7 +233,7 @@ target_link_libraries(espectre_frontend_esphome_testlib
 )
 target_include_directories(espectre_frontend_esphome_testlib
     PUBLIC
-        "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre"
+        "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre"
 )
 
 add_library(espectre_frontend_matter_testlib STATIC
@@ -251,7 +254,7 @@ target_link_libraries(espectre_frontend_matter_testlib
 )
 target_include_directories(espectre_frontend_matter_testlib
     PUBLIC
-        "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre"
+        "${ESPECTRE_FRONTEND_ROOT}/matter/espectre"
 )
 
 add_library(espectre_frontend_native_testlib STATIC
@@ -268,7 +271,7 @@ target_link_libraries(espectre_frontend_native_testlib
 )
 target_include_directories(espectre_frontend_native_testlib
     PUBLIC
-        "${ESPECTRE_CPP_ROOT}/frontend/native/espectre"
+        "${ESPECTRE_FRONTEND_ROOT}/native/espectre"
 )
 
 foreach(target_name

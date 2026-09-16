@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include "espectre_sdk.h"
 #include "ota_service_https.h"
 
 #include <algorithm>
@@ -18,10 +19,8 @@
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
-#include "espectre_log.h"
 #include "esp_system.h"
 #include "ota_version.h"
-#include "protocol_json.h"
 
 namespace espectre {
 

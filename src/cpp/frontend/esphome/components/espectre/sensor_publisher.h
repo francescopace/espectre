@@ -9,9 +9,9 @@
  */
 #pragma once
 
+#include "espectre_sdk.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "runtime_snapshot.h"
 
 namespace esphome {
 namespace espectre_component {

@@ -6,8 +6,8 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #pragma once
+#include "espectre_sdk.h"
 
-#include "espectre_log.h"
 
 namespace esphome {
 namespace espectre_component {

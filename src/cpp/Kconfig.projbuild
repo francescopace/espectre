@@ -25,8 +25,8 @@ config ESPECTRE_SDK_ENABLE_PROVISIONING
     default n
     help
         Adds the NVS-backed device config store and the Wi-Fi provisioning
-        service used to commission credentials over Improv Serial and Direct
-        HTTP.
+        service used to apply credentials supplied by the integrating firmware
+        or Direct HTTP. Improv Serial is owned by the firmware.
 
 config ESPECTRE_SDK_ENABLE_DIRECT
     bool "Build the Direct HTTP control plane"

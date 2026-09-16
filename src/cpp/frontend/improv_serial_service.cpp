@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include "espectre_sdk.h"
 #include "improv_serial_service.h"
 
 #include <algorithm>
@@ -25,7 +26,6 @@
 #include <driver/usb_serial_jtag_vfs.h>
 #endif
 
-#include "espectre_log.h"
 
 namespace espectre {
 

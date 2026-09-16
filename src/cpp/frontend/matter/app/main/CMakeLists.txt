@@ -6,9 +6,7 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "../../espectre"
-        "../../../../core"
-        "../../../../runtime"
-        "../../../../runtime/esp_idf"
+        "../../.."
     REQUIRES
         espectre
         bootloader_support

@@ -71,7 +71,38 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/high_accuracy_detector.h \
                          src/cpp/core/csi_format.h \
                          src/cpp/core/temporal_csi_sampler.h \
-                         src/cpp/core/detector_limits.h
+                         src/cpp/core/detector_limits.h \
+                         src/cpp/espectre_services_sdk.h \
+                         src/cpp/espectre_mqtt_sdk.h \
+                         src/cpp/runtime/esp_idf/device_config_store.h \
+                         src/cpp/runtime/esp_idf/direct_http_service_esp_idf.h \
+                         src/cpp/runtime/esp_idf/direct_wifi_snapshot_esp_idf.h \
+                         src/cpp/runtime/esp_idf/frontend_bootstrap_helpers.h \
+                         src/cpp/runtime/esp_idf/frontend_ha_mqtt_helpers.h \
+                         src/cpp/runtime/esp_idf/frontend_mqtt_helpers.h \
+                         src/cpp/runtime/esp_idf/mdns_bootstrap_responder.h \
+                         src/cpp/runtime/esp_idf/mdns_discovery_service.h \
+                         src/cpp/runtime/esp_idf/mqtt_transport_esp_idf.h \
+                         src/cpp/runtime/esp_idf/nvs_helpers.h \
+                         src/cpp/runtime/esp_idf/peer_discovery_service_esp_idf.h \
+                         src/cpp/runtime/esp_idf/primary_console.h \
+                         src/cpp/runtime/esp_idf/raw_csi_session_controller.h \
+                         src/cpp/runtime/esp_idf/runtime_direct_http_bridge.h \
+                         src/cpp/runtime/esp_idf/standalone_wifi_service.h \
+                         src/cpp/runtime/esp_idf/task_scheduling_config.h \
+                         src/cpp/runtime/esp_idf/wifi_band_helpers.h \
+                         src/cpp/runtime/esp_idf/wifi_bssid_pin_service.h \
+                         src/cpp/runtime/esp_idf/wifi_lifecycle.h \
+                         src/cpp/runtime/esp_idf/wifi_provisioning_service.h \
+                         src/cpp/runtime/espectre_banner.h \
+                         src/cpp/runtime/frontend_command_engine.h \
+                         src/cpp/runtime/mqtt_payload_assembler.h \
+                         src/cpp/runtime/peer_discovery.h \
+                         src/cpp/runtime/pending_event.h \
+                         src/cpp/runtime/pending_queue.h \
+                         src/cpp/runtime/runtime_event_mailbox.h \
+                         src/cpp/runtime/runtime_time.h
+
 
 # Render consumer-facing include paths relative to the published SDK root.
 STRIP_FROM_INC_PATH    = src/cpp

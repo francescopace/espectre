@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
+#include "espectre_services_sdk.h"
 #include <cstring>
 #include "native_direct_frontend.h"
 
@@ -14,13 +15,9 @@
 #include <cstdint>
 #include <utility>
 
-#include "direct_wifi_snapshot_esp_idf.h"
 #include "native_frontend.h"
 #include "native_mqtt_frontend.h"
-#include "protocol_json.h"
-#include "runtime_diagnostics.h"
 #include "sdkconfig.h"
-#include "wifi_band_helpers.h"
 
 #if __has_include("esp_heap_caps.h")
 #include "esp_heap_caps.h"

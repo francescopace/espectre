@@ -85,7 +85,8 @@ class ProductFrontend : public espectre::IRuntimeListener {
   </ol>
 
   <h2 data-toc-label="Reference frontends">Choose a reference frontend</h2>
-  <p>The shipped frontends demonstrate integration patterns, but they are not a supported API to link against. Copy the pattern that matches your product and keep the SDK facade as the dependency boundary.</p>
+  <p>ESPHome, Native, and Matter use the same public SDK headers as external integrators. Their source lists are separate from the SDK source groups. Use these frontends as implementation references and depend on the public SDK API in your own firmware.</p>
+  <p>To build a reference frontend against an extracted SDK bundle, set <code>ESPECTRE_SDK_ROOT</code> to the absolute path of its <code>src/cpp</code> directory. ESPHome checks its generated sensing schema against the selected SDK before compilation. See <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#first-party-sdk-consumers" target="_blank" rel="noopener"><code>SDK.md</code></a> for build commands, including Native and Matter Docker builds.</p>
   <div class="example-picker">
     <article>
       <span class="docs-path-label">HOME ASSISTANT</span>

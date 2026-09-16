@@ -8,6 +8,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include "espectre_services_sdk.h"
 #include <cstring>
 #include "espectre.h"
 #include "threshold_number.h"
@@ -22,13 +23,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
-#include "device_identity.h"
-#include "direct_http_protocol.h"
-#include "espectre_banner.h"
-#include "espectre_protocol.h"
-#include "frontend/frontend_firmware_version.h"
-#include "primary_console.h"
-#include "protocol_json.h"
+#include "frontend_firmware_version.h"
 #include "sdkconfig.h"
 
 #include <cctype>

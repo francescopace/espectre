@@ -10,13 +10,13 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
 
 #include "matter_bindings.h"
-#include "pending_queue.h"
 
 namespace espectre {
 

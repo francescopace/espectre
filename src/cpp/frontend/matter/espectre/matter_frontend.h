@@ -9,17 +9,11 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <functional>
 #include <memory>
 
-#include "direct_http_service.h"
 #include "matter_bindings.h"
-#include "peer_discovery_service_esp_idf.h"
-#include "runtime_events.h"
-#include "runtime_direct_http_bridge.h"
-#include "runtime_diagnostics.h"
-#include "runtime_event_mailbox.h"
-#include "runtime_frontend_controller.h"
 
 namespace espectre {
 

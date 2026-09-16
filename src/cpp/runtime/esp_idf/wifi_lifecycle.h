@@ -48,6 +48,7 @@ class WiFiLifecycleManager {
    * @param connected_cb Callback when WiFi obtains or retains an IPv4 configuration;
    *        receives the address, netmask, and gateway after GOT_IP or reassociation
    * @param disconnected_cb Callback when WiFi disconnects
+   * @param band_policy Station band policy used while applying connection settings
    * @return ESP_OK on success. If the default station already has an IPv4
    *         address, its current state is queued for process_pending_events().
    */

@@ -158,7 +158,7 @@ A core-only integration that captures LLTF owns the same two-view boundary. Norm
 
 ### Logging
 
-Both SDK facades expose the portable logging contract in `core/espectre_log.h`. ESPectre does not install a sink or fall back to `stdio`, so integrations that do not need logs have no logger dependency and do not evaluate filtered log arguments. To receive shared logs, register a complete `LogSink` before runtime setup:
+All SDK facades expose the portable logging contract in `core/espectre_log.h`. ESPectre does not install a sink or fall back to `stdio`, so integrations that do not need logs have no logger dependency and do not evaluate filtered log arguments. To receive shared logs, register a complete `LogSink` before runtime setup:
 
 ```cpp
 espectre::LogSink sink{
@@ -202,7 +202,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/mqtt_transport.h` | Implement to reach your own MQTT client |
 | `runtime/direct_http_protocol.h` | Canonical request parsing, Direct HTTP constants, and the executable Direct/MQTT mapping |
 | `runtime/direct_http_service.h` | Implement to expose Direct HTTP resource methods, SSE events, and optional CSI streaming |
-| `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |
+| `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared across the facades |
 | **Core-only extension** | **Headers below are reached only through `espectre_core_sdk.h`** |
 | `core/lightweight_detector.h`, `core/high_accuracy_detector.h` | The supported core-only detector classes |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
@@ -213,6 +213,47 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 `EspectreDeviceConfig` represents an MQTT endpoint with separate `mqtt_scheme`, `mqtt_host`, and `mqtt_port` members. All three are required for MQTT to be configured; the default empty scheme and host with port `0` disable it. Use `validate_espectre_mqtt_config()` before persisting or applying an endpoint. The shipped ESP-IDF adapter accepts `mqtt` for explicit plaintext TCP and `mqtts` for TLS with the public certificate bundle and hostname verification. Host values are not URIs, and WebSocket transports are not part of this contract.
 
 Headers such as `core/filtered_turbulence_ring.h`, `core/filters.h`, `core/utils.h`, `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h`, and `core/threshold.h` ship because the detector definitions depend on them. They are implementation dependencies rather than independent extension points, do not appear in the generated API reference, and may change without a compatibility guarantee.
+
+### Optional ESP-IDF services
+
+Include `espectre_mqtt_sdk.h` separately to instantiate `EspIdfMqttTransport`. This requires the ESP-IDF `mqtt` component and the optional MQTT source group. The services facade excludes the MQTT implementation, so Matter and other consumers can use Direct and discovery services without MQTT headers.
+
+Include `espectre_services_sdk.h` to use ESPectre's command engine, transports, discovery, provisioning, or platform bootstrap helpers. It includes `espectre_sdk.h` and requires ESP-IDF dependency headers. Select source groups separately; including the facade does not enable them.
+
+Your firmware owns the service objects, which can be allocated statically. Their public methods and configuration types are supported integration contracts. Private members and their implementation headers are not independent extension points. The sensing facade excludes these platform services and detector implementations.
+
+| Header | Use it for |
+|--------|------------|
+| `espectre_mqtt_sdk.h` | Opt-in ESP-IDF MQTT transport implementation |
+| `espectre_services_sdk.h` | Optional ESP-IDF Services SDK |
+| `runtime/esp_idf/device_config_store.h` | Device Config Store |
+| `runtime/esp_idf/direct_http_service_esp_idf.h` | ESP-IDF Direct HTTP Service |
+| `runtime/esp_idf/direct_wifi_snapshot_esp_idf.h` | Direct Wi-Fi Snapshot |
+| `runtime/esp_idf/frontend_bootstrap_helpers.h` | Frontend Bootstrap Helpers |
+| `runtime/esp_idf/frontend_ha_mqtt_helpers.h` | Frontend Home Assistant MQTT Helpers |
+| `runtime/esp_idf/frontend_mqtt_helpers.h` | Frontend MQTT Helpers |
+| `runtime/esp_idf/mdns_bootstrap_responder.h` | Shared mDNS Bootstrap Responder |
+| `runtime/esp_idf/mdns_discovery_service.h` | Shared mDNS Discovery Service |
+| `runtime/esp_idf/mqtt_transport_esp_idf.h` | ESP-IDF MQTT Transport |
+| `runtime/esp_idf/nvs_helpers.h` | NVS Helpers |
+| `runtime/esp_idf/peer_discovery_service_esp_idf.h` | ESP-IDF Peer Discovery Service |
+| `runtime/esp_idf/primary_console.h` | ESP-IDF Primary Console |
+| `runtime/esp_idf/raw_csi_session_controller.h` | Raw CSI Session Controller |
+| `runtime/esp_idf/runtime_direct_http_bridge.h` | Runtime Direct HTTP Bridge |
+| `runtime/esp_idf/standalone_wifi_service.h` | Standalone Wi-Fi Service |
+| `runtime/esp_idf/task_scheduling_config.h` | ESP-IDF Task Scheduling Configuration |
+| `runtime/esp_idf/wifi_band_helpers.h` | Wi-Fi Band Helpers |
+| `runtime/esp_idf/wifi_bssid_pin_service.h` | Wi-Fi BSSID Pin Service |
+| `runtime/esp_idf/wifi_lifecycle.h` | Wi-Fi Lifecycle Manager |
+| `runtime/esp_idf/wifi_provisioning_service.h` | Wi-Fi Provisioning Service |
+| `runtime/espectre_banner.h` | Banner |
+| `runtime/frontend_command_engine.h` | Frontend Command Engine |
+| `runtime/mqtt_payload_assembler.h` | MQTT Payload Assembler |
+| `runtime/peer_discovery.h` | Peer-Assisted Local Discovery |
+| `runtime/pending_event.h` | Pending Event Mailbox |
+| `runtime/pending_queue.h` | Fixed Pending Queue |
+| `runtime/runtime_event_mailbox.h` | Runtime Event Mailbox |
+| `runtime/runtime_time.h` | Runtime Time |
 
 ## Runtime contract
 
@@ -318,7 +359,7 @@ ESPectre uses Semantic Versioning for the published C++ source API:
 
 The SDK is distributed and consumed as source. It does not promise a stable binary ABI: rebuild the SDK and integration together with the same C++ standard library and ESP-IDF toolchain. Construct public configuration and snapshot structs with their defaults, then assign named fields as shown in this guide; positional aggregate initialization is outside the compatibility contract so new fields can be appended safely.
 
-Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface. `espectre_core_sdk.h` is a separate, explicit opt-in for custom capture pipelines: its detector classes and documented public methods follow the same source-compatibility rules, while feature trackers, generated weights, and other headers reached only as implementation dependencies are not independent extension points.
+Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface. The public methods and configuration types exposed by `espectre_services_sdk.h` and `espectre_mqtt_sdk.h` follow the same source-compatibility rules for optional ESP-IDF services. `espectre_core_sdk.h` is a separate opt-in for custom capture pipelines. Its detector classes and documented public methods follow the same rules. Feature trackers, generated weights, and headers included only as implementation dependencies are not independent extension points.
 
 The SDK reads its identity only from `runtime/espectre_sdk_version.h` and explicit compiler definitions. It does not inspect Git, source refs, environment variables, or the application version. Published SDK bundles stamp the release identity into that header and `idf_component.yml`; the CI packaging tools determine the identity before producing the bundle.
 
@@ -353,6 +394,22 @@ The shared component does not require ESP-IDF's `log` component. A product that 
 
 `ESPECTRE_SHARED_INCLUDE_DIRS` puts the SDK root on the include path, so both the flat form (`#include "runtime_interface.h"`) and the layer-prefixed form (`#include "runtime/runtime_interface.h"`) work. Prefer the prefixed form: the shared tree contains generic basenames such as `utils.h` and `filters.h`, and the prefix keeps them from colliding with headers of your own.
 
+### First-party SDK consumers
+
+Native, Matter, and ESPHome use the same public SDK headers as external integrators. Their build lists live in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. By default, the frontends compile the SDK from the current checkout along with the firmware. To use an extracted SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
+
+```bash
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre native build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre matter build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre esphome build --chip c3
+```
+
+Native and Matter pass the selected SDK path to CMake. Changing or unsetting `ESPECTRE_SDK_ROOT` triggers reconfiguration of an existing build. Their Docker backend forwards the selection and mounts bundles outside the checkout read-only at distinct container paths. Use `--backend docker` with either command to select that backend.
+
+Improv Serial, firmware version helpers, and OTA helpers belong to the frontends. Native and Matter link the shared Improv service and declare its external dependency. The SDK provisioning group accepts credentials through its public service; the firmware chooses the onboarding protocol.
+
+ESPHome imports constants from the checked-in `sensing_schema.py`, generated from the public SDK schema. Importing the component does not read C++ headers. During configuration, CMake compares the schema fingerprint with the selected SDK and rejects mismatches before compilation. After changing the canonical schema, run `.venv/bin/python .github/scripts/generate_esphome_schema.py`; use `--check` to verify the artifact without writing it.
+
 ### Advanced task scheduling
 
 Full-runtime ESP-IDF integrations expose ESPectre-owned FreeRTOS priorities under the `Advanced task scheduling` menu. These settings are compile-time policies, not runtime controls. Values range from `1` to `10`; higher-priority tasks preempt lower-priority work. Change them only with workload-specific validation because an unsuitable priority can starve sensing, Direct delivery, managed traffic, or system networking. ESP-IDF continues to own the internal Wi-Fi and lwIP task priorities.
@@ -378,10 +435,12 @@ See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation caden
 |-------------------|-----------------------------------|------|------------------------------------|
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | None beyond the base runtime |
 | `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` | `mqtt` |
-| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | `improv` |
+| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | None beyond the base runtime |
 | `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
 
-Each group is off by default, so a minimal integration does not link transport code it never calls. ESP-IDF resolves component requirements before menuconfig, so the vendored component declares every optional stack dependency up front; the source switches still control what reaches the firmware image. Its manifest resolves the pinned Improv revision and constrained Espressif mDNS component so provisioning and Direct builds work when selected; source-list integrations must declare those dependencies themselves. Implementing `IMqttTransport` or `IDirectHttpService` yourself needs no group at all: the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
+Each group is off by default, so a minimal integration does not link transport code it never calls. ESP-IDF resolves component requirements before menuconfig. The vendored component therefore declares every optional stack dependency up front, while the source switches control what reaches the firmware image. Its manifest constrains the Espressif mDNS version for Direct builds. Source-list integrations declare their selected stack dependencies themselves.
+
+Shared frontend code owns Improv Serial; the SDK archive and manifest exclude it. You can implement `IMqttTransport` or `IDirectHttpService` without enabling a group because the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
 
 ## Published SDK channels
 
@@ -418,7 +477,7 @@ The published bundle is a versioned C++ source SDK with stamped packaging metada
 - [README.md](performance/README.md) publishes the current benchmark and validation metrics per chip and detector.
 - `test/cpp/` builds the full sensing stack on a host machine, including integration suites that replay real CSI recordings through the production pipeline; `test/python/` mirrors the algorithm behavior for parity checks.
 - `test/cpp/suites/runtime/test_sdk_surface.cpp` compiles against `espectre_sdk.h` alone, so it fails if the facade stops reaching the documented surface or a published default drifts out of its range.
-- `test/python/contracts/test_sdk_surface_invariants.py` checks the surface against its own documentation: every facade header appears in the API reference and this guide's header map, and no type reachable from the facade is left as an unresolved forward declaration.
+- `test/python/contracts/test_sdk_surface_invariants.py` verifies the generated ESPHome schema and rejects frontend dependencies on private SDK headers. It also checks that all public facade headers appear in the API reference and this guide's header map, and that reachable types have definitions.
 - The dataset collection and quality workflow is documented in [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md).
 
 ## Generated API reference

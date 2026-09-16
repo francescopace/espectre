@@ -6,18 +6,15 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
+#include "espectre_services_sdk.h"
 #include "native_command_bindings.h"
-#include "runtime_diagnostics.h"
 
 #include <utility>
 
-#include "frontend_mqtt_helpers.h"
 #include "home_assistant_mqtt_frontend.h"
 #include "native_direct_frontend.h"
 #include "native_frontend.h"
 #include "native_mqtt_frontend.h"
-#include "protocol_json.h"
-#include "runtime_config_utils.h"
 
 namespace espectre {
 

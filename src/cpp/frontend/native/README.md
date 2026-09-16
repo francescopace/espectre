@@ -109,6 +109,10 @@ Confirm that the endpoint reports `configured: true`, that the broker hostname r
 
 ## Implementation Map
 
+The frontend uses public SDK headers. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. See [SDK.md](../../../../docs/SDK.md#first-party-sdk-consumers) for source groups and validation.
+
+Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry in their frontend manifests. The shared Improv Serial service uses this dependency, which the SDK excludes.
+
 - [`app/`](app/): standalone ESP-IDF entry point, Wi-Fi lifecycle, Improv Serial, mDNS, Direct service, and recovery wiring
 - [native_frontend.cpp](espectre/native_frontend.cpp): lifecycle, runtime events, and OTA coordination
 - [native_command_bindings.cpp](espectre/native_command_bindings.cpp): persistence, provisioning, and command bindings

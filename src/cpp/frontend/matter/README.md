@@ -92,6 +92,10 @@ Commissioning and fabric events are passed to the ESPectre loop; the CHIP task n
 
 ## Implementation Map
 
+The frontend uses public SDK headers. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. See [SDK.md](../../../../docs/SDK.md#first-party-sdk-consumers) for source groups and validation.
+
+Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry in their frontend manifests. The shared Improv Serial service uses this dependency, which the SDK excludes.
+
 This map is for frontend maintainers; it is not required for commissioning an existing image.
 
 - [`matter_frontend.cpp`](espectre/matter_frontend.cpp), [`matter_frontend.h`](espectre/matter_frontend.h): frontend adapter over the shared runtime frontend controller

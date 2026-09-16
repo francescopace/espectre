@@ -9,8 +9,11 @@ Sensors are defined directly in the component (not as separate platforms).
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+from .sensing_schema import RUNTIME_SCHEMA as _RUNTIME_SCHEMA
+
 from pathlib import Path
 import ipaddress
+import os
 import re
 
 from esphome import git
@@ -121,17 +124,7 @@ ESpectreSensingSwitch = espectre_ns.class_("ESpectreSensingSwitch", switch.Switc
 ESpectreRecalibrateButton = espectre_ns.class_("ESpectreRecalibrateButton", button.Button, cg.Component)
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
-_LIBRARY_ROOT = Path(__file__).resolve().parents[4]
 _COMPONENT_ROOT = Path(__file__).resolve().parent
-_SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
-_SCHEMA_DEPENDENCY_HEADERS = (
-    _LIBRARY_ROOT / "core" / "detector_types.h",
-    _LIBRARY_ROOT / "core" / "filter_config.h",
-)
-_SCHEMA_CONST_PATTERN = re.compile(
-    r"constexpr\s+(?:const char \*const|bool|float|size_t|uint8_t|uint16_t|uint32_t)\s+"
-    r"([A-Z][A-Z0-9_]+)\s*=\s*([^;]+);"
-)
 
 _WIFI_BAND_POLICY_BY_MODE = {
     "AUTO": "auto",
@@ -139,34 +132,6 @@ _WIFI_BAND_POLICY_BY_MODE = {
     "5GHZ": "5g",
 }
 
-
-def _parse_schema_literal(raw_value, constants):
-    raw_value = raw_value.strip()
-    if raw_value in constants:
-        return constants[raw_value]
-    if raw_value in ("true", "false"):
-        return raw_value == "true"
-    if raw_value.startswith('"') and raw_value.endswith('"'):
-        return raw_value[1:-1]
-    if raw_value.endswith(("f", "F", "u", "U")):
-        raw_value = raw_value[:-1]
-    if "." in raw_value or "e" in raw_value.lower():
-        return float(raw_value)
-    return int(raw_value)
-
-
-def _load_runtime_schema(schema_path: Path):
-    constants = {"UINT16_MAX": 65535}
-    for path in (*_SCHEMA_DEPENDENCY_HEADERS, schema_path):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            match = _SCHEMA_CONST_PATTERN.search(line)
-            if match is None:
-                continue
-            constants[match.group(1)] = _parse_schema_literal(match.group(2), constants)
-    return {name: value for name, value in constants.items() if name.startswith("RUNTIME_")}
-
-
-_RUNTIME_SCHEMA = _load_runtime_schema(_SCHEMA_HEADER)
 
 THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_THRESHOLD_MIN"]
 THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX"]
@@ -512,6 +477,9 @@ def _frontend_ref_version() -> str | None:
 
 
 async def to_code(config):
+    # Kconfig runs before the component CMake body in the parent IDF process.
+    os.environ.setdefault("ESPECTRE_SDK_ROOT", str(_COMPONENT_ROOT.parents[3]))
+
     project = CORE.config.get(CONF_ESPHOME, {}).get(CONF_PROJECT, {})
     version = project.get(CONF_VERSION) or _frontend_ref_version()
     if version:

@@ -10,9 +10,9 @@
  */
 #pragma once
 
+#include "espectre_sdk.h"
 #include <cstdint>
 
-#include "runtime_snapshot.h"
 namespace espectre {
 
 inline bool snapshot_to_motion_detected(const RuntimeSnapshot &snapshot) {

@@ -136,7 +136,7 @@
       "owners": ["test_device_config_store", "test_wifi_provisioning_service"],
       "sources": [
         "src/cpp/runtime/esp_idf/device_config_store.cpp",
-        "src/cpp/runtime/esp_idf/improv_serial_service.cpp",
+        "src/cpp/frontend/improv_serial_service.cpp",
         "src/cpp/runtime/esp_idf/wifi_provisioning_service.cpp"
       ]
     },

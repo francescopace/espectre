@@ -1212,12 +1212,69 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
             app_dir,
         ),
     ]
+
+
+@pytest.mark.parametrize("frontend", ["native", "matter"])
+@pytest.mark.parametrize("backend", ["local", "docker"])
+@pytest.mark.parametrize("sdk_location", ["external", "checkout"])
+def test_run_idf_build_tracks_sdk_changes_and_return_to_checkout(
+    monkeypatch, tmp_path: Path, idf_publication_stub, frontend, backend, sdk_location
+) -> None:
+    repo_root = tmp_path / "repo"
+    app_dir = repo_root / "src" / "cpp" / "frontend" / frontend / "app"
+    app_dir.mkdir(parents=True)
+    bundle_parent = tmp_path if sdk_location == "external" else repo_root
+    sdk_roots = [bundle_parent / "sdk bundle a", bundle_parent / "sdk bundle b"]
+    for sdk_root in sdk_roots:
+        sdk_root.mkdir()
+    calls: list[list[str]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
+    monkeypatch.setattr(idf, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "ccache_binary", lambda path=None: None)
+    monkeypatch.setattr(
+        idf, "resolve_idf_build_backend",
+        lambda *_args: idf.ResolvedIdfBuildBackend(
+            mode=backend, idf_environment=env, docker="/usr/bin/docker"
+        ),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, **_kwargs: calls.append(cmd))
+    args = argparse.Namespace(chip="c3", idf_command="build", backend=backend)
+
+    for sdk_root in [*sdk_roots, None]:
+        if sdk_root is None:
+            monkeypatch.delenv("ESPECTRE_SDK_ROOT")
+        else:
+            monkeypatch.setenv("ESPECTRE_SDK_ROOT", str(sdk_root))
+        idf.run_idf_command(frontend, args)
+
+    build_commands = [shlex.split(cmd[-1]) if backend == "docker" else cmd for cmd in calls]
+    selections = [
+        next(arg.split("=", 1)[1] for arg in cmd if arg.startswith("-DESPECTRE_SDK_ROOT="))
+        for cmd in build_commands
+    ]
+    assert len(set(selections)) == 3
+    assert selections[-1] == ""
+    assert len({cmd[cmd.index("-B") + 1] for cmd in build_commands}) == 1
+    for sdk_root, selection, command in zip(sdk_roots, selections, calls):
+        if backend == "local":
+            assert selection == str(sdk_root.resolve())
+        else:
+            assert f"ESPECTRE_SDK_ROOT={selection}" in command
+            if sdk_location == "external":
+                assert f"{sdk_root.resolve()}:{selection}:ro" in command
+            else:
+                assert selection == f"/work/{sdk_root.relative_to(repo_root).as_posix()}"
+                assert f"{repo_root.resolve()}:/work" in command
+    if backend == "docker":
+        assert not any(arg.startswith("ESPECTRE_SDK_ROOT=") for arg in calls[-1])
 
 
 def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_path: Path, idf_publication_stub) -> None:
@@ -1241,6 +1298,7 @@ def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
@@ -1276,6 +1334,7 @@ def test_run_idf_command_build_uses_explicit_sdkconfig_when_missing(
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 f"-DSDKCONFIG={generated_sdkconfig}",
                 "build",
             ],
@@ -1319,6 +1378,7 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
                     "build-esp32c3-docker",
                     "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                     "-DIDF_TARGET=esp32c3",
+                    "-DESPECTRE_SDK_ROOT=",
                     "-DSDKCONFIG=build-esp32c3-docker/sdkconfig",
                     "-DNATIVE_OTA_CHANNEL=preview",
                     "build",
@@ -1527,6 +1587,7 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
                 "build-esp32",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32;sdkconfig.wifi",
                 "-DIDF_TARGET=esp32",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32/sdkconfig",
                 "build",
             ],
@@ -1572,6 +1633,7 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
@@ -1610,6 +1672,7 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.extra.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
@@ -1645,6 +1708,7 @@ def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Pa
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 sdkconfig_arg,
                 "build",
             ],
@@ -1696,6 +1760,7 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
@@ -2559,6 +2624,7 @@ def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Pat
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "-DNATIVE_OTA_CHANNEL=develop",
                 "build",
@@ -2790,6 +2856,7 @@ def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp
                 "build-esp32c3",
                 "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
                 "-DIDF_TARGET=esp32c3",
+                "-DESPECTRE_SDK_ROOT=",
                 "-DSDKCONFIG=build-esp32c3/sdkconfig",
                 "build",
             ],
@@ -2901,7 +2968,7 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
                 (
                     f". {shlex.quote(str(export_script))} >/dev/null"
                     " && idf.py -B build-esp32c3 '-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.wifi'"
-                    " -DIDF_TARGET=esp32c3 -DSDKCONFIG=build-esp32c3/sdkconfig build"
+                    " -DIDF_TARGET=esp32c3 -DESPECTRE_SDK_ROOT= -DSDKCONFIG=build-esp32c3/sdkconfig build"
                 ),
             ],
             app_dir,

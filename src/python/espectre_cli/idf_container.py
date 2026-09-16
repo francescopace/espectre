@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import shlex
@@ -123,6 +124,17 @@ def ensure_docker_backend(
     return docker
 
 
+def container_sdk_root(sdk_root: Path, repo_root: Path) -> str:
+    """Map an SDK to a container path that changes when its host path changes."""
+    sdk_root = sdk_root.resolve()
+    try:
+        relative = sdk_root.relative_to(repo_root.resolve())
+    except ValueError:
+        identity = hashlib.sha256(str(sdk_root).encode("utf-8")).hexdigest()[:16]
+        return f"/espectre-sdk/{identity}"
+    return f"/work/{relative.as_posix()}"
+
+
 def build_toolchain_docker_command(
     docker: str,
     *,
@@ -166,7 +178,16 @@ def build_toolchain_docker_command(
             "CCACHE_MAXSIZE=2G",
         ]
     )
-    for key, value in (environment or {}).items():
+    container_environment = dict(environment or {})
+    if frontend in {"native", "matter"} and (sdk_root := os.environ.get("ESPECTRE_SDK_ROOT")):
+        sdk_path = Path(sdk_root).expanduser().resolve()
+        if not sdk_path.is_dir():
+            raise DockerBackendError(f"ESPectre SDK directory does not exist: {sdk_path}")
+        sdk_destination = container_sdk_root(sdk_path, resolved_root)
+        container_environment["ESPECTRE_SDK_ROOT"] = sdk_destination
+        if not sdk_path.is_relative_to(resolved_root):
+            command.extend(["-v", f"{sdk_path}:{sdk_destination}:ro"])
+    for key, value in container_environment.items():
         command.extend(["-e", f"{key}={value}"])
     command.extend(
         [

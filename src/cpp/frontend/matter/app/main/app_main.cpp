@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include "espectre_services_sdk.h"
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>
@@ -32,27 +33,11 @@
 #include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
-#include "espectre_banner.h"
-#include "espectre_log.h"
-#include "device_identity.h"
-#include "direct_http_protocol.h"
-#include "direct_http_service_esp_idf.h"
-#include "direct_wifi_snapshot_esp_idf.h"
-#include "espectre_protocol.h"
-#include "frontend/frontend_firmware_version.h"
+#include "frontend_firmware_version.h"
 #include "improv_serial_service.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
-#include "mdns_discovery_service.h"
-#include "mdns_bootstrap_responder.h"
-#include "nvs_helpers.h"
-#include "pending_event.h"
-#include "primary_console.h"
-#include "runtime_config_utils.h"
-#include "runtime_direct_http_bridge.h"
-#include "runtime_sensing_kconfig.h"
-#include "wifi_bssid_pin_service.h"
 
 static const char *TAG = "espectre.matter.app";
 

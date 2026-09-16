@@ -7,16 +7,12 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "direct_http_service.h"
-#include "frontend_command_engine.h"
-#include "peer_discovery.h"
-#include "raw_csi_session_controller.h"
-#include "runtime_interface.h"
 
 namespace espectre {
 

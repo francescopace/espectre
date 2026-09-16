@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changes
 
+- Use the public sensing and optional services SDK headers in Native, Matter, and ESPHome. Allow builds against an extracted SDK through `ESPECTRE_SDK_ROOT` and validate the generated ESPHome schema against the selected SDK. Move shared Improv Serial support to the frontend.
+- Pin `improv/improv` to `1.2.7` from the ESP Component Registry for Native and Matter. Host provisioning tests use the same archive and verify its checksum. The SDK has no Improv dependency; ESPHome uses its own Improv integration.
+
 - Add software-only OTA signature enforcement to published Native and ESPHome firmware, with temporary test keys for non-publishing CI and unsigned local builds by default. Signed catalogs authenticate all frontend artifacts before browser USB flashing, including Matter, and USB updates preserve application signatures. Release-key provisioning is required before publication; migration from official images to personal builds requires USB. Hardware Secure Boot, eFuses, CLI verification, and Native startup rollback remain unchanged. See [SETUP.md](SETUP.md#official-images-and-personal-builds) for the operator USB versus OTA workflow and [CONTRIBUTING.md](../CONTRIBUTING.md#firmware-signing-for-maintainers) for key custody.
 
 - Reduce the shared C++ Direct raw CSI queue from 512 to 128 payload bytes per slot, saving 6 KiB of heap during collection in Native, ESPHome, Matter, and SDK integrations. Preserve the public 512-byte payload limit, binary framing, queue depth, and advertised capabilities. Document the normalized capture bound in the SDK.

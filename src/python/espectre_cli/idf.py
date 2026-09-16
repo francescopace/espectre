@@ -34,7 +34,13 @@ from .esptool_runner import (
     flash_factory_image as run_esptool_flash_factory_image,
     run_firmware,
 )
-from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
+from .idf_container import (
+    DockerBackendError,
+    IDF_VERSION,
+    container_sdk_root,
+    ensure_docker_backend,
+    run_idf_container,
+)
 from .targets import (
     IDF_APP_BIN_NAMES,
     IDF_FRONTENDS,
@@ -807,9 +813,19 @@ def run_idf_command(frontend: str, args) -> None:
     if args.idf_command == "build":
         sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
         base_command = build_idf_base_command(build_dir_name)
+        sdk_root = os.environ.get("ESPECTRE_SDK_ROOT", "")
+        if sdk_root:
+            sdk_path = Path(sdk_root).expanduser().resolve()
+            sdk_root = (
+                container_sdk_root(sdk_path, REPO_ROOT)
+                if build_backend == "docker"
+                else str(sdk_path)
+            )
         cmake_args = [
             f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}",
             f"-DIDF_TARGET={idf_target}",
+            # An empty entry also invalidates a previously selected external SDK.
+            f"-DESPECTRE_SDK_ROOT={sdk_root}",
         ]
         if custom_sdkconfig := os.environ.get("ESPECTRE_IDF_SDKCONFIG"):
             cmake_args.append(f"-DSDKCONFIG={Path(custom_sdkconfig).resolve()}")

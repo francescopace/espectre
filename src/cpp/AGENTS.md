@@ -19,6 +19,8 @@
 ## Published SDK Surface
 
 - Treat everything reachable from `espectre_sdk.h` as the published SDK surface.
+- Keep optional ESP-IDF integration services in `espectre_services_sdk.h` and the MQTT backend in `espectre_mqtt_sdk.h`; its public methods and configuration types are supported SDK contracts. Keep the sensing facade free of optional platform service headers.
+- First-party frontends must consume public SDK headers and support `ESPECTRE_SDK_ROOT` for a separately extracted SDK. Keep firmware-only sources, including Improv Serial, in the frontend source lists.
 - Adding a public type requires updating the facade include, the `Doxyfile` INPUT list, and the header map in `docs/SDK.md` in the same change. `test/python/contracts/test_sdk_surface_invariants.py` enforces this.
 - Forward declarations are acceptable, but every public definition must still arrive through the facade. A type an integrator can name in a signature but cannot construct is a broken surface.
 - Adding or changing a member of `IEspectreRuntime`, `IRuntimeListener`, or a boundary interface breaks external implementers. Give new members a default implementation, or take the break deliberately and record it in the active changelog section.

@@ -31,7 +31,6 @@ set(espectre_sdk_requires
     driver
     freertos
     heap
-    improv
     mdns
     mbedtls
     ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}

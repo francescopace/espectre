@@ -7,14 +7,12 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include <cstdint>
 #include <string>
 
-#include "frontend_command_engine.h"
 #include "home_assistant_mqtt_frontend.h"
-#include "mqtt_transport.h"
-#include "frontend/ota_service.h"
-#include "runtime_events.h"
+#include "ota_service.h"
 
 namespace espectre {
 

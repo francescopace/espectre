@@ -58,7 +58,7 @@ idf_component_register(
   SRCS <span class="s">"main.cpp"</span>
   REQUIRES espectre
 )</pre></div>
-          <p class="docs-step-note">The sensing runtime is always built. Direct HTTP, MQTT, provisioning, and OTA sources remain disabled until selected in menuconfig.</p>
+          <p class="docs-step-note">The sensing runtime is always built. Enable optional service source groups in menuconfig when your firmware needs them. The <a href="/sdk/api/#sdk-public-facades">public header guide</a> explains which facade to include.</p>
         </div>
       </section>
 

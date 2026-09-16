@@ -15,11 +15,13 @@ cmake_minimum_required(VERSION 3.16)
 include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_git_version.cmake")
 set(PROJECT_VER "${ESPECTRE_GIT_VERSION}")
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../espectre_frontend_sources.cmake")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 set(EXTRA_COMPONENT_DIRS
     "${CMAKE_CURRENT_LIST_DIR}/../espectre"
-    "${CMAKE_CURRENT_LIST_DIR}/../../../runtime/esp_idf/espectre_config"
+    "${ESPECTRE_SDK_ROOT}/runtime/esp_idf/espectre_config"
 )
 
 # Compile only main and its transitive component dependencies. Matter declares

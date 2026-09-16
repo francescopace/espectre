@@ -70,11 +70,19 @@
   <p>Lightweight keeps less feature state and performs less active work. High Accuracy adds feature tracking and neural inference; in the current maintained selection + holdout diagnostic, it produces higher recall and F1 and a lower false-positive rate. That evidence compares the two profiles under the same replay contract, but it is not a sealed blind generalization result. Power has not yet been measured. See the <a href="/sdk/detectors/">profile measurements and validation limits</a>.</p>
   <p>Lightweight calibrates from up to ten seconds of clean, ready slot coverage and can later lower its threshold after a quiet stretch. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup.</p>
 
-  <h2 data-toc-label="Public facades">Two public facades</h2>
+  <h2 id="sdk-public-facades" data-toc-label="Public facades">Public SDK headers</h2>
   <div class="api-map">
     <a href="/sdk/api/?api=espectre__sdk_8h" data-api-reference-ref="espectre__sdk_8h">
       <code>espectre_sdk.h</code>
       <span>The recommended facade for ESP-IDF products. Runtime contracts, configuration, events, diagnostics, and boundary interfaces form the stable full-runtime API.</span>
+    </a>
+    <a href="/sdk/api/?api=espectre__services__sdk_8h" data-api-reference-ref="espectre__services__sdk_8h">
+      <code>espectre_services_sdk.h</code>
+      <span>Includes the sensing facade and adds the command engine, Direct HTTP, discovery, provisioning, and bootstrap helpers. Requires ESP-IDF dependency headers.</span>
+    </a>
+    <a href="/sdk/api/?api=espectre__mqtt__sdk_8h" data-api-reference-ref="espectre__mqtt__sdk_8h">
+      <code>espectre_mqtt_sdk.h</code>
+      <span>Provides EspIdfMqttTransport for firmware using the ESP-IDF MQTT stack. Include it separately from the services facade.</span>
     </a>
     <a href="/sdk/api/?api=espectre__core__sdk_8h" data-api-reference-ref="espectre__core__sdk_8h">
       <code>espectre_core_sdk.h</code>
@@ -82,7 +90,9 @@
     </a>
   </div>
 
-  <div class="note"><strong>The facades define separate support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. Detector classes and documented public methods exposed by <code>espectre_core_sdk.h</code> follow the source-compatibility contract; feature trackers, generated weights, and other implementation dependencies are not independent extension points.</div>
+  <p>Including a facade does not enable its source groups. Select the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional capability groups</a> that your firmware uses and provide their component dependencies. Your firmware owns the service objects and their lifecycle.</p>
+
+  <div class="note"><strong>The facades define separate support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. Public methods and configuration types exposed by the services and MQTT facades follow the same source-compatibility contract. The core facade covers detector classes and their documented public methods. Private members, feature trackers, generated weights, and headers included only as implementation dependencies are not independent extension points.</div>
 
   <h2>Compatibility</h2>
   <p>Final numeric releases follow Semantic Versioning for C++ source compatibility. Patch releases preserve documented behavior, minor releases may add compatible declarations, and breaking changes require a major release. Preview and develop bundles may change before the corresponding final release.</p>

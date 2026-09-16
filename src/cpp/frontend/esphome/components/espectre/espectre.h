@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "espectre_services_sdk.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/preferences.h"
@@ -29,17 +30,6 @@
 #include <vector>
 
 #include "sensor_publisher.h"
-#include "direct_http_service_esp_idf.h"
-#include "frontend_command_engine.h"
-#include "mdns_discovery_service.h"
-#include "mdns_bootstrap_responder.h"
-#include "peer_discovery_service_esp_idf.h"
-#include "runtime_config_utils.h"
-#include "runtime_direct_http_bridge.h"
-#include "runtime_diagnostics.h"
-#include "runtime_event_mailbox.h"
-#include "runtime_events.h"
-#include "runtime_frontend_controller.h"
 #include "sdkconfig.h"
 
 namespace esphome {

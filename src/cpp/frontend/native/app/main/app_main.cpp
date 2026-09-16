@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include "espectre_services_sdk.h"
+#include "espectre_mqtt_sdk.h"
 #include <cstdarg>
 #include <string>
 #include <utility>
@@ -18,28 +20,10 @@
 #include <driver/gpio.h>
 
 #include "native_frontend.h"
-#include "mdns_bootstrap_responder.h"
 #include "recovery_button_service.h"
-#include "device_config_store.h"
-#include "direct_http_protocol.h"
-#include "direct_http_service_esp_idf.h"
-#include "nvs_helpers.h"
-#include "device_identity.h"
-#include "espectre_banner.h"
-#include "espectre_log.h"
-#include "espectre_protocol.h"
-#include "frontend/frontend_firmware_version.h"
-#include "frontend_bootstrap_helpers.h"
+#include "frontend_firmware_version.h"
 #include "improv_serial_service.h"
-#include "mdns_discovery_service.h"
-#include "frontend/ota_service_https.h"
-#include "peer_discovery_service_esp_idf.h"
-#include "primary_console.h"
-#include "mqtt_transport_esp_idf.h"
-#include "runtime_sensing_kconfig.h"
-#include "standalone_wifi_service.h"
-#include "task_scheduling_config.h"
-#include "wifi_provisioning_service.h"
+#include "ota_service_https.h"
 
 static const char *TAG = "espectre.native.app";
 

@@ -27,6 +27,8 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 
 ### Architecture And Product Surfaces
 
+- [`2026-09-16-consume-sdk-through-public-facades.md`](2026-09-16-consume-sdk-through-public-facades.md)
+
 - [`2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md`](2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md)
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
 - [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)

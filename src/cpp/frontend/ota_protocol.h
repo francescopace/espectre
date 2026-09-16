@@ -6,9 +6,8 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #pragma once
+#include "espectre_services_sdk.h"
 
-#include "runtime/espectre_protocol.h"
-#include "runtime/frontend_command_engine.h"
 
 namespace espectre {
 
