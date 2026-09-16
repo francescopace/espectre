@@ -14,6 +14,7 @@
 
 #include <esp_log.h>
 #include "frontend_firmware_version.h"
+#include "frontend_loop_timer.h"
 #include "matter_surface.h"
 #include "sdkconfig.h"
 
@@ -137,6 +138,7 @@ bool MatterFrontend::start_direct_service_() {
               &runtime_events_,
               wifi_bssid_pin_setter_,
               wifi_bssid_pin_preflight_,
+              [this]() { return this->last_loop_time_ms_; },
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     return false;
@@ -166,6 +168,7 @@ void MatterFrontend::shutdown() {
 MatterFrontend::~MatterFrontend() { shutdown(); }
 
 void MatterFrontend::loop() {
+  FrontendLoopTimer loop_timer(last_loop_time_ms_);
   runtime_.loop();
   if (wifi_reconfigure_resume_pending_) {
     wifi_reconfigure_resume_pending_ = false;

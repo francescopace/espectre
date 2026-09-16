@@ -14,7 +14,7 @@
 #include <cmath>
 #include <utility>
 
-#include "esp_timer.h"
+#include "frontend_loop_timer.h"
 #include "home_assistant_mqtt_frontend.h"
 #include "native_command_bindings.h"
 #include "native_mqtt_frontend.h"
@@ -116,7 +116,7 @@ bool NativeFrontend::setup() {
 }
 
 void NativeFrontend::loop() {
-  const int64_t loop_started_us = esp_timer_get_time();
+  FrontendLoopTimer loop_timer(last_loop_time_ms_);
   runtime_.loop();
   if (wifi_reconfigure_resume_pending_) {
     wifi_reconfigure_resume_pending_ = false;
@@ -131,7 +131,6 @@ void NativeFrontend::loop() {
   if (ota_service_ != nullptr) {
     ota_service_->loop();
   }
-  last_loop_time_ms_ = static_cast<float>(esp_timer_get_time() - loop_started_us) / 1000.0f;
 }
 
 void NativeFrontend::shutdown() {

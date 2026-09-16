@@ -8,6 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "esp_timer.h"
 
 #include <vector>
 
@@ -43,6 +44,7 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
 }  // namespace
 
 void setUp(void) {
+  esp_timer_mock::reset();
   frontend_runtime_shim::reset();
   direct_http_service_mock::reset();
   matter_bindings_mock::reset();
@@ -92,6 +94,36 @@ void test_matter_frontend_loop_and_shutdown_forward_to_runtime(void) {
     TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   }
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
+}
+
+void test_matter_diagnostics_report_latest_frontend_loop_separately_from_runtime_average(void) {
+  class TimedBindings : public MockMatterBindings {
+   public:
+    int64_t duration_us{6250};
+    void flush_pending() override { esp_timer_mock::advance(duration_us); }
+  } bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 2, &direct);
+  TEST_ASSERT_TRUE(frontend.setup());
+  frontend_runtime_shim::state.diagnostics.performance_window_ready = true;
+  frontend_runtime_shim::state.diagnostics.loop_average_us = 75;
+  esp_timer_mock::reset(0, 0);
+  const auto diagnostics = [&]() {
+    return direct.emit_request(DirectRequest{
+        "", "read_diagnostics", R"({"fields":["loop_time_ms","loop_avg_us"]})",
+        "/espectre/v1/diagnostics", "GET"});
+  };
+  TEST_ASSERT_TRUE(diagnostics().find("\"loop_time_ms\":0.000000") != std::string::npos);
+  frontend.loop();
+  esp_timer_mock::advance(2000000);
+  const std::string first = diagnostics();
+  TEST_ASSERT_TRUE(first.find("\"loop_time_ms\":6.250000") != std::string::npos);
+  TEST_ASSERT_TRUE(first.find("\"loop_avg_us\":75") != std::string::npos);
+  bindings.duration_us = 1250;
+  frontend.loop();
+  const std::string second = diagnostics();
+  TEST_ASSERT_TRUE(second.find("\"loop_time_ms\":1.250000") != std::string::npos);
+  TEST_ASSERT_TRUE(second.find("\"loop_avg_us\":75") != std::string::npos);
 }
 
 void test_matter_frontend_defers_direct_until_runtime_services_are_armed(void) {
@@ -460,6 +492,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_setup_fails_without_bindings);
   RUN_TEST(test_matter_frontend_setup_fails_when_runtime_setup_fails);
   RUN_TEST(test_matter_frontend_loop_and_shutdown_forward_to_runtime);
+  RUN_TEST(test_matter_diagnostics_report_latest_frontend_loop_separately_from_runtime_average);
   RUN_TEST(test_matter_frontend_defers_direct_until_runtime_services_are_armed);
   RUN_TEST(test_matter_frontend_defers_runtime_allocation_until_services_are_armed);
   RUN_TEST(test_matter_frontend_keeps_runtime_disarmed_when_deferred_direct_setup_fails);

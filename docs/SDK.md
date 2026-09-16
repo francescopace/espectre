@@ -335,6 +335,8 @@ C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate run
 
 ### Transport adapters
 
+`RuntimeDirectHttpBridgeConfig::loop_time_ms_getter` optionally supplies the latest complete frontend loop duration in milliseconds. ESPHome and Matter measure their ESPectre frontend loop bodies, including runtime processing and frontend work; other framework tasks and time between loop calls are outside the measurement. If an SDK consumer omits the callback, selecting `loop_time_ms` returns `null`. This frontend measurement is independent of the runtime performance-window average exposed as `loop_avg_us`.
+
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
 ### Frontend extensions

@@ -4,6 +4,27 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "native_frontend_test_support.h"
+#include "frontend_loop_timer.h"
+
+void test_frontend_loop_timer_records_complete_bodies_and_excludes_idle_time(void) {
+  esp_timer_mock::reset(0, 0);
+  float latest_ms = 0.0f;
+  const auto run_loop = [&](int64_t duration_us, bool early_return) {
+    FrontendLoopTimer loop_timer(latest_ms);
+    esp_timer_mock::advance(duration_us);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, latest_ms);
+    if (early_return) return;
+    esp_timer_mock::advance(500);
+  };
+  run_loop(6250, true);
+  TEST_ASSERT_EQUAL_FLOAT(6.25f, latest_ms);
+  esp_timer_mock::advance(2000000);
+  TEST_ASSERT_EQUAL_FLOAT(6.25f, latest_ms);
+  latest_ms = 0.0f;
+  run_loop(1250, false);
+  TEST_ASSERT_EQUAL_FLOAT(1.75f, latest_ms);
+  esp_timer_mock::reset();
+}
 
 void test_native_frontend_setup_registers_runtime_listener(void) {
   frontend_runtime_shim::state.snapshot.threshold = 3.25f;
@@ -79,6 +100,7 @@ int main(int argc, char **argv) {
   (void) argc;
   (void) argv;
   UNITY_BEGIN();
+  RUN_TEST(test_frontend_loop_timer_records_complete_bodies_and_excludes_idle_time);
   RUN_TEST(test_native_frontend_setup_registers_runtime_listener);
   RUN_TEST(test_native_frontend_setup_fails_when_runtime_setup_fails);
   RUN_TEST(test_native_frontend_loop_and_shutdown_forward_to_runtime);

@@ -729,6 +729,7 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_(const std::vector<std:
   return diagnostic_response(fields, 2U, [&](const char *key) -> std::string {
     if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(now);
     if (std::strcmp(key, "uptime") == 0) return std::to_string(now / 1000U);
+    if (std::strcmp(key, "loop_time_ms") == 0) return config_.loop_time_ms_getter ? std::to_string(config_.loop_time_ms_getter()) : "null";
     if (std::strcmp(key, "runtime_motion_event_drops_total") == 0) return config_.runtime_events ? std::to_string(config_.runtime_events->motion_state_drops_total()) : "null";
     if (std::strncmp(key, "direct_http.", 12U) == 0) {
       if (!direct_http_loaded) {

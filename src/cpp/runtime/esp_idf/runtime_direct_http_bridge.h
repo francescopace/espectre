@@ -47,6 +47,8 @@ struct RuntimeDirectHttpBridgeConfig {
   // apply the pin to the current station session only.
   std::function<bool(const std::string &bssid, bool force, std::string *message)> wifi_bssid_pin_setter;
   std::function<bool(std::string *message)> wifi_bssid_pin_preflight;
+  /** Latest complete frontend loop duration in milliseconds; omitted callbacks yield null. */
+  std::function<float()> loop_time_ms_getter{};
 };
 
 /** Apply or clear the ESP-IDF station BSSID pin through a Wi-Fi state-machine restart. */

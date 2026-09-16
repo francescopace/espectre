@@ -192,6 +192,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void fail_wifi_bssid_apply_(const char *reason);
 
   RuntimeFrontendController runtime_;
+  float last_loop_time_ms_{0.0f};
   FrontendCommandEngine command_engine_;
   // Keep the bridge alive while the service drains deferred callbacks during
   // destruction. The component destructor disconnects the bridge explicitly

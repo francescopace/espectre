@@ -66,6 +66,7 @@ class MatterFrontend : public IRuntimeListener {
   IMatterBindings *bindings_;
   uint16_t endpoint_id_;
   RuntimeFrontendController runtime_;
+  float last_loop_time_ms_{0.0f};
   IDirectHttpService *direct_service_{nullptr};
   RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;

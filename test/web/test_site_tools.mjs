@@ -102,7 +102,7 @@ function flashReadFixture(contents) {
     return { loader, transport, reads, writes, packets };
 }
 
-function loadDeviceHttpRuntime() {
+function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
     let now = 0;
     let timerId = 0;
     const timers = new Map();
@@ -126,7 +126,7 @@ function loadDeviceHttpRuntime() {
     context.applySensingSnapshot = () => {};
     context.applyOtaStatus = () => {};
     context.renderWifiAccessPoints = () => {};
-    context.monitorStats = () => {};
+    if (!renderDiagnostics) context.monitorStats = () => {};
     context.activeToolName = () => vm.runInContext("route === 'tool-configure' ? 'configure' : 'monitor'", context);
     const run = (code) => vm.runInContext(code, context);
     return {
@@ -148,6 +148,34 @@ function loadDeviceHttpRuntime() {
 }
 
 describe('device HTTP request budgets', () => {
+    it('renders selected frontend loop timing and preserves unavailable values', async () => {
+        const runtime = loadDeviceHttpRuntime({ renderDiagnostics: true });
+        const loopStat = { textContent: '' };
+        const select = runtime.context.$;
+        runtime.context.$ = (selector) => selector === '.js-mon-loop' ? loopStat : select(selector);
+        let loopTimeMs;
+        runtime.setClient({ connected: true, request: async (method, resource, params) => {
+            assert.equal(method, 'get');
+            assert.equal(resource, 'diagnostics');
+            const diagnostics = {
+                traffic_tx_pps: 100, csi_callback_pps: 98, csi_accepted_pps: 95,
+                csi_hw_error_total: 0, csi_occupancy: 0.9, wifi_rssi_dbm: -55,
+                free_memory_kb: 120, loop_time_ms: loopTimeMs,
+            };
+            assert.deepEqual(Array.from(params.fields).sort(), Object.keys(diagnostics).sort());
+            return Object.fromEntries(params.fields.map((field) => [field, diagnostics[field]]));
+        } });
+        runtime.run("route = 'tool-monitor'");
+        for (const [value, expected] of [[0.314, '0.31 ms'], [0, '0.00 ms'], [null, '—'], [undefined, '—']]) {
+            loopTimeMs = value;
+            await runtime.context.monitorRequestStats();
+            assert.equal(loopStat.textContent, expected);
+        }
+        runtime.run("conn.mode = 'demo'");
+        await runtime.context.monitorRequestStats();
+        assert.equal(loopStat.textContent, '0.31 ms');
+    });
+
     for (const [resource, field, value] of [
         ['device', 'device_label', 'office'],
         ['mqtt', 'mqtt_host', 'broker.local'],

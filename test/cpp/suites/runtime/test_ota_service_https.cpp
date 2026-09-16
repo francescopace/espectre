@@ -10,6 +10,9 @@
 #include <atomic>
 #include <string>
 
+// Load shared dependencies before exposing HttpsOtaService internals.
+#include "frontend/ota_service.h"
+
 #define private public
 #include "frontend/ota_service_https.h"
 #undef private

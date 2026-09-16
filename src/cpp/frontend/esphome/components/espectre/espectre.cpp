@@ -24,6 +24,7 @@
 #include "esphome/core/hal.h"
 
 #include "frontend_firmware_version.h"
+#include "frontend_loop_timer.h"
 #include "sdkconfig.h"
 
 #include <cctype>
@@ -166,6 +167,7 @@ void ESpectreComponent::setup() {
                 }
                 return available;
               },
+              [this]() { return this->last_loop_time_ms_; },
           },
           [this]() { this->sync_direct_config_(); })) {
     ESP_LOGE(TAG, "ESPHome Direct HTTP setup failed");
@@ -193,6 +195,7 @@ ESpectreComponent::~ESpectreComponent() {
 }
 
 void ESpectreComponent::loop() {
+  ::espectre::FrontendLoopTimer loop_timer(this->last_loop_time_ms_);
   this->runtime_.loop();
   this->process_wifi_bssid_apply_();
   this->drain_pending_runtime_events_();
