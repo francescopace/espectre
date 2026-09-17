@@ -19,8 +19,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
+import yaml
 
-from espectre_cli.idf_container import IDF_DOCKER_IMAGE
+from espectre_cli.idf_container import IDF_DOCKER_IMAGE, IDF_VERSION
+from idf_component_tools.semver import SimpleSpec, Version
 from tools.lib.repo_paths import repo_root
 
 
@@ -100,36 +102,26 @@ def test_ci_chip_matrices_follow_production_registries() -> None:
 
 def test_firmware_audits_aggregate_target_sboms_by_frontend() -> None:
     ci_workflow = (WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8")
-    release_workflow = (WORKFLOWS_DIR / "release.yml").read_text(encoding="utf-8")
     for frontend, job_name in (("esphome", "build-esphome"), ("matter", "build-matter"), ("native", "build-native")):
         audit_job = _workflow_job(ci_workflow, f"audit-{frontend}")
         build_job = _workflow_job(ci_workflow, job_name)
-        release_audit_job = _workflow_job(release_workflow, f"audit-{frontend}")
-        release_build_job = _workflow_job(release_workflow, job_name)
         expected_targets = _workflow_chip_matrix(ci_workflow, job_name)
 
         assert f"needs: {job_name}" in audit_job
         assert "if: always()" in audit_job
         assert f"pattern: audit-firmware-{frontend}-*" in audit_job
         assert f"category: firmware/{frontend}" in audit_job
-        assert f"category: firmware/{frontend}" in release_audit_job
-        assert "security-events: write" in release_audit_job
+        assert "security-events: write" in audit_job
         assert "continue-on-error: true" not in audit_job
-        assert "continue-on-error: true" not in release_audit_job
         assert "audit_firmware_dependencies.py" not in build_job
         assert "name: audit-firmware-" + frontend + "-${{ matrix.chip }}" in build_job
 
-        assert f"needs: {job_name}" in release_audit_job
-        assert "if: always()" in release_audit_job
-        assert f"pattern: audit-firmware-{frontend}-*" in release_audit_job
-        assert "audit_firmware_dependencies.py" not in release_build_job
         for target in expected_targets:
             assert f"--expected-target {target}" in audit_job
-            assert f"--expected-target {target}" in release_audit_job
 
-    release_job = _workflow_job(release_workflow, "release")
-    for audit_job in ("audit-esphome", "audit-matter", "audit-native"):
-        assert audit_job in release_job
+    jobs = yaml.safe_load(ci_workflow)["jobs"]
+    for publication in ("publish-snapshot", "publish-release"):
+        assert {"audit-esphome", "audit-matter", "audit-native"} <= set(jobs[publication]["needs"])
 
 
 def test_python_coverage_gate_has_fixed_thresholds() -> None:
@@ -214,11 +206,10 @@ def test_snapshot_publishes_stable_coverage_badge_endpoints() -> None:
     release_job = _workflow_job(workflow, "release")
     publisher = _workflow_job(workflow, "publish-coverage")
 
-    assert "github.event.workflow_run.conclusion == 'success'" not in validator
-    assert (
-        "context.eventName === 'workflow_dispatch' && conclusion !== 'success'"
-        in validator
-    )
+    caller = _workflow_job((WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8"), "publish-snapshot")
+    assert "always() && !cancelled()" in caller
+    assert "CHECKS_PASSED: ${{ inputs.checks_passed }}" in validator
+    assert "process.env.CHECKS_PASSED === 'true' ? 'success' : 'failure'" in validator
     assert "core.setOutput('conclusion', conclusion)" in validator
     assert "coverage-badges/*.json" not in release_job
     assert "needs.validate-run.outputs.conclusion == 'success'" in release_job
@@ -375,7 +366,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
             version="3.0.0",
             release_tag="3.0.0",
             output_dir=str(output),
-            commit="0123456789abcdef",
+            component_output_dir=str(tmp_path / f"component-{output.name}" / "espectre"),
+            commit="0123456789abcdef0123456789abcdef01234567",
             source_date_epoch=1_800_000_000,
             url_prefix=None,
         )
@@ -386,6 +378,30 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert first_files == second_files
     for filename in first_files:
         assert (outputs[0] / filename).read_bytes() == (outputs[1] / filename).read_bytes()
+
+    verifier = load_script("verify_sdk_component")
+    packages = [tmp_path / f"component-{output.name}" for output in outputs]
+    inventories = [verifier.load_package(path / "component-inventory.json") for path in packages]
+    assert inventories[0] == inventories[1]
+    inventory, component_files = inventories[0]
+    assert (packages[0] / inventory["archive"]).read_bytes() == (packages[1] / inventory["archive"]).read_bytes()
+    component_manifest = yaml.safe_load(component_files["idf_component.yml"])
+    source_manifest = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text())
+    assert component_manifest["dependencies"] == source_manifest["dependencies"]
+    assert component_manifest["targets"] == source_manifest["targets"]
+    assert component_manifest["license"] == "GPL-3.0-only"
+    assert component_manifest["version"] == "3.0.0"
+    assert {"LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "README.md"} <= component_files.keys()
+    assert not any(part in {"frontend", "build", "managed_components", ".git"}
+                   for name in component_files for part in Path(name).parts)
+    assert b'"3.0.0"' in component_files["runtime/espectre_sdk_version.h"]
+    assert yaml.safe_load(component_files["examples/basic/main/idf_component.yml"])["dependencies"] == {
+        "francescopace/espectre": {"version": "3.0.0"}
+    }
+    for name in ("README.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
+        for link in re.findall(r"\]\(([^)]+)\)", component_files[name].decode()):
+            if not link.startswith(("https://", "mailto:", "#")):
+                assert link.split("#", 1)[0] in component_files
 
     manifest_path = next(outputs[0].glob("sdk-manifest-*.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -417,9 +433,9 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert re.search(r"(?m)^GENERATE_XML\s*=\s*YES\s*$", bundled_doxyfile)
     assert not any("/src/cpp/doxygen/" in path for path in archived)
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
-    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/docs/ARCHITECTURE.md" in bundled_guide
-    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/LICENSING.md" in bundled_guide
-    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/docs/SDK.md" in bundled_facade
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/docs/ARCHITECTURE.md" in bundled_guide
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/LICENSING.md" in bundled_guide
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/docs/SDK.md" in bundled_facade
     assert "https://github.com/francescopace/espectre/blob/main/docs/SDK.md" not in bundled_facade
     assert re.search(r"\]\((?!https?://|mailto:|#)[^)]+\.md(?:#[^)]+)?\)", bundled_guide) is None
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
@@ -774,15 +790,19 @@ def test_detect_git_version_ignores_rolling_tags(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.parametrize("channel", ["preview", "develop"])
-def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str) -> None:
+@pytest.mark.parametrize("source_version", ["2.8.0-237-g7439944", "3.0.0"])
+def test_sdk_snapshot_stamps_git_describe_identity(
+    tmp_path: Path, channel: str, source_version: str,
+) -> None:
     builder = load_script("build_sdk_package")
     preview_tag, develop_tag = _ota_release_tags()
     release_tag = preview_tag if channel == "preview" else develop_tag
     args = argparse.Namespace(
         channel=channel,
-        version="2.8.0-237-g7439944",
+        version=source_version,
         release_tag=release_tag,
         output_dir=str(tmp_path),
+        component_output_dir=str(tmp_path / "registry" / "espectre"),
         commit="7439944d441e9a8e485a1d610d99265d743e93f8",
         source_date_epoch=1_800_000_000,
         url_prefix=None,
@@ -793,11 +813,12 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str)
     assert load_script("detect_git_version").version_from_sdk_dir(tmp_path) == args.version
     assert load_script("stage_web_sdk").load_sdk_manifest(tmp_path) == manifest
     assert manifest["schema_version"] == 2
-    assert manifest["version"] == "2.8.0-237-g7439944"
+    assert manifest["version"] == source_version
     assert "package_version" not in manifest
     assert "sdk_version" not in manifest
     assert manifest["release_tag"] == release_tag
-    assert manifest["supported_esp_idf"] == builder.SDK_SUPPORTED_ESP_IDF
+    component_manifest = yaml.safe_load(builder.IDF_COMPONENT_MANIFEST.read_text())
+    assert manifest["supported_esp_idf"] == component_manifest["dependencies"]["idf"]["version"]
     assert manifest["artifacts"][0]["filename"] == f"espectre-sdk-{channel}.tar.gz"
     assert f"/releases/download/{release_tag}/" in manifest["artifacts"][0]["url"]
 
@@ -809,25 +830,50 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path, channel: str)
         yml = archive.read(yml_name).decode("utf-8")
         doxy_name = next(name for name in archive.namelist() if name.endswith("/src/cpp/Doxyfile"))
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
-    assert '#define ESPECTRE_SDK_VERSION_STRING "2.8.0-237-g7439944"' in header
-    assert "#define ESPECTRE_SDK_VERSION_MAJOR 2" in header
+    assert f'#define ESPECTRE_SDK_VERSION_STRING "{source_version}"' in header
+    assert f"#define ESPECTRE_SDK_VERSION_MAJOR {Version(source_version).major}" in header
     assert "ESPectre SDK version is unresolved" not in header
-    assert 'version: "2.8.0-237-g7439944"' in yml
+    assert f'version: "{source_version}"' in yml
     source_manifest = builder.IDF_COMPONENT_MANIFEST.read_text(encoding="utf-8")
     assert yml.split("\ndependencies:\n", 1)[1] == source_manifest.split("\ndependencies:\n", 1)[1]
-    assert f'version: "{builder.SDK_SUPPORTED_ESP_IDF}"' in yml
+    assert yaml.safe_load(yml)["dependencies"]["idf"] == component_manifest["dependencies"]["idf"]
     assert "espressif/mdns:" in yml
     assert "espressif/esp_tinyusb:" in yml
     assert "improv" not in yml
     assert '- if: "target == esp32s2"' in yml
-    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
+    assert re.search(rf"(?m)^PROJECT_NUMBER\s*=\s*{re.escape(source_version)}\s*$", bundled_doxyfile)
+
+    inventory_path = tmp_path / "registry" / "component-inventory.json"
+    inventory, files = load_script("verify_sdk_component").load_package(inventory_path)
+    registry_version = inventory["version"]
+    assert registry_version == f"{source_version}-snapshot.{channel}.g{args.commit}"
+    assert Version(registry_version).prerelease
+    assert SimpleSpec(f"=={registry_version}").match(Version(registry_version))
+    assert f'#define ESPECTRE_SDK_VERSION_STRING "{registry_version}"'.encode() in files[
+        "runtime/espectre_sdk_version.h"
+    ]
+    assert inventory["commit"] == args.commit
+    command = [sys.executable, str(SCRIPTS_DIR / "verify_sdk_component.py"), "check",
+               "--inventory", str(inventory_path), "--expected-commit", args.commit,
+               "--snapshot-channel"]
+    result = subprocess.run([*command, channel], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    other_channel = "develop" if channel == "preview" else "preview"
+    result = subprocess.run([*command, other_channel], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "snapshot channel and commit" in result.stderr
+    command[-2] = "0" * 40
+    result = subprocess.run([*command, channel], capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "source commit" in result.stderr
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
         "src/cpp/frontend/matter/espectre/idf_component.yml",
         "src/cpp/frontend/matter/app/main/idf_component.yml",
     ):
         frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        assert f'version: "{builder.SDK_SUPPORTED_ESP_IDF}"' in frontend_manifest
+        idf_spec = yaml.safe_load(frontend_manifest)["dependencies"]["idf"]["version"]
+        assert SimpleSpec(idf_spec).match(Version(IDF_VERSION))
 
     native_manifest = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "espectre" / "idf_component.yml"
@@ -1614,22 +1660,49 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert "gh release delete" not in snapshot
     assert "git.getRef" in snapshot
     assert "git.updateRef" in snapshot and "git.createRef" in snapshot
-    assert "workflow_dispatch:" in snapshot
-    assert "ci_run_id:" in snapshot
+    ci_config = yaml.load(ci, Loader=yaml.BaseLoader)
+    ci_jobs = ci_config["jobs"]
+    assert ci_config["on"]["push"] == {"branches": ["**"], "tags": ["**"]}
+    prerequisites = set(ci_jobs) - {"publish-snapshot", "publish-release"}
+    for publication in ("snapshot", "release"):
+        caller = ci_jobs[f"publish-{publication}"]
+        assert caller["uses"] == f"./.github/workflows/{publication}.yml"
+        assert set(caller["needs"]) == prerequisites
+        assert "github.event_name == 'push'" in caller["if"]
+        assert f"needs.prepare.outputs.publication == '{publication}'" in caller["if"]
+        for result in ("failure", "cancelled", "skipped"):
+            assert f"!contains(needs.*.result, '{result}')" in caller["with"]["checks_passed"]
+        assert set(caller["secrets"]) == {"FIRMWARE_SIGNING_KEY_RSA"}
+        assert "workflow_call:" in workflow_sources[f"{publication}.yml"]
+    validator = _workflow_job(snapshot, "validate-run")
+    assert "const runId = context.runId" in validator
+    assert "source.path !== '.github/workflows/ci.yml'" in validator
+    assert "sha !== context.sha" in validator
+    assert "context.ref !== `refs/heads/${branch}`" in validator
     assert "needs.validate-run.outputs.run_id" in snapshot
-    assert "github.event.workflow_run.id" not in snapshot
-    assert "validate-release:" in release
-    assert "No successful main CI push run" in release
-    assert "git merge-base --is-ancestor" in release
+    release_validator = _workflow_job(release, "validate-release")
+    assert "process.env.CHECKS_PASSED !== 'true'" in release_validator
+    assert "run.path !== '.github/workflows/ci.yml'" in release_validator
+    assert "run.head_sha !== context.sha" in release_validator
+    assert "context.ref.startsWith('refs/tags/')" in release_validator
+    prepare = _workflow_job(ci, "prepare")
+    assert "git merge-base --is-ancestor" in prepare
+    assert 'validate_release.py --tag "$GITHUB_REF_NAME"' in prepare
     preview_tag, develop_tag = _ota_release_tags()
     assert re.search(rf'(?m)^              echo "tag={re.escape(develop_tag)}"$', snapshot)
     assert re.search(rf'(?m)^              echo "tag={re.escape(preview_tag)}"$', snapshot)
-    assert re.search(rf'(?m)^              echo "release_tag={re.escape(develop_tag)}"$', ci)
-    assert re.search(rf'(?m)^              echo "release_tag={re.escape(preview_tag)}"$', ci)
+    for tag in (preview_tag, develop_tag):
+        assert re.search(rf"(?m)^\s+release_tag={re.escape(tag)}$", prepare)
     assert "detect_git_version.py" in ci
     assert "detect_git_version.py" in snapshot
-    assert "ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}" in ci
-    assert "ESPECTRE_GIT_VERSION: ${{ github.ref_name }}" in release
+    for job in ("build-esphome", "build-native", "build-matter", "build-sdk"):
+        build = _workflow_job(ci, job)
+        assert ci_jobs[job]["needs"] == "prepare"
+        assert "needs.prepare.outputs.version" in build
+    for job in ("build-esphome", "build-native"):
+        build = _workflow_job(ci, job)
+        assert "needs.prepare.outputs.sign == 'true' && secrets.FIRMWARE_SIGNING_KEY_RSA" in build
+        assert "needs.prepare.outputs.sign != 'true' && '--test-key'" in build
     published_channel_action = (
         REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
     ).read_text(encoding="utf-8")

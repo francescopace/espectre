@@ -89,7 +89,7 @@ Use Device settings, Direct HTTP, or MQTT to check for and install HTTPS OTA upd
 
 OTA selects the application-only image for the device chip from the chosen channel's firmware manifest. Missing or ambiguous matches fail the check. The service is frontend code, outside the sensing SDK; see [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md) for layer ownership.
 
-Official images verify signed OTA updates. Two OTA slots do not imply automatic rollback: Native does not yet enable bootloader rollback or confirm startup health after an update. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA when switching between official and personal builds, and [CONTRIBUTING.md](../../../../CONTRIBUTING.md#firmware-signing-for-maintainers) for key custody.
+Official images verify signed OTA updates. Two OTA slots do not imply automatic rollback: Native does not yet enable bootloader rollback or confirm startup health after an update. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA when switching between official and personal builds, and [RELEASING.md](../../../../docs/RELEASING.md#firmware-signing) for key custody.
 
 ## Troubleshooting
 

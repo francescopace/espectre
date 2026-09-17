@@ -32,7 +32,7 @@
       <p>The supported path targets ESP-IDF products that can vendor and rebuild the SDK sources with their own firmware.</p>
     </div>
     <dl class="sdk-fit-grid">
-      <div><dt>Toolchain</dt><dd>ESP-IDF 5.5 or later and C++17. Repository firmware currently builds with ESP-IDF 5.5.5.</dd></div>
+      <div><dt>Toolchain</dt><dd>ESP-IDF <code>&gt;=5.5.5,&lt;5.6.0</code> and C++17. Repository firmware currently builds with ESP-IDF 5.5.5.</dd></div>
       <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi CSI.</dd></div>
       <div><dt>Validated sensing</dt><dd>Published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. The runtime selects <code>lltf20</code> on the original ESP32 and ESP32-S2, <code>vht20</code> on a VHT-capable 5 GHz association, and <code>ht20</code> otherwise. The active read-only profile appears in <code>info</code>. Detection quality at 5 GHz is not yet characterized.</dd></div>
       <div><dt>Delivery model</dt><dd>A versioned C++ source SDK, ready to vendor as an ESP-IDF component. ESPectre is compiled together with your firmware; precompiled libraries are not provided.</dd></div>
@@ -119,7 +119,7 @@ idf_component_register(
         <span class="docs-path-label">Recommended</span>
         <h3>Full runtime</h3>
         <p>Your firmware owns boot, Wi-Fi, provisioning, OTA, and product behavior. ESPectre owns CSI capture, calibration, detection, and events.</p>
-        <span class="docs-path-meta">ESP-IDF 5.5+ · C++17</span>
+        <span class="docs-path-meta">ESP-IDF &ge;5.5.5, &lt;5.6.0 · C++17</span>
       </div>
       <div class="docs-path">
         <span class="docs-path-label">Advanced</span>

@@ -42,4 +42,4 @@ Official Native and ESPHome firmware accepts only OTA updates signed by its trus
 
 Matter has no OTA implementation or on-device signature enforcement. Signatures verify authorship and integrity; they do not guarantee successful startup or prevent replay of older signed firmware. Hardware Secure Boot, flash encryption, and hardware anti-rollback are disabled in these general-purpose builds.
 
-See [SETUP.md](docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA installation and switching to personal builds. Maintainer procedures for signing keys, rotation, recovery, and release validation are in [CONTRIBUTING.md](CONTRIBUTING.md#firmware-signing-for-maintainers).
+See [SETUP.md](docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA installation and switching to personal builds. Maintainer procedures for signing keys, rotation, recovery, and release validation are in [RELEASING.md](docs/RELEASING.md#firmware-signing).

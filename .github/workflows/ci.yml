@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, 'v[0-9]*']
+    branches: ['**']
+    tags: ['**']
   pull_request:
     branches: [develop]
   workflow_dispatch:
@@ -12,9 +13,73 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Let publication finish; snapshot uploads recheck whether the commit is current.
+  cancel-in-progress: ${{ github.event_name != 'push' || (github.ref_type != 'tag' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop') }}
 
 jobs:
+  prepare:
+    name: Prepare Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      publication: ${{ steps.metadata.outputs.publication }}
+      version: ${{ steps.metadata.outputs.version }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      artifact_suffix: ${{ steps.metadata.outputs.artifact_suffix }}
+      ota_channel: ${{ steps.metadata.outputs.ota_channel }}
+      sign: ${{ steps.metadata.outputs.sign }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Select publication and validate release metadata
+        id: metadata
+        env:
+          PUSH_DELETED: ${{ github.event.deleted || false }}
+        run: |
+          publication=none
+          version="$(python3 .github/scripts/detect_git_version.py)"
+          channel=preview
+          release_tag=ci
+          artifact_suffix=ci
+          ota_channel=release
+          sign=false
+          if [[ "$GITHUB_EVENT_NAME" == push && "$PUSH_DELETED" != true ]]; then
+            if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+($|-) ]]; then
+              git fetch --no-tags origin main
+              git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+                || { echo "Release commit is not reachable from main." >&2; exit 1; }
+              python3 .github/scripts/validate_release.py --tag "$GITHUB_REF_NAME"
+              publication=release
+              version="$GITHUB_REF_NAME"
+              channel=release
+              release_tag="$GITHUB_REF_NAME"
+              artifact_suffix="$GITHUB_REF_NAME"
+              sign=true
+            elif [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/heads/develop ]]; then
+              publication=snapshot
+              channel=preview
+              release_tag=snapshot
+              if [[ "$GITHUB_REF" == refs/heads/develop ]]; then
+                channel=develop
+                release_tag=snapshot-dev
+              fi
+              artifact_suffix="$channel"
+              ota_channel="$channel"
+              sign=true
+            fi
+          fi
+          {
+            echo "publication=$publication"
+            echo "version=$version"
+            echo "channel=$channel"
+            echo "release_tag=$release_tag"
+            echo "artifact_suffix=$artifact_suffix"
+            echo "ota_channel=$ota_channel"
+            echo "sign=$sign"
+          } >> "$GITHUB_OUTPUT"
+
   build-site:
     name: Validate Website
     runs-on: ubuntu-24.04
@@ -55,6 +120,7 @@ jobs:
         if: always() && hashFiles('.cache/reports/coverage/coverage-web.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: web-coverage-badge
           path: .cache/reports/coverage/coverage-web.json
@@ -98,6 +164,7 @@ jobs:
         if: always() && hashFiles('.cache/reports/coverage/coverage-cpp-runtime.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: cpp-coverage-badge
           path: .cache/reports/coverage/coverage-cpp-runtime.json
@@ -151,12 +218,14 @@ jobs:
         if: always() && hashFiles('.cache/reports/coverage/coverage-python.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: python-coverage-badge
           path: .cache/reports/coverage/coverage-python.json
           retention-days: 14
 
   build-esphome:
+    needs: prepare
     permissions:
       contents: read
     name: Build ESPHome ${{ matrix.chip }}
@@ -196,37 +265,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Resolve git version
-        id: git-version
-        run: echo "version=$(python3 .github/scripts/detect_git_version.py)" >> "$GITHUB_OUTPUT"
-      
       - name: Compile signed ESPHome firmware
         id: esphome-artifacts
         env:
-          ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
-          FIRMWARE_SIGNING_KEY_RSA: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
-          FIRMWARE_SIGNING_KEY_ESP32: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
+          ESPECTRE_GIT_VERSION: ${{ needs.prepare.outputs.version }}
+          FIRMWARE_SIGNING_KEY_RSA: ${{ needs.prepare.outputs.sign == 'true' && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ needs.prepare.outputs.sign == 'true' && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
         run: |
           TARGET=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           python .github/scripts/build_signed_firmware.py esphome \
             --config "${{ matrix.config }}" --target "$TARGET" \
-            --version "${{ steps.git-version.outputs.version }}" ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) && '--test-key' || '' }}
+            --version "$ESPECTRE_GIT_VERSION" ${{ needs.prepare.outputs.sign != 'true' && '--test-key' || '' }}
 
       - name: Rename ESPHome firmware
         run: |
           mkdir -p .cache/firmware
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            PREFIX="espectre-esphome-develop"
-          else
-            PREFIX="espectre-esphome-preview"
-          fi
+          PREFIX="espectre-esphome-${{ needs.prepare.outputs.artifact_suffix }}"
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" ".cache/firmware/${PREFIX}-${CHIP}.bin"
           cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" ".cache/firmware/${PREFIX}-${CHIP}-ota.bin"
 
       - name: Build ESPHome compliance artifacts
         env:
-          ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
+          ESPECTRE_GIT_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           PROJECT_DESCRIPTION="${{ steps.esphome-artifacts.outputs.project_description }}"
           test -n "${PROJECT_DESCRIPTION}"
@@ -250,6 +311,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           name: audit-firmware-esphome-${{ matrix.chip }}
           path: .cache/audit-input/${{ matrix.chip }}.spdx.json
           retention-days: 1
@@ -258,14 +320,14 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: firmware-esphome-${{ matrix.chip }}
-          path: |
-            .cache/firmware/espectre-esphome-preview-*
-            .cache/firmware/espectre-esphome-develop-*
+          path: .cache/firmware/espectre-esphome-*
           retention-days: 7
 
   build-matter:
+    needs: prepare
     permissions:
       contents: read
     name: Build Matter ${{ matrix.chip }}
@@ -292,17 +354,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Select Matter artifact names
-        id: matter-names
-        run: |
-          if [ "${{ github.event_name }}" != "push" ]; then
-            echo "prefix=ci" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "prefix=develop" >> "$GITHUB_OUTPUT"
-          else
-            echo "prefix=preview" >> "$GITHUB_OUTPUT"
-          fi
-
       # Keep dependencies and compiled objects per target. The target suffix
       # prevents parallel matrix jobs from competing to populate one cache.
       - name: Cache Matter toolchain, components, and compiler objects
@@ -321,8 +372,9 @@ jobs:
           mkdir -p .cache/firmware
           .github/scripts/build_matter_firmware.sh
         env:
+          ESPECTRE_GIT_VERSION: ${{ needs.prepare.outputs.version }}
           MATTER_TARGET: ${{ matrix.target }}
-          MATTER_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-matter-${{ steps.matter-names.outputs.prefix }}-${{ matrix.target }}.bin
+          MATTER_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-matter-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
           MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
       - name: Stage Matter firmware audit input
@@ -334,6 +386,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           name: audit-firmware-matter-${{ matrix.chip }}
           path: .cache/audit-input/${{ matrix.chip }}.spdx.json
           retention-days: 1
@@ -342,15 +395,14 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: firmware-matter-${{ matrix.chip }}
-          path: |
-            .cache/firmware/espectre-matter-preview*
-            .cache/firmware/espectre-matter-develop*
-            .cache/firmware/espectre-matter-ci*
+          path: .cache/firmware/espectre-matter-*
           retention-days: 7
 
   build-native:
+    needs: prepare
     permissions:
       contents: read
     name: Build Native ${{ matrix.chip }}
@@ -379,20 +431,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Select native artifact names
-        id: native-names
-        run: |
-          if [ "${{ github.event_name }}" != "push" ]; then
-            echo "prefix=ci" >> "$GITHUB_OUTPUT"
-            echo "ota_channel=release" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "prefix=develop" >> "$GITHUB_OUTPUT"
-            echo "ota_channel=develop" >> "$GITHUB_OUTPUT"
-          else
-            echo "prefix=preview" >> "$GITHUB_OUTPUT"
-            echo "ota_channel=preview" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Set up firmware signing
         uses: ./.github/actions/setup-firmware-signing
 
@@ -408,14 +446,15 @@ jobs:
       - name: Build native firmware
         run: |
           mkdir -p .cache/firmware
-          python .github/scripts/build_signed_firmware.py native ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) && '--test-key' || '' }}
+          python .github/scripts/build_signed_firmware.py native ${{ needs.prepare.outputs.sign != 'true' && '--test-key' || '' }}
         env:
-          FIRMWARE_SIGNING_KEY_RSA: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
-          FIRMWARE_SIGNING_KEY_ESP32: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
+          ESPECTRE_GIT_VERSION: ${{ needs.prepare.outputs.version }}
+          FIRMWARE_SIGNING_KEY_RSA: ${{ needs.prepare.outputs.sign == 'true' && secrets.FIRMWARE_SIGNING_KEY_RSA || '' }}
+          FIRMWARE_SIGNING_KEY_ESP32: ${{ needs.prepare.outputs.sign == 'true' && secrets.FIRMWARE_SIGNING_KEY_ESP32 || '' }}
           NATIVE_TARGET: ${{ matrix.target }}
-          NATIVE_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}.bin
-          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}-ota.bin
-          NATIVE_OTA_CHANNEL: ${{ steps.native-names.outputs.ota_channel }}
+          NATIVE_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
+          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}-ota.bin
+          NATIVE_OTA_CHANNEL: ${{ needs.prepare.outputs.ota_channel }}
           NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
       - name: Stage native firmware audit input
@@ -431,6 +470,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           name: audit-firmware-native-${{ matrix.chip }}
           path: .cache/audit-input/${{ matrix.chip }}.spdx.json
           retention-days: 1
@@ -439,12 +479,10 @@ jobs:
         if: success() && github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: firmware-native-${{ matrix.chip }}
-          path: |
-            .cache/firmware/espectre-native-preview*
-            .cache/firmware/espectre-native-develop*
-            .cache/firmware/espectre-native-ci*
+          path: .cache/firmware/espectre-native-*
           retention-days: 7
 
   audit-esphome:
@@ -625,6 +663,7 @@ jobs:
 
   build-sdk:
     name: Build SDK Package
+    needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -633,49 +672,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.14'
-
-      - name: Select SDK release metadata
-        id: sdk
-        run: |
-          VERSION="$(python3 .github/scripts/detect_git_version.py)"
-          if [ "${{ github.event_name }}" != "push" ]; then
-            {
-              echo "channel=preview"
-              echo "version=${VERSION}"
-              echo "release_tag=pr-preview"
-            } >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            {
-              echo "channel=develop"
-              echo "version=${VERSION}"
-              echo "release_tag=snapshot-dev"
-            } >> "$GITHUB_OUTPUT"
-          else
-            {
-              echo "channel=preview"
-              echo "version=${VERSION}"
-              echo "release_tag=snapshot"
-            } >> "$GITHUB_OUTPUT"
-          fi
+      - uses: ./.github/actions/setup-sdk-packaging
 
       - name: Build SDK package
+        env:
+          SDK_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          SDK_VERSION: ${{ needs.prepare.outputs.version }}
+          SDK_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
         run: |
           mkdir -p .cache/sdk
           python .github/scripts/build_sdk_package.py \
-            --channel "${{ steps.sdk.outputs.channel }}" \
-            --version "${{ steps.sdk.outputs.version }}" \
-            --release-tag "${{ steps.sdk.outputs.release_tag }}" \
+            --channel "$SDK_CHANNEL" \
+            --version "$SDK_VERSION" \
+            --release-tag "$SDK_RELEASE_TAG" \
             --output-dir .cache/sdk \
+            --component-output-dir .cache/registry/espectre \
             --commit "${{ github.sha }}"
 
       - name: Upload SDK package artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          overwrite: true
           include-hidden-files: true
           name: sdk-bundle
           path: |
@@ -683,3 +701,76 @@ jobs:
             .cache/sdk/espectre-sdk-*.zip
             .cache/sdk/sdk-manifest-*.json
           retention-days: 7
+
+      - name: Upload registry component
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          overwrite: true
+          name: registry-component
+          path: |
+            .cache/registry/espectre-component-*.tgz
+            .cache/registry/component-inventory.json
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-sdk-component:
+    needs: build-sdk
+    uses: ./.github/workflows/sdk-component.yml
+
+  publish-snapshot:
+    name: Publish Snapshot
+    needs:
+      - prepare
+      - build-site
+      - test-cpp
+      - test-python
+      - build-esphome
+      - build-matter
+      - build-native
+      - audit-esphome
+      - audit-matter
+      - audit-native
+      - build-sdk
+      - verify-sdk-component
+    # Failed checks still publish coverage badges, but never firmware or SDKs.
+    if: >
+      always() && !cancelled() && github.event_name == 'push' &&
+      needs.prepare.outputs.publication == 'snapshot'
+    permissions:
+      contents: write
+      actions: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/snapshot.yml
+    with:
+      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+    secrets:
+      FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
+
+  publish-release:
+    name: Publish Release
+    needs:
+      - prepare
+      - build-site
+      - test-cpp
+      - test-python
+      - build-esphome
+      - build-matter
+      - build-native
+      - audit-esphome
+      - audit-matter
+      - audit-native
+      - build-sdk
+      - verify-sdk-component
+    if: github.event_name == 'push' && needs.prepare.outputs.publication == 'release'
+    permissions:
+      contents: write
+      actions: write
+      discussions: write
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/release.yml
+    with:
+      checks_passed: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+    secrets:
+      FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}

@@ -69,7 +69,7 @@ For local builds, flashing from this repository, and the rest of the operator pa
 | **Collect and train** | CSI collection, model training, feature history, performance, and literature | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), [performance report](docs/performance/README.md), [LITERATURE.md](docs/LITERATURE.md) |
 | **Research and direction** | Roadmap, architecture decisions, and release history | [ROADMAP.md](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [CHANGELOG.md](docs/CHANGELOG.md) |
 | **Frontend reference** | Firmware-path READMEs for ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
-| **Contributing** | How to contribute and where to discuss the project | [CONTRIBUTING.md](CONTRIBUTING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
+| **Contributing** | Contributions, release procedures, and project discussions | [CONTRIBUTING.md](CONTRIBUTING.md), [RELEASING.md](docs/RELEASING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
 
 ## Datasets, models, and validation
 

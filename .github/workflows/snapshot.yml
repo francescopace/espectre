@@ -1,23 +1,23 @@
 name: Snapshot
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main, develop]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      ci_run_id:
-        description: Successful CI push run ID whose firmware and SDK artifacts should be published
+      checks_passed:
+        description: Whether every prerequisite CI job succeeded
         required: true
-        type: string
+        type: boolean
+    secrets:
+      FIRMWARE_SIGNING_KEY_RSA:
+        description: Key used to sign the published firmware catalog
+        required: true
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: snapshot-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  group: snapshot-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -26,10 +26,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
-       (github.event.workflow_run.head_branch == 'main' ||
-        github.event.workflow_run.head_branch == 'develop'))
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     outputs:
       current: ${{ steps.current.outputs.current }}
       run_id: ${{ steps.current.outputs.run_id }}
@@ -45,58 +43,28 @@ jobs:
       - name: Resolve and verify the source CI run
         id: current
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          CHECKS_PASSED: ${{ inputs.checks_passed }}
         with:
           script: |
-            let runId;
-            let branch;
-            let sha;
-            let createdAt;
-            let eventName;
-            let conclusion;
-            let workflowName;
-
-            if (context.eventName === 'workflow_dispatch') {
-              runId = Number(context.payload.inputs.ci_run_id);
-              if (!Number.isInteger(runId) || runId <= 0) {
-                core.setFailed(`Invalid ci_run_id: ${context.payload.inputs.ci_run_id}`);
-                return;
-              }
-              const run = await github.rest.actions.getWorkflowRun({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: runId,
-              });
-              branch = run.data.head_branch;
-              sha = run.data.head_sha;
-              createdAt = run.data.created_at;
-              eventName = run.data.event;
-              conclusion = run.data.conclusion;
-              workflowName = run.data.name;
-            } else {
-              const source = context.payload.workflow_run;
-              runId = source.id;
-              branch = source.head_branch;
-              sha = source.head_sha;
-              createdAt = source.created_at;
-              eventName = source.event;
-              conclusion = source.conclusion;
-              workflowName = source.name;
-            }
-
-            if (workflowName !== 'CI') {
-              core.setFailed(`Source run ${runId} is ${workflowName}, expected CI`);
-              return;
-            }
-            if (context.eventName === 'workflow_dispatch' && conclusion !== 'success') {
-              core.setFailed(`Source run ${runId} conclusion is ${conclusion}`);
-              return;
-            }
-            if (eventName !== 'push') {
-              core.setFailed(`Source run ${runId} event is ${eventName}, expected push`);
+            const runId = context.runId;
+            const { data: source } = await github.rest.actions.getWorkflowRun({
+              ...context.repo, run_id: runId,
+            });
+            const branch = source.head_branch;
+            const sha = source.head_sha;
+            // This run is still in progress: publication follows CI's prerequisite jobs.
+            const conclusion = process.env.CHECKS_PASSED === 'true' ? 'success' : 'failure';
+            if (source.path !== '.github/workflows/ci.yml' || source.event !== 'push') {
+              core.setFailed(`Source run ${runId} must be a CI push run`);
               return;
             }
             if (branch !== 'main' && branch !== 'develop') {
               core.setFailed(`Source run ${runId} branch is ${branch}, expected main or develop`);
+              return;
+            }
+            if (sha !== context.sha || context.ref !== `refs/heads/${branch}`) {
+              core.setFailed(`Source run ${runId} does not match the caller's commit and branch`);
               return;
             }
 
@@ -110,11 +78,93 @@ jobs:
             core.setOutput('run_id', String(runId));
             core.setOutput('head_sha', sha);
             core.setOutput('head_branch', branch);
-            core.setOutput('created_at', createdAt);
+            core.setOutput('created_at', source.created_at);
             core.setOutput('conclusion', conclusion);
             core.info(current
               ? `Source commit ${sha} is current on ${branch} with conclusion ${conclusion}.`
               : `Skipping stale source commit ${sha}; ${branch} is now ${response.data.commit.sha}.`);
+
+  publish-sdk-staging:
+    name: Publish Snapshot SDK to Staging
+    needs: validate-run
+    if: >
+      needs.validate-run.outputs.current == 'true' &&
+      needs.validate-run.outputs.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: sdk-registry-staging
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      published: ${{ steps.source.outputs.current }}
+    steps:
+      # Use the caller's revision; SDK sources come only from the validated CI artifact.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-sdk-packaging
+      - name: Download the component built and tested by CI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
+          name: registry-component
+          path: .cache/registry
+      - name: Recheck source commit before publishing
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SOURCE_BRANCH: ${{ needs.validate-run.outputs.head_branch }}
+          SOURCE_SHA: ${{ needs.validate-run.outputs.head_sha }}
+        with:
+          script: |
+            const response = await github.rest.repos.getBranch({
+              ...context.repo, branch: process.env.SOURCE_BRANCH,
+            });
+            const current = response.data.commit.sha === process.env.SOURCE_SHA;
+            core.setOutput('current', String(current));
+            if (!current) core.info('Skipping the superseded SDK snapshot.');
+      - name: Verify source identity and compare any existing staging version
+        if: steps.source.outputs.current == 'true'
+        id: existing
+        env:
+          SOURCE_SHA: ${{ needs.validate-run.outputs.head_sha }}
+          SNAPSHOT_CHANNEL: ${{ needs.validate-run.outputs.head_branch == 'develop' && 'develop' || 'preview' }}
+        run: |
+          python .github/scripts/verify_sdk_component.py check \
+            --inventory .cache/registry/component-inventory.json \
+            --expected-commit "$SOURCE_SHA" --snapshot-channel "$SNAPSHOT_CHANNEL" \
+            --registry-url https://components-staging.espressif.com \
+            --wait-seconds 0 --allow-missing
+      - name: Extract the verified upload tree
+        if: steps.source.outputs.current == 'true' && steps.existing.outputs.exists != 'true'
+        run: |
+          python .github/scripts/verify_sdk_component.py extract \
+            --inventory .cache/registry/component-inventory.json \
+            --destination .cache/registry/espectre
+      - name: Upload snapshot with trusted GitHub identity
+        if: steps.source.outputs.current == 'true' && steps.existing.outputs.exists != 'true'
+        uses: espressif/upload-components-ci-action@2ce17d73e35473317c1419dbd4f007aacb593040 # v2.2.1
+        with:
+          components: 'espectre: .cache/registry/espectre'
+          namespace: francescopace
+          registry_url: https://components-staging.espressif.com
+          repository_url: ''
+          commit_sha: ''
+          skip_pre_release: false
+      - name: Wait for processing and compare published contents
+        if: steps.source.outputs.current == 'true'
+        run: |
+          python .github/scripts/verify_sdk_component.py check \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components-staging.espressif.com
+
+  verify-sdk-staging:
+    needs: publish-sdk-staging
+    if: needs.publish-sdk-staging.outputs.published == 'true'
+    uses: ./.github/workflows/sdk-component.yml
+    with:
+      registry_url: https://components-staging.espressif.com
 
   release:
     name: Create Snapshot Release
@@ -203,6 +253,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: signed-firmware-catalog
+          overwrite: true
           path: firmware/firmware-manifest-*.json
           if-no-files-found: error
 
@@ -429,6 +480,8 @@ jobs:
     if: needs.validate-run.outputs.head_branch == 'main' && needs.release.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    outputs:
+      pages_artifact: github-pages-${{ github.run_attempt }}
     permissions:
       contents: read
       actions: read
@@ -528,12 +581,14 @@ jobs:
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: docs/web
 
       - name: Upload deployed sitemap inventory
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: website-sitemap
+          overwrite: true
           path: docs/web/sitemap.xml
           if-no-files-found: error
           retention-days: 1
@@ -559,6 +614,8 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+        with:
+          artifact_name: ${{ needs.publish-pages.outputs.pages_artifact }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

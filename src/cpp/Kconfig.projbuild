@@ -6,11 +6,13 @@ comment "Optional runtime capabilities. The sensing runtime is always built."
 
 config ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT
     bool "Build the frontend support helpers"
+    select ESPECTRE_SDK_ENABLE_PROVISIONING
     default n
     help
         Shared bootstrap, control, sysinfo, and MQTT payload helpers used by
         the reference frontends. Enable it if your integration reuses them
-        instead of wiring the runtime contracts yourself.
+        instead of wiring the runtime contracts yourself. Also enables the
+        provisioning service required by the shared Wi-Fi bootstrap helpers.
 
 config ESPECTRE_SDK_ENABLE_MQTT
     bool "Build the ESP-IDF MQTT transport"

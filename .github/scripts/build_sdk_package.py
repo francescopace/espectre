@@ -28,6 +28,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -39,7 +41,8 @@ CPP_ROOT = REPO_ROOT / "src" / "cpp"
 RUNTIME_PROTOCOL_HEADER = CPP_ROOT / "runtime" / "espectre_protocol.h"
 SDK_VERSION_HEADER = CPP_ROOT / "runtime" / "espectre_sdk_version.h"
 IDF_COMPONENT_MANIFEST = CPP_ROOT / "idf_component.yml"
-SDK_SUPPORTED_ESP_IDF = ">=5.5.0"
+COMPONENT_NAME = "francescopace/espectre"
+SDK_SOURCE_SUFFIXES = {".h", ".hpp", ".c", ".cpp", ".cmake"}
 OPTIONAL_SOURCE_GROUPS = (
     "ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES",
     "ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES",
@@ -105,6 +108,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", required=True, help="Human-readable SDK version label.")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag for the published assets.")
     parser.add_argument("--output-dir", required=True, help="Directory where bundle assets are written.")
+    parser.add_argument(
+        "--component-output-dir",
+        help="Also stage the registry component here and write its archive and inventory beside it.",
+    )
     parser.add_argument("--commit", help="Optional source commit SHA for preview and develop builds.")
     parser.add_argument(
         "--source-date-epoch",
@@ -182,7 +189,12 @@ def collect_bundle_files() -> list[Path]:
     files: list[Path] = []
     for root in SDK_ROOTS:
         for path in sorted((REPO_ROOT / root).rglob("*")):
-            if path.is_file():
+            relative = path.relative_to(REPO_ROOT / root)
+            if (path.is_file() and not path.is_symlink()
+                    and not any(part.startswith((".", "build")) or part == "managed_components"
+                                for part in relative.parts)
+                    and (path.suffix in SDK_SOURCE_SUFFIXES
+                         or path.name in {"CMakeLists.txt", "Kconfig.projbuild"})):
                 files.append(path.relative_to(REPO_ROOT))
     files.extend(SDK_TOP_LEVEL_FILES)
     deduped = sorted(dict.fromkeys(files))
@@ -345,7 +357,7 @@ def rewrite_bundle_sdk_guide(path: Path, source_ref: str) -> None:
         )
 
     rewritten, count = re.subn(
-        r"\]\((?!https?://)(?!mailto:)([^)#]+\.md)(#[^)]+)?\)",
+        r"\]\((?!https?://)(?!mailto:)(?!#)([^)#]+)(#[^)]+)?\)",
         replace_link,
         source,
     )
@@ -364,6 +376,25 @@ def rewrite_bundle_sdk_facade(path: Path, source_ref: str) -> None:
     path.write_text(source.replace(current, replacement), encoding="utf-8")
 
 
+def rewrite_packaged_document(path: Path, original: Path, root: Path, source_ref: str) -> None:
+    """Keep packaged links local, and pin omitted repository documents to Git."""
+    def rewrite_link(match: re.Match[str]) -> str:
+        link = match.group(1)
+        if link.startswith(("https:", "http:", "mailto:", "#")):
+            return match.group(0)
+        local = (path.parent / link.split("#", 1)[0]).resolve()
+        if local.is_relative_to(root.resolve()) and local.is_file():
+            return match.group(0)
+        relative = os.path.normpath(str(original.parent / link)).replace(os.sep, "/")
+        if relative.startswith("../"):
+            raise ValueError(f"Document link escapes the repository: {link}")
+        if (root / relative.split("#", 1)[0]).is_file():
+            return f"]({relative})"
+        return f"](https://github.com/francescopace/espectre/blob/{source_ref}/{relative})"
+
+    path.write_text(re.sub(r"\]\(([^)]+)\)", rewrite_link, path.read_text(encoding="utf-8")), encoding="utf-8")
+
+
 def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
                       bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
@@ -380,6 +411,8 @@ def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
     rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref)
     rewrite_bundle_sdk_facade(destination_root / "src" / "cpp" / "espectre_sdk.h", source_ref)
+    for name in ("LICENSING.md", "THIRD_PARTY_NOTICES.md"):
+        rewrite_packaged_document(destination_root / name, Path(name), destination_root, source_ref)
     validate_stamped_sdk_identity(destination_root, version)
     return len(bundle_files)
 
@@ -459,6 +492,90 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def stage_registry_component(bundle_root: Path, destination: Path, version: str,
+                             source_ref: str, epoch: int) -> None:
+    """Package the SDK with the registry identity and Component Manager's file rules."""
+    destination = destination.resolve()
+    if destination.exists() and any(destination.iterdir()):
+        raise ValueError(f"Component output directory must be empty: {destination}")
+    destination.mkdir(parents=True, exist_ok=True)
+    sdk_root = bundle_root / "src" / "cpp"
+    for source in sdk_root.rglob("*"):
+        if source.is_file() and source.name != "Doxyfile":
+            target = destination / source.relative_to(sdk_root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+    for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
+        shutil.copy2(bundle_root / name, destination / name)
+    shutil.copy2(bundle_root / "docs" / "SDK.md", destination / "README.md")
+    example_root = CPP_ROOT / "examples" / "basic"
+    example_files = (
+        "CMakeLists.txt", "README.md", "sdkconfig.defaults",
+        "main/CMakeLists.txt", "main/Kconfig.projbuild", "main/idf_component.yml",
+        "main/app_main.cpp", "main/optional_services.cpp",
+    )
+    for relative in example_files:
+        target = destination / "examples" / "basic" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(example_root / relative, target)
+    for readme_path in (destination / "README.md", destination / "examples/basic/README.md"):
+        readme = readme_path.read_text(encoding="utf-8")
+        readme = re.sub(r'francescopace/espectre([=^])[^"\s:]+',
+                        lambda match: f"{COMPONENT_NAME}{match[1]}{version}", readme)
+        readme_path.write_text(readme, encoding="utf-8")
+    example_manifest = destination / "examples" / "basic" / "main" / "idf_component.yml"
+    example = yaml.safe_load(example_manifest.read_text())
+    example["dependencies"][COMPONENT_NAME] = {"version": version}
+    example_manifest.write_text(yaml.safe_dump(example, sort_keys=False), encoding="utf-8")
+
+    manifest_path = destination / "idf_component.yml"
+    stamp_idf_component_manifest(manifest_path, version)
+    stamp_sdk_version_header(destination / "runtime" / "espectre_sdk_version.h", version)
+    manifest = yaml.safe_load(manifest_path.read_text())
+    manifest["repository_info"]["commit_sha"] = source_ref
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    if detect_sdk_version(destination / "runtime" / "espectre_sdk_version.h") != version:
+        raise ValueError("Registry component SDK identity does not match its manifest")
+
+    # Resolve documents omitted from the component against the packaged revision.
+    for name, original in (("LICENSING.md", Path("LICENSING.md")),
+                           ("THIRD_PARTY_NOTICES.md", Path("THIRD_PARTY_NOTICES.md"))):
+        rewrite_packaged_document(destination / name, original, destination, source_ref)
+
+    compote = [sys.executable, "-m", "idf_component_manager"]
+    subprocess.run([*compote, "manifest", "lint", str(manifest_path), str(example_manifest)], check=True)
+    with tempfile.TemporaryDirectory(prefix="espectre-component-pack-") as tmp:
+        subprocess.run([*compote, "component", "pack", "--name", "espectre",
+                        "--dest-dir", tmp], cwd=destination, check=True)
+        archives = list(Path(tmp).glob("*.tgz"))
+        if len(archives) != 1:
+            raise ValueError(f"Expected one component archive, found {archives}")
+        archive_path = destination.parent / f"espectre-component-{version}.tgz"
+        # Preserve compote's contents, normalizing tar and gzip metadata.
+        extracted = Path(tmp) / "contents"
+        with tarfile.open(archives[0]) as source:
+            source.extractall(extracted, filter="data")
+        files = {str(path.relative_to(extracted)): sha256_file(path)
+                 for path in sorted(extracted.rglob("*")) if path.is_file()}
+        write_tarball(extracted, archive_path, ".", epoch)
+    inventory = {"schema_version": 1, "component": COMPONENT_NAME, "version": version,
+                 "commit": source_ref, "archive": archive_path.name,
+                 "sha256": sha256_file(archive_path), "files": files}
+    inventory_path = destination.parent / "component-inventory.json"
+    inventory_path.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+    print(f"Registry component: {archive_path} ({len(files)} files)")
+
+
+def registry_component_version(version: str, channel: str, commit: str) -> str:
+    """Keep release versions exact and give snapshots an immutable identity per channel and commit."""
+    if channel == "release":
+        return version
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Registry snapshots require a full source commit SHA")
+    return f"{version}-snapshot.{channel}.g{commit}"
+
+
 def build_artifact_url(filename: str, release_tag: str, url_prefix: str | None) -> str:
     if url_prefix:
         return f"{url_prefix.rstrip('/')}/{filename}"
@@ -489,7 +606,7 @@ def build_manifest(
         "generated_at": generated_at,
         "commit": commit,
         "protocol_version": detect_protocol_version(),
-        "supported_esp_idf": SDK_SUPPORTED_ESP_IDF,
+        "supported_esp_idf": yaml.safe_load(IDF_COMPONENT_MANIFEST.read_text())["dependencies"]["idf"]["version"],
         "bundle": {
             "root_dir": bundle_root,
             "file_count": bundle_file_count,
@@ -554,9 +671,17 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
     with tempfile.TemporaryDirectory(prefix="espectre-sdk-") as tmp_dir:
         staged_root = Path(tmp_dir) / bundle_root
         source_ref = args.commit or args.release_tag
+        if getattr(args, "component_output_dir", None) and not args.commit:
+            source_ref = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True,
+            ).strip()
         file_count = stage_bundle_tree(staged_root, args.version, source_ref, bundle_files)
         write_tarball(staged_root, tarball_path, bundle_root, source_date_epoch)
         write_zipfile(staged_root, zip_path, bundle_root, source_date_epoch)
+        if getattr(args, "component_output_dir", None):
+            component_version = registry_component_version(args.version, args.channel, source_ref)
+            stage_registry_component(staged_root, Path(args.component_output_dir), component_version,
+                                     source_ref, source_date_epoch)
 
     manifest = build_manifest(
         channel=args.channel,

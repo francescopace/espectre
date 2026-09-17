@@ -99,7 +99,7 @@ The signed payload contains `format: "espectre-firmware-v1"`, channel, version, 
 
 Factory images are authenticated in full, including the bootloader and partition table. During a USB update that preserves device data, the flasher preserves the complete application partition or OTA image, including trailing ESP-IDF signatures and padding. Local NVS and Matter commissioning data retain their existing preservation behavior.
 
-This verification trusts the deployed website code and public-key registry. A compromise that can replace that code can bypass its checks. Device-side OTA verification remains independent of the website; Matter currently has only browser-side artifact verification. This catalog format does not enforce freshness or prevent replay of a previously signed catalog. Key enrollment, custody, rotation, and recovery are documented in [CONTRIBUTING.md](../../CONTRIBUTING.md#firmware-signing-for-maintainers). The operator USB versus OTA workflow is in [SETUP.md](../SETUP.md#official-images-and-personal-builds).
+This verification trusts the deployed website code and public-key registry. A compromise that can replace that code can bypass its checks. Device-side OTA verification remains independent of the website; Matter currently has only browser-side artifact verification. This catalog format does not enforce freshness or prevent replay of a previously signed catalog. Key enrollment, custody, rotation, and recovery are documented in [RELEASING.md](../RELEASING.md#firmware-signing). The operator USB versus OTA workflow is in [SETUP.md](../SETUP.md#official-images-and-personal-builds).
 
 ## Routing and Analytics
 

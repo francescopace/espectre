@@ -17,7 +17,7 @@ Use the legacy ECDSA application-signature scheme on classic ESP32 to retain old
 
 Sign an immutable release inventory covering every frontend's artifacts, including Matter factory images. The browser checks the signed inventory and the downloaded bytes before erasing or writing flash. Production verification failures block installation. Localhost and `test.espectre.dev` run the same checks but allow a failed verification to be overridden through explicit confirmation for the current attempt, supporting unsigned development builds without a query parameter. Website staging may relocate artifacts and filter the displayed inventory, but it cannot authorize new bytes or re-sign downloads. The CLI has no new verification behavior.
 
-Use GitHub Actions secrets for private release keys and an enrolled public-key registry in the repository. Key custody, provisioning, and rotation are owned by [CONTRIBUTING.md](../../CONTRIBUTING.md#firmware-signing-for-maintainers). The operator USB versus OTA workflow is owned by [SETUP.md](../SETUP.md#official-images-and-personal-builds). Browser verification is isolated and documented as an executable example in [README.md](../web/README.md#firmware-signature-verification).
+Use GitHub Actions secrets for private release keys and an enrolled public-key registry in the repository. Key custody, provisioning, and rotation are owned by [RELEASING.md](../RELEASING.md#firmware-signing). The operator USB versus OTA workflow is owned by [SETUP.md](../SETUP.md#official-images-and-personal-builds). Browser verification is isolated and documented as an executable example in [README.md](../web/README.md#firmware-signature-verification).
 
 ## Consequences
 
@@ -36,4 +36,4 @@ Use GitHub Actions secrets for private release keys and an enrolled public-key r
 
 ## Validation
 
-Host tests exercise real RSA and ECDSA signatures, altered catalogs, wrong keys, corrupt images, staging preservation, and rejection before erase or write. CI builds all supported Native and ESPHome targets and checks their effective configuration and signed artifacts. Production key provisioning and per-target hardware upgrade, interruption, recovery, and rollback evidence remain required before release, as documented in [CONTRIBUTING.md](../../CONTRIBUTING.md#firmware-signing-for-maintainers).
+Host tests exercise real RSA and ECDSA signatures, altered catalogs, wrong keys, corrupt images, staging preservation, and rejection before erase or write. CI builds all supported Native and ESPHome targets and checks their effective configuration and signed artifacts. Production key provisioning and per-target hardware upgrade, interruption, recovery, and rollback evidence remain required before release, as documented in [RELEASING.md](../RELEASING.md#firmware-signing).
