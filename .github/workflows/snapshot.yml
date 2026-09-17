@@ -292,6 +292,12 @@ jobs:
               });
             }
 
+      - name: Preserve published SDK API archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPSHOT_TAG: ${{ steps.snapshot.outputs.tag }}
+        run: python3 .github/scripts/sdk_api_reference.py check-uploads --repository "$GITHUB_REPOSITORY" --tag "$SNAPSHOT_TAG" --directory sdk
+
       - name: Create rolling release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:

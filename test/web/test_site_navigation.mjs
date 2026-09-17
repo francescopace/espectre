@@ -39,6 +39,78 @@ async function renderErrorSuggestion(path, { map = errorSuggestions, ok = true, 
 }
 
 describe('website navigation contracts', () => {
+    it('loads the requested SDK revision, preserves it across symbols, and rejects unavailable identities', async () => {
+        const source = read('docs/web/assets/js/navigation.js');
+        const functions = source.slice(source.indexOf('    const apiReferenceManifestPromises'),
+            source.indexOf('    function apiReferenceEntryLabel'))
+            + source.slice(source.indexOf('    async function loadApiReference'),
+                source.indexOf('    function initApiReferenceBrowsers'));
+        const commit = 'a'.repeat(40);
+        const version = '3.0.0-rc2+build';
+        const params = new URLSearchParams({ sdk: version, commit, api: 'controller', member: 'setup' });
+        const index = '/artifacts/sdk/api/api-index.json';
+        const base = `/artifacts/sdk/api/revisions/${commit}/${encodeURIComponent(version)}/`;
+        const manifest = { sdk_version: version, source_commit: commit, default: 'index', entries: [{ refid: 'index' }] };
+        for (const scenario of ['pinned', 'latest', 'missing', 'mismatch', 'incomplete', 'invalid']) {
+            const requests = [];
+            const shown = [];
+            const warnings = [];
+            const attributes = new Map();
+            const content = {
+                replaceChildren() {}, setAttribute: (name, value) => attributes.set(name, value),
+                removeAttribute: (name) => attributes.delete(name),
+            };
+            const label = {};
+            const filter = {};
+            const browser = {
+                dataset: { apiIndex: index },
+                querySelector: (selector) => ({
+                    '[data-api-reference-version]': label,
+                    '[data-api-reference-filter]': filter,
+                    '[data-api-reference-content]': content,
+                })[selector],
+            };
+            const location = new URL(`https://espectre.dev/sdk/api/?${params}`);
+            if (scenario === 'latest') location.search = '';
+            if (scenario === 'incomplete') location.searchParams.delete('commit');
+            if (scenario === 'invalid') location.searchParams.set('sdk', '../escape');
+            const context = {
+                URL, URLSearchParams, browser, console: { warn: (...args) => warnings.push(args) },
+                window: { location, history: { state: {}, pushState: (_state, _unused, url) => { location.href = new URL(url, location).href; } } },
+                fetch: async (url) => {
+                    requests.push(url);
+                    return { ok: scenario !== 'missing', status: 404,
+                        json: async () => ({ ...manifest, source_commit: scenario === 'mismatch' ? 'b'.repeat(40) : commit }) };
+                },
+                renderApiReferencePicker() {}, refreshApiReferenceToc() {}, closeApiReferencePicker() {},
+                showApiReference: async (_browser, refid, member) => shown.push({ refid, member }),
+            };
+            await runInNewContext(functions + '\nloadApiReference(browser);', context);
+            if (['pinned', 'latest'].includes(scenario)) {
+                assert.equal(browser.apiReferenceManifest.sdk_version, version);
+                assert.equal(filter.disabled, false);
+                assert.equal(browser.apiReferenceBase, base);
+                assert.equal(label.title, commit);
+                assert.deepEqual(requests, [scenario === 'latest' ? index : `${base}api-index.json`]);
+                assert.deepEqual(shown, [{ refid: scenario === 'latest' ? 'index' : 'controller', member: scenario === 'latest' ? '' : 'setup' }]);
+                if (scenario === 'pinned') {
+                    runInNewContext("updateApiReferenceLocation('listener', 'on_ready');", context);
+                    assert.equal(location.searchParams.get('sdk'), version);
+                    assert.equal(location.searchParams.get('commit'), commit);
+                    assert.equal(location.searchParams.get('api'), 'listener');
+                    assert.equal(location.searchParams.get('member'), 'on_ready');
+                }
+            } else {
+                assert.equal(browser.apiReferenceManifest, null);
+                assert.equal(filter.disabled, true);
+                assert.equal(shown.length, 0);
+                assert.equal(warnings.length, 1);
+                assert.equal(attributes.has('aria-busy'), false);
+                assert.deepEqual(requests, ['invalid', 'incomplete'].includes(scenario) ? [] : [`${base}api-index.json`]);
+            }
+        }
+    });
+
     it('maps retired paths to existing public routes or project documents', () => {
         for (const [path, suggestion] of Object.entries(errorSuggestions)) {
             assert.ok(path.startsWith('/') && path.endsWith('/'));

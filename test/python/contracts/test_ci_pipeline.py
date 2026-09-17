@@ -8,12 +8,14 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -487,8 +489,12 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     inventory, component_files = inventories[0]
     assert (packages[0] / inventory["archive"]).read_bytes() == (packages[1] / inventory["archive"]).read_bytes()
     component_manifest = yaml.safe_load(component_files["idf_component.yml"])
+    reference = "https://espectre.dev/sdk/api/?sdk=3.0.0&commit=0123456789abcdef0123456789abcdef01234567"
+    assert reference in component_files["README.md"].decode()
+    assert "sdk_integration.dox" not in component_files
     source_manifest = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text())
     assert component_manifest["dependencies"] == source_manifest["dependencies"]
+    assert component_manifest["dependencies"]["espressif/mdns"]["registry_url"] == "https://components.espressif.com"
     assert component_manifest["targets"] == source_manifest["targets"]
     assert component_manifest["license"] == "GPL-3.0-only"
     assert component_manifest["version"] == "3.0.0"
@@ -496,7 +502,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert not any(part in {"frontend", "build", "managed_components", ".git"}
                    for name in component_files for part in Path(name).parts)
     assert b'"3.0.0"' in component_files["runtime/espectre_sdk_version.h"]
-    assert yaml.safe_load(component_files["examples/basic/main/idf_component.yml"])["dependencies"] == {
+    assert yaml.safe_load(component_files["examples/wifi_motion_detection/main/idf_component.yml"])["dependencies"] == {
         "francescopace/espectre": {"version": "3.0.0"}
     }
     for name in ("README.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
@@ -527,6 +533,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         bundled_facade = archive.read(facade_name).decode("utf-8")
     bundle_root = component_cmake_name.removesuffix("/src/cpp/CMakeLists.txt")
     assert f"{bundle_root}/CMakeLists.txt" not in archived
+    assert f"{bundle_root}/src/cpp/sdk_integration.dox" in archived
+    assert reference in bundled_guide
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
@@ -534,7 +542,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert re.search(r"(?m)^GENERATE_XML\s*=\s*YES\s*$", bundled_doxyfile)
     assert not any("/src/cpp/doxygen/" in path for path in archived)
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
-    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/docs/ARCHITECTURE.md" in bundled_guide
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/docs/CSI.md" in bundled_guide
     assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/LICENSING.md" in bundled_guide
     assert "https://github.com/francescopace/espectre/blob/0123456789abcdef0123456789abcdef01234567/docs/SDK.md" in bundled_facade
     assert "https://github.com/francescopace/espectre/blob/main/docs/SDK.md" not in bundled_facade
@@ -575,7 +583,7 @@ def test_registry_and_install_checks_preserve_manifest_values(
     expected = {
         "idf_component.yml": yaml.safe_dump(manifest, sort_keys=False).encode(),
         "sdk.cpp": b"void setup() {}\n",
-        "examples/basic/main/idf_component.yml": b"dependencies: {}\n",
+        "examples/wifi_motion_detection/main/idf_component.yml": b"dependencies: {}\n",
     }
     if field:
         parent = manifest
@@ -602,7 +610,7 @@ def test_registry_and_install_checks_preserve_manifest_values(
     monkeypatch.setattr(multi_storage_client, "MultiStorageClient", RegistryClient)
     monkeypatch.setattr(verifier, "download", lambda url: archive.read_bytes())
     inventory = {"version": "3.0.0", "files": verifier.hashes(expected)}
-    project = tmp_path / "basic"
+    project = tmp_path / "wifi_motion_detection"
     verifier.write_files(project / "managed_components/francescopace__espectre", actual)
     (project / "dependencies.lock").write_text(yaml.safe_dump({
         "target": "esp32c3",
@@ -1031,9 +1039,7 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert yml.split("\ndependencies:\n", 1)[1] == source_manifest.split("\ndependencies:\n", 1)[1]
     assert yaml.safe_load(yml)["dependencies"]["idf"] == component_manifest["dependencies"]["idf"]
     assert "espressif/mdns:" in yml
-    assert "espressif/esp_tinyusb:" in yml
-    assert "improv" not in yml
-    assert '- if: "target == esp32s2"' in yml
+    assert set(yaml.safe_load(yml)["dependencies"]) == {"idf", "espressif/mdns"}
     assert re.search(rf"(?m)^PROJECT_NUMBER\s*=\s*{re.escape(source_version)}\s*$", bundled_doxyfile)
 
     inventory_path = tmp_path / "registry" / "component-inventory.json"
@@ -1239,12 +1245,22 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
             '<doxygenindex version="1.17">'
             '<compound refid="classespectre_1_1_runtime_frontend_controller" kind="class"><name>espectre::RuntimeFrontendController</name></compound>'
             '<compound refid="espectre__sdk__version_8h" kind="file"><name>espectre_sdk_version.h</name></compound>'
+            '<compound refid="integration" kind="page"><name>integration</name></compound>'
             "</doxygenindex>",
             encoding="utf-8",
         )
         (xml / "classespectre_1_1_runtime_frontend_controller.xml").write_text(
             '<doxygen><compounddef><sectiondef kind="private-func"><memberdef prot="private" kind="function"/></sectiondef></compounddef></doxygen>',
             encoding="utf-8",
+        )
+        (xml / "espectre__sdk__version_8h.xml").write_text(
+            '<doxygen><compounddef kind="file"><location file="src/cpp/runtime/espectre_sdk_version.h"/></compounddef></doxygen>'
+        )
+        (xml / "integration.xml").write_text(
+            '<doxygen><compounddef kind="page"><title>Integration title</title></compounddef></doxygen>'
+        )
+        (xml / "integration_8dox.xml").write_text(
+            '<doxygen><compounddef kind="file"><location file="src/cpp/sdk_integration.dox"/></compounddef></doxygen>'
         )
 
     def fake_mcss(path: Path, _root: Path | None) -> None:
@@ -1274,18 +1290,25 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
             '<article data-api-reference-fragment="espectre__sdk__version_8h"><section class="m-doc-details">Version defines</section></article>',
             encoding="utf-8",
         )
+        for refid in ("integration", "integration_8dox"):
+            (rendered / f"{refid}.html").write_text('<article>Integration</article>')
 
     monkeypatch.setattr(generator, "run_doxygen", fake_doxygen)
     monkeypatch.setattr(generator, "run_mcss", fake_mcss)
     monkeypatch.setattr(generator, "API_OUTPUT_DIR", api_output)
-    version = generator.generate_sdk_api("3.0.0-12-gabcdef1")
+    monkeypatch.setattr(generator, "expected_header_paths", lambda: {"runtime/espectre_sdk_version.h"})
+    commit = "a" * 40
+    version = generator.generate_sdk_api("3.0.0-12-gabcdef1", commit=commit)
     assert version == "3.0.0-12-gabcdef1"
     assert stamped_versions == ["3.0.0-12-gabcdef1"]
     assert not stale_page.exists()
     manifest = json.loads((api_output / "api-index.json").read_text(encoding="utf-8"))
     assert manifest["sdk_version"] == "3.0.0-12-gabcdef1"
+    assert manifest["source_commit"] == commit
+    assert manifest["public_headers"] == ["runtime/espectre_sdk_version.h"]
     assert manifest["renderer"] == "m.css"
     entries = {entry["refid"]: entry for entry in manifest["entries"]}
+    assert entries["integration"]["name"] == "Integration title"
     assert entries["index"]["discoverable"] is True
     assert entries["classespectre_1_1_runtime_frontend_controller"]["discoverable"] is True
     assert entries["files"]["discoverable"] is False
@@ -1298,6 +1321,15 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     index_fragment = (api_output / "fragments" / "index.html").read_text(encoding="utf-8")
     assert "onclick=" not in index_fragment
     assert "<script" not in index_fragment
+    assert f"sdk={version}&amp;commit={commit}" in index_fragment or f"sdk={version}&commit={commit}" in index_fragment
+    pinned = api_output / "revisions" / commit / version / "api-index.json"
+    original = pinned.read_bytes()
+    generator.generate_sdk_api("3.1.0", commit=commit)
+    assert pinned.read_bytes() == original
+    assert (api_output / "revisions" / commit / "3.1.0" / "api-index.json").is_file()
+    monkeypatch.setattr(generator, "expected_header_paths", lambda: {"runtime/missing.h"})
+    with pytest.raises(ValueError, match="missing public headers"):
+        generator.generate_sdk_api("3.2.0", commit=commit)
     assert (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8") == repo_doxyfile
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 
@@ -1311,6 +1343,83 @@ def test_sdk_bundle_rewrites_the_repo_doxyfile_preamble(tmp_path: Path) -> None:
     assert "# Usage, from the unpacked SDK bundle root:" in rewritten
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", rewritten)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", rewritten)
+
+
+def test_sdk_api_publication_preserves_immutable_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reference = load_script("sdk_api_reference")
+    api = tmp_path / "source"
+    (api / "fragments").mkdir(parents=True)
+    manifest = {
+        "schema_version": 1, "sdk_version": "3.0.0", "source_commit": "a" * 40,
+        "default": "index", "entries": [{"refid": "index", "fragment": "fragments/index.html"}],
+    }
+    (api / "api-index.json").write_text(json.dumps(manifest))
+    (api / "fragments/index.html").write_text("<article>Original reference</article>")
+    archive = reference.write_archive(api, tmp_path / "uploads")
+    original = archive.read_bytes()
+    assert reference.write_archive(api, tmp_path / "uploads").read_bytes() == original
+    published = {"id": 8, "name": archive.name}
+
+    def github_api(_repository, resource, *, pages=False, binary=False):
+        if resource == "releases?per_page=100":
+            assert pages
+            return [{"id": 1, "draft": False}, {"id": 2, "draft": True}]
+        if resource == "releases/tags/snapshot":
+            return {"id": 1}
+        if resource == "releases/1/assets?per_page=100":
+            assert pages
+            return [published, {"id": 9, "name": "firmware.zip"}]
+        assert resource == "releases/assets/8" and binary
+        return original
+
+    monkeypatch.setattr(reference, "github_api", github_api)
+    pages = tmp_path / "pages"
+    current_api = pages / "artifacts/sdk/api"
+    current_api.mkdir(parents=True)
+    (current_api / "api-index.json").write_text('{"current": true}')
+    (pages / "index.html").write_text("<main>Verified website</main>")
+    pages_archive = tmp_path / "artifact.tar"
+    with tarfile.open(pages_archive, "w") as output:
+        output.add(pages, arcname=".")
+    assert reference.restore_pages_archive("owner/repository", pages_archive) == 1
+    with tarfile.open(pages_archive) as restored:
+        assert restored.extractfile("index.html").read() == b"<main>Verified website</main>"
+        assert restored.extractfile("artifacts/sdk/api/api-index.json").read() == b'{"current": true}'
+        pinned = reference.reference_path("3.0.0", "a" * 40)
+        assert restored.extractfile(f"artifacts/sdk/api/{pinned}/fragments/index.html").read() == b"<article>Original reference</article>"
+    assert reference.restore_pages_archive("owner/repository", pages_archive) == 1
+    reference.check_uploads("owner/repository", "snapshot", archive.parent)
+    assert not archive.exists()
+
+    (api / "fragments/index.html").write_text("<article>Changed reference</article>")
+    changed = reference.write_archive(api, archive.parent)
+    with pytest.raises(ValueError, match="Refusing to replace"):
+        reference.check_uploads("owner/repository", "snapshot", changed.parent)
+    assert changed.exists()
+    reference.stage_archive(original, current_api)
+    with pytest.raises(ValueError, match="Published SDK API reference changed"):
+        reference.stage_archive(changed.read_bytes(), current_api)
+    published["name"] = reference.archive_name("3.1.0", "a" * 40)
+    with pytest.raises(ValueError, match="identity mismatch"):
+        reference.restore_references("owner/repository", current_api)
+
+
+@pytest.mark.parametrize("fragment, content", [
+    ("../escape.html", "<article>Invalid path</article>"),
+    ("fragments/index.html", "<script>alert(1)</script>"),
+])
+def test_sdk_api_history_rejects_invalid_archives(fragment: str, content: str, tmp_path: Path) -> None:
+    reference = load_script("sdk_api_reference")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("api-index.json", json.dumps({
+            "schema_version": 1, "sdk_version": "3.0.0", "source_commit": "a" * 40,
+            "default": "index", "entries": [{"refid": "index", "fragment": fragment}],
+        }))
+        archive.writestr(fragment, content)
+    with pytest.raises(ValueError):
+        reference.stage_archive(buffer.getvalue(), tmp_path / "api")
+    assert not (tmp_path / "api").exists()
 
 
 def test_generate_sdk_api_requires_the_pinned_doxygen_version(
@@ -1577,13 +1686,26 @@ def test_pages_verifier_requires_api_reference_to_show_sdk_version(
         entries.append({"refid": refid, "fragment": fragment, "discoverable": True})
     manifest = {
         "sdk_version": version,
+        "source_commit": "a" * 40,
+        "public_headers": sorted(verifier.expected_header_paths()),
         "renderer": "m.css",
         "renderer_revision": "0123456789abcdef",
         "entries": entries,
     }
     manifest_path = api / "api-index.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    pinned = api / verifier.reference_path(version, manifest["source_commit"])
+    pinned.mkdir(parents=True)
+    shutil.copy2(manifest_path, pinned / "api-index.json")
+    shutil.copytree(fragments, pinned / "fragments")
     verifier.verify_sdk_api_version()
+    (pinned / entries[0]["fragment"]).write_text("<article>Changed reference</article>")
+    with pytest.raises(ValueError, match="differs from its immutable revision"):
+        verifier.verify_sdk_api_version()
+    manifest["public_headers"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not cover the public headers"):
+        verifier.verify_sdk_api_version()
     manifest["sdk_version"] = "UNSTAMPED"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="does not show version"):

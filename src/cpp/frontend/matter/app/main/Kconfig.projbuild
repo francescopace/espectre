@@ -1,3 +1,5 @@
+rsource "../../../Kconfig.projbuild"
+
 menu "ESPectre Matter"
 
 config ESPECTRE_MATTER_NODE_LABEL

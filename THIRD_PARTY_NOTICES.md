@@ -10,7 +10,7 @@ ESPectre firmware can be built with the following frameworks and components. The
 | --- | --- | --- | --- |
 | ESP-IDF | ESP32 framework, Wi-Fi, networking, TLS, MQTT, OTA, RTOS integration, and the BLE/NimBLE stack used by Matter | Apache-2.0 with bundled permissive third-party components | Compatible; preserve the build-specific notices |
 | ESP-IDF mDNS component | Direct DNS-SD advertisement and peer-assisted discovery in the C++ frontends and SDK Direct group | Apache-2.0 | Compatible; preserve the build-specific notices |
-| Espressif esp_tinyusb and TinyUSB | Optional ESP32-S2 USB CDC console; downloaded through Component Manager | Apache-2.0 (Espressif integration) and MIT (TinyUSB) | Compatible; preserve both license texts |
+| Espressif esp_tinyusb and TinyUSB | Native and ESPHome ESP32-S2 USB CDC console; downloaded through the frontend manifests | Apache-2.0 (Espressif integration) and MIT (TinyUSB) | Compatible; preserve both license texts |
 | Improv Wi-Fi SDK for C++ | Shared Improv Serial framing for Native and Matter | Apache-2.0 | Compatible; the Native and Matter frontend manifests pin `improv/improv` from the ESP Component Registry |
 | esp-matter and Matter SDK | Matter frontend | Apache-2.0 | Compatible; preserve `NOTICE`, and do not imply Matter certification or trademark rights |
 | ESPHome C++ runtime | ESPHome frontend | GPL-3.0-only | Not included in the commercial track; ESPHome firmware is GPLv3-only |

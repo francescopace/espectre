@@ -60,6 +60,8 @@ The packager copies an explicit set of SDK files and stamps the same version int
 
 It writes `espectre-component-<version>.tgz` and `component-inventory.json` beside the component directory. The inventory records the archive SHA-256 and every file hash. Existing GitHub/web SDK archives retain their directory layout and manifest format. Repeating a build with the same source, version, and source timestamp produces identical archives.
 
+The packaged README links to the generated API reference for its source version and full commit. CI retains that reference as `sdk-api-<version>-<commit>.zip`, and Snapshot and Release upload it with the SDK bundles. Registry snapshot suffixes identify the distribution channel; their API links use the underlying source version. These archives have immutable names, including on rolling releases: retries skip identical contents and reject replacements. Keep the archives to preserve links from previously distributed SDKs.
+
 The verifier checks the local archive and inventory byte for byte before contacting a registry. For registry downloads and installed components, it compares every value in the root `idf_component.yml` after parsing YAML: Component Manager can reorder keys or change line wrapping when packaging an upload. Scalar types, list order, and all manifest fields must match the verified local archive. All other files retain exact SHA-256 checks, including the example manifests; added or missing files fail verification.
 
 To check an extracted artifact with ESP-IDF 5.5.5 in the current shell:
@@ -73,9 +75,9 @@ python .github/scripts/verify_sdk_component.py build \
   --destination /tmp/espectre-sdk-check --target esp32c3
 ```
 
-Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`, including TinyUSB for S2 with all groups. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.5 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups and TinyUSB form a twelve-build matrix.
+Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.5 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. Native and ESPHome firmware builds on S2 cover the frontend-owned TinyUSB console.
 
-The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`; enabling the S2 TinyUSB console additionally requires `espressif/esp_tinyusb` and `espressif/tinyusb`. The manifest selects these dependencies through Kconfig conditions. It pins `espressif/mdns` to `1.12.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. Run the Direct compile and link checks before changing that pin.
+The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and pins it to `1.12.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. Run the Direct compile and link checks before changing that pin.
 
 ### Registry setup
 
@@ -114,7 +116,9 @@ Registry snapshot versions append `.main` or `.develop` to the git-describe vers
 
 The publish job ends after the upload action confirms processing. The SDK verification workflow downloads and compares the registry component and its separately published example once, then shares the verified example with the twelve-build matrix. This download is also the availability check; there is no separate post-upload poll in the publish job. Registry reads disable the Component Manager HTTP cache so retries can observe a newly propagated version. Each build resolves the SDK from staging and checks the installed version and contents. The `SDK Staging Verified` job records success only after the upload and complete verification matrix succeed. GitHub snapshot and website publication run alongside the registry jobs within the Snapshot run. A publication or staging verification failure fails that run; the originating CI retains its check results. Snapshots never upload to the production registry.
 
-To consume a snapshot, take its exact version from `component-inventory.json` in the `registry-component` artifact, and set that version and `registry_url: https://components-staging.espressif.com` on the `francescopace/espectre` dependency in your project's `idf_component.yml`. Scope this URL to the SDK dependency so other dependencies continue to resolve from production.
+To consume a snapshot, take its exact version from `component-inventory.json` in the `registry-component` artifact, and set that version and `registry_url: https://components-staging.espressif.com` on the `francescopace/espectre` dependency in your project's `idf_component.yml`. Scope this URL to the SDK dependency. The SDK manifest explicitly sets the production registry for mDNS; without that field, staging can associate transitive dependencies with its own registry, where the required versions may be unavailable. Each build checks that enabled external dependencies resolve from production.
+
+Registry builds also disable the HTTP cache inside the build container and retry for up to ten minutes if the resolver cannot yet find the exact SDK version. This covers index propagation differences between runners after the initial download succeeds. Other dependency errors, compiler failures, and installed-content mismatches fail immediately.
 
 ### Staging snapshot retention
 
@@ -144,7 +148,9 @@ Retry a failed release publication through **Re-run failed jobs** on the Release
 
 ### Website deployment
 
-Both publishers dispatch `pages.yml` on `main` after building and verifying the website, and wait for the deployment result. The separate branch run avoids the existing Pages issue with tag deployments reusing an older artifact for the same commit. It validates the source publication workflow, attempt, main ancestry, and completed prerequisite jobs, then deploys the exact Pages archive and sitemap from the successful website build attempt. A superseded snapshot website is rejected. The deployment checks the live channel catalogs and signing keys before notifying IndexNow.
+Both publishers dispatch `pages.yml` on `main` after building and verifying the website, and wait for the deployment result. The separate branch run avoids the existing Pages issue with tag deployments reusing an older artifact for the same commit. It validates the source publication workflow, attempt, main ancestry, and completed prerequisite jobs, then downloads the Pages archive and sitemap from the successful website build attempt. A superseded snapshot website is rejected.
+
+Before upload, the serialized Pages job restores API references from published GitHub release assets into the archive's immutable revision directories. It validates each archive and rejects conflicting contents for the same SDK version and commit. The remaining website files retain their verified contents. Restoring history at deployment time includes references published while the source website was building. New Develop references become available on the website after the next Pages deployment. The deployment checks the live channel catalogs and signing keys before notifying IndexNow.
 
 For a website-only retry, rerun the failed Pages job, or dispatch `pages.yml` on `main` with the Snapshot or Release run ID as `pages_run_id` and its current attempt as `pages_run_attempt`. This does not publish firmware or registry components.
 

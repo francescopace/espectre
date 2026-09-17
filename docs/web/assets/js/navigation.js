@@ -329,6 +329,7 @@
                 }
                 return manifest;
             });
+        promise.catch(() => apiReferenceManifestPromises.delete(url));
         apiReferenceManifestPromises.set(url, promise);
         return promise;
     }
@@ -336,6 +337,21 @@
     function apiReferenceLocation() {
         const params = new URLSearchParams(window.location.search);
         return { refid: params.get('api') || '', member: params.get('member') || '' };
+    }
+
+    function apiReferenceSource(indexUrl, search = window.location.search) {
+        const params = new URLSearchParams(search);
+        const version = params.get('sdk');
+        const commit = params.get('commit');
+        const base = indexUrl.slice(0, indexUrl.lastIndexOf('/') + 1);
+        if (version === null && commit === null) return { index: indexUrl, base };
+        if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/.test(version || '')
+            || version !== version.trim()
+            || !/^[0-9a-f]{40}$/.test(commit || '') || commit.length !== 40) {
+            throw new Error('SDK reference requires a version and full source commit');
+        }
+        const pinnedBase = `${base}revisions/${commit}/${encodeURIComponent(version)}/`;
+        return { index: `${pinnedBase}api-index.json`, base: pinnedBase, version, commit };
     }
 
     function updateApiReferenceLocation(refid, member, replace = false) {
@@ -481,19 +497,11 @@
         if (showingOverview) member = '';
         content.setAttribute('aria-busy', 'true');
         try {
-            let fragment = null;
-            if (!showingOverview) {
-                const response = await fetch(`/artifacts/sdk/api/${entry.fragment}`);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                fragment = await response.text();
-            }
+            const response = await fetch(`${browser.apiReferenceBase}${entry.fragment}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const fragment = await response.text();
             if (browser.apiReferenceRequestId !== requestId) return;
-            if (showingOverview) {
-                const overview = browser.apiReferenceOverview.cloneNode(true);
-                content.replaceChildren(...overview.childNodes);
-            } else {
-                content.replaceChildren(parsePassiveApiReferenceFragment(fragment));
-            }
+            content.replaceChildren(parsePassiveApiReferenceFragment(fragment));
             browser.dataset.apiReferenceCurrent = entry.refid;
             renderApiReferencePicker(browser, manifest);
             refreshApiReferenceToc(browser);
@@ -536,11 +544,50 @@
         );
     }
 
+    async function loadApiReference(browser) {
+        const loadId = (browser.apiReferenceLoadId || 0) + 1;
+        browser.apiReferenceLoadId = loadId;
+        browser.apiReferenceRequestId = (browser.apiReferenceRequestId || 0) + 1;
+        browser.apiReferenceManifest = null;
+        closeApiReferencePicker(browser);
+        const filter = browser.querySelector('[data-api-reference-filter]');
+        filter.disabled = true;
+        filter.value = 'Loading symbols…';
+        const content = browser.querySelector('[data-api-reference-content]');
+        content.replaceChildren();
+        content.setAttribute('aria-busy', 'true');
+        try {
+            const source = apiReferenceSource(browser.dataset.apiIndex);
+            const manifest = await apiReferenceManifest(source.index);
+            if (browser.apiReferenceLoadId !== loadId) return;
+            if (source.commit && (manifest.source_commit !== source.commit || manifest.sdk_version !== source.version)) {
+                throw new Error('SDK reference identity does not match the requested version and commit');
+            }
+            const resolved = source.commit ? source : apiReferenceSource(browser.dataset.apiIndex,
+                `?${new URLSearchParams({ sdk: manifest.sdk_version, commit: manifest.source_commit })}`);
+            browser.apiReferenceManifest = manifest;
+            browser.apiReferenceBase = resolved.base;
+            const label = browser.querySelector('[data-api-reference-version]');
+            label.textContent = `SDK ${manifest.sdk_version} · ${manifest.source_commit.slice(0, 7)}`;
+            label.title = manifest.source_commit;
+            filter.disabled = false;
+            renderApiReferencePicker(browser, manifest);
+            const initial = apiReferenceLocation();
+            await showApiReference(browser, initial.refid || manifest.default, initial.member);
+        } catch (error) {
+            if (browser.apiReferenceLoadId !== loadId) return;
+            console.warn('API reference manifest fetch failed:', error);
+            browser.querySelector('[data-api-reference-version]').textContent = 'reference unavailable';
+            filter.value = 'Symbols unavailable';
+            content.textContent = 'The requested SDK API reference could not be loaded.';
+            content.removeAttribute('aria-busy');
+            refreshApiReferenceToc(browser);
+        }
+    }
+
     function initApiReferenceBrowsers(root = document) {
         root.querySelectorAll('[data-api-reference-browser]:not([data-api-reference-initialized])').forEach((browser) => {
             browser.dataset.apiReferenceInitialized = 'true';
-            const content = browser.querySelector('[data-api-reference-content]');
-            browser.apiReferenceOverview = content.cloneNode(true);
             browser.addEventListener('click', (event) => apiReferenceClick(event, browser));
             const picker = browser.querySelector('[data-api-reference-picker]');
             const popover = browser.querySelector('[data-api-reference-popover]');
@@ -582,16 +629,7 @@
                     closeApiReferencePicker(browser);
                 }
             });
-            apiReferenceManifest(browser.dataset.apiIndex).then((manifest) => {
-                browser.apiReferenceManifest = manifest;
-                browser.querySelector('[data-api-reference-version]').textContent = `SDK ${manifest.sdk_version}`;
-                renderApiReferencePicker(browser, manifest);
-                const initial = apiReferenceLocation();
-                showApiReference(browser, initial.refid || manifest.default, initial.member);
-            }).catch((error) => {
-                console.warn('API reference manifest fetch failed:', error);
-                browser.querySelector('[data-api-reference-version]').textContent = 'index unavailable';
-            });
+            loadApiReference(browser);
         });
         root.querySelectorAll('[data-api-reference-ref]:not([data-api-reference-link-initialized])').forEach((link) => {
             if (link.closest('[data-api-reference-browser]')) return;
@@ -616,9 +654,8 @@
     window.addEventListener?.('scroll', schedulePageTocUpdate, { passive: true });
     window.addEventListener?.('resize', schedulePageTocUpdate);
     window.addEventListener?.('popstate', () => {
-        const location = apiReferenceLocation();
         document.querySelectorAll('[data-api-reference-browser][data-api-reference-initialized]').forEach((browser) => {
-            if (browser.apiReferenceManifest) showApiReference(browser, location.refid, location.member);
+            loadApiReference(browser);
         });
     });
 

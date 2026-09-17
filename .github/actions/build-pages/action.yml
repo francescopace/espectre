@@ -68,7 +68,7 @@ runs:
 
     - name: Generate SDK API reference
       shell: bash
-      run: python3 .github/scripts/generate_sdk_api.py
+      run: python3 .github/scripts/generate_sdk_api.py --archive-dir .cache/sdk-api
 
     - name: Generate sitemap lastmod values
       shell: bash

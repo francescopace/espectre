@@ -83,7 +83,6 @@ target_link_libraries(espectre_core_testlib
 
 add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/csi_traffic_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/primary_console.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"

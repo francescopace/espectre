@@ -86,7 +86,7 @@ def load_package(path: Path) -> tuple[dict, dict[str, bytes]]:
     require_same_files(hashes(files), inventory["files"])
     manifest = yaml.safe_load(files["idf_component.yml"])
     metadata = json.loads(files["sdk-metadata.json"])
-    example = yaml.safe_load(files["examples/basic/main/idf_component.yml"])
+    example = yaml.safe_load(files["examples/wifi_motion_detection/main/idf_component.yml"])
     if (manifest["version"] != inventory["version"]
             or metadata != {"component": COMPONENT_NAME, "version": inventory["version"], "commit": inventory["commit"]}
             or example["dependencies"][COMPONENT_NAME]["version"] != inventory["version"]):
@@ -140,9 +140,9 @@ def write_files(destination: Path, files: dict[str, bytes]) -> None:
 def registry_example(registry: str, inventory: dict, files: dict[str, bytes],
                      wait_seconds: int) -> dict[str, bytes]:
     metadata = registry_files(registry, inventory, files, wait_seconds)
-    example_url = next(item["url"] for item in metadata["examples"] if item["name"] == "basic")
+    example_url = next(item["url"] for item in metadata["examples"] if item["name"] == "wifi_motion_detection")
     example = archive_files(download(example_url))
-    prefix = "examples/basic/"
+    prefix = "examples/wifi_motion_detection/"
     expected = {name.removeprefix(prefix): data for name, data in files.items() if name.startswith(prefix)}
     require_same_files(hashes(example), hashes(expected))
     return example
@@ -154,8 +154,8 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
         raise ValueError("The verification project must be outside the checkout")
     if destination.exists() and any(destination.iterdir()):
         raise ValueError(f"Verification destination must be empty: {destination}")
-    project = destination / "basic"
-    example_prefix = "examples/basic/"
+    project = destination / "wifi_motion_detection"
+    example_prefix = "examples/wifi_motion_detection/"
     expected_example = {name.removeprefix(example_prefix): data for name, data in files.items()
                         if name.startswith(example_prefix)}
     if args.registry_url:
@@ -174,7 +174,7 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     dependency = manifest["dependencies"][COMPONENT_NAME]
     if args.registry_url:
-        # Scope staging to ESPectre; Espressif dependencies still use production.
+        # The SDK manifest separately pins external dependencies to production.
         dependency["registry_url"] = args.registry_url
     else:
         dependency["override_path"] = "../../francescopace__espectre"
@@ -188,10 +188,6 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
         output.write('\nCONFIG_ESPECTRE_EXAMPLE_WIFI_SSID="sdk-ci-placeholder"\n')
         for profile in profiles:
             output.write(f"CONFIG_ESPECTRE_SDK_ENABLE_{profile.upper()}=y\n")
-        if args.target == "esp32s2" and args.profile == "all":
-            output.write("CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE=y\n"
-                         "CONFIG_TINYUSB_CDC_ENABLED=y\n"
-                         "CONFIG_ESP_CONSOLE_NONE=y\n")
     print(f"Prepared {args.target}/{args.profile}: {project}")
 
 
@@ -217,23 +213,26 @@ def verify_dependencies(project: Path) -> None:
     config = json.loads((project / "build/config/sdkconfig.json").read_text(encoding="utf-8"))
     lock = yaml.safe_load((project / "dependencies.lock").read_text(encoding="utf-8"))
     for line in (project / "sdkconfig.defaults").read_text(encoding="utf-8").splitlines():
-        if line.startswith(("CONFIG_ESPECTRE_SDK_ENABLE_", "CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE=")):
+        if line.startswith("CONFIG_ESPECTRE_SDK_ENABLE_"):
             option, value = line.removeprefix("CONFIG_").split("=", 1)
             if config.get(option, False) != (value == "y"):
                 raise ValueError(f"SDK build did not apply requested option: {line}")
     expected = set()
     if config.get("ESPECTRE_SDK_ENABLE_DIRECT"):
         expected.add("espressif/mdns")
-    if config.get("ESPECTRE_TINYUSB_PRIMARY_CONSOLE"):
-        expected.update(("espressif/esp_tinyusb", "espressif/tinyusb"))
     actual = set(lock["dependencies"]) - {COMPONENT_NAME, "idf"}
     if actual != expected:
         raise ValueError(f"Unexpected SDK dependencies: expected {sorted(expected)}, got {sorted(actual)}")
+    for name in expected:
+        source = lock["dependencies"][name]["source"]
+        if (source["type"] != "service"
+                or source["registry_url"].rstrip("/") != "https://components.espressif.com"):
+            raise ValueError(f"SDK dependency did not resolve from production: {name}")
     print(f"Verified optional dependencies: {', '.join(sorted(actual)) or 'none'}")
 
 
 def build(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) -> None:
-    project = args.destination.resolve() / "basic"
+    project = args.destination.resolve() / "wifi_motion_detection"
     if project.is_relative_to(REPO_ROOT):
         raise ValueError("The build must run outside the checkout")
     if args.docker:
@@ -242,11 +241,33 @@ def build(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) ->
         from espectre_cli.idf_container import IDF_DOCKER_IMAGE
 
         command = ["docker", "run", "--rm", "-v", f"{project.parent}:/consumer",
-                   "-w", "/consumer/basic", IDF_DOCKER_IMAGE,
-                   "idf.py", f"-DIDF_TARGET={args.target}", "build"]
+                   "-w", "/consumer/wifi_motion_detection"]
+        if args.registry_url:
+            command.extend(["-e", "IDF_COMPONENT_CACHE_HTTP_REQUESTS=0"])
+        command.extend([IDF_DOCKER_IMAGE, "idf.py", f"-DIDF_TARGET={args.target}", "build"])
     else:
         command = ["idf.py", f"-DIDF_TARGET={args.target}", "build"]
-    subprocess.run(command, cwd=project, check=True)
+    if args.registry_url:
+        # Separate runners can observe different registry index propagation times.
+        # Retry only an unavailable SDK version, never a compiler or dependency error.
+        deadline = time.monotonic() + args.wait_seconds
+        missing_version = f"- no versions of {COMPONENT_NAME} match {inventory['version']}"
+        while True:
+            result = subprocess.run(command, cwd=project, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    env={**os.environ, "IDF_COMPONENT_CACHE_HTTP_REQUESTS": "0"})
+            print(result.stdout, end="", flush=True)
+            if result.returncode == 0:
+                break
+            unresolved_versions = [line.strip() for line in result.stdout.splitlines()
+                                   if line.strip().startswith("- no versions of ")]
+            if ("ERROR: Version solving failed:" not in result.stdout
+                    or unresolved_versions != [missing_version] or time.monotonic() >= deadline):
+                result.check_returncode()
+            print("Waiting for the SDK version to reach this build runner...", flush=True)
+            time.sleep(min(15, max(0, deadline - time.monotonic())))
+    else:
+        subprocess.run(command, cwd=project, check=True)
     verify_dependencies(project)
     if args.registry_url:
         verify_install(project, inventory, files, args.target)
@@ -309,7 +330,7 @@ def main() -> None:
     elif args.command == "build":
         build(args, inventory, files)
     else:
-        verify_install(args.destination / "basic", inventory, files, args.target)
+        verify_install(args.destination / "wifi_motion_detection", inventory, files, args.target)
 
 
 if __name__ == "__main__":

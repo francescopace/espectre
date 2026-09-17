@@ -1,3 +1,5 @@
+rsource "../../Kconfig.projbuild"
+
 menu "ESPectre Native Frontend"
 
     config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED

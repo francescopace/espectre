@@ -44,9 +44,6 @@ espectre::RuntimeFrontendController runtime;
 }  // namespace
 
 extern "C" void app_main() {
-#if CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE
-  ESP_ERROR_CHECK(espectre::initialize_primary_console());
-#endif
   if (!espectre::set_log_sink({nullptr, log_enabled, log_write})) {
     ESP_LOGE(TAG, "Unable to register SDK logging");
     return;

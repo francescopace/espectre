@@ -72,7 +72,7 @@ CSI callbacks validate and normalize frames before enqueueing them. The runtime 
 
 `EspectreCapabilityProfile` is the single C++ catalog for executable Direct methods, published event families, and visible configuration sections. Serialization and command enforcement consume the same profile.
 
-The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the raw CSI session. Transport adapters retain their own connection and queue state. [SDK.md](SDK.md#transport-adapters) describes deferred-request lifetimes.
+The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the raw CSI session. Transport adapters retain their own connection and queue state. The [integration reference](https://espectre.dev/sdk/api/?api=sdk_integration&member=integration_transport_adapters) describes deferred-request lifetimes.
 
 Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization; `runtime/esp_idf/peer_discovery_service_esp_idf` owns the asynchronous DNS-SD browse; and `runtime/esp_idf/mdns_bootstrap_responder` owns the shared IPv4 bootstrap response through the existing Espressif responder. Frontend shutdown and Wi-Fi reconfiguration release pending discovery work without retaining a peer inventory. [`DISCOVERY.md`](DISCOVERY.md#dns-sd-and-mdns) owns the advertisement, bootstrap wire behavior, request and result schemas, limits, and compatibility rules.
 
@@ -88,7 +88,9 @@ Frontend-specific schemas, transport bindings, and ecosystem integration belong 
 | Native | Compose Direct, MQTT, provisioning, Home Assistant discovery, and frontend OTA adapters around the shared runtime | [README.md](../src/cpp/frontend/native/README.md) |
 | Matter | Map runtime occupancy into Matter and expose the shared Direct bridge for detector controls | [README.md](../src/cpp/frontend/matter/README.md) |
 
-Frontends use the public sensing and optional services SDK headers. Their source lists are separate from the SDK source lists. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. Shared Improv Serial support lives in `frontend/`, outside the SDK. See [SDK.md](SDK.md#first-party-sdk-consumers) for the integration contract.
+Frontends use the public sensing and optional services SDK headers. Native, Matter, and ESPHome keep their source lists in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. Micro-ESPectre links the core and managed traffic groups through its MicroPython components, while MicroPython owns capture, calibration, and event delivery. See [CLI.md](CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle.
+
+Shared Improv Serial, console initialization, firmware version helpers, and OTA services live in `frontend/`, outside the SDK. Native and Matter link the shared Improv service and declare its external dependency. Native, Matter, and ESPHome supply their application version through `frontend_firmware_version()`; OTA services receive that version from their owner. The SDK provisioning service accepts credentials independently of the firmware's onboarding protocol.
 
 Frontends own logger registration and keep the sink alive until the runtime shuts down. Shared code does not depend on ESPHome logging or ESP-IDF `esp_log`.
 

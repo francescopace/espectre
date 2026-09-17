@@ -24,6 +24,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from build_sdk_package import stamp_doxyfile_project_number
 from detect_git_version import detect_git_version, parse_version_core
+from sdk_api_reference import reference_url, stage_archive, write_archive
 from web_html_security import passivize_api_fragment
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +64,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Use an existing m.css checkout instead of fetching the pinned revision.",
     )
+    parser.add_argument("--commit", help="Full source commit; defaults to HEAD.")
+    parser.add_argument("--archive-dir", type=Path, help="Write a reproducible API archive for release publication.")
     return parser.parse_args()
 
 
@@ -207,6 +210,9 @@ def compound_metadata(index_path: Path) -> dict[str, dict[str, str]]:
     for compound in root.findall("compound"):
         refid = compound.get("refid", "")
         name = (compound.findtext("name") or refid).strip()
+        if compound.get("kind") == "page":
+            page = ET.parse(index_path.with_name(f"{refid}.xml")).getroot()
+            name = page.findtext("compounddef/title") or name
         if refid:
             metadata[refid] = {
                 "refid": refid,
@@ -216,14 +222,14 @@ def compound_metadata(index_path: Path) -> dict[str, dict[str, str]]:
     return metadata
 
 
-def api_url(refid: str, anchor: str = "") -> str:
-    url = f"/sdk/api/?api={quote(refid)}"
+def api_url(refid: str, anchor: str = "", reference: str = "") -> str:
+    url = f"{reference}&api={quote(refid)}" if reference else f"/sdk/api/?api={quote(refid)}"
     if anchor:
         url += f"&member={quote(anchor)}"
     return url
 
 
-def rewrite_fragment_links(source: str, current_refid: str, known_refids: set[str]) -> str:
+def rewrite_fragment_links(source: str, current_refid: str, known_refids: set[str], reference: str = "") -> str:
     def replace(match: re.Match[str]) -> str:
         href = match.group("href")
         if href.startswith(("http://", "https://", "mailto:", "tel:")):
@@ -233,7 +239,7 @@ def rewrite_fragment_links(source: str, current_refid: str, known_refids: set[st
             if not anchor:
                 return match.group(0)
             return (
-                f'href="{api_url(current_refid, anchor)}" '
+                f'href="{api_url(current_refid, anchor, reference)}" '
                 f'data-api-reference-ref="{current_refid}" data-api-reference-member="{anchor}"'
             )
         page, separator, anchor = href.partition("#")
@@ -243,7 +249,7 @@ def rewrite_fragment_links(source: str, current_refid: str, known_refids: set[st
         if target_refid not in known_refids:
             return match.group(0)
         return (
-            f'href="{api_url(target_refid, anchor if separator else "")}" '
+            f'href="{api_url(target_refid, anchor if separator else "", reference)}" '
             f'data-api-reference-ref="{target_refid}"'
             + (f' data-api-reference-member="{anchor}"' if separator else "")
         )
@@ -261,15 +267,47 @@ def picker_discoverable(refid: str, kind: str, fragment: str) -> bool:
     return kind == "file" and 'class="m-doc-details"' in fragment
 
 
-def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version: str) -> None:
+def expected_header_paths() -> set[str]:
+    source = DOXYFILE.read_text(encoding="utf-8")
+    inputs = re.search(r"(?ms)^INPUT\s*=\s*(.*?)(?=^[A-Z_]+\s*=|\Z)", source)
+    if inputs is None:
+        raise ValueError("Doxyfile has no INPUT list")
+    return set(re.findall(r"src/cpp/([\w/]+\.h)\b", inputs.group(1)))
+
+
+def documented_header_paths(xml_directory: Path, rendered_refids: set[str]) -> set[str]:
+    headers = set()
+    for path in xml_directory.glob("*.xml"):
+        if path.stem not in rendered_refids:
+            continue
+        for node in ET.parse(path).getroot().findall("compounddef[@kind='file']/location"):
+            source = Path(node.get("file", ""))
+            if not source.is_absolute():
+                source = REPO_ROOT / source
+            if source.suffix == ".h" and source.is_relative_to(REPO_ROOT / "src/cpp"):
+                headers.add(source.relative_to(REPO_ROOT / "src/cpp").as_posix())
+    return headers
+
+
+def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version: str, commit: str) -> None:
     sources = sorted(rendered_directory.glob("*.html"))
     if not sources:
         raise ValueError("m.css generated no API fragments")
     known_refids = {path.stem for path in sources}
     metadata = compound_metadata(xml_directory / "index.xml")
+    headers = documented_header_paths(xml_directory, known_refids)
+    missing = expected_header_paths() - headers
+    if missing:
+        raise ValueError(f"Generated SDK reference is missing public headers: {sorted(missing)}")
 
+    reference = reference_url(sdk_version, commit)
     if API_OUTPUT_DIR.exists():
-        shutil.rmtree(API_OUTPUT_DIR)
+        for path in API_OUTPUT_DIR.iterdir():
+            if path.name != "revisions":
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
     fragments = API_OUTPUT_DIR / "fragments"
     fragments.mkdir(parents=True)
 
@@ -278,8 +316,12 @@ def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version
         refid = source.stem
         fragment = passivize_api_fragment(
             strip_contents_navigation(
-                rewrite_fragment_links(source.read_text(encoding="utf-8"), refid, known_refids)
+                rewrite_fragment_links(source.read_text(encoding="utf-8"), refid, known_refids, reference)
             )
+        )
+        fragment = fragment.replace(
+            "https://github.com/francescopace/espectre/blob/main/",
+            f"https://github.com/francescopace/espectre/blob/{commit}/",
         )
         if "<html" in fragment.lower() or "<body" in fragment.lower():
             raise ValueError(f"m.css template emitted a standalone document: {source.name}")
@@ -316,6 +358,8 @@ def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version
     manifest = {
         "schema_version": 1,
         "sdk_version": sdk_version,
+        "source_commit": commit,
+        "public_headers": sorted(headers),
         "renderer": "m.css",
         "renderer_revision": MCSS_COMMIT,
         "default": default_refid,
@@ -327,9 +371,12 @@ def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version
     )
 
 
-def generate_sdk_api(version: str | None = None, mcss_root: Path | None = None) -> str:
+def generate_sdk_api(version: str | None = None, mcss_root: Path | None = None,
+                     commit: str | None = None, archive_dir: Path | None = None) -> str:
     sdk_version = version or detect_git_version()
     parse_version_core(sdk_version)
+    source_commit = commit or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+    reference_url(sdk_version, source_commit)
 
     with tempfile.TemporaryDirectory(prefix="espectre-doxy-") as tmp_dir:
         work_directory = Path(tmp_dir) / "api"
@@ -343,14 +390,16 @@ def generate_sdk_api(version: str | None = None, mcss_root: Path | None = None) 
         xml_directory = work_directory / "xml"
         prune_private_members(xml_directory)
         run_mcss(stamped, mcss_root)
-        publish_fragments(work_directory / "rendered", xml_directory, sdk_version)
+        publish_fragments(work_directory / "rendered", xml_directory, sdk_version, source_commit)
+        archive = write_archive(API_OUTPUT_DIR, archive_dir or work_directory / "archive")
+        stage_archive(archive.read_bytes(), API_OUTPUT_DIR)
 
     return sdk_version
 
 
 def main() -> int:
     args = parse_args()
-    sdk_version = generate_sdk_api(args.version, args.mcss_root)
+    sdk_version = generate_sdk_api(args.version, args.mcss_root, args.commit, args.archive_dir)
     print(f"Generated SDK API fragments for {sdk_version}.")
     return 0
 

@@ -5,7 +5,8 @@ ESPectre - SDK Surface Invariants
 
 Guards the invariants that keep the published C++ SDK surface coherent, which
 a compiler cannot see because they hold across separate artifacts: the
-`espectre_sdk.h` facade, the Doxygen input list, and the SDK guide.
+`espectre_sdk.h` facade and the Doxygen input list. Generation also checks
+that the supported headers appear in the emitted XML.
 
 The failure these protect against is a real one: a public type added to the
 runtime layer, used in a facade-visible signature, but never made reachable
@@ -273,25 +274,12 @@ def test_core_facade_is_complete_documented_and_mapped() -> None:
         f"{sorted(CORE_IMPLEMENTATION_HEADERS & doxygen_input_headers())}"
     )
 
+def test_sdk_readme_links_the_public_facades_to_the_reference() -> None:
+    """The README exposes the supported entry points and generated reference."""
     guide = SDK_GUIDE.read_text(encoding="utf-8")
-    documented = set(re.findall(r"`([\w/]+\.h)`", guide))
-    assert not (CORE_PUBLIC_HEADERS - documented), (
-        f"supported core SDK headers are missing from the {SDK_GUIDE.name} "
-        f"header map: {sorted(CORE_PUBLIC_HEADERS - documented)}"
-    )
-
-
-def test_supported_headers_appear_in_the_sdk_header_map() -> None:
-    """The SDK guide's header map is the human index of the same surface."""
-    guide = SDK_GUIDE.read_text(encoding="utf-8")
-    # The map groups related headers on one row, so match anywhere in the guide
-    # rather than trying to parse the table structure.
-    documented = set(re.findall(r"`([\w/]+\.h)`", guide))
-    missing = sorted(facade_reachable_header_names() - documented)
-    assert not missing, (
-        f"headers reachable from {FACADE.name} are missing from the {SDK_GUIDE.name} "
-        f"header map: {missing}"
-    )
+    for facade in (FACADE, CORE_FACADE, SERVICES_FACADE, MQTT_FACADE):
+        assert f"`{facade.name}`" in guide
+    assert "https://espectre.dev/sdk/api/" in guide
 
 
 @pytest.mark.parametrize("header", sorted(set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE))), ids=lambda path: path.name)
@@ -307,9 +295,6 @@ def test_services_facade_is_documented_without_exposing_detector_internals() -> 
     headers = {p.relative_to(CPP_ROOT).as_posix() for p in include_closure(SERVICES_FACADE) + include_closure(MQTT_FACADE)}
     assert not headers & RUNTIME_INTERNAL_HEADERS
     assert headers <= doxygen_input_headers()
-    guide = SDK_GUIDE.read_text(encoding="utf-8")
-    for header in headers:
-        assert f"`{header}`" in guide, f"missing services SDK header map entry: {header}"
 
 
 def test_frontends_use_only_public_sdk_headers() -> None:

@@ -13,7 +13,7 @@
 
 - Use `CLI.md`, `src/python/micro_espectre/README.md`, the relevant frontend README, and `./espectre --help` for CLI syntax and operator workflows.
 - Use `SETUP.md` for installation, initial configuration, sensor placement, the first detection check, and the USB versus OTA workflow for signed published firmware; use `TROUBLESHOOTING.md` for connectivity, sensing diagnostics, and practical tuning.
-- Use `SDK.md` for shared configuration and integration contracts, `CSI.md` for traffic sources and CSI acquisition, and `ARCHITECTURE.md` for code layout, layer responsibilities, and execution flow. Keep public messages, operations, external traffic markers, and stream formats in `API.md`, and discovery contracts in `DISCOVERY.md`.
+- Use `SDK.md` for SDK installation, shared configuration, and essential integration rules. Public header comments and `src/cpp/sdk_integration.dox` own detailed API and integration contracts in the generated reference. Use `CSI.md` for traffic sources and CSI acquisition, and `ARCHITECTURE.md` for code layout, layer responsibilities, and execution flow. Keep public messages, operations, external traffic markers, and stream formats in `API.md`, and discovery contracts in `DISCOVERY.md`.
 - Use `ALGORITHMS.md`, `FEATURES.md`, `ML_DATA_COLLECTION.md`, and `ML_TRAINING.md` for detector behavior, feature inventory, collection, and training workflows.
 - Use `performance/README.md`, `LITERATURE.md`, and `data/auto_generated/DATASET_QUALITY_CHECK.md` for benchmark status, external research, collection backlog, and dataset quality.
 - Use `RELEASING.md` for maintainer procedures covering firmware signing, SDK packaging, and publication.

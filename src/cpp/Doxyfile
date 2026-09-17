@@ -41,6 +41,7 @@ XML_PROGRAMLISTING     = NO
 # reference is the entry point of the code. docs/SDK.md is deliberately
 # not an input: its links are repository-relative and only resolve on GitHub.
 INPUT                  = src/cpp/espectre_sdk.h \
+                         src/cpp/sdk_integration.dox \
                          src/cpp/espectre_core_sdk.h \
                          src/cpp/runtime/espectre_sdk_version.h \
                          src/cpp/runtime/csi_raw_record.h \
@@ -86,7 +87,6 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/mqtt_transport_esp_idf.h \
                          src/cpp/runtime/esp_idf/nvs_helpers.h \
                          src/cpp/runtime/esp_idf/peer_discovery_service_esp_idf.h \
-                         src/cpp/runtime/esp_idf/primary_console.h \
                          src/cpp/runtime/esp_idf/raw_csi_session_controller.h \
                          src/cpp/runtime/esp_idf/runtime_direct_http_bridge.h \
                          src/cpp/runtime/esp_idf/standalone_wifi_service.h \

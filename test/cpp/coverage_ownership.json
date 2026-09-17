@@ -70,7 +70,6 @@
       "kind": "host_test",
       "owners": ["test_runtime_helpers", "test_csi_pipeline"],
       "sources": [
-        "src/cpp/runtime/esp_idf/primary_console.cpp",
         "src/cpp/runtime/esp_idf/csi_capture_service.cpp",
         "src/cpp/runtime/esp_idf/csi_pipeline.cpp",
         "src/cpp/runtime/esp_idf/csi_payload_normalizer.cpp",
@@ -164,6 +163,7 @@
       "owners": ["test_sensor_publisher", "test_frontend_controls"],
       "sources": [
         "src/cpp/frontend/frontend_firmware_version.cpp",
+        "src/cpp/frontend/primary_console.cpp",
         "src/cpp/frontend/esphome/components/espectre/esphome_log_sink.cpp",
         "src/cpp/frontend/esphome/components/espectre/recalibrate_button.cpp",
         "src/cpp/frontend/esphome/components/espectre/sensing_switch.cpp",

@@ -38,6 +38,7 @@
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
+#include "primary_console.h"
 
 static const char *TAG = "espectre.matter.app";
 

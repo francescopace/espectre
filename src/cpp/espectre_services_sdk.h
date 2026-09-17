@@ -29,7 +29,6 @@
 #include "runtime/esp_idf/mdns_discovery_service.h"
 #include "runtime/esp_idf/nvs_helpers.h"
 #include "runtime/esp_idf/peer_discovery_service_esp_idf.h"
-#include "runtime/esp_idf/primary_console.h"
 #include "runtime/esp_idf/raw_csi_session_controller.h"
 #include "runtime/esp_idf/runtime_direct_http_bridge.h"
 #include "runtime/esp_idf/standalone_wifi_service.h"

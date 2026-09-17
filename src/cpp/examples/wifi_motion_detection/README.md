@@ -1,17 +1,17 @@
-# Basic ESPectre integration
+# Wi-Fi motion detection with ESPectre
 
 This ESP-IDF project connects to Wi-Fi and logs motion events through the public SDK. It owns the Wi-Fi station and default event loop; integrate the sensing controller with your existing Wi-Fi lifecycle when embedding it in another application.
 
 ## Create the project
 
-Use ESP-IDF 5.5.5. The first public registry release is planned for ESPectre 3.0.0. Once published, create a standalone project from the registry example:
+Use ESP-IDF 5.5.5. Create a standalone project from the registry example:
 
 ```sh
-idf.py create-project-from-example "francescopace/espectre=3.0.0:basic"
-cd basic
+idf.py create-project-from-example "francescopace/espectre=3.0.0:wifi_motion_detection"
+cd wifi_motion_detection
 ```
 
-Component Manager downloads the example and resolves its SDK dependency when configuring the project. The default configuration needs only ESP-IDF and ESPectre. Enabling Direct adds mDNS; enabling the optional USB console on ESP32-S2 adds TinyUSB. These dependencies are selected from menuconfig settings. After changing either option in an existing project, run `idf.py update-dependencies` to refresh the lockfile before building.
+Component Manager downloads the example and resolves its SDK dependency when configuring the project. The default configuration needs only ESP-IDF and ESPectre. Enabling Direct in menuconfig adds mDNS. After changing that option in an existing project, run `idf.py update-dependencies` to refresh the lockfile before building. The application owns its console configuration; select the appropriate ESP-IDF console for your board, or add and initialize TinyUSB in your application if needed.
 
 ## Build and run
 
@@ -36,6 +36,6 @@ Confirm that the startup log reports the expected SDK version, Wi-Fi connects, s
 
 ## Optional service build checks
 
-The repository's SDK verifier generates CI configuration for individual SDK service groups or all groups together. `optional_services.cpp` references their implementations to catch missing link dependencies, but does not start MQTT or Direct servers. The ESP32-S2 build with all groups additionally exercises the TinyUSB console. The default example only uses sensing and Wi-Fi.
+The repository's SDK verifier generates CI configuration for individual SDK service groups or all groups together. `optional_services.cpp` references their implementations to catch missing link dependencies, but does not start MQTT or Direct servers. The default example only uses sensing and Wi-Fi.
 
 The public package uses GPL-3.0-only. A separate commercial agreement is available for proprietary integration. See the component's licensing files and <https://espectre.dev/sdk/> for the complete integration guide.

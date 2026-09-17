@@ -1,0 +1,13 @@
+menu "ESPectre Firmware"
+
+config ESPECTRE_TINYUSB_PRIMARY_CONSOLE
+    bool "Use TinyUSB CDC as the primary console"
+    depends on IDF_TARGET_ESP32S2
+    default n
+    help
+        Install a TinyUSB CDC ACM device and redirect stdin, stdout, and
+        stderr to it. Enable this on ESP32-S2 USB-OTG boards whose ROM USB
+        CDC console is not a reliable bidirectional application transport.
+        Leave it disabled for UART and USB Serial/JTAG consoles.
+
+endmenu

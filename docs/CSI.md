@@ -104,7 +104,7 @@ The CSI callback classifies packet provenance against the traffic mode before da
 
 On 2026-09-12, a Native hardware comparison tested 512-, 256-, and 128-byte raw queue slots on ESP32-C3 and ESP32-C5 with a pinned access point and host traffic at 100 and 500 pps. All three slot sizes produced valid normalized records. Intermittent queue drops occurred at multiple sizes, so these short runs do not establish a throughput advantage for larger slots.
 
-In the same comparison, classic ESP32 capture rejected frames with invalid first words before they reached the queue at all three slot sizes. Those runs could not measure raw throughput on that board: a stream with no accepted CSI cannot validate queue performance. The results cover only the tested Native configurations. The 128-byte slot size follows the normalized capture bound documented in [SDK.md](SDK.md#raw-csi-storage); changing slot capacity does not resolve capture-quality failures.
+In the same comparison, classic ESP32 capture rejected frames with invalid first words before they reached the queue at all three slot sizes. Those runs could not measure raw throughput on that board: a stream with no accepted CSI cannot validate queue performance. The results cover only the tested Native configurations. The 128-byte slot size follows the normalized capture bound documented in the [integration reference](https://espectre.dev/sdk/api/?api=sdk_integration&member=integration_raw_csi_storage); changing slot capacity does not resolve capture-quality failures.
 
 ## Compatibility limits
 

@@ -25,6 +25,6 @@ Generate ESPHome's Python validation constants from the canonical public SDK hea
 
 ## Consequences
 
-The optional service interfaces become maintained integration contracts. Their private members and implementation dependencies are not independent extension points. SDK reference generation, header maps, and source-compatibility checks cover the additional facade.
+The optional service interfaces become maintained integration contracts. Their private members and implementation dependencies are not independent extension points. SDK reference generation verifies that the public headers produce rendered pages, and source-compatibility checks cover the additional facade. The registry README introduces the four facades and links to the complete reference for the packaged source version and commit.
 
-The dependency check detects frontend use of private SDK headers, including those shipped in the bundle. Frontend builds against an extracted SDK detect dependencies on the repository layout. See [SDK.md](../SDK.md#first-party-sdk-consumers) for the validation workflow.
+The dependency check detects frontend use of private SDK headers, including those shipped in the bundle. Frontend builds against an extracted SDK detect dependencies on the repository layout. See [CLI.md](../CLI.md#building-against-an-sdk-bundle) for the validation workflow.

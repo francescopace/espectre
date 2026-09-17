@@ -18,6 +18,8 @@ Complete the local build prerequisites in [CLI.md](../../../../docs/CLI.md#local
 
 `--ota-channel` sets the default channel for OTA requests. See [CLI.md](../../../../docs/CLI.md#native-and-matter) for build, upload, and console options. Improv Serial uses the target's primary serial console, including TinyUSB CDC on maintained USB-OTG configurations that need it.
 
+Console setup lives in the shared frontend `primary_console` implementation. Native declares TinyUSB for ESP32-S2 and enables `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` in that target's defaults; its menuconfig option is under **ESPectre Firmware**. These sources and dependencies are outside the SDK package.
+
 Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S2, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files.
 
 ## Direct HTTP
@@ -109,7 +111,9 @@ Confirm that the endpoint reports `configured: true`, that the broker hostname r
 
 ## Implementation Map
 
-The frontend uses public SDK headers. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. See [SDK.md](../../../../docs/SDK.md#first-party-sdk-consumers) for source groups and validation.
+The frontend uses public SDK headers. See [CLI.md](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+
+Native links `ESPECTRE_FRONTEND_OTA_SOURCES` from the shared frontend sources. `ota_service.h` defines the update interface, `ota_service_https.h` implements HTTPS updates from ESPectre release catalogs, and `ota_protocol.h` exposes them as a protocol extension. `frontend_ota_protocol()` supplies the OTA routes, parameter validation, and events. Its validator normalizes decoded parameters so the selected channel is independent of MQTT envelope values and JSON escapes. These files remain outside the SDK.
 
 Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry in their frontend manifests. The shared Improv Serial service uses this dependency, which the SDK excludes.
 

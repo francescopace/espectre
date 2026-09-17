@@ -24,6 +24,7 @@
 #include "frontend_firmware_version.h"
 #include "improv_serial_service.h"
 #include "ota_service_https.h"
+#include "primary_console.h"
 
 static const char *TAG = "espectre.native.app";
 

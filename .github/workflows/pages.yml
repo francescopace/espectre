@@ -102,7 +102,12 @@ jobs:
           name: ${{ steps.source.outputs.pages_artifact }}
           path: source-pages
 
-      - name: Upload the same Pages archive for this dispatch
+      - name: Preserve SDK API reference history
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 .github/scripts/sdk_api_reference.py restore-pages --repository "$GITHUB_REPOSITORY" --archive source-pages/artifact.tar
+
+      - name: Upload the verified Pages archive with API history
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: github-pages

@@ -25,6 +25,7 @@
 
 #include "frontend_firmware_version.h"
 #include "frontend_loop_timer.h"
+#include "primary_console.h"
 #include "sdkconfig.h"
 
 #include <cctype>

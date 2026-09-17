@@ -13,6 +13,8 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 The maintained examples enable Improv Serial, return a Device settings URL after provisioning, and keep SSID, password, and BSSID out of YAML.
 
+On ESP32-S2 with the USB CDC logger, the frontend initializes the shared TinyUSB primary console and routes the logger and Improv Serial through it. The frontend owns this USB dependency and console setup; both are outside the SDK package.
+
 For an unstable access-point association, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). ESPectre stores a BSSID pin separately from ESPHome's Wi-Fi credentials and applies it without rewriting YAML or rebooting. A failed update reconnects once with the previous pin. The request contract is in [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection), and the capture lifecycle is in [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle).
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
@@ -309,7 +311,9 @@ esphome logs <your-config>.yaml --device espectre.local
 
 ## Implementation Map
 
-The frontend uses public SDK headers. Set `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. See [SDK.md](../../../../docs/SDK.md#first-party-sdk-consumers) for source groups and validation.
+The frontend uses public SDK headers. See [CLI.md](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+
+ESPHome imports constants from the checked-in `sensing_schema.py`, generated from the public SDK schema. Importing the component does not read C++ headers. During configuration, CMake compares the schema fingerprint with the selected SDK and rejects mismatches before compilation.
 
 This map is for component maintainers; it is not required for normal installation or tuning.
 

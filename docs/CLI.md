@@ -37,6 +37,21 @@ When the local environment is absent and Docker is running, a cached image is us
 
 Docker covers firmware compilation only; flashing still uses host serial tooling. If neither build backend is available, build an ESPHome configuration once to provision its native toolchain, install Docker, or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
 
+### Building against an SDK bundle
+
+Repository builds compile the SDK from the current checkout by default. To build Native, Matter, ESPHome, or Micro-ESPectre against an extracted GitHub/web SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory. Run the command for your frontend from the repository root:
+
+```bash
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre native build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre matter build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre esphome build --chip c3
+ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre micro build --chip c3
+```
+
+Native, Matter, and Micro-ESPectre pass the selected SDK path to CMake. Changing or unsetting `ESPECTRE_SDK_ROOT` reconfigures an existing build. Their Docker backend forwards the selection and mounts bundles outside the checkout read-only at distinct container paths. Add `--backend docker` to select that backend. Micro-ESPectre resolves its firmware version from the frontend checkout independently of the selected SDK.
+
+These builds check that the firmware can consume the packaged public SDK without relying on SDK files from the repository checkout. [ARCHITECTURE.md](ARCHITECTURE.md#srccppfrontend) describes the source boundaries; each frontend README covers its integration details.
+
 ### Optional compiler cache
 
 `ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. The local `./espectre` backend enables it automatically when `ccache` is on `PATH`. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.

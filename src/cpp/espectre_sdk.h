@@ -17,10 +17,15 @@
  * implementation dependencies that merely ship in the bundle are internal and
  * may change in any release.
  *
- * Start at espectre_sdk.h for the integration model, the threading contract,
- * and a working example. The
- * [full SDK guide](https://github.com/francescopace/espectre/blob/main/docs/SDK.md)
- * covers build integration, install surfaces, and release channels.
+ * Start with the
+ * [SDK README](https://github.com/francescopace/espectre/blob/main/docs/SDK.md)
+ * for installation and a minimal application. Use espectre_sdk.h for the
+ * sensing runtime, espectre_core_sdk.h for custom capture pipelines,
+ * espectre_services_sdk.h for optional services, and espectre_mqtt_sdk.h
+ * for the ESP-IDF MQTT implementation.
+ *
+ * @ref sdk_integration documents lifecycle, threading, source compatibility,
+ * and advanced integration contracts for this version of the SDK.
  */
 
 /**
@@ -30,8 +35,7 @@
  * ESPectre turns ordinary Wi-Fi traffic into a motion signal: it captures
  * Channel State Information from the radio, extracts features, and reports a
  * debounced motion state. This header is the supported entry point for
- * firmware that embeds that engine instead of flashing one of the published
- * frontends.
+ * firmware that embeds the sensing engine in its own application.
  *
  * @code
  * #include "espectre_sdk.h"
@@ -62,7 +66,7 @@
  *   networking, OTA, and the product surface. ESPectre owns Wi-Fi CSI capture,
  *   calibration, detection, and eventing behind
  *   `espectre::RuntimeFrontendController` and `espectre::IRuntimeListener`.
- *   Requires ESP-IDF >= 5.5.
+ *   Requires ESP-IDF >= 5.5.5 and < 5.6.0.
  * - **Core-only.** Your firmware already captures CSI. Include
  *   `espectre_core_sdk.h` and drive `espectre::LightweightDetector` or
  *   `espectre::HighAccuracyDetector` directly. `runtime/esp_idf/csi_pipeline.cpp`
@@ -83,9 +87,8 @@
  * - Keep callbacks bounded and non-blocking. Slow work delays `loop()` and can
  *   fill the bounded CSI mailbox, dropping incoming frames. Queue network I/O,
  *   NVS writes, and other blocking work for another task.
- * - Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct
- *   HTTP, and OTA adapters queue stack events and deliver their application callbacks
- *   from the frontend loop, so Native follows this rule without external locks.
+ * - Call `set_*_runtime()` only from the owner task. Queue commands received
+ *   by network callbacks and apply them from that task's loop.
  * - Do not drive the controller from inside `on_runtime_fault()` beyond
  *   `shutdown()`.
  * - Raw CSI packet callbacks are the deliberate exception to listener delivery:
@@ -104,8 +107,8 @@
  * follows the SDK version contract. The opt-in `espectre_core_sdk.h` facade is
  * the lower-level detector extension. The optional services and MQTT facades
  * expose supported ESP-IDF integration contracts. Headers included only as
- * implementation dependencies can change in any release. `docs/SDK.md`
- * defines the exact guarantees.
+ * implementation dependencies can change in any release. See
+ * @ref integration_versioning for the exact guarantees.
  *
  * @section sdk_licensing Licensing
  *

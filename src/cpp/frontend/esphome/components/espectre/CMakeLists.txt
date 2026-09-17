@@ -20,8 +20,19 @@ endif()
 include("${ESPECTRE_SDK_ROOT}/CMakeLists.txt")
 
 # ESPHome copies adapter sources from this directory only. Compile the shared
-# frontend helper here, without adding it to the standalone SDK source groups.
+# frontend helpers here, without adding them to the standalone SDK source groups.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     target_sources(${COMPONENT_LIB} PRIVATE ${ESPECTRE_FRONTEND_COMMON_SOURCES})
     target_include_directories(${COMPONENT_LIB} PUBLIC "${ESPECTRE_FRONTEND_ROOT}")
+    idf_component_optional_requires(PRIVATE esp_tinyusb espressif__esp_tinyusb)
+
+    if(CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE)
+        target_link_options(
+            ${COMPONENT_LIB}
+            INTERFACE
+                "LINKER:--wrap=esp_usb_console_available_for_read"
+                "LINKER:--wrap=esp_usb_console_read_buf"
+                "LINKER:--wrap=esp_usb_console_write_buf"
+        )
+    endif()
 endif()

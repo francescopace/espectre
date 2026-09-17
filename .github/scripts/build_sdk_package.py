@@ -35,6 +35,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from detect_git_version import parse_version_core
+from sdk_api_reference import API_URL, reference_url
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
@@ -62,6 +63,7 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/runtime/espectre_sdk_version.h"),
     Path("docs/SDK.md"),
     Path("src/cpp/Doxyfile"),
+    Path("src/cpp/sdk_integration.dox"),
     Path("src/cpp/runtime/espectre_protocol.h"),
     Path("src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"),
     Path("src/cpp/runtime/esp_idf/espectre_config/CMakeLists.txt"),
@@ -82,6 +84,7 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/Doxyfile"),
+    Path("src/cpp/sdk_integration.dox"),
     # The integration guide travels with the sources so a bundle is
     # self-contained: `doxygen src/cpp/Doxyfile` from the bundle root rebuilds
     # the API XML offline. Packaging rewrites OUTPUT_DIRECTORY to output because
@@ -341,9 +344,15 @@ def rewrite_bundle_doxyfile(path: Path, version: str) -> None:
     stamp_doxyfile_project_number(path, version)
 
 
-def rewrite_bundle_sdk_guide(path: Path, source_ref: str) -> None:
+def rewrite_bundle_sdk_guide(path: Path, source_ref: str, version: str | None = None) -> None:
     """Point repository-relative Markdown links at the exact packaged revision."""
     source = path.read_text(encoding="utf-8")
+    if version is not None:
+        commit = source_ref if re.fullmatch(r"[0-9a-f]{40}", source_ref) else subprocess.check_output(
+            ["git", "rev-parse", f"{source_ref}^{{commit}}"], cwd=REPO_ROOT, text=True,
+        ).strip()
+        pinned = reference_url(version, commit)
+        source = source.replace(API_URL + "?", pinned + "&").replace(API_URL + ")", pinned + ")")
 
     def replace_link(match: re.Match[str]) -> str:
         target = match.group(1)
@@ -409,8 +418,13 @@ def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
         version,
     )
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
-    rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref)
+    rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref, version)
     rewrite_bundle_sdk_facade(destination_root / "src" / "cpp" / "espectre_sdk.h", source_ref)
+    integration = destination_root / "src/cpp/sdk_integration.dox"
+    integration.write_text(integration.read_text(encoding="utf-8").replace(
+        "https://github.com/francescopace/espectre/blob/main/",
+        f"https://github.com/francescopace/espectre/blob/{source_ref}/",
+    ), encoding="utf-8")
     for name in ("LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         rewrite_packaged_document(destination_root / name, Path(name), destination_root, source_ref)
     validate_stamped_sdk_identity(destination_root, version)
@@ -503,7 +517,7 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
     destination.mkdir(parents=True, exist_ok=True)
     sdk_root = bundle_root / "src" / "cpp"
     for source in sdk_root.rglob("*"):
-        if source.is_file() and source.name != "Doxyfile":
+        if source.is_file() and source.name not in {"Doxyfile", "sdk_integration.dox"}:
             target = destination / source.relative_to(sdk_root)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
@@ -511,22 +525,22 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
     for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(bundle_root / name, destination / name)
     shutil.copy2(bundle_root / "docs" / "SDK.md", destination / "README.md")
-    example_root = CPP_ROOT / "examples" / "basic"
+    example_root = CPP_ROOT / "examples" / "wifi_motion_detection"
     example_files = (
         "CMakeLists.txt", "README.md", "sdkconfig.defaults",
         "main/CMakeLists.txt", "main/Kconfig.projbuild", "main/idf_component.yml",
         "main/app_main.cpp", "main/optional_services.cpp",
     )
     for relative in example_files:
-        target = destination / "examples" / "basic" / relative
+        target = destination / "examples" / "wifi_motion_detection" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(example_root / relative, target)
-    for readme_path in (destination / "README.md", destination / "examples/basic/README.md"):
+    for readme_path in (destination / "README.md", destination / "examples/wifi_motion_detection/README.md"):
         readme = readme_path.read_text(encoding="utf-8")
         readme = re.sub(r'francescopace/espectre([=^])[^"\s:]+',
                         lambda match: f"{COMPONENT_NAME}{match[1]}{version}", readme)
         readme_path.write_text(readme, encoding="utf-8")
-    example_manifest = destination / "examples" / "basic" / "main" / "idf_component.yml"
+    example_manifest = destination / "examples" / "wifi_motion_detection" / "main" / "idf_component.yml"
     example = yaml.safe_load(example_manifest.read_text())
     example["dependencies"][COMPONENT_NAME] = {"version": version}
     example_manifest.write_text(yaml.safe_dump(example, sort_keys=False), encoding="utf-8")

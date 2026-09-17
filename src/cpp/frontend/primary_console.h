@@ -1,5 +1,5 @@
 /*
- * ESPectre - ESP-IDF Primary Console
+ * ESPectre - Firmware Primary Console
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

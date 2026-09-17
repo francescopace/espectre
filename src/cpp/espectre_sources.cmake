@@ -39,7 +39,6 @@ set(ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     ${ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/primary_console.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_wifi_snapshot_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"

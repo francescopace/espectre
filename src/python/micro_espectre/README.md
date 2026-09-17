@@ -41,7 +41,7 @@ Application and configuration changes need only `micro deploy`, followed by `mic
 
 The embedded `micro-espectre` application descriptor reports the ESPectre firmware build version. A later filesystem deployment does not change that version. Older images with empty descriptors need a firmware rebuild and flash to populate them.
 
-Set `ESPECTRE_SDK_ROOT` to the absolute path of an extracted SDK's `src/cpp` directory to build against that bundle. Local and Docker builds support this selection; unsetting it returns to the SDK in the checkout. Docker mounts external bundles read-only. The firmware version comes from the frontend checkout, independently of the SDK version. See [SDK.md](../../../docs/SDK.md#first-party-sdk-consumers) for build commands.
+Set `ESPECTRE_SDK_ROOT` to the absolute path of an extracted SDK's `src/cpp` directory to build against that bundle. Local and Docker builds support this selection; unsetting it returns to the SDK in the checkout. Docker mounts external bundles read-only. The firmware version comes from the frontend checkout, independently of the SDK version. See [CLI.md](../../../docs/CLI.md#building-against-an-sdk-bundle) for build commands.
 
 ## Runtime behavior
 
