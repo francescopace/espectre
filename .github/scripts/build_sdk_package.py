@@ -35,7 +35,6 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from detect_git_version import parse_version_core
-from sdk_api_reference import API_URL, reference_url
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
@@ -344,15 +343,9 @@ def rewrite_bundle_doxyfile(path: Path, version: str) -> None:
     stamp_doxyfile_project_number(path, version)
 
 
-def rewrite_bundle_sdk_guide(path: Path, source_ref: str, version: str | None = None) -> None:
+def rewrite_bundle_sdk_guide(path: Path, source_ref: str) -> None:
     """Point repository-relative Markdown links at the exact packaged revision."""
     source = path.read_text(encoding="utf-8")
-    if version is not None:
-        commit = source_ref if re.fullmatch(r"[0-9a-f]{40}", source_ref) else subprocess.check_output(
-            ["git", "rev-parse", f"{source_ref}^{{commit}}"], cwd=REPO_ROOT, text=True,
-        ).strip()
-        pinned = reference_url(version, commit)
-        source = source.replace(API_URL + "?", pinned + "&").replace(API_URL + ")", pinned + ")")
 
     def replace_link(match: re.Match[str]) -> str:
         target = match.group(1)
@@ -418,7 +411,7 @@ def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
         version,
     )
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
-    rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref, version)
+    rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref)
     rewrite_bundle_sdk_facade(destination_root / "src" / "cpp" / "espectre_sdk.h", source_ref)
     integration = destination_root / "src/cpp/sdk_integration.dox"
     integration.write_text(integration.read_text(encoding="utf-8").replace(
@@ -510,6 +503,7 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
                              source_ref: str, epoch: int) -> None:
     """Package the SDK with the registry identity and Component Manager's file rules."""
     from idf_component_tools.manager import ManifestManager
+    from sdk_api_markdown import generate_registry_api
 
     destination = destination.resolve()
     if destination.exists() and any(destination.iterdir()):
@@ -525,6 +519,7 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
     for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(bundle_root / name, destination / name)
     shutil.copy2(bundle_root / "docs" / "SDK.md", destination / "README.md")
+    generate_registry_api(bundle_root, destination, version, source_ref)
     example_root = CPP_ROOT / "examples" / "wifi_motion_detection"
     example_files = (
         "CMakeLists.txt", "README.md", "sdkconfig.defaults",

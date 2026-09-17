@@ -86,6 +86,5 @@ Mitigations:
 ## Related
 
 - `.github/workflows/ci.yml`
-- `.github/workflows/snapshot.yml`
-- `.github/workflows/release.yml`
+- `.github/workflows/cd.yml`
 - `docs/CHANGELOG.md`

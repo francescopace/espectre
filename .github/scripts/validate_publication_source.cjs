@@ -34,7 +34,7 @@ module.exports = async ({ github, context, core, publication }) => {
     if (Date.now() >= deadline) throw new Error('Timed out waiting for the source CI run to finish.');
     await new Promise(resolve => setTimeout(resolve, 5000));
   }
-  if (!['success', 'failure'].includes(source.conclusion)) {
+  if (source.conclusion !== 'success') {
     throw new Error(`The source CI run cannot publish: ${source.conclusion}.`);
   }
   const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
@@ -43,15 +43,9 @@ module.exports = async ({ github, context, core, publication }) => {
   // Failed-job retries can reuse successful prerequisite jobs from an earlier attempt.
   const latest = name => jobs.filter(job => job.name === name && job.run_attempt <= attempt)
     .sort((left, right) => right.run_attempt - left.run_attempt)[0];
-  const checks = latest('CI Checks');
   if (latest('Dispatch Publication')?.conclusion !== 'success' ||
-      !['success', 'failure'].includes(checks?.conclusion)) {
-    throw new Error('The source CI run must finish its checks and authorize publication.');
-  }
-  const conclusion = source.conclusion === 'success' && checks.conclusion === 'success'
-    ? 'success' : 'failure';
-  if (!snapshot && conclusion !== 'success') {
-    throw new Error('Release publication requires successful CI checks.');
+      latest('Build SDK Package')?.conclusion !== 'success') {
+    throw new Error('The source CI run must pass its checks and authorize publication.');
   }
 
   let current = true;
@@ -69,7 +63,17 @@ module.exports = async ({ github, context, core, publication }) => {
   core.setOutput('head_sha', sha);
   core.setOutput('head_branch', source.head_branch);
   core.setOutput('created_at', source.created_at);
-  core.setOutput('conclusion', conclusion);
-  core.info(current ? `Source CI: ${source.html_url} (${conclusion}).` : 'Skipping a superseded snapshot.');
+  core.setOutput('conclusion', source.conclusion);
+  const channel = snapshot ? (source.head_branch === 'develop' ? 'develop' : 'preview') : 'release';
+  const stable = !snapshot && !source.head_branch.includes('-');
+  core.setOutput('metadata', JSON.stringify({
+    run_id: String(runId), head_sha: sha, head_branch: source.head_branch,
+    created_at: source.created_at, publication, channel, stable,
+    release_tag: snapshot ? (channel === 'develop' ? 'snapshot-dev' : 'snapshot') : source.head_branch,
+    registry_url: stable ? 'https://components.espressif.com' : 'https://components-staging.espressif.com',
+    environment: stable ? 'sdk-registry-production' : 'sdk-registry-staging',
+    publish_website: !snapshot || source.head_branch === 'main',
+  }));
+  core.info(current ? `Source CI: ${source.html_url} (${source.conclusion}).` : 'Skipping a superseded snapshot.');
   await core.summary.addLink('Source CI run', source.html_url).write();
 };

@@ -327,6 +327,11 @@
                 if (!Array.isArray(manifest.entries) || !manifest.entries.length || !manifest.default) {
                     throw new Error('API reference manifest is incomplete');
                 }
+                if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/.test(manifest.sdk_version || '')
+                    || manifest.sdk_version !== manifest.sdk_version.trim()
+                    || !/^[0-9a-f]{40}$/.test(manifest.source_commit || '') || manifest.source_commit.length !== 40) {
+                    throw new Error('API reference manifest has an invalid SDK identity');
+                }
                 return manifest;
             });
         promise.catch(() => apiReferenceManifestPromises.delete(url));
@@ -337,21 +342,6 @@
     function apiReferenceLocation() {
         const params = new URLSearchParams(window.location.search);
         return { refid: params.get('api') || '', member: params.get('member') || '' };
-    }
-
-    function apiReferenceSource(indexUrl, search = window.location.search) {
-        const params = new URLSearchParams(search);
-        const version = params.get('sdk');
-        const commit = params.get('commit');
-        const base = indexUrl.slice(0, indexUrl.lastIndexOf('/') + 1);
-        if (version === null && commit === null) return { index: indexUrl, base };
-        if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/.test(version || '')
-            || version !== version.trim()
-            || !/^[0-9a-f]{40}$/.test(commit || '') || commit.length !== 40) {
-            throw new Error('SDK reference requires a version and full source commit');
-        }
-        const pinnedBase = `${base}revisions/${commit}/${encodeURIComponent(version)}/`;
-        return { index: `${pinnedBase}api-index.json`, base: pinnedBase, version, commit };
     }
 
     function updateApiReferenceLocation(refid, member, replace = false) {
@@ -557,16 +547,11 @@
         content.replaceChildren();
         content.setAttribute('aria-busy', 'true');
         try {
-            const source = apiReferenceSource(browser.dataset.apiIndex);
-            const manifest = await apiReferenceManifest(source.index);
+            const indexUrl = browser.dataset.apiIndex;
+            const manifest = await apiReferenceManifest(indexUrl);
             if (browser.apiReferenceLoadId !== loadId) return;
-            if (source.commit && (manifest.source_commit !== source.commit || manifest.sdk_version !== source.version)) {
-                throw new Error('SDK reference identity does not match the requested version and commit');
-            }
-            const resolved = source.commit ? source : apiReferenceSource(browser.dataset.apiIndex,
-                `?${new URLSearchParams({ sdk: manifest.sdk_version, commit: manifest.source_commit })}`);
             browser.apiReferenceManifest = manifest;
-            browser.apiReferenceBase = resolved.base;
+            browser.apiReferenceBase = indexUrl.slice(0, indexUrl.lastIndexOf('/') + 1);
             const label = browser.querySelector('[data-api-reference-version]');
             label.textContent = `SDK ${manifest.sdk_version} · ${manifest.source_commit.slice(0, 7)}`;
             label.title = manifest.source_commit;

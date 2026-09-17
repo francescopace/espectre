@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' || (github.ref_type != 'tag' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop') }}
 
 jobs:
+  # Run preparation and the host-side checks as one parallel stage.
   prepare:
     name: Prepare Build
     runs-on: ubuntu-24.04
@@ -29,6 +30,7 @@ jobs:
       artifact_suffix: ${{ steps.metadata.outputs.artifact_suffix }}
       ota_channel: ${{ steps.metadata.outputs.ota_channel }}
       sign: ${{ steps.metadata.outputs.sign }}
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -81,7 +83,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build-site:
-    name: Validate Website
+    name: Website Unit Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -125,16 +127,6 @@ jobs:
           name: web-coverage-badge
           path: .cache/reports/coverage/coverage-web.json
           retention-days: 14
-
-      - name: Upload SDK API reference
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: sdk-api
-          overwrite: true
-          path: .cache/sdk-api/sdk-api-*.zip
-          if-no-files-found: error
-          retention-days: 7
 
   test-cpp:
     name: C++ Unit Tests
@@ -184,12 +176,12 @@ jobs:
     name: Python Unit Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -209,6 +201,8 @@ jobs:
           key: ${{ format('npz-cache-v2-{0}-{1}', runner.os, hashFiles('data/dataset_info.json', 'src/python/micro_espectre/runtime_policy.py', 'tools/lib/csi_io.py', 'tools/lib/dataset_metadata.py', 'tools/lib/npz_cache.py', 'tools/lib/performance_report.py', 'tools/train_ml_model.py', 'tools/validate_dataset_quality.py', 'test/python/performance/test_packet_rate_adaptation_regression.py')) }}
           restore-keys: |
             npz-cache-v2-${{ runner.os }}-
+
+      - uses: ./.github/actions/setup-doxygen
 
       - name: Run Product and Performance Tests with Coverage
         run: ./test/python/run_coverage.sh
@@ -235,7 +229,7 @@ jobs:
           retention-days: 14
 
   build-esphome:
-    needs: prepare
+    needs: [prepare, build-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build ESPHome ${{ matrix.chip }}
@@ -337,7 +331,7 @@ jobs:
           retention-days: 7
 
   build-matter:
-    needs: prepare
+    needs: [prepare, build-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build Matter ${{ matrix.chip }}
@@ -412,7 +406,7 @@ jobs:
           retention-days: 7
 
   build-native:
-    needs: prepare
+    needs: [prepare, build-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build Native ${{ matrix.chip }}
@@ -495,10 +489,65 @@ jobs:
           path: .cache/firmware/espectre-native-*
           retention-days: 7
 
+  build-sdk:
+    name: Build SDK Package
+    needs: [prepare, build-site, test-cpp, test-python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      publication: ${{ needs.prepare.outputs.publication }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-sdk-packaging
+
+      - uses: ./.github/actions/setup-doxygen
+
+      - name: Build SDK package
+        env:
+          SDK_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          SDK_VERSION: ${{ needs.prepare.outputs.version }}
+          SDK_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          mkdir -p .cache/sdk
+          python .github/scripts/build_sdk_package.py \
+            --channel "$SDK_CHANNEL" \
+            --version "$SDK_VERSION" \
+            --release-tag "$SDK_RELEASE_TAG" \
+            --output-dir .cache/sdk \
+            --component-output-dir .cache/registry/espectre \
+            --commit "${{ github.sha }}"
+
+      - name: Upload SDK package artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          overwrite: true
+          include-hidden-files: true
+          name: sdk-bundle
+          path: |
+            .cache/sdk/espectre-sdk-*.tar.gz
+            .cache/sdk/espectre-sdk-*.zip
+            .cache/sdk/sdk-manifest-*.json
+          retention-days: 7
+
+      - name: Upload registry component
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          overwrite: true
+          name: registry-component
+          path: |
+            .cache/registry/espectre-component-*.tgz
+            .cache/registry/component-inventory.json
+          if-no-files-found: error
+          retention-days: 7
+
   audit-esphome:
     name: Audit ESPHome firmware dependencies
     needs: build-esphome
-    if: always()
     permissions:
       contents: read
       security-events: write
@@ -557,7 +606,6 @@ jobs:
   audit-matter:
     name: Audit Matter firmware dependencies
     needs: build-matter
-    if: always()
     permissions:
       contents: read
       security-events: write
@@ -615,7 +663,6 @@ jobs:
   audit-native:
     name: Audit Native firmware dependencies
     needs: build-native
-    if: always()
     permissions:
       contents: read
       security-events: write
@@ -671,118 +718,37 @@ jobs:
           sarif_file: .cache/reports/firmware/native/results.sarif
           category: firmware/native
 
-  build-sdk:
-    name: Build SDK Package
-    needs: prepare
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      - uses: ./.github/actions/setup-sdk-packaging
-
-      - name: Build SDK package
-        env:
-          SDK_CHANNEL: ${{ needs.prepare.outputs.channel }}
-          SDK_VERSION: ${{ needs.prepare.outputs.version }}
-          SDK_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-        run: |
-          mkdir -p .cache/sdk
-          python .github/scripts/build_sdk_package.py \
-            --channel "$SDK_CHANNEL" \
-            --version "$SDK_VERSION" \
-            --release-tag "$SDK_RELEASE_TAG" \
-            --output-dir .cache/sdk \
-            --component-output-dir .cache/registry/espectre \
-            --commit "${{ github.sha }}"
-
-      - name: Upload SDK package artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          overwrite: true
-          include-hidden-files: true
-          name: sdk-bundle
-          path: |
-            .cache/sdk/espectre-sdk-*.tar.gz
-            .cache/sdk/espectre-sdk-*.zip
-            .cache/sdk/sdk-manifest-*.json
-          retention-days: 7
-
-      - name: Upload registry component
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          overwrite: true
-          name: registry-component
-          path: |
-            .cache/registry/espectre-component-*.tgz
-            .cache/registry/component-inventory.json
-          if-no-files-found: error
-          retention-days: 7
-
   verify-sdk-component:
     needs: build-sdk
     permissions:
       contents: read
       actions: read
     uses: ./.github/workflows/sdk-component.yml
-
-  checks:
-    name: CI Checks
-    needs:
-      - prepare
-      - build-site
-      - test-cpp
-      - test-python
-      - build-esphome
-      - build-matter
-      - build-native
-      - audit-esphome
-      - audit-matter
-      - audit-native
-      - build-sdk
-      - verify-sdk-component
-    if: always() && !cancelled()
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Require every prerequisite to succeed
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        env:
-          CHECK_RESULTS: ${{ toJSON(needs) }}
-        with:
-          script: |
-            const failed = Object.entries(JSON.parse(process.env.CHECK_RESULTS))
-              .filter(([, job]) => job.result !== 'success').map(([name]) => name);
-            if (failed.length) core.setFailed(`CI prerequisites did not succeed: ${failed.join(', ')}`);
+    with:
+      publication: ${{ needs.build-sdk.outputs.publication }}
 
   dispatch-publication:
     name: Dispatch Publication
-    needs: [prepare, checks]
-    # Failed snapshot checks still dispatch coverage updates; release publication requires success.
+    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component]
     if: >
-      always() && !cancelled() && github.event_name == 'push' &&
-      (needs.prepare.outputs.publication == 'snapshot' ||
-       (needs.prepare.outputs.publication == 'release' && needs.checks.result == 'success'))
+      success() && github.event_name == 'push' && !github.event.deleted &&
+      contains(fromJSON('["snapshot", "release"]'), needs.verify-sdk-component.outputs.publication)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: write
     steps:
-      - name: Start the selected publication workflow
+      - name: Start continuous delivery
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
-          PUBLICATION: ${{ needs.prepare.outputs.publication }}
+          PUBLICATION: ${{ needs.verify-sdk-component.outputs.publication }}
         with:
           script: |
             const publication = process.env.PUBLICATION;
             if (!['snapshot', 'release'].includes(publication)) throw new Error('Invalid publication channel.');
             const response = await github.rest.actions.createWorkflowDispatch({
               ...context.repo,
-              workflow_id: `${publication}.yml`,
+              workflow_id: 'cd.yml',
               ref: context.ref,
               inputs: {
                 source_run_id: String(context.runId),
@@ -796,6 +762,6 @@ jobs:
             }
             core.info(`Publication: ${response.data.html_url}`);
             await core.summary.addHeading('Publication')
-              .addLink(`${publication} run`, response.data.html_url)
+              .addLink(`CD run (${publication})`, response.data.html_url)
               .addRaw('\nPublication has its own status; this CI run reports the build and check results.\n')
               .write();
