@@ -154,8 +154,7 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     published_channel_action = (
         REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
     ).read_text(encoding="utf-8")
-    release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-    snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github" / "workflows" / "cd.yml").read_text(encoding="utf-8")
 
     assert GPL_SPDX_HEADER in direct_client
     assert COMMERCIAL_LICENSE_NOTICE in direct_client
@@ -165,19 +164,18 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     assert "build-specific SPDX SBOMs" in notices
     assert "ESP-IDF mDNS component" in notices
     assert "Improv Wi-Fi SDK for C++" in notices
-    for workflow in (release_workflow, snapshot_workflow):
-        assert "uses: ./.github/actions/stage-published-web-channel" in workflow
-        assert re.search(r"(?m)^\s+firmware/\*\.bin$", workflow)
-        assert re.search(r"(?m)^\s+firmware/firmware-compliance-\*\.zip$", workflow)
-        assert not re.search(r"(?m)^\s+firmware/\*$", workflow)
-        assert "build_firmware_compliance_bundle.py" in workflow
-        assert "unbundled compliance assets" in workflow
-        assert "['LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']" in workflow
-        assert "-sbom.spdx.json" in workflow
-        assert "-THIRD_PARTY_NOTICES.txt" in workflow
-        assert "-third-party-licenses.zip" in workflow
-        assert "deleteReleaseAsset" in workflow
-        assert "--compliance-url-prefix" in workflow
+    assert "uses: ./.github/actions/stage-published-web-channel" in workflow
+    assert re.search(r"(?m)^\s+firmware/\*\.bin$", workflow)
+    assert re.search(r"(?m)^\s+firmware/firmware-compliance-\*\.zip$", workflow)
+    assert not re.search(r"(?m)^\s+firmware/\*$", workflow)
+    assert "build_firmware_compliance_bundle.py" in workflow
+    assert "unbundled compliance assets" in workflow
+    assert "['LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']" in workflow
+    assert "-sbom.spdx.json" in workflow
+    assert "-THIRD_PARTY_NOTICES.txt" in workflow
+    assert "-third-party-licenses.zip" in workflow
+    assert "deleteReleaseAsset" in workflow
+    assert "--compliance-url-prefix" in workflow
     assert "--pattern 'firmware-compliance-*.zip'" in published_channel_action
     assert "build_firmware_compliance" in ci_workflow
     assert not (REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES").exists()

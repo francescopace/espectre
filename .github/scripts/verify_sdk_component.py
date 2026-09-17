@@ -158,7 +158,7 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
     example_prefix = "examples/wifi_motion_detection/"
     expected_example = {name.removeprefix(example_prefix): data for name, data in files.items()
                         if name.startswith(example_prefix)}
-    if args.registry_url:
+    if args.registry_url and not args.package_example:
         if args.example_dir:
             downloaded_example = {str(path.relative_to(args.example_dir)): path.read_bytes()
                                   for path in args.example_dir.rglob("*") if path.is_file()}
@@ -167,7 +167,8 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
             downloaded_example = registry_example(args.registry_url, inventory, files, args.wait_seconds)
         write_files(project, downloaded_example)
     else:
-        write_files(destination / "francescopace__espectre", files)
+        if not args.registry_url:
+            write_files(destination / "francescopace__espectre", files)
         write_files(project, expected_example)
 
     manifest_path = project / "main" / "idf_component.yml"
@@ -286,6 +287,8 @@ def main() -> None:
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--example-dir", type=Path,
                         help="Use the registry example already downloaded and verified by this workflow.")
+    parser.add_argument("--package-example", action="store_true",
+                        help="Prepare the example from the CI package; resolve the SDK during the build.")
     parser.add_argument("--target", choices=("esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"),
                         default="esp32c3")
     parser.add_argument("--profile", choices=("minimal", *SDK_SERVICE_PROFILES, "all"),
@@ -296,6 +299,8 @@ def main() -> None:
         parser.error("fetch-example requires --registry-url")
     if args.example_dir and (args.command != "prepare" or not args.registry_url):
         parser.error("--example-dir requires prepare with --registry-url")
+    if args.package_example and (args.command != "prepare" or args.example_dir):
+        parser.error("--package-example requires prepare without --example-dir")
     inventory, files = load_package(args.inventory)
     if args.expected_commit and inventory["commit"] != args.expected_commit:
         raise ValueError("Component source commit does not match the validated CI run")

@@ -105,13 +105,14 @@ def test_ci_chip_matrices_follow_production_registries() -> None:
 
 def test_firmware_audits_aggregate_target_sboms_by_frontend() -> None:
     ci_workflow = (WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8")
+    jobs = yaml.safe_load(ci_workflow)["jobs"]
     for frontend, job_name in (("esphome", "build-esphome"), ("matter", "build-matter"), ("native", "build-native")):
         audit_job = _workflow_job(ci_workflow, f"audit-{frontend}")
         build_job = _workflow_job(ci_workflow, job_name)
         expected_targets = _workflow_chip_matrix(ci_workflow, job_name)
 
         assert f"needs: {job_name}" in audit_job
-        assert "if: always()" in audit_job
+        assert jobs[f"audit-{frontend}"].get("if", "success()") == "success()"
         assert f"pattern: audit-firmware-{frontend}-*" in audit_job
         assert f"category: firmware/{frontend}" in audit_job
         assert "security-events: write" in audit_job
@@ -122,9 +123,9 @@ def test_firmware_audits_aggregate_target_sboms_by_frontend() -> None:
         for target in expected_targets:
             assert f"--expected-target {target}" in audit_job
 
-    jobs = yaml.safe_load(ci_workflow)["jobs"]
-    assert {"audit-esphome", "audit-matter", "audit-native"} <= set(jobs["checks"]["needs"])
-    assert "checks" in jobs["dispatch-publication"]["needs"]
+    assert {"audit-esphome", "audit-matter", "audit-native"} <= set(jobs["dispatch-publication"]["needs"])
+    assert jobs["verify-sdk-component"]["needs"] == "build-sdk"
+    assert "verify-sdk-component" in jobs["dispatch-publication"]["needs"]
 
 
 def test_python_coverage_gate_has_fixed_thresholds() -> None:
@@ -203,21 +204,22 @@ def test_web_coverage_gate_uses_canonical_thresholds() -> None:
     assert "if: always() && hashFiles('.cache/reports/coverage/coverage-web.json') != ''" in build_site
 
 
-def test_snapshot_publishes_stable_coverage_badge_endpoints() -> None:
-    workflow = (WORKFLOWS_DIR / "snapshot.yml").read_text(encoding="utf-8")
+def test_cd_publishes_stable_coverage_badge_endpoints() -> None:
+    workflow = (WORKFLOWS_DIR / "cd.yml").read_text(encoding="utf-8")
     validator = (SCRIPTS_DIR / "validate_publication_source.cjs").read_text(encoding="utf-8")
     release_job = _workflow_job(workflow, "release")
     publisher = _workflow_job(workflow, "publish-coverage")
 
     caller = _workflow_job((WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8"), "dispatch-publication")
-    assert "always() && !cancelled()" in caller
-    assert "needs.prepare.outputs.publication == 'snapshot'" in caller
-    assert "source.conclusion === 'success' && checks.conclusion === 'success'" in validator
-    assert "core.setOutput('conclusion', conclusion)" in validator
+    assert "success() && github.event_name == 'push'" in caller
+    assert "PUBLICATION: ${{ needs.verify-sdk-component.outputs.publication }}" in caller
+    assert "source.conclusion !== 'success'" in validator
+    assert "core.setOutput('conclusion', source.conclusion)" in validator
     assert "coverage-badges/*.json" not in release_job
-    assert "needs.validate-run.outputs.conclusion == 'success'" in release_job
-    assert "always()" in publisher
-    assert "needs.validate-run.outputs.conclusion == 'failure'" in publisher
+    assert "needs.validate-run.outputs.current == 'true'" in release_job
+    coverage_job = yaml.safe_load(workflow)["jobs"]["publish-coverage"]
+    assert coverage_job["needs"] == "release"
+    assert coverage_job.get("if", "success()") == "success()"
     assert "pattern: '*-coverage-badge'" in publisher
     assert "gh release upload" in publisher
     assert "--clobber" in publisher
@@ -489,8 +491,26 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     inventory, component_files = inventories[0]
     assert (packages[0] / inventory["archive"]).read_bytes() == (packages[1] / inventory["archive"]).read_bytes()
     component_manifest = yaml.safe_load(component_files["idf_component.yml"])
-    reference = "https://espectre.dev/sdk/api/?sdk=3.0.0&commit=0123456789abcdef0123456789abcdef01234567"
-    assert reference in component_files["README.md"].decode()
+    api = component_files["API.md"].decode()
+    readme = component_files["README.md"].decode()
+    # Shared site navigation may remain above the standalone integration guide.
+    readme_sections = readme.split("\n## ", 1)[1]
+    assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", readme_sections))
+    anchors = re.findall(r'<a id="([^"]+)"></a>', api)
+    assert len(anchors) == len(set(anchors))
+    assert "](API.md)" in readme
+    for document in (readme, api):
+        for link in re.findall(r"\]\(([^)]+)\)", document):
+            if link.startswith("API.md#") or (document is api and link.startswith("#")):
+                assert link.split("#", 1)[1] in anchors
+    protocol_reference = f"https://github.com/francescopace/espectre/blob/{inventory['commit']}/docs/API.md"
+    assert f"]({protocol_reference}#sensing-update-and-calibration)" in readme
+    assert f'#define ESPECTRE_SDK_VERSION_STRING "{inventory["version"]}"' in api
+    assert inventory["commit"] in api
+    assert "namespaceespectre" in anchors
+    assert "classespectre_1_1_runtime_frontend_controller" in anchors
+    assert "sdk_integration_1integration_logging" in anchors
+    assert "template <typename T, size_t Capacity>" in api
     assert "sdk_integration.dox" not in component_files
     source_manifest = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text())
     assert component_manifest["dependencies"] == source_manifest["dependencies"]
@@ -498,15 +518,16 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert component_manifest["targets"] == source_manifest["targets"]
     assert component_manifest["license"] == "GPL-3.0-only"
     assert component_manifest["version"] == "3.0.0"
-    assert {"LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "README.md"} <= component_files.keys()
+    assert {"LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "README.md", "API.md"} <= component_files.keys()
     assert not any(part in {"frontend", "build", "managed_components", ".git"}
                    for name in component_files for part in Path(name).parts)
     assert b'"3.0.0"' in component_files["runtime/espectre_sdk_version.h"]
     assert yaml.safe_load(component_files["examples/wifi_motion_detection/main/idf_component.yml"])["dependencies"] == {
         "francescopace/espectre": {"version": "3.0.0"}
     }
-    for name in ("README.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
+    for name in ("README.md", "API.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         for link in re.findall(r"\]\(([^)]+)\)", component_files[name].decode()):
+            link = link.strip("<>")
             if not link.startswith(("https://", "mailto:", "#")):
                 assert link.split("#", 1)[0] in component_files
 
@@ -534,7 +555,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     bundle_root = component_cmake_name.removesuffix("/src/cpp/CMakeLists.txt")
     assert f"{bundle_root}/CMakeLists.txt" not in archived
     assert f"{bundle_root}/src/cpp/sdk_integration.dox" in archived
-    assert reference in bundled_guide
+    guide_sections = bundled_guide.split("\n## ", 1)[1]
+    assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", guide_sections))
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
@@ -1047,6 +1069,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     registry_version = inventory["version"]
     branch = "main" if channel == "preview" else "develop"
     assert registry_version == f"{registry_base}.{branch}"
+    assert f'#define ESPECTRE_SDK_VERSION_STRING "{registry_version}"'.encode() in files["API.md"]
+    assert args.commit.encode() in files["API.md"]
     assert Version(registry_version).prerelease
     assert SimpleSpec(f"=={registry_version}").match(Version(registry_version))
     assert f'#define ESPECTRE_SDK_VERSION_STRING "{registry_version}"'.encode() in files[
@@ -1321,12 +1345,13 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     index_fragment = (api_output / "fragments" / "index.html").read_text(encoding="utf-8")
     assert "onclick=" not in index_fragment
     assert "<script" not in index_fragment
-    assert f"sdk={version}&amp;commit={commit}" in index_fragment or f"sdk={version}&commit={commit}" in index_fragment
-    pinned = api_output / "revisions" / commit / version / "api-index.json"
-    original = pinned.read_bytes()
+    assert 'href="/sdk/api/?api=classespectre_1_1_runtime_frontend_controller"' in index_fragment
     generator.generate_sdk_api("3.1.0", commit=commit)
-    assert pinned.read_bytes() == original
-    assert (api_output / "revisions" / commit / "3.1.0" / "api-index.json").is_file()
+    current = json.loads((api_output / "api-index.json").read_text(encoding="utf-8"))
+    assert current["sdk_version"] == "3.1.0"
+    assert {path.relative_to(api_output).as_posix() for path in api_output.rglob("*") if path.is_file()} == {
+        "api-index.json", *(entry["fragment"] for entry in current["entries"]),
+    }
     monkeypatch.setattr(generator, "expected_header_paths", lambda: {"runtime/missing.h"})
     with pytest.raises(ValueError, match="missing public headers"):
         generator.generate_sdk_api("3.2.0", commit=commit)
@@ -1343,83 +1368,6 @@ def test_sdk_bundle_rewrites_the_repo_doxyfile_preamble(tmp_path: Path) -> None:
     assert "# Usage, from the unpacked SDK bundle root:" in rewritten
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", rewritten)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", rewritten)
-
-
-def test_sdk_api_publication_preserves_immutable_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    reference = load_script("sdk_api_reference")
-    api = tmp_path / "source"
-    (api / "fragments").mkdir(parents=True)
-    manifest = {
-        "schema_version": 1, "sdk_version": "3.0.0", "source_commit": "a" * 40,
-        "default": "index", "entries": [{"refid": "index", "fragment": "fragments/index.html"}],
-    }
-    (api / "api-index.json").write_text(json.dumps(manifest))
-    (api / "fragments/index.html").write_text("<article>Original reference</article>")
-    archive = reference.write_archive(api, tmp_path / "uploads")
-    original = archive.read_bytes()
-    assert reference.write_archive(api, tmp_path / "uploads").read_bytes() == original
-    published = {"id": 8, "name": archive.name}
-
-    def github_api(_repository, resource, *, pages=False, binary=False):
-        if resource == "releases?per_page=100":
-            assert pages
-            return [{"id": 1, "draft": False}, {"id": 2, "draft": True}]
-        if resource == "releases/tags/snapshot":
-            return {"id": 1}
-        if resource == "releases/1/assets?per_page=100":
-            assert pages
-            return [published, {"id": 9, "name": "firmware.zip"}]
-        assert resource == "releases/assets/8" and binary
-        return original
-
-    monkeypatch.setattr(reference, "github_api", github_api)
-    pages = tmp_path / "pages"
-    current_api = pages / "artifacts/sdk/api"
-    current_api.mkdir(parents=True)
-    (current_api / "api-index.json").write_text('{"current": true}')
-    (pages / "index.html").write_text("<main>Verified website</main>")
-    pages_archive = tmp_path / "artifact.tar"
-    with tarfile.open(pages_archive, "w") as output:
-        output.add(pages, arcname=".")
-    assert reference.restore_pages_archive("owner/repository", pages_archive) == 1
-    with tarfile.open(pages_archive) as restored:
-        assert restored.extractfile("index.html").read() == b"<main>Verified website</main>"
-        assert restored.extractfile("artifacts/sdk/api/api-index.json").read() == b'{"current": true}'
-        pinned = reference.reference_path("3.0.0", "a" * 40)
-        assert restored.extractfile(f"artifacts/sdk/api/{pinned}/fragments/index.html").read() == b"<article>Original reference</article>"
-    assert reference.restore_pages_archive("owner/repository", pages_archive) == 1
-    reference.check_uploads("owner/repository", "snapshot", archive.parent)
-    assert not archive.exists()
-
-    (api / "fragments/index.html").write_text("<article>Changed reference</article>")
-    changed = reference.write_archive(api, archive.parent)
-    with pytest.raises(ValueError, match="Refusing to replace"):
-        reference.check_uploads("owner/repository", "snapshot", changed.parent)
-    assert changed.exists()
-    reference.stage_archive(original, current_api)
-    with pytest.raises(ValueError, match="Published SDK API reference changed"):
-        reference.stage_archive(changed.read_bytes(), current_api)
-    published["name"] = reference.archive_name("3.1.0", "a" * 40)
-    with pytest.raises(ValueError, match="identity mismatch"):
-        reference.restore_references("owner/repository", current_api)
-
-
-@pytest.mark.parametrize("fragment, content", [
-    ("../escape.html", "<article>Invalid path</article>"),
-    ("fragments/index.html", "<script>alert(1)</script>"),
-])
-def test_sdk_api_history_rejects_invalid_archives(fragment: str, content: str, tmp_path: Path) -> None:
-    reference = load_script("sdk_api_reference")
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("api-index.json", json.dumps({
-            "schema_version": 1, "sdk_version": "3.0.0", "source_commit": "a" * 40,
-            "default": "index", "entries": [{"refid": "index", "fragment": fragment}],
-        }))
-        archive.writestr(fragment, content)
-    with pytest.raises(ValueError):
-        reference.stage_archive(buffer.getvalue(), tmp_path / "api")
-    assert not (tmp_path / "api").exists()
 
 
 def test_generate_sdk_api_requires_the_pinned_doxygen_version(
@@ -1685,23 +1633,42 @@ def test_pages_verifier_requires_api_reference_to_show_sdk_version(
         (api / fragment).write_text("<article>API reference</article>", encoding="utf-8")
         entries.append({"refid": refid, "fragment": fragment, "discoverable": True})
     manifest = {
+        "schema_version": 1,
         "sdk_version": version,
         "source_commit": "a" * 40,
         "public_headers": sorted(verifier.expected_header_paths()),
         "renderer": "m.css",
         "renderer_revision": "0123456789abcdef",
+        "default": refids[0],
         "entries": entries,
     }
     manifest_path = api / "api-index.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    pinned = api / verifier.reference_path(version, manifest["source_commit"])
-    pinned.mkdir(parents=True)
-    shutil.copy2(manifest_path, pinned / "api-index.json")
-    shutil.copytree(fragments, pinned / "fragments")
     verifier.verify_sdk_api_version()
-    (pinned / entries[0]["fragment"]).write_text("<article>Changed reference</article>")
-    with pytest.raises(ValueError, match="differs from its immutable revision"):
+    extra = api / "previous-build" / "api-index.json"
+    extra.parent.mkdir()
+    extra.write_text("{}")
+    with pytest.raises(ValueError, match="current page inventory"):
         verifier.verify_sdk_api_version()
+    extra.unlink()
+    extra.parent.rmdir()
+    for key, value, message in (
+        ("source_commit", "short-sha", "full source commit"),
+        ("schema_version", 2, "Unsupported SDK API reference schema"),
+        ("default", "missing-page", "no default page"),
+    ):
+        original = manifest[key]
+        manifest[key] = value
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            verifier.verify_sdk_api_version()
+        manifest[key] = original
+    original_fragment = entries[0]["fragment"]
+    entries[0]["fragment"] = "../escape.html"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="fragment paths"):
+        verifier.verify_sdk_api_version()
+    entries[0]["fragment"] = original_fragment
     manifest["public_headers"] = []
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="does not cover the public headers"):
@@ -1955,111 +1922,6 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
         verifier.require_file("../outside")
 
 
-@pytest.mark.parametrize("case", [
-    "success", "unrelated_failure", "retry", "newer_failure", "skipped", "missing",
-    "wrong_branch", "wrong_sha", "wrong_repository", "wrong_workflow", "wrong_event",
-    "wrong_job_sha", "future_attempt", "incomplete_job", "pending", "not_dispatched",
-    "timeout", "invalid_tag",
-])
-def test_stable_release_requires_verified_main_staging(case: str) -> None:
-    """Only a completed staging check for the release source may authorize upload."""
-    snapshot = yaml.load((WORKFLOWS_DIR / "snapshot.yml").read_text(), Loader=yaml.BaseLoader)
-    sha = "a" * 40
-    run = {
-        "id": 42, "path": ".github/workflows/snapshot.yml", "event": "workflow_dispatch",
-        "head_repository": {"full_name": "francescopace/espectre"}, "head_branch": "main",
-        "head_sha": sha, "status": "completed", "conclusion": "success", "run_attempt": 2,
-    }
-    job = {
-        "name": snapshot["jobs"]["staging-verified"]["name"], "head_sha": sha,
-        "status": "completed", "conclusion": "success", "run_attempt": 2,
-        "html_url": "https://github.com/francescopace/espectre/actions/runs/42/job/43",
-    }
-    run.update({
-        "unrelated_failure": {"conclusion": "failure"},
-        "wrong_branch": {"head_branch": "develop"},
-        "wrong_sha": {"head_sha": "b" * 40},
-        "wrong_repository": {"head_repository": {"full_name": "someone/espectre"}},
-        "wrong_workflow": {"path": ".github/workflows/ci.yml"},
-        "wrong_event": {"event": "pull_request"},
-    }.get(case, {}))
-    job.update({
-        "retry": {"run_attempt": 1},
-        "skipped": {"conclusion": "skipped"},
-        "wrong_job_sha": {"head_sha": "b" * 40},
-        "future_attempt": {"run_attempt": 3},
-        "incomplete_job": {"status": "in_progress"},
-    }.get(case, {}))
-    jobs = [] if case == "missing" else [job]
-    if case == "newer_failure":
-        jobs = [{**job, "run_attempt": 1}, {**job, "conclusion": "failure"}]
-    polls = [[run]]
-    if case == "not_dispatched":
-        polls.insert(0, [])
-    elif case == "pending":
-        polls.insert(0, [{**run, "status": "in_progress"}])
-    elif case == "timeout":
-        polls = [[{**run, "status": "in_progress"}]]
-    result = subprocess.run(
-        ["node", "-e", """
-const assert = require('node:assert/strict');
-const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
-const validate = require(process.argv[1]);
-const calls = [];
-const outputs = {};
-let clock = 0, poll = 0;
-Date.now = () => clock;
-global.setTimeout = (resolve, ms) => { clock += ms; queueMicrotask(resolve); };
-const github = {
-  rest: {actions: {listWorkflowRuns: 'runs', listJobsForWorkflowRun: 'jobs'}},
-  paginate: async (method, args) => {
-    calls.push(method);
-    assert.equal(args.owner, 'francescopace');
-    assert.equal(args.repo, 'espectre');
-    if (method === 'runs') {
-      assert.equal(args.workflow_id, 'snapshot.yml');
-      assert.equal(args.branch, 'main');
-      assert.equal(args.head_sha, input.sha);
-      assert.equal(args.event, 'workflow_dispatch');
-      return input.polls[Math.min(poll++, input.polls.length - 1)];
-    }
-    assert.equal(args.run_id, 42);
-    assert.equal(args.filter, 'all');
-    return input.jobs;
-  },
-};
-const core = {
-  setOutput: (name, value) => { outputs[name] = value; }, info: () => {},
-  summary: {addLink() { return this; }, write: async () => {}},
-};
-const context = {repo: {owner: 'francescopace', repo: 'espectre'},
-  ref: input.ref, sha: input.sha};
-validate({github, context, core}).then(
-  () => process.stdout.write(JSON.stringify({accepted: true, outputs, clock, calls})),
-  error => {
-    if (error.code === 'ERR_ASSERTION') throw error;
-    process.stdout.write(JSON.stringify({accepted: false, outputs, clock, calls}));
-  },
-);
-""", str(SCRIPTS_DIR / "validate_main_staging.cjs")],
-        input=json.dumps({"sha": sha, "polls": polls, "jobs": jobs,
-                         "ref": "refs/tags/3.0.0-rc1" if case == "invalid_tag" else "refs/tags/3.0.0"}),
-        capture_output=True, text=True, check=True, timeout=10,
-    )
-    outcome = json.loads(result.stdout)
-    accepted = case in {"success", "unrelated_failure", "retry", "pending", "not_dispatched"}
-    assert outcome["accepted"] is accepted
-    assert outcome["outputs"] == ({"run_id": "42"} if accepted else {})
-    if case in {"pending", "not_dispatched", "timeout"}:
-        assert outcome["clock"] > 0
-    if case == "timeout":
-        assert outcome["clock"] <= 45 * 60 * 1000
-    if case in {"wrong_branch", "wrong_sha", "wrong_repository", "wrong_workflow", "wrong_event"}:
-        assert "jobs" not in outcome["calls"]
-    if case == "invalid_tag":
-        assert outcome["calls"] == []
-
-
 def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     workflow_sources = {
         path.name: path.read_text(encoding="utf-8")
@@ -2075,43 +1937,61 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for _, ref in refs)
 
     ci = workflow_sources["ci.yml"]
-    snapshot = workflow_sources["snapshot.yml"]
-    release = workflow_sources["release.yml"]
-    assert "HEAD~1" not in snapshot
-    assert "gh release delete" not in snapshot
-    assert "git.getRef" in snapshot
-    assert "git.updateRef" in snapshot and "git.createRef" in snapshot
+    cd = workflow_sources["cd.yml"]
+    assert "HEAD~1" not in cd
+    assert "gh release delete" not in cd
+    assert "git.getRef" in cd
+    assert "git.updateRef" in cd and "git.createRef" in cd
     ci_config = yaml.load(ci, Loader=yaml.BaseLoader)
     ci_jobs = ci_config["jobs"]
     assert ci_config["on"]["push"] == {"branches": ["**"], "tags": ["**"]}
-    prerequisites = set(ci_jobs) - {"checks", "dispatch-publication"}
-    assert set(ci_jobs["checks"]["needs"]) == prerequisites
-    assert "job.result !== 'success'" in _workflow_job(ci, "checks")
+    initial_checks = {"prepare", "build-site", "test-cpp", "test-python"}
+    for job in initial_checks:
+        assert not ci_jobs[job].get("needs")
+    for frontend in ("esphome", "native", "matter", "sdk"):
+        assert set(ci_jobs[f"build-{frontend}"]["needs"]) == initial_checks
+    sdk = ci_jobs["build-sdk"]
+    assert sdk.get("if", "success()") == "success()"
+    assert sdk["outputs"]["publication"] == "${{ needs.prepare.outputs.publication }}"
+    assert ci_jobs["verify-sdk-component"]["needs"] == "build-sdk"
+    assert ci_jobs["verify-sdk-component"]["with"]["publication"] == "${{ needs.build-sdk.outputs.publication }}"
+    sdk_config = yaml.load(workflow_sources["sdk-component.yml"], Loader=yaml.BaseLoader)
+    assert sdk_config["on"]["workflow_call"]["outputs"]["publication"]["value"] == "${{ jobs.build.outputs.publication }}"
+    sdk_build = sdk_config["jobs"]["build"]
+    assert sdk_build["outputs"]["publication"] == "${{ inputs.publication }}"
+    assert not sdk_build.get("needs")
+    sdk_steps = sdk_build["steps"]
+    consumer = next(step for step in sdk_steps if "verify_sdk_component.py prepare" in step.get("run", ""))
+    assert '--registry-url "$REGISTRY_URL" --package-example' in consumer["run"]
     caller = ci_jobs["dispatch-publication"]
-    assert set(caller["needs"]) == {"prepare", "checks"}
+    assert set(caller["needs"]) == {
+        "audit-esphome", "audit-matter", "audit-native", "verify-sdk-component",
+    }
     assert "github.event_name == 'push'" in caller["if"]
-    assert "needs.prepare.outputs.publication == 'snapshot'" in caller["if"]
-    assert "needs.prepare.outputs.publication == 'release' && needs.checks.result == 'success'" in caller["if"]
+    assert "!github.event.deleted" in caller["if"]
+    assert caller["if"].strip() == (
+        "success() && github.event_name == 'push' && !github.event.deleted && "
+        "contains(fromJSON('[\"snapshot\", \"release\"]'), needs.verify-sdk-component.outputs.publication)"
+    )
     dispatch = _workflow_job(ci, "dispatch-publication")
     assert "ref: context.ref" in dispatch
     assert "source_run_id: String(context.runId)" in dispatch
     assert "source_run_attempt: process.env.GITHUB_RUN_ATTEMPT" in dispatch
     assert "source_sha: context.sha" in dispatch
-    for publication in ("snapshot", "release"):
-        config = yaml.load(workflow_sources[f"{publication}.yml"], Loader=yaml.BaseLoader)
-        assert set(config["on"]) == {"workflow_dispatch"}
-        assert set(config["on"]["workflow_dispatch"]["inputs"]) == {
-            "source_run_id", "source_run_attempt", "source_sha",
-        }
-        assert "validate_publication_source.cjs" in workflow_sources[f"{publication}.yml"]
-        assert "source_run_id" in config["jobs"]["verify-sdk-staging"]["with"]
-        for job in config["jobs"].values():
-            for step in job.get("steps", []):
-                if step.get("uses", "").startswith("actions/download-artifact@"):
-                    download = step["with"]
-                    if download.get("name") == "signed-firmware-catalog":
-                        continue  # Produced by the publisher, not by CI.
-                    assert "run-id" in download and "github-token" in download
+    assert "workflow_id: 'cd.yml'" in dispatch
+    config = yaml.load(cd, Loader=yaml.BaseLoader)
+    assert set(config["on"]) == {"workflow_dispatch"}
+    assert set(config["on"]["workflow_dispatch"]["inputs"]) == {
+        "source_run_id", "source_run_attempt", "source_sha",
+    }
+    assert "validate_publication_source.cjs" in cd
+    for job in config["jobs"].values():
+        for step in job.get("steps", []):
+            if step.get("uses", "").startswith("actions/download-artifact@"):
+                download = step["with"]
+                if download.get("name") == "signed-firmware-catalog":
+                    continue  # Produced by CD, not by CI.
+                assert "run-id" in download and "github-token" in download
     validator = (SCRIPTS_DIR / "validate_publication_source.cjs").read_text(encoding="utf-8")
     for guard in (
         "source.path !== '.github/workflows/ci.yml'",
@@ -2120,46 +2000,68 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "source.head_sha !== sha",
         "source.run_attempt !== attempt",
         "context.sha !== sha",
+        "source.conclusion !== 'success'",
+        "latest('Build SDK Package')?.conclusion !== 'success'",
         "latest('Dispatch Publication')?.conclusion !== 'success'",
-        "!snapshot && conclusion !== 'success'",
     ):
         assert guard in validator
-    assert "needs.validate-run.outputs.run_id" in snapshot
-    snapshot_jobs = yaml.load(snapshot, Loader=yaml.BaseLoader)["jobs"]
-    marker = snapshot_jobs["staging-verified"]
-    assert set(marker["needs"]) == {"publish-sdk-staging", "verify-sdk-staging"}
-    assert "needs.publish-sdk-staging.outputs.published == 'true'" in marker["if"]
-    assert marker["steps"][0]["env"]["SDK_RESULT"] == "${{ needs.verify-sdk-staging.result }}"
-    assert marker["steps"][0]["run"] == 'test "$SDK_RESULT" = success'
-    release_jobs = yaml.load(release, Loader=yaml.BaseLoader)["jobs"]
-    assert "validate_main_staging.cjs" in _workflow_job(release, "verify-main-staging")
-    assert set(release_jobs["release"]["needs"]) == {
-        "validate-release", "verify-main-staging", "verify-sdk-staging",
+    cd_jobs = config["jobs"]
+    assert {
+        job_id: [job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs", [])
+        for job_id, job in cd_jobs.items()
+    } == {
+        "validate-run": [],
+        "release": ["validate-run"],
+        "publish-sdk": ["release"],
+        "verify-sdk": ["publish-sdk"],
+        "publish-coverage": ["release"],
+        "publish-pages": ["release"],
+        "dispatch-pages": ["publish-pages"],
     }
-    assert "!contains(github.ref_name, '-')" in release_jobs["verify-main-staging"]["if"]
-    assert release_jobs["publish-sdk-staging"]["if"] == "contains(github.ref_name, '-')"
-    assert set(release_jobs["publish-sdk-production"]["needs"]) == {"validate-release", "release"}
-    assert "!contains(github.ref_name, '-')" in release_jobs["publish-sdk-production"]["if"]
-    for job_id in ("release", "publish-sdk-production", "verify-sdk-production", "publish-pages", "dispatch-pages"):
-        assert "!cancelled()" in release_jobs[job_id]["if"]
-    assert "needs.verify-main-staging.result == 'success'" in release_jobs["release"]["if"]
-    assert "needs.verify-sdk-staging.result == 'success'" in release_jobs["release"]["if"]
-    release_validator = _workflow_job(release, "validate-release")
+    assert cd_jobs["validate-run"]["outputs"]["metadata"] == "${{ steps.source.outputs.metadata }}"
+    assert cd_jobs["release"]["if"] == "needs.validate-run.outputs.current == 'true'"
+    assert cd_jobs["release"]["outputs"]["metadata"] == "${{ needs.validate-run.outputs.metadata }}"
+    assert cd_jobs["publish-sdk"]["outputs"]["metadata"] == "${{ needs.release.outputs.metadata }}"
+    assert cd_jobs["publish-sdk"]["environment"] == "${{ fromJSON(needs.release.outputs.metadata).environment }}"
+    upload = next(step for step in cd_jobs["publish-sdk"]["steps"] if step.get("uses", "").startswith("espressif/upload-components-ci-action@"))
+    assert upload["with"]["registry_url"] == "${{ fromJSON(needs.release.outputs.metadata).registry_url }}"
+    assert upload["with"]["skip_pre_release"] == "${{ fromJSON(needs.release.outputs.metadata).stable }}"
+    verification = cd_jobs["verify-sdk"]
+    assert verification["uses"] == "./.github/workflows/sdk-component.yml"
+    assert verification["if"] == "needs.publish-sdk.outputs.published == 'true'"
+    assert verification["with"]["registry_url"] == (
+        "${{ fromJSON(needs.publish-sdk.outputs.metadata).registry_url }}"
+    )
+    assert verification["with"]["source_run_id"] == (
+        "${{ fromJSON(needs.publish-sdk.outputs.metadata).run_id }}"
+    )
+    for job_id in ("publish-sdk", "publish-coverage", "dispatch-pages"):
+        assert cd_jobs[job_id].get("if", "success()") == "success()"
+    assert cd_jobs["publish-pages"]["if"] == "fromJSON(needs.release.outputs.metadata).publish_website"
+    coverage_steps = cd_jobs["publish-coverage"]["steps"]
+    assert coverage_steps[0]["with"]["run-id"] == "${{ fromJSON(needs.release.outputs.metadata).run_id }}"
+    assert coverage_steps[0]["with"]["pattern"] == "*-coverage-badge"
+    assert coverage_steps[-1]["env"]["COVERAGE_TAG"] == "${{ fromJSON(needs.release.outputs.metadata).release_tag }}"
+    release_validator = _workflow_job(cd, "validate-run")
     assert "git merge-base --is-ancestor" in release_validator
     assert 'validate_release.py --tag "$GITHUB_REF_NAME"' in release_validator
-    prepare = _workflow_job(ci, "prepare")
+    tag_validation = next(step for step in cd_jobs["validate-run"]["steps"] if "validate_release.py" in step.get("run", ""))
+    assert tag_validation["if"] == "github.ref_type == 'tag'"
+    prepare_job = ci_jobs["prepare"]
+    metadata = next(step for step in prepare_job["steps"] if step.get("id") == "metadata")
+    for output in ("publication", "version", "channel", "release_tag", "artifact_suffix", "ota_channel", "sign"):
+        assert prepare_job["outputs"][output] == "${{ steps.metadata.outputs." + output + " }}"
+    prepare = metadata["run"]
     assert "git merge-base --is-ancestor" in prepare
     assert 'validate_release.py --tag "$GITHUB_REF_NAME"' in prepare
     preview_tag, develop_tag = _ota_release_tags()
-    assert re.search(rf'(?m)^              echo "tag={re.escape(develop_tag)}"$', snapshot)
-    assert re.search(rf'(?m)^              echo "tag={re.escape(preview_tag)}"$', snapshot)
     for tag in (preview_tag, develop_tag):
         assert re.search(rf"(?m)^\s+release_tag={re.escape(tag)}$", prepare)
     assert "detect_git_version.py" in ci
-    assert "detect_git_version.py" in snapshot
+    assert "detect_git_version.py" in cd
     for job in ("build-esphome", "build-native", "build-matter", "build-sdk"):
         build = _workflow_job(ci, job)
-        assert ci_jobs[job]["needs"] == "prepare"
+        assert "prepare" in ci_jobs[job]["needs"]
         assert "needs.prepare.outputs.version" in build
     for job in ("build-esphome", "build-native"):
         build = _workflow_job(ci, job)
@@ -2169,12 +2071,11 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
     ).read_text(encoding="utf-8")
     assert "detect_git_version.py" in published_channel_action
-    assert snapshot.count("uses: ./.github/actions/stage-published-web-channel") == 2
-    assert release.count("uses: ./.github/actions/stage-published-web-channel") == 2
+    assert cd.count("uses: ./.github/actions/stage-published-web-channel") == 3
     for tag in (preview_tag, develop_tag):
-        assert f"release-tag: {tag}" in release
-    assert f"release-tag: {develop_tag}" in snapshot
-    assert "release-tag: latest" in snapshot
+        assert f"release-tag: {tag}" in cd
+        assert f"'{tag}'" in validator
+    assert "release-tag: latest" in cd
     for expected in (
         "gh release view",
         "gh release download",
@@ -2183,14 +2084,13 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "firmware-compliance-*.zip",
     ):
         assert expected in published_channel_action
-    for source in (ci, snapshot, release):
+    for source in (ci, cd):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
-    for source in (snapshot, release):
-        assert "docs/web/artifacts/firmware/release" in source
-        assert "name: website-sitemap-${{ github.run_attempt }}" in source
-        assert "path: docs/web/sitemap.xml" in source
-        assert "workflow_id: 'pages.yml'" in source
+    assert "docs/web/artifacts/firmware/release" in cd
+    assert "name: website-sitemap-${{ github.run_attempt }}" in cd
+    assert "path: docs/web/sitemap.xml" in cd
+    assert "workflow_id: 'pages.yml'" in cd
     pages = workflow_sources["pages.yml"]
     assert "path: deployed-website" in pages
     assert "notify_indexnow.py --sitemap deployed-website/sitemap.xml" in pages
@@ -2199,10 +2099,15 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert "pages_artifact', `github-pages-${latest.run_attempt}`" in pages
     assert "sitemap_artifact', `website-sitemap-${latest.run_attempt}`" in pages
     assert "ref: ${{ steps.source.outputs.head_sha }}" in pages
-    assert 'require-preview: "true"' in snapshot
-    assert "require-release: ${{ steps.release-assets.outputs.staged }}" in snapshot
-    assert 'require-release: "true"' in release
-    assert "require-preview: ${{ steps.preview-assets.outputs.staged }}" in release
+    assert "run.path !== '.github/workflows/cd.yml'" in pages
+    assert "const snapshot = run.head_branch === 'main'" in pages
+    assert "['Validate Source Run', 'Create Release', 'Publish Website']" in pages
+    build_pages = next(step for step in cd_jobs["publish-pages"]["steps"] if step.get("uses") == "./.github/actions/build-pages")
+    for channel in ("preview", "release"):
+        assert build_pages["with"][f"require-{channel}"] == (
+            "${{ fromJSON(needs.release.outputs.metadata).channel == '" + channel +
+            "' && 'true' || steps." + channel + "-assets.outputs.staged }}"
+        )
     pages_action = (REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml").read_text(
         encoding="utf-8"
     )
@@ -2210,9 +2115,12 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert ".github/scripts/generate_sdk_api.py" in pages_action
     assert "doxygen src/cpp/Doxyfile" not in pages_action
     generator = load_script("generate_sdk_api")
-    assert f'version="{generator.REQUIRED_DOXYGEN_VERSION}"' in pages_action
-    assert "doxygen-${version}.linux.bin.tar.gz" in pages_action
-    assert "apt-get install -y --no-install-recommends doxygen" not in pages_action
+    doxygen_action = (REPO_ROOT / ".github/actions/setup-doxygen/action.yml").read_text(encoding="utf-8")
+    assert f'version="{generator.REQUIRED_DOXYGEN_VERSION}"' in doxygen_action
+    assert "doxygen-${version}.linux.bin.tar.gz" in doxygen_action
+    assert ".github/actions/setup-doxygen" in pages_action
+    for job in ("build-sdk", "test-python"):
+        assert ".github/actions/setup-doxygen" in _workflow_job((WORKFLOWS_DIR / "ci.yml").read_text(), job)
 
     for script_name in (
         "build_matter_firmware.sh",

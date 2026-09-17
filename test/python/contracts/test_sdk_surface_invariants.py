@@ -279,7 +279,6 @@ def test_sdk_readme_links_the_public_facades_to_the_reference() -> None:
     guide = SDK_GUIDE.read_text(encoding="utf-8")
     for facade in (FACADE, CORE_FACADE, SERVICES_FACADE, MQTT_FACADE):
         assert f"`{facade.name}`" in guide
-    assert "https://espectre.dev/sdk/api/" in guide
 
 
 @pytest.mark.parametrize("header", sorted(set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE))), ids=lambda path: path.name)

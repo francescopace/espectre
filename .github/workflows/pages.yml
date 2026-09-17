@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       pages_run_id:
-        description: Snapshot or release run containing the verified website
+        description: CD run containing the verified website
         required: true
         type: string
       pages_run_attempt:
@@ -49,12 +49,12 @@ jobs:
             const { data: run } = await github.rest.actions.getWorkflowRun({
               ...context.repo, run_id: runId,
             });
-            const snapshot = run.path === '.github/workflows/snapshot.yml';
-            if ((!snapshot && run.path !== '.github/workflows/release.yml') ||
+            const snapshot = run.head_branch === 'main';
+            if (run.path !== '.github/workflows/cd.yml' ||
                 run.event !== 'workflow_dispatch' || run.run_attempt !== attempt ||
                 run.head_repository?.full_name !== context.payload.repository.full_name ||
                 (snapshot ? run.head_branch !== 'main' : !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(run.head_branch))) {
-              throw new Error('The source must be the matching snapshot or release publication attempt.');
+              throw new Error('The source must be the matching CD publication attempt.');
             }
             const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
               ...context.repo, basehead: `main...${run.head_sha}`,
@@ -68,9 +68,7 @@ jobs:
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
               ...context.repo, run_id: runId, filter: 'all', per_page: 100,
             });
-            const required = snapshot
-              ? ['Validate Source Run', 'Create Snapshot Release', 'Publish Website']
-              : ['Validate Release Source', 'Create Release', 'Publish Website'];
+            const required = ['Validate Source Run', 'Create Release', 'Publish Website'];
             for (const name of required) {
               // A retry can reuse successful jobs from an earlier attempt.
               const latest = jobs.filter(job => job.name === name && job.run_attempt <= attempt)
@@ -102,12 +100,7 @@ jobs:
           name: ${{ steps.source.outputs.pages_artifact }}
           path: source-pages
 
-      - name: Preserve SDK API reference history
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 .github/scripts/sdk_api_reference.py restore-pages --repository "$GITHUB_REPOSITORY" --archive source-pages/artifact.tar
-
-      - name: Upload the verified Pages archive with API history
+      - name: Upload the verified Pages archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: github-pages

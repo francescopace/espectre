@@ -21,7 +21,6 @@ if _SCRIPTS_DIR not in sys.path:
 
 from detect_git_version import detect_git_version, parse_version_core
 from generate_sdk_api import expected_header_paths
-from sdk_api_reference import reference_path
 from web_html_security import validate_passive_api_fragment
 from web_routes import SITEMAP_NAMESPACE, load_manifest, staged_sdk_channels
 
@@ -286,17 +285,18 @@ def verify_firmware_channel(channel: str) -> None:
 
 def verify_sdk_api_version() -> None:
     version = detect_git_version()
-    manifest = json.loads(require_file("artifacts/sdk/api/api-index.json").read_text(encoding="utf-8"))
+    manifest_path = require_file("artifacts/sdk/api/api-index.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("sdk_version") != version:
         raise ValueError(f"Generated SDK API reference does not show version {version!r}")
     if manifest.get("renderer") != "m.css" or not manifest.get("renderer_revision"):
         raise ValueError("Generated SDK API reference has no pinned m.css renderer identity")
     if set(manifest.get("public_headers", [])) != expected_header_paths():
         raise ValueError("Generated SDK API reference does not cover the public headers")
-    revision = reference_path(version, manifest.get("source_commit", ""))
-    pinned = require_file(f"artifacts/sdk/api/{revision}/api-index.json")
-    if json.loads(pinned.read_text(encoding="utf-8")) != manifest:
-        raise ValueError("Generated SDK API reference differs from its immutable revision")
+    if not re.fullmatch(r"[0-9a-f]{40}", manifest.get("source_commit", "")):
+        raise ValueError("Generated SDK API reference has no full source commit")
+    if manifest.get("schema_version") != 1:
+        raise ValueError("Unsupported SDK API reference schema")
     entries = manifest.get("entries", [])
     if not entries or any(not isinstance(entry.get("discoverable"), bool) for entry in entries):
         raise ValueError("Generated SDK API reference has no picker discoverability metadata")
@@ -306,6 +306,17 @@ def verify_sdk_api_version() -> None:
         "classespectre_1_1_i_runtime_listener",
     }
     available = {entry.get("refid") for entry in entries}
+    if len(available) != len(entries) or manifest.get("default") not in available:
+        raise ValueError("Generated SDK API reference has duplicate identifiers or no default page")
+    fragments = [entry.get("fragment", "") for entry in entries]
+    if len(set(fragments)) != len(fragments) or any(
+        not re.fullmatch(r"fragments/[A-Za-z0-9_.-]+\.html", name) for name in fragments
+    ):
+        raise ValueError("Generated SDK API reference has invalid or duplicate fragment paths")
+    files = {path.relative_to(manifest_path.parent).as_posix()
+             for path in manifest_path.parent.rglob("*") if path.is_file()}
+    if files != {"api-index.json", *fragments}:
+        raise ValueError("Generated SDK API files do not match the current page inventory")
     if not required <= available:
         raise ValueError(f"Generated SDK API reference is missing public types: {sorted(required - available)}")
     discoverable = {entry.get("refid") for entry in entries if entry["discoverable"]}
@@ -313,9 +324,6 @@ def verify_sdk_api_version() -> None:
         raise ValueError(f"Generated SDK API picker is missing public types: {sorted(required - discoverable)}")
     for entry in entries:
         fragment = require_file(f"artifacts/sdk/api/{entry.get('fragment', '')}")
-        archived = require_file(f"artifacts/sdk/api/{revision}/{entry.get('fragment', '')}")
-        if archived.read_bytes() != fragment.read_bytes():
-            raise ValueError(f"Generated SDK API fragment differs from its immutable revision: {fragment}")
         source = fragment.read_text(encoding="utf-8")
         validate_passive_api_fragment(source)
         if "<html" in source.lower() or "<iframe" in source.lower():

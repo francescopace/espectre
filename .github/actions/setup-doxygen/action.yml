@@ -1,0 +1,22 @@
+name: Set up Doxygen
+description: Install the pinned Doxygen binary used by SDK documentation builds.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Doxygen
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="1.17.0"
+        archive="doxygen-${version}.linux.bin.tar.gz"
+        url="https://github.com/doxygen/doxygen/releases/download/Release_${version//./_}/${archive}"
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL -o "${tmp}/${archive}" "$url"
+        tar -xzf "${tmp}/${archive}" -C "$tmp"
+        binary="$(find "$tmp" -type f -path '*/bin/doxygen' -print -quit)"
+        test -n "$binary"
+        sudo install -m 0755 "$binary" /usr/local/bin/doxygen
+        installed="$(doxygen -v | awk '{print $1}')"
+        test "$installed" = "$version"
