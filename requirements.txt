@@ -17,6 +17,7 @@ zeroconf==0.151.2       # required by ESPHome 2026.9.0; used for host device dis
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.3    # environment variables support
 PyYAML==6.0.3           # YAML parsing
+idf-component-manager==2.5.0  # SDK registry tooling and ESP-IDF 5.5 firmware builds
 prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies

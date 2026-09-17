@@ -1,19 +1,24 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'      # Match: 2.5.0, 1.0.0, etc.
-      - '[0-9]+.[0-9]+.[0-9]+-*'    # Match: 2.5.0-rc1, 2.5.0-beta, etc.
   workflow_dispatch:
     inputs:
-      pages_run_id:
-        description: Release run containing the verified github-pages artifact to deploy
+      source_run_id:
+        description: CI push run containing the verified artifacts
+        required: true
+        type: string
+      source_run_attempt:
+        description: Attempt of the source CI run
+        required: true
+        type: string
+      source_sha:
+        description: Full commit SHA verified by CI
         required: true
         type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -22,514 +27,158 @@ concurrency:
 jobs:
   validate-release:
     name: Validate Release Source
-    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      current: ${{ steps.source.outputs.current }}
+      run_id: ${{ steps.source.outputs.run_id }}
+      head_sha: ${{ steps.source.outputs.head_sha }}
+      head_branch: ${{ steps.source.outputs.head_branch }}
+      created_at: ${{ steps.source.outputs.created_at }}
+      conclusion: ${{ steps.source.outputs.conclusion }}
     permissions:
       actions: read
       contents: read
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-
-      - name: Verify tag, changelog, version, and main ancestry
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
-            || { echo "Release commit is not reachable from main." >&2; exit 1; }
-          python3 .github/scripts/validate_release.py --tag "${RELEASE_TAG}"
-
-      - name: Require a successful main CI run for this commit
+      - name: Verify the source CI run and completed checks
+        id: source
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const response = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "ci.yml",
-              branch: "main",
-              head_sha: context.sha,
-              status: "success",
-              per_page: 100
-            });
-            const valid = response.data.workflow_runs.find((run) =>
-              run.event === "push" &&
-              run.head_branch === "main" &&
-              run.head_sha === context.sha &&
-              run.conclusion === "success"
-            );
-            if (!valid) {
-              core.setFailed(`No successful main CI push run found for ${context.sha}.`);
-            } else {
-              core.info(`Release is gated by successful CI run ${valid.id}.`);
-            }
+            const validate = require('./.github/scripts/validate_publication_source.cjs');
+            await validate({ github, context, core, publication: 'release' });
+      - name: Revalidate the release tag and main ancestry
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          python3 .github/scripts/validate_release.py --tag "$GITHUB_REF_NAME"
 
-  build-esphome:
-    name: Build ESPHome ${{ matrix.chip }}
+  publish-sdk-staging:
+    name: Publish SDK to Staging
     needs: validate-release
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chip: ESP32
-            config: src/cpp/frontend/esphome/examples/espectre-esp32.yaml
-          - chip: ESP32-S3
-            config: src/cpp/frontend/esphome/examples/espectre-s3.yaml
-          - chip: ESP32-S2
-            config: src/cpp/frontend/esphome/examples/espectre-s2.yaml
-          - chip: ESP32-C3
-            config: src/cpp/frontend/esphome/examples/espectre-c3.yaml
-          - chip: ESP32-C5
-            config: src/cpp/frontend/esphome/examples/espectre-c5.yaml
-          - chip: ESP32-C6
-            config: src/cpp/frontend/esphome/examples/espectre-c6.yaml
-    
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-      
-      - name: Install ESPHome
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: Compile signed ESPHome firmware
-        id: esphome-artifacts
-        env:
-          ESPECTRE_GIT_VERSION: ${{ github.ref_name }}
-          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
-          FIRMWARE_SIGNING_KEY_ESP32: ${{ secrets.FIRMWARE_SIGNING_KEY_ESP32 }}
-        run: |
-          TARGET=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          python .github/scripts/build_signed_firmware.py esphome \
-            --config "${{ matrix.config }}" --target "$TARGET" \
-            --version "${{ github.ref_name }}"
-
-      - name: Rename firmware files
-        run: |
-          mkdir -p .cache/firmware
-          VERSION="${GITHUB_REF_NAME}"
-          CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
-          cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}.bin"
-          cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" ".cache/firmware/espectre-esphome-${VERSION}-${CHIP}-ota.bin"
-
-      - name: Build ESPHome compliance artifacts
-        env:
-          ESPECTRE_GIT_VERSION: ${{ github.ref_name }}
-        run: |
-          PROJECT_DESCRIPTION="${{ steps.esphome-artifacts.outputs.project_description }}"
-          test -n "${PROJECT_DESCRIPTION}"
-          for FIRMWARE in .cache/firmware/espectre-esphome-*.bin; do
-            python .github/scripts/build_firmware_compliance.py \
-              --frontend esphome \
-              --project-description "${PROJECT_DESCRIPTION}" \
-              --firmware "${FIRMWARE}" \
-              --output-dir .cache/firmware
-          done
-      - name: Stage ESPHome firmware audit input
-        run: |
-          mkdir -p .cache/audit-input
-          for SBOM in .cache/firmware/espectre-esphome-*-sbom.spdx.json; do
-            case "${SBOM}" in *-ota-sbom.spdx.json) continue ;; esac
-            cp "${SBOM}" ".cache/audit-input/${{ matrix.chip }}.spdx.json"
-          done
-          test -f ".cache/audit-input/${{ matrix.chip }}.spdx.json"
-
-      - name: Upload ESPHome firmware audit input
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: audit-firmware-esphome-${{ matrix.chip }}
-          path: .cache/audit-input/${{ matrix.chip }}.spdx.json
-          retention-days: 1
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          include-hidden-files: true
-          name: firmware-${{ matrix.chip }}
-          path: .cache/firmware/espectre-esphome-${{ github.ref_name }}-*
-          retention-days: 7
-
-  build-matter:
-    name: Build Matter ${{ matrix.chip }}
-    needs: validate-release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chip: ESP32
-            target: esp32
-          - chip: ESP32-C3
-            target: esp32c3
-          - chip: ESP32-C5
-            target: esp32c5
-          - chip: ESP32-C6
-            target: esp32c6
-          - chip: ESP32-S3
-            target: esp32s3
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      # Keep dependencies and compiled objects per target. The target suffix
-      # prevents parallel matrix jobs from competing to populate one cache.
-      - name: Cache Matter toolchain, components, and compiler objects
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            .cache/build/matter-home
-            src/cpp/frontend/matter/app/managed_components
-          key: matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig.defaults*') }}
-          restore-keys: |
-            matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-
-            matter-${{ runner.os }}-idf-v5.5-deps-v2-
-
-      - name: Build Matter firmware
-        run: |
-          mkdir -p .cache/firmware
-          .github/scripts/build_matter_firmware.sh
-        env:
-          MATTER_TARGET: ${{ matrix.target }}
-          MATTER_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-matter-${{ github.ref_name }}-${{ matrix.target }}.bin
-          MATTER_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
-
-      - name: Stage Matter firmware audit input
-        run: |
-          mkdir -p .cache/audit-input
-          cp .cache/firmware/espectre-matter-*-sbom.spdx.json ".cache/audit-input/${{ matrix.chip }}.spdx.json"
-
-      - name: Upload Matter firmware audit input
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: audit-firmware-matter-${{ matrix.chip }}
-          path: .cache/audit-input/${{ matrix.chip }}.spdx.json
-          retention-days: 1
-
-      - name: Upload Matter firmware artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          include-hidden-files: true
-          name: firmware-matter-${{ matrix.chip }}
-          path: .cache/firmware/espectre-matter-*
-          retention-days: 7
-
-  build-native:
-    name: Build native ${{ matrix.chip }}
-    needs: validate-release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chip: ESP32
-            target: esp32
-          - chip: ESP32-C3
-            target: esp32c3
-          - chip: ESP32-C5
-            target: esp32c5
-          - chip: ESP32-C6
-            target: esp32c6
-          - chip: ESP32-S3
-            target: esp32s3
-          - chip: ESP32-S2
-            target: esp32s2
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up firmware signing
-        uses: ./.github/actions/setup-firmware-signing
-
-      # The cached home contains target-independent Python and component dependencies.
-      - name: Cache native toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .cache/build/native-home
-          key: native-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            native-${{ runner.os }}-idf-v5.5-deps-v2-
-
-      - name: Build native firmware
-        run: |
-          mkdir -p .cache/firmware
-          python .github/scripts/build_signed_firmware.py native
-        env:
-          FIRMWARE_SIGNING_KEY_RSA: ${{ secrets.FIRMWARE_SIGNING_KEY_RSA }}
-          FIRMWARE_SIGNING_KEY_ESP32: ${{ secrets.FIRMWARE_SIGNING_KEY_ESP32 }}
-          NATIVE_TARGET: ${{ matrix.target }}
-          NATIVE_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ github.ref_name }}-${{ matrix.target }}.bin
-          NATIVE_OTA_OUTPUT: ${{ github.workspace }}/.cache/firmware/espectre-native-${{ github.ref_name }}-${{ matrix.target }}-ota.bin
-          NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.target == 'esp32' && 'sdkconfig.defaults;sdkconfig.defaults.esp32' || '' }}
-
-      - name: Stage native firmware audit input
-        run: |
-          mkdir -p .cache/audit-input
-          for SBOM in .cache/firmware/espectre-native-*-sbom.spdx.json; do
-            case "${SBOM}" in *-ota-sbom.spdx.json) continue ;; esac
-            cp "${SBOM}" ".cache/audit-input/${{ matrix.chip }}.spdx.json"
-          done
-          test -f ".cache/audit-input/${{ matrix.chip }}.spdx.json"
-
-      - name: Upload native firmware audit input
-        if: success()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: audit-firmware-native-${{ matrix.chip }}
-          path: .cache/audit-input/${{ matrix.chip }}.spdx.json
-          retention-days: 1
-
-      - name: Upload native firmware artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          include-hidden-files: true
-          name: firmware-native-${{ matrix.chip }}
-          path: .cache/firmware/espectre-native-*
-          retention-days: 7
-
-  audit-esphome:
-    name: Audit ESPHome firmware dependencies
-    needs: build-esphome
-    if: always()
+    timeout-minutes: 20
+    environment: sdk-registry-staging
     permissions:
       contents: read
       actions: read
-      security-events: write
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: ./.github/actions/setup-sdk-packaging
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install audit dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Download firmware audit inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: audit-firmware-esphome-*
-          path: .cache/audit-input
-          merge-multiple: true
-
-      - name: Audit ESPHome firmware dependencies
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
+          name: registry-component
+          path: .cache/registry
+      - name: Compare any existing staging version
+        id: existing
         run: |
-          python .github/scripts/audit_firmware_dependencies.py \
-            --frontend esphome \
-            --sbom .cache/audit-input/*.spdx.json \
-            --expected-target ESP32 \
-            --expected-target ESP32-S2 \
-            --expected-target ESP32-S3 \
-            --expected-target ESP32-C3 \
-            --expected-target ESP32-C5 \
-            --expected-target ESP32-C6 \
-            --output-dir .cache/reports/firmware/esphome
-
-      - name: Summarize firmware audit
-        if: always()
+          python .github/scripts/verify_sdk_component.py check \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components-staging.espressif.com \
+            --wait-seconds 0 --allow-missing
+      - name: Extract the verified upload tree
+        if: steps.existing.outputs.exists != 'true'
         run: |
-          if [ -f .cache/reports/firmware/esphome/summary.md ]; then
-            cat .cache/reports/firmware/esphome/summary.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Firmware dependency audit did not produce a report.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload firmware vulnerability alerts
-        if: always() && hashFiles('.cache/reports/firmware/esphome/results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
+          python .github/scripts/verify_sdk_component.py extract \
+            --inventory .cache/registry/component-inventory.json \
+            --destination .cache/registry/espectre
+      - name: Upload with trusted GitHub identity
+        if: steps.existing.outputs.exists != 'true'
+        uses: espressif/upload-components-ci-action@2ce17d73e35473317c1419dbd4f007aacb593040 # v2.2.1
         with:
-          sarif_file: .cache/reports/firmware/esphome/results.sarif
-          category: firmware/esphome
+          components: 'espectre: .cache/registry/espectre'
+          namespace: francescopace
+          registry_url: https://components-staging.espressif.com
+          # Preserve the source provenance already stamped in the artifact.
+          repository_url: ''
+          commit_sha: ''
+          skip_pre_release: false
+      - name: Wait for processing and compare published contents
+        run: |
+          python .github/scripts/verify_sdk_component.py check \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components-staging.espressif.com
 
-  audit-matter:
-    name: Audit Matter firmware dependencies
-    needs: build-matter
-    if: always()
+  verify-sdk-staging:
+    needs: [validate-release, publish-sdk-staging]
+    uses: ./.github/workflows/sdk-component.yml
+    with:
+      registry_url: https://components-staging.espressif.com
+      source_run_id: ${{ needs.validate-release.outputs.run_id }}
+
+  publish-sdk-production:
+    name: Publish Stable SDK to Registry
+    needs: [validate-release, release, verify-sdk-staging]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: sdk-registry-production
     permissions:
       contents: read
       actions: read
-      security-events: write
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: ./.github/actions/setup-sdk-packaging
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install audit dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Download firmware audit inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: audit-firmware-matter-*
-          path: .cache/audit-input
-          merge-multiple: true
-
-      - name: Audit Matter firmware dependencies
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
+          name: registry-component
+          path: .cache/registry
+      - name: Compare any existing public version
+        id: existing
         run: |
-          python .github/scripts/audit_firmware_dependencies.py \
-            --frontend matter \
-            --sbom .cache/audit-input/*.spdx.json \
-            --expected-target ESP32 \
-            --expected-target ESP32-C3 \
-            --expected-target ESP32-C5 \
-            --expected-target ESP32-C6 \
-            --expected-target ESP32-S3 \
-            --output-dir .cache/reports/firmware/matter
-
-      - name: Summarize firmware audit
-        if: always()
+          python .github/scripts/verify_sdk_component.py check \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components.espressif.com \
+            --wait-seconds 0 --allow-missing
+      - name: Extract the staging-verified upload tree
+        if: steps.existing.outputs.exists != 'true'
         run: |
-          if [ -f .cache/reports/firmware/matter/summary.md ]; then
-            cat .cache/reports/firmware/matter/summary.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Firmware dependency audit did not produce a report.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload firmware vulnerability alerts
-        if: always() && hashFiles('.cache/reports/firmware/matter/results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
+          python .github/scripts/verify_sdk_component.py extract \
+            --inventory .cache/registry/component-inventory.json \
+            --destination .cache/registry/espectre
+      - name: Upload stable version with trusted GitHub identity
+        if: steps.existing.outputs.exists != 'true'
+        uses: espressif/upload-components-ci-action@2ce17d73e35473317c1419dbd4f007aacb593040 # v2.2.1
         with:
-          sarif_file: .cache/reports/firmware/matter/results.sarif
-          category: firmware/matter
-
-  audit-native:
-    name: Audit Native firmware dependencies
-    needs: build-native
-    if: always()
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install audit dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Download firmware audit inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: audit-firmware-native-*
-          path: .cache/audit-input
-          merge-multiple: true
-
-      - name: Audit Native firmware dependencies
+          components: 'espectre: .cache/registry/espectre'
+          namespace: francescopace
+          registry_url: https://components.espressif.com
+          repository_url: ''
+          commit_sha: ''
+          skip_pre_release: true
+      - name: Download the public component and standalone example
         run: |
-          python .github/scripts/audit_firmware_dependencies.py \
-            --frontend native \
-            --sbom .cache/audit-input/*.spdx.json \
-            --expected-target ESP32 \
-            --expected-target ESP32-C3 \
-            --expected-target ESP32-C5 \
-            --expected-target ESP32-C6 \
-            --expected-target ESP32-S2 \
-            --expected-target ESP32-S3 \
-            --output-dir .cache/reports/firmware/native
-
-      - name: Summarize firmware audit
-        if: always()
+          python .github/scripts/verify_sdk_component.py prepare \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components.espressif.com \
+            --destination "$RUNNER_TEMP/sdk-public" --target esp32c3 --profile all
+      - name: Verify public installation and build
         run: |
-          if [ -f .cache/reports/firmware/native/summary.md ]; then
-            cat .cache/reports/firmware/native/summary.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Firmware dependency audit did not produce a report.' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload firmware vulnerability alerts
-        if: always() && hashFiles('.cache/reports/firmware/native/results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
-        with:
-          sarif_file: .cache/reports/firmware/native/results.sarif
-          category: firmware/native
-
-  build-sdk:
-    name: Build SDK Package
-    needs: validate-release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.14'
-
-      - name: Build SDK package
-        run: |
-          mkdir -p .cache/sdk
-          python .github/scripts/build_sdk_package.py \
-            --channel release \
-            --version "${GITHUB_REF_NAME}" \
-            --release-tag "${GITHUB_REF_NAME}" \
-            --output-dir .cache/sdk \
-            --commit "${GITHUB_SHA}"
-
-      - name: Upload SDK artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          include-hidden-files: true
-          name: sdk-bundle
-          path: |
-            .cache/sdk/espectre-sdk-*.tar.gz
-            .cache/sdk/espectre-sdk-*.zip
-            .cache/sdk/sdk-manifest-*.json
-          retention-days: 7
+          python .github/scripts/verify_sdk_component.py build --docker \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url https://components.espressif.com \
+            --destination "$RUNNER_TEMP/sdk-public" --target esp32c3 \
+            > "$RUNNER_TEMP/sdk-public-build.log" 2>&1 \
+            || { tail -n 100 "$RUNNER_TEMP/sdk-public-build.log"; exit 1; }
+          tail -n 5 "$RUNNER_TEMP/sdk-public-build.log"
 
   release:
     name: Create Release
-    needs: [build-esphome, build-matter, build-native, audit-esphome, audit-matter, audit-native, build-sdk]
+    needs: [validate-release, verify-sdk-staging]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
+      actions: read
       discussions: write
     
     steps:
@@ -543,6 +192,8 @@ jobs:
       - name: Download all firmware artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
           pattern: firmware-*
           path: firmware
           merge-multiple: true
@@ -550,9 +201,19 @@ jobs:
       - name: Download SDK package artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
           pattern: sdk-*
           path: sdk
           merge-multiple: true
+
+      - name: Download registry package and checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
+          name: registry-component
+          path: registry
       
       - name: List firmware files
         run: ls -la firmware/
@@ -581,6 +242,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: signed-firmware-catalog
+          overwrite: true
           path: firmware/firmware-manifest-*.json
           if-no-files-found: error
 
@@ -654,6 +316,8 @@ jobs:
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
+            registry/*.tgz
+            registry/component-inventory.json
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           discussion_category_name: "Announcements"
@@ -701,11 +365,12 @@ jobs:
 
   publish-pages:
     name: Publish Website
-    needs: release
+    needs: [validate-release, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -725,6 +390,8 @@ jobs:
       - name: Download release firmware artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
           pattern: firmware-*
           path: release-firmware
           merge-multiple: true
@@ -732,6 +399,8 @@ jobs:
       - name: Download release SDK artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ needs.validate-release.outputs.run_id }}
           pattern: sdk-*
           path: release-sdk
           merge-multiple: true
@@ -790,12 +459,14 @@ jobs:
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: docs/web
 
       - name: Upload deployed sitemap inventory
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: website-sitemap
+          name: website-sitemap-${{ github.run_attempt }}
+          overwrite: true
           path: docs/web/sitemap.xml
           if-no-files-found: error
           retention-days: 1
@@ -803,7 +474,6 @@ jobs:
   dispatch-pages:
     name: Dispatch Website Deployment
     needs: publish-pages
-    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -818,10 +488,11 @@ jobs:
             // artifact for the same SHA. A fresh branch dispatch avoids that path.
             const response = await github.rest.actions.createWorkflowDispatch({
               ...context.repo,
-              workflow_id: 'release.yml',
+              workflow_id: 'pages.yml',
               ref: 'main',
               inputs: {
                 pages_run_id: String(context.runId),
+                pages_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
               },
               headers: { 'X-GitHub-Api-Version': '2026-03-10' },
             });
@@ -830,6 +501,7 @@ jobs:
               throw new Error('The Pages dispatch did not return a workflow run ID.');
             }
             core.info(`Website deployment: ${response.data.html_url}`);
+            await core.summary.addLink('Website deployment', response.data.html_url).write();
             const deadline = Date.now() + 23 * 60 * 1000;
             while (Date.now() < deadline) {
               const { data: run } = await github.rest.actions.getWorkflowRun({
@@ -845,111 +517,3 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, 10000));
             }
             throw new Error(`Timed out waiting for website deployment ${runId}.`);
-
-  deploy-pages:
-    name: Deploy Website
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      actions: read
-      pages: write
-      id-token: write
-    concurrency:
-      group: pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Validate the source release artifact
-        id: source
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        with:
-          script: |
-            if (context.ref !== 'refs/heads/main') {
-              throw new Error('Website deployment must be dispatched on main.');
-            }
-            const runId = Number(context.payload.inputs.pages_run_id);
-            if (!Number.isSafeInteger(runId) || runId <= 0) {
-              throw new Error('Source run ID must be a positive integer.');
-            }
-            const { data: run } = await github.rest.actions.getWorkflowRun({
-              ...context.repo, run_id: runId,
-            });
-            const { data: workflow } = await github.rest.actions.getWorkflow({
-              ...context.repo, workflow_id: 'release.yml',
-            });
-            if (run.workflow_id !== workflow.id || run.event !== 'push' ||
-                run.head_repository?.full_name !== context.payload.repository.full_name) {
-              throw new Error('The source must be a Release push run in this repository.');
-            }
-            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
-              ...context.repo, basehead: `main...${run.head_sha}`,
-            });
-            if (!['behind', 'identical'].includes(comparison.status)) {
-              throw new Error('The source release commit must be reachable from main.');
-            }
-            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-              ...context.repo, run_id: runId, filter: 'all', per_page: 100,
-            });
-            for (const name of ['Validate Release Source', 'Create Release', 'Publish Website']) {
-              // A retry of only failed jobs reuses successful jobs from earlier attempts.
-              const latest = jobs.filter(job => job.name === name)
-                .sort((left, right) => right.run_attempt - left.run_attempt)[0];
-              if (latest?.conclusion !== 'success') {
-                throw new Error(`Source release job has not succeeded: ${name}`);
-              }
-            }
-            core.setOutput('run_id', String(runId));
-            core.info(`Reusing the verified website from ${run.html_url}.`);
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: Download the verified Pages archive
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.source.outputs.run_id }}
-          name: github-pages
-          path: source-pages
-
-      - name: Upload the same Pages archive for this dispatch
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: github-pages
-          path: source-pages/artifact.tar
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
-
-      - name: Verify the published catalogs and signing keys
-        env:
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
-        run: |
-          python3 .github/scripts/verify_web_deployment.py \
-            --archive source-pages/artifact.tar \
-            --base-url "${PAGE_URL}" \
-            --path artifacts/firmware/release/firmware-manifest-release.json \
-            --path artifacts/sdk/release/sdk-manifest-release.json \
-            --path assets/firmware-signing-keys.json
-
-      - name: Download deployed sitemap inventory
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.source.outputs.run_id }}
-          name: website-sitemap
-          path: deployed-website
-
-      - name: Notify IndexNow
-        run: python3 .github/scripts/notify_indexnow.py --sitemap deployed-website/sitemap.xml

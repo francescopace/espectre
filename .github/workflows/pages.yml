@@ -1,0 +1,140 @@
+name: Deploy Website
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages_run_id:
+        description: Snapshot or release run containing the verified website
+        required: true
+        type: string
+      pages_run_attempt:
+        description: Attempt of the source publication run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-pages:
+    name: Deploy Website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Validate the source publication artifact
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            if (context.ref !== 'refs/heads/main') {
+              throw new Error('Website deployment must be dispatched on main.');
+            }
+            const runId = Number(context.payload.inputs.pages_run_id);
+            const attempt = Number(context.payload.inputs.pages_run_attempt);
+            if (!Number.isSafeInteger(runId) || runId <= 0 || !Number.isSafeInteger(attempt) || attempt <= 0) {
+              throw new Error('Source run ID and attempt must be positive integers.');
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              ...context.repo, run_id: runId,
+            });
+            const snapshot = run.path === '.github/workflows/snapshot.yml';
+            if ((!snapshot && run.path !== '.github/workflows/release.yml') ||
+                run.event !== 'workflow_dispatch' || run.run_attempt !== attempt ||
+                run.head_repository?.full_name !== context.payload.repository.full_name ||
+                (snapshot ? run.head_branch !== 'main' : !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(run.head_branch))) {
+              throw new Error('The source must be the matching snapshot or release publication attempt.');
+            }
+            const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+              ...context.repo, basehead: `main...${run.head_sha}`,
+            });
+            if (!['behind', 'identical'].includes(comparison.status)) {
+              throw new Error('The source publication commit must be reachable from main.');
+            }
+            if (snapshot && comparison.status !== 'identical') {
+              throw new Error('Refusing to deploy a superseded snapshot website.');
+            }
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              ...context.repo, run_id: runId, filter: 'all', per_page: 100,
+            });
+            const required = snapshot
+              ? ['Validate Source Run', 'Create Snapshot Release', 'Publish Website']
+              : ['Validate Release Source', 'Create Release', 'Publish Website'];
+            for (const name of required) {
+              // A retry can reuse successful jobs from an earlier attempt.
+              const latest = jobs.filter(job => job.name === name && job.run_attempt <= attempt)
+                .sort((left, right) => right.run_attempt - left.run_attempt)[0];
+              if (latest?.conclusion !== 'success') {
+                throw new Error(`Source publication job has not succeeded: ${name}`);
+              }
+              if (name === 'Publish Website') {
+                core.setOutput('pages_artifact', `github-pages-${latest.run_attempt}`);
+                core.setOutput('sitemap_artifact', `website-sitemap-${latest.run_attempt}`);
+              }
+            }
+            core.setOutput('run_id', String(runId));
+            core.setOutput('head_sha', run.head_sha);
+            core.setOutput('channel', snapshot ? 'preview' : 'release');
+            await core.summary.addLink('Source publication', run.html_url).write();
+            core.info(`Reusing the verified website from ${run.html_url}.`);
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.source.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Download the verified Pages archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          name: ${{ steps.source.outputs.pages_artifact }}
+          path: source-pages
+
+      - name: Upload the same Pages archive for this dispatch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: github-pages
+          overwrite: true
+          path: source-pages/artifact.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+
+      - name: Verify the published catalogs and signing keys
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          CHANNEL: ${{ steps.source.outputs.channel }}
+        run: |
+          python3 .github/scripts/verify_web_deployment.py \
+            --archive source-pages/artifact.tar \
+            --base-url "${PAGE_URL}" \
+            --path "artifacts/firmware/${CHANNEL}/firmware-manifest-${CHANNEL}.json" \
+            --path "artifacts/sdk/${CHANNEL}/sdk-manifest-${CHANNEL}.json" \
+            --path assets/firmware-signing-keys.json
+
+      - name: Download deployed sitemap inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          name: ${{ steps.source.outputs.sitemap_artifact }}
+          path: deployed-website
+
+      - name: Notify IndexNow
+        run: python3 .github/scripts/notify_indexnow.py --sitemap deployed-website/sitemap.xml
