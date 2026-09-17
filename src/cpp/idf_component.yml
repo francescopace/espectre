@@ -1,13 +1,38 @@
 version: "3.0.0"
-description: "ESPectre shared core and ESP-IDF runtime layers. Dual-licensed: GPL-3.0-only, or a commercial license for proprietary firmware."
+description: "ESPectre SDK for Wi-Fi motion detection on ESP32 devices."
 license: "GPL-3.0-only"
-url: "https://github.com/francescopace/espectre"
+url: "https://espectre.dev/"
+repository: "https://github.com/francescopace/espectre"
+documentation: "https://espectre.dev/sdk/"
+issues: "https://github.com/francescopace/espectre/issues"
+maintainers:
+  - "Francesco Pace <francesco.pace@espectre.dev>"
+tags:
+  - csi
+  - sensing
+  - motion-detection
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+  - esp32c5
+  - esp32c6
+files:
+  exclude:
+    - "frontend/**"
+    - "AGENTS.md"
+    - "Doxyfile"
+    - "espectre_git_version.cmake"
 dependencies:
   idf:
-    version: ">=5.5.0"
+    version: ">=5.5.5,<5.6.0"
   espressif/mdns:
-    version: "^1.9.0"
+    version: "1.12.0"
+    rules:
+      - if: "$CONFIG{ESPECTRE_SDK_ENABLE_DIRECT} == True"
   espressif/esp_tinyusb:
     version: "^2.0.0"
     rules:
       - if: "target == esp32s2"
+      - if: "$CONFIG{ESPECTRE_TINYUSB_PRIMARY_CONSOLE} == True"

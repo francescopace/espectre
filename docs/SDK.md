@@ -1,57 +1,61 @@
-# C++ SDK Guide
+# ESPectre SDK <img src="https://espectre.dev/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" />
 
-This guide is for firmware teams that want to integrate the ESPectre sensing engine into their own ESP32 firmware instead of shipping one of the published frontends. It complements [ARCHITECTURE.md](ARCHITECTURE.md), which describes the internal layering in detail.
+[Website](https://espectre.dev/) · [Tools](https://espectre.dev/tools/) · [Guides](https://espectre.dev/guides/) · [SDK](https://espectre.dev/sdk/) · [Roadmap](https://espectre.dev/roadmap/) · [Media](https://espectre.dev/media/) · [GitHub](https://github.com/francescopace/espectre) · [Contact](https://espectre.dev/contact/) · [Licensing](https://espectre.dev/licensing/)
 
-It assumes C++17, an ESP-IDF application or equivalent host build, and familiarity with callbacks and task ownership. A **snapshot** is one immutable view of runtime state, a **listener** receives runtime events, and a **capability** reports whether the selected backend supports an optional control. If you only need an existing ESPectre firmware image, use [SETUP.md](SETUP.md) instead.
+ESPectre adds motion detection to ESP-IDF firmware using Wi-Fi Channel State Information (CSI). It provides detectors, calibration, and motion events through a C++ API. The runtime owns CSI capture and sensing; your application owns networking, task scheduling, and how it uses the results. Optional services support MQTT, Direct HTTP, discovery, and provisioning.
 
-## Five-minute integration
+## Requirements
 
-The shortest supported integration uses `espectre_sdk.h` and `RuntimeFrontendController`:
+| Requirement | Supported configuration |
+|-------------|-------------------------|
+| ESP-IDF | `>=5.5.5,<5.6.0`; release builds use 5.5.5 |
+| C++ | C++17 |
+| Target | ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6 |
+| License | `GPL-3.0-only`, with a separate commercial agreement available; see [Licensing](#licensing) |
 
-```cpp
-#include "espectre_sdk.h"
+## ESP Component Registry
 
-class ProductFrontend : public espectre::IRuntimeListener {
- public:
-  bool setup() {
-    espectre::RuntimeConfig config;  // documented defaults, ready to use
-    runtime_.set_config(config);
-    return runtime_.setup(this);
-  }
+The first public registry release is planned for 3.0.0. After publication, add the source component to an existing ESP-IDF project:
 
-  void loop() { runtime_.loop(); }
-
-  void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
-    if (!snapshot.ready_to_publish) {
-      return;
-    }
-    publish_motion(snapshot.motion_state == espectre::MotionState::MOTION);
-  }
-
- private:
-  espectre::RuntimeFrontendController runtime_;
-};
+```sh
+idf.py add-dependency "francescopace/espectre^3.0.0"
 ```
 
-On ESP-IDF, replace the bare `RuntimeConfig` with `espectre::make_runtime_sensing_config_from_kconfig()` to drive the sensing settings from menuconfig.
+To try sensing on a board, create the complete example project instead:
 
-Before adding product-specific behavior, enforce these runtime constraints:
+```sh
+idf.py create-project-from-example "francescopace/espectre=3.0.0:basic"
+cd basic
+idf.py set-target esp32c3
+idf.py menuconfig
+idf.py build
+idf.py -p YOUR_PORT flash monitor
+```
 
-- Gate everything user-visible on `snapshot.ready_to_publish`. The runtime emits snapshots while it calibrates, and motion state is not meaningful before that flag is true.
-- Read `runtime_.snapshot()` for on-demand state. The controller refreshes it before forwarding each listener callback; frontends do not maintain a second cache.
-- Run `setup()`, `loop()`, and `shutdown()` on one task.
-- Ask `capabilities()` before exposing a control, rather than assuming the active runtime supports it.
+Set your SSID and password under **ESPectre example** in menuconfig; you can also pin an access point with its BSSID. The example enables CSI, connects to Wi-Fi, and logs motion after calibration is ready. Its [README.md](../src/cpp/examples/basic/README.md) covers configuration, lifecycle, and hardware checks. Keep credentials in the local project configuration.
+
+## Minimal configuration
+
+When adding the SDK to an existing application:
+
+1. Enable `CONFIG_ESP_WIFI_CSI_ENABLED=y` in the project configuration. The standalone example already sets this in `sdkconfig.defaults`.
+2. Configure sensing through `idf.py menuconfig`. Pass `make_runtime_sensing_config_from_kconfig()` to the controller to use those settings. Optional service groups are disabled by default; enable the groups you need under **ESPectre SDK**.
+3. Initialize NVS, ESP-NETIF, and the default event loop, then create the station interface and initialize Wi-Fi before runtime setup. Your application must configure and start Wi-Fi; the example shows this with `StandaloneWifiService`. Prefer runtime setup before station start so the runtime can apply its CSI radio policy.
+4. Check the result of `setup()`, and call `loop()` regularly from the same task. Run `shutdown()` on that task before releasing application services. Publish movement only when `ready_to_publish` is true; calibration and Wi-Fi recovery can temporarily make sensing unavailable.
+
+The SDK has no default logger. Register a [log sink](#logging) before setup if your application needs SDK messages.
 
 ## What you embed
 
+Paths in this guide are relative to the component root unless a section explicitly refers to the repository or a GitHub/web bundle. The registry archive places the public headers, `core/`, `runtime/`, CMake files, and `examples/` at its root. The repository and GitHub/web SDK bundles keep the component under `src/cpp/`.
+
 | Layer | Contents | Dependencies |
 |-------|----------|--------------|
-| `src/cpp/espectre_sdk.h` | Stable full-runtime SDK facade | Single include; link the selected core and runtime sources |
-| `src/cpp/espectre_core_sdk.h` | Optional core-only detector facade | C++17 standard library only |
-| `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
-| `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol message and capability models, traffic generation | Portable, host-testable |
-| `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
-| `src/cpp/frontend/` | ESPHome, Native Direct/MQTT, and Matter reference integrations | Frontend-specific stacks |
+| `espectre_sdk.h` | Stable full-runtime SDK facade | Single include; link the selected core and runtime sources |
+| `espectre_core_sdk.h` | Optional core-only detector facade | C++17 standard library only |
+| `core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
+| `runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol message and capability models, traffic generation | Portable, host-testable |
+| `runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>=5.5.5,<5.6.0` |
 
 The layering is strict: `core` has no upward or SDK dependencies, and `runtime` contracts stay platform-agnostic, so the sensing logic can be compiled, tested, and simulated on a host machine without ESP-IDF.
 
@@ -61,70 +65,51 @@ The layering is strict: `core` has no upward or SDK dependencies, and `runtime` 
 |------|----------------|---------------|
 | Stable runtime | Everything reachable from `espectre_sdk.h` | Follows the SDK version contract below |
 | Core-only extension | Detector classes and documented public methods exposed by `espectre_core_sdk.h` | Follows source compatibility; algorithm internals and exact numeric output may evolve as documented below |
-| Internal | Headers and declarations not identified as either facade's public API | May change in any release; they ship because the runtime and core detector definitions need them to compile |
+| Internal | Headers and declarations not identified as a public facade API | May change in any release; they ship because the runtime and core detector definitions need them to compile |
 
-The frontend layer is a set of reference integrations, not a supported API. Read it for patterns; do not link against it.
-
-## Supported hardware
-
-ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors or radio hardware are required. See [SETUP.md](SETUP.md) for the current per-frontend target matrix.
-
-Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
-
-Set `RuntimeConfig::csi_capture_profile` before setup to choose `CsiCapturePolicy::AUTO`, `LLTF`, or `HT_VHT`. `AUTO` uses LLTF20 for internal `wifi_raw`, VHT20 on a supported 5 GHz link, and HT20 otherwise, including on ESP32 and ESP32-S2. `LLTF` always selects LLTF20; `HT_VHT` selects VHT20 on a supported 5 GHz link and HT20 otherwise. All three policies work with automatic band selection on ESP32-C5. `wifi_raw` requires `AUTO` or `LLTF`. There is no runtime profile setter or persisted profile override. The canonical `device` resource reports the effective profile as the read-only `csi_profile`. [CSI.md](CSI.md#capture-profiles) describes capture behavior and normalization.
-
-## Choosing a detection profile
-
-Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TROUBLESHOOTING.md](TROUBLESHOOTING.md#detection-profile) owns the operator-facing choice.
-
-For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror threshold changes from `IRuntimeListener::on_threshold_changed()`, and budget flash separately from the CPU and working memory used by the active profile. A runtime-switching build may contain both detector implementations and ML weights even while Lightweight is active.
-
-## Shared sensing options
-
-The shared C++ configuration uses defaults and validators from [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). `runtime_traffic_mode_supported()` also checks target availability: ESP32-C6 rejects `wifi_raw`, including runtime changes and persisted selections, as described in [CSI.md](CSI.md#compatibility-limits). The table below summarizes that reference for ESPHome, Native, Matter, and SDK integrations. Frontend syntax and overrides belong in the respective README.
-
-ESPHome maps sensing options from YAML under `espectre:` and uses its native `wifi.band_mode` for band selection. Native and Matter read the shared ESP-IDF sensing menu, with frontend overrides in `app/sdkconfig.defaults`. SDK integrations assign `RuntimeConfig` fields before setup.
-
-| Option | Type / values | Default | Range / notes |
-|--------|---------------|---------|---------------|
-| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. |
-| `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
-| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
-| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
-| `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
-| `csi_capture_profile` | `auto`, `lltf`, or `ht-vht` | `auto` | Build-time selection. Kconfig uses `CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_*`. `ht-vht` resolves HT20 or VHT20 from chip and band; `wifi_raw` requires `auto` or `lltf` |
-| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
-| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
-| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` | `ping` | `dns` uses UDP, `dns_tcp` uses persistent TCP, and experimental `wifi_raw` sends Null Data to the AP |
-| `traffic_generator_target_ip` | Unicast IPv4 address, or empty | empty | Destination for internal `ping`, `dns`, and `dns_tcp`; empty uses the Wi-Fi default gateway. Ignored by `wifi_raw` and external traffic |
-| `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
-| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
-| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` |
-| `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
-| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz against a nominal regular `100 pps` cadence; other targets or substantial missing-slot patterns require filter revalidation |
-| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
-| `hampel_window` | int | `7` | `3-11` samples |
-| `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
-
-The shared string setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `"0"` for Auto and `"6"` or `"6.5"` for a fixed rate in Mbps. It defaults to `"6.5"` on classic ESP32 and `"0"` on every other supported target, including builds without this Kconfig symbol. The 6.5-Mbps choice selects HT20 MCS0 with long GI; the 6-Mbps choice selects legacy OFDM. Firmware compilation rejects any other value. Use quoted values in sdkconfig, for example `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="6.5"`; the string type allows the fractional HT rate. When migrating an existing integer override, update it to the quoted form or remove it to adopt the new target default. The shared Wi-Fi lifecycle owns station-rate configuration across connections, independently of sensing or traffic generator state. This is a build-time radio policy, not a `RuntimeConfig` field or runtime-writable setting. [CSI.md](CSI.md#internal-generators) describes raw injection, station-rate scope, and compatibility limits.
-
-Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; [API.md](API.md#sensing-update-and-calibration) defines accepted runtime values.
-
-Runtime-writable controls are a subset of startup configuration. Inspect the advertised capabilities and use the corresponding runtime setters or the operations in [API.md](API.md#sensing-update-and-calibration). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#tuning-essentials) explains when to adjust a setting; [CSI.md](CSI.md) describes traffic and capture behavior.
-
-### Traffic destination
-
-Set `RuntimeConfig::traffic_generator_target_ip` before setup to override the destination for internal `ping`, `dns`, and `dns_tcp`. Empty uses the current Wi-Fi gateway. `wifi_raw` and external traffic ignore this setting. It has no runtime API mutation.
-
-The value must be dotted-decimal unicast IPv4 without leading zeros. Hostnames, loopback, unspecified, multicast, and reserved addresses are rejected. Choose a reachable host that replies to the selected protocol; DNS modes require a resolver on port `53`, with TCP query support for `dns_tcp`. The runtime applies the same resolved address to traffic generation and CSI response filtering after each connection. Wi-Fi configuration continues to own association and the default route.
-
-ESPHome exposes `traffic_generator_target_ip` under `espectre:`. Native and Matter expose `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP` in `sdkconfig`. The frontend READMEs describe their configuration workflow.
-
-The hit-filter timing model is described in [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering).
+ESPHome, Native, and Matter are reference integrations in the repository's `src/cpp/frontend/` directory. Frontends are excluded from both SDK distributions. See [ARCHITECTURE.md](ARCHITECTURE.md) for layer ownership.
 
 ## Integration paths
 
 ### Full runtime (recommended)
+
+Use `espectre_sdk.h` and `RuntimeFrontendController` to integrate sensing with an existing application:
+
+```cpp
+#include "espectre_sdk.h"
+
+class ProductFrontend : public espectre::IRuntimeListener {
+ public:
+  bool setup() {
+    runtime_.set_config(
+        espectre::make_runtime_sensing_config_from_kconfig());
+    return runtime_.setup(this);
+  }
+
+  void loop() { runtime_.loop(); }
+  void shutdown() { runtime_.shutdown(); }
+
+  void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
+    if (!snapshot.ready_to_publish) {
+      return;
+    }
+    publish_motion(snapshot.motion_state == espectre::MotionState::MOTION);
+  }
+
+ private:
+  void publish_motion(bool motion);  // Queue work for the application.
+  espectre::RuntimeFrontendController runtime_;
+};
+```
+
+This adapter assumes the Wi-Fi lifecycle described above. Keep the adapter alive while the runtime is active, check its setup result, and implement `publish_motion()` as a bounded, non-blocking handoff to your application. For a complete project, use the registry example.
+
+The runtime reports state through `RuntimeSnapshot` and sends events to `IRuntimeListener`. A snapshot is one immutable view of runtime state; capabilities report which optional controls the backend supports. Follow these rules when adding application behavior:
+
+- Gate sensing output on `snapshot.ready_to_publish`. The runtime emits snapshots while it calibrates, and motion state is not meaningful before that flag is true.
+- Read `runtime_.snapshot()` for on-demand state. The controller refreshes it before forwarding each listener callback; frontends do not maintain a second cache.
+- Run `setup()`, `loop()`, and `shutdown()` on one task.
+- Ask `capabilities()` before exposing a control, rather than assuming the active runtime supports it.
 
 Your firmware owns boot, provisioning, networking policy, OTA, and the product surface; the ESPectre runtime owns CSI capture, calibration, detection, and eventing behind two contracts:
 
@@ -136,25 +121,6 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 Use the [traffic destination](#traffic-destination) setting to select the internal generator's IP destination before setup.
 
 Set `RuntimeConfig::device_id` to `derive_runtime_device_id()` before setup when the integration uses the ESPectre Protocol or CSI streaming. The helper returns a cached pseudonym derived from the station MAC; zero remains an unresolved sentinel and is not replaced by `RuntimeFrontendController`.
-
-### Core-only
-
-If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
-
-Detector and sampler working buffers use non-throwing allocation. Check `detector.is_valid()` after construction and the result of `sampler.configure(...)` before starting a custom pipeline; a false result means the requested bounded storage was unavailable. These objects are movable and intentionally non-copyable because their buffers own live temporal state.
-
-The sampler tracks timing and slots; your integration stores the selected CSI payload. Handle each input in this order:
-
-1. Call `admit()` before replacing the stored payload.
-2. If `admit()` returns `true`, consume the stored payload: clear detector history when `reset_required()` is true, call `advance_missing_slots(missing_slots_before())`, and then call `process_packet()`.
-3. If `gap_reset_required()` is true, clear detector history again before admitting post-gap data.
-4. If `selected_current()` is true, replace the stored payload with the current normalized CSI.
-
-At the end of a finite stream, call `flush()` and consume the stored payload if it returns `true`.
-
-After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
-
-A core-only integration that captures LLTF owns the same two-view boundary. Normalize the payload into the centered HT20 convention, call `zero_ht20_lltf_missing_bins()` on the raw view, copy that payload into the detector buffer, and call `impute_ht20_lltf_detector_bins()` only on the detector copy.
 
 ### Logging
 
@@ -262,6 +228,82 @@ Firmware that owns CSI capture can use `TrafficGeneratorManager` and the Wi-Fi t
 | `runtime/runtime_event_mailbox.h` | Runtime Event Mailbox |
 | `runtime/runtime_time.h` | Runtime Time |
 
+### Optional capability groups
+
+| Menuconfig option | `espectre_sources.cmake` variable | Adds | Additional source-list requirements |
+|-------------------|-----------------------------------|------|------------------------------------|
+| `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` for bootstrap and persisted config |
+| `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` | `mqtt` |
+| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | None beyond the base runtime |
+| `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
+
+Each group is off by default. The minimal SDK uses only components bundled with ESP-IDF and downloads no additional stack dependencies. Enabling frontend support also selects provisioning because its bootstrap helpers call that service.
+
+The manifest uses [Kconfig dependency conditions](https://docs.espressif.com/projects/idf-component-manager/en/latest/reference/manifest_file.html#kconfig-options), supported by ESP-IDF 5.5.5 and Component Manager 2.2 or newer. Declare ESPectre as a direct project dependency so Component Manager can read its Kconfig options. Enabling `ESPECTRE_SDK_ENABLE_DIRECT` downloads `espressif/mdns`, pinned to `1.12.0` because the bootstrap responder uses its private API. Enabling `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` on ESP32-S2 downloads `espressif/esp_tinyusb` (`^2.0.0`) and its TinyUSB dependency. Both switches are off by default, including on S2. External components retain their own licenses. Source-list integrations declare their selected stack dependencies themselves.
+
+After changing these switches in an existing project through menuconfig, run `idf.py update-dependencies` before `idf.py build`. This refreshes the lockfile for the selected configuration; a normal reconfigure can retain previously resolved optional dependencies after their switches are disabled.
+
+For a core-only integration with managed traffic, link `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES`. The traffic group requires ESP-IDF's `esp_netif`, `esp_timer`, `esp_wifi`, `freertos`, and `lwip` components. The full ESP-IDF runtime already includes this group; add it separately only when using the focused integration. Micro-ESPectre uses this path while MicroPython owns capture, calibration, and event delivery.
+
+Shared frontend code owns Improv Serial; the SDK archive and manifest exclude it. You can implement `IMqttTransport` or `IDirectHttpService` without enabling a group because the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
+
+## Supported hardware
+
+The supported targets use standard single-antenna Wi-Fi CSI with AGC active and 20 MHz bandwidth. No extra sensors or radio hardware are required. [SETUP.md](SETUP.md) lists the target coverage of the prebuilt frontends.
+
+Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
+
+Set `RuntimeConfig::csi_capture_profile` before setup to choose `CsiCapturePolicy::AUTO`, `LLTF`, or `HT_VHT`. `AUTO` uses LLTF20 for internal `wifi_raw`, VHT20 on a supported 5 GHz link, and HT20 otherwise, including on ESP32 and ESP32-S2. `LLTF` always selects LLTF20; `HT_VHT` selects VHT20 on a supported 5 GHz link and HT20 otherwise. All three policies work with automatic band selection on ESP32-C5. `wifi_raw` requires `AUTO` or `LLTF`. There is no runtime profile setter or persisted profile override. The canonical `device` resource reports the effective profile as the read-only `csi_profile`. [CSI.md](CSI.md#capture-profiles) describes capture behavior and normalization.
+
+## Choosing a detection profile
+
+Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TROUBLESHOOTING.md](TROUBLESHOOTING.md#detection-profile) owns the operator-facing choice.
+
+For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror threshold changes from `IRuntimeListener::on_threshold_changed()`, and budget flash separately from the CPU and working memory used by the active profile. A runtime-switching build may contain both detector implementations and ML weights even while Lightweight is active.
+
+## Shared sensing options
+
+The shared C++ configuration uses defaults and validators from [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). `runtime_traffic_mode_supported()` also checks target availability: ESP32-C6 rejects `wifi_raw`, including runtime changes and persisted selections, as described in [CSI.md](CSI.md#compatibility-limits). The table below summarizes that reference for ESPHome, Native, Matter, and SDK integrations. Frontend syntax and overrides belong in the respective README.
+
+ESPHome maps sensing options from YAML under `espectre:` and uses its native `wifi.band_mode` for band selection. Native and Matter read the shared ESP-IDF sensing menu, with frontend overrides in `app/sdkconfig.defaults`. SDK integrations assign `RuntimeConfig` fields before setup.
+
+| Option | Type / values | Default | Range / notes |
+|--------|---------------|---------|---------------|
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. |
+| `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
+| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
+| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
+| `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
+| `csi_capture_profile` | `auto`, `lltf`, or `ht-vht` | `auto` | Build-time selection. Kconfig uses `CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_*`. `ht-vht` resolves HT20 or VHT20 from chip and band; `wifi_raw` requires `auto` or `lltf` |
+| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
+| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` | `ping` | `dns` uses UDP, `dns_tcp` uses persistent TCP, and experimental `wifi_raw` sends Null Data to the AP |
+| `traffic_generator_target_ip` | Unicast IPv4 address, or empty | empty | Destination for internal `ping`, `dns`, and `dns_tcp`; empty uses the Wi-Fi default gateway. Ignored by `wifi_raw` and external traffic |
+| `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
+| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
+| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` |
+| `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
+| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz against a nominal regular `100 pps` cadence; other targets or substantial missing-slot patterns require filter revalidation |
+| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
+| `hampel_window` | int | `7` | `3-11` samples |
+| `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
+
+The shared string setting `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `"0"` for Auto and `"6"` or `"6.5"` for a fixed rate in Mbps. It defaults to `"6.5"` on classic ESP32 and `"0"` on every other supported target, including builds without this Kconfig symbol. The 6.5-Mbps choice selects HT20 MCS0 with long GI; the 6-Mbps choice selects legacy OFDM. Firmware compilation rejects any other value. Use quoted values in sdkconfig, for example `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="6.5"`; the string type allows the fractional HT rate. When migrating an existing integer override, update it to the quoted form or remove it to adopt the new target default. The shared Wi-Fi lifecycle owns station-rate configuration across connections, independently of sensing or traffic generator state. This is a build-time radio policy, not a `RuntimeConfig` field or runtime-writable setting. [CSI.md](CSI.md#internal-generators) describes raw injection, station-rate scope, and compatibility limits.
+
+Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; [API.md](API.md#sensing-update-and-calibration) defines accepted runtime values.
+
+Runtime-writable controls are a subset of startup configuration. Inspect the advertised capabilities and use the corresponding runtime setters or the operations in [API.md](API.md#sensing-update-and-calibration). [TROUBLESHOOTING.md](TROUBLESHOOTING.md#tuning-essentials) explains when to adjust a setting; [CSI.md](CSI.md) describes traffic and capture behavior.
+
+### Traffic destination
+
+Set `RuntimeConfig::traffic_generator_target_ip` before setup to override the destination for internal `ping`, `dns`, and `dns_tcp`. Empty uses the current Wi-Fi gateway. `wifi_raw` and external traffic ignore this setting. It has no runtime API mutation.
+
+The value must be dotted-decimal unicast IPv4 without leading zeros. Hostnames, loopback, unspecified, multicast, and reserved addresses are rejected. Choose a reachable host that replies to the selected protocol; DNS modes require a resolver on port `53`, with TCP query support for `dns_tcp`. The runtime applies the same resolved address to traffic generation and CSI response filtering after each connection. Wi-Fi configuration continues to own association and the default route.
+
+ESPHome exposes `traffic_generator_target_ip` under `espectre:`. Native and Matter expose `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP` in `sdkconfig`. The frontend READMEs describe their configuration workflow.
+
+The hit-filter timing model is described in [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering).
+
 ## Runtime contract
 
 ### Threading
@@ -275,6 +317,25 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Raw CSI packet callbacks are the deliberate exception: they run synchronously in the Wi-Fi CSI capture context. Keep them bounded, non-blocking, and allocation-free, and copy accepted samples into a preallocated bounded queue when another task must process them. Returning false reports a caller-owned drop or backpressure event; it does not stop collection.
 
 Stopping raw collection synchronizes with any packet callback already in progress before releasing its context. The caller can reclaim that context after `stop_raw_collection()` succeeds. Raw callbacks must follow the owner-task rule for runtime controls; they must not stop collection themselves.
+
+### Advanced task scheduling
+
+Full-runtime ESP-IDF integrations expose ESPectre-owned FreeRTOS priorities under the `Advanced task scheduling` menu. These settings are compile-time policies, not runtime controls. Values range from `1` to `10`; higher-priority tasks preempt lower-priority work. Change them only with workload-specific validation because an unsuitable priority can starve sensing, Direct delivery, managed traffic, or system networking. ESP-IDF continues to own the internal Wi-Fi and lwIP task priorities.
+
+The shared runtime defines these priorities:
+
+| Kconfig option | Default | Owner |
+|----------------|---------|-------|
+| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `1` | Direct HTTP server |
+| `CONFIG_ESPECTRE_DIRECT_WORKER_TASK_PRIORITY` | `2` | Direct control responses and SSE delivery |
+| `CONFIG_ESPECTRE_RAW_WORKER_TASK_PRIORITY` | `3` | Raw CSI HTTP delivery |
+| `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY` | `1` | Managed PING or DNS traffic |
+
+The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY`, with a default of `5`, for its frontend and sensing loop. A custom integration owns the task that calls `RuntimeFrontendController::loop()` and must select that task's priority as part of its own scheduling policy.
+
+The Direct HTTP server defaults to priority `1` on every target. Custom integrations can override it after workload-specific validation. Existing `sdkconfig` files retain explicitly saved priorities; set `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1` to adopt the shared default in those builds.
+
+See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
 
 ### Raw CSI storage
 
@@ -378,16 +439,39 @@ Without a complete identity, the SDK uses `"0.0.0"` and zero for all numeric ver
 
 The SDK manifest exposes the packaged identity once as `version`; `release_tag` names the GitHub release that carries the assets and may differ for rolling channels. The generated API index uses `sdk_version` to identify the source revision used to build that reference. Official release tooling still requires and validates the published version. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from the application version supplied by the integrator and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
 
-## Build integration
+## Advanced integrations
 
-Both surfaces are distributed as source, but they compile different source sets.
+The core-only path and source-list builds let an application supply more of the capture and build infrastructure. The following sections distinguish component-relative paths from repository and bundle commands.
 
-- **Core-only CMake**: include `src/cpp/espectre_sources.cmake`, compile `ESPECTRE_CORE_SOURCES`, and add `ESPECTRE_SHARED_INCLUDE_DIRS`. No ESP-IDF runtime sources are required.
-- **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, and provisioning lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS`; the frontend `CMakeLists.txt` files show working combinations.
-- **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
-- **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
+### Core-only
 
-Source-list integrations and vendored ESP-IDF components use the version header directly; no version resolution step is required. A complete core-only target is:
+If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
+
+Detector and sampler working buffers use non-throwing allocation. Check `detector.is_valid()` after construction and the result of `sampler.configure(...)` before starting a custom pipeline; a false result means the requested bounded storage was unavailable. These objects are movable and intentionally non-copyable because their buffers own live temporal state.
+
+The sampler tracks timing and slots; your integration stores the selected CSI payload. Handle each input in this order:
+
+1. Call `admit()` before replacing the stored payload.
+2. If `admit()` returns `true`, consume the stored payload: clear detector history when `reset_required()` is true, call `advance_missing_slots(missing_slots_before())`, and then call `process_packet()`.
+3. If `gap_reset_required()` is true, clear detector history again before admitting post-gap data.
+4. If `selected_current()` is true, replace the stored payload with the current normalized CSI.
+
+At the end of a finite stream, call `flush()` and consume the stored payload if it returns `true`.
+
+After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
+
+A core-only integration that captures LLTF owns the same two-view boundary. Normalize the payload into the centered HT20 convention, call `zero_ht20_lltf_missing_bins()` on the raw view, copy that payload into the detector buffer, and call `impute_ht20_lltf_detector_bins()` only on the detector copy.
+
+### Build integration
+
+Component Manager configures the registered component automatically. The following alternatives apply when you vendor SDK sources or maintain your own CMake target. Set the SDK root to the directory containing `espectre_sources.cmake`: the root of the registry archive, or `src/cpp/` in a GitHub/web bundle.
+
+- **Core-only CMake**: include `espectre_sources.cmake` from the SDK root, compile `ESPECTRE_CORE_SOURCES`, and add `ESPECTRE_SHARED_INCLUDE_DIRS`. No ESP-IDF runtime sources are required.
+- **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, and provisioning lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS`; the repository's frontend `CMakeLists.txt` files show working combinations.
+- **Vendored ESP-IDF component**: copy the SDK root to your project's `components/espectre/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
+- **Toolchain**: C++17, ESP-IDF `>=5.5.5,<5.6.0` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
+
+Source-list integrations and vendored ESP-IDF components use the version header directly; no version resolution step is required. For a GitHub/web SDK bundle extracted into `espectre/`, a complete core-only target is:
 
 ```cmake
 set(ESPECTRE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/espectre/src/cpp")
@@ -405,7 +489,7 @@ The shared component does not require ESP-IDF's `log` component. A product that 
 
 ### First-party SDK consumers
 
-Native, Matter, ESPHome, and Micro-ESPectre use the same public SDK headers as external integrators. Native, Matter, and ESPHome keep their build lists in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. Micro-ESPectre links the core and managed traffic groups through its MicroPython components. By default, the frontends compile the SDK from the current checkout along with the firmware. To use an extracted SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
+This section requires an ESPectre repository checkout. Native, Matter, ESPHome, and Micro-ESPectre use the same public SDK headers as external integrators. Native, Matter, and ESPHome keep their build lists in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. Micro-ESPectre links the core and managed traffic groups through its MicroPython components. By default, the frontends compile the SDK from the current checkout along with the firmware. To use an extracted GitHub/web SDK bundle, run the commands below from the repository root and set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
 
 ```bash
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre native build --chip c3
@@ -418,45 +502,11 @@ Native, Matter, and Micro-ESPectre pass the selected SDK path to CMake. Changing
 
 Improv Serial, firmware version helpers, and OTA helpers belong to the frontends. Native and Matter link the shared Improv service and declare its external dependency. The SDK provisioning group accepts credentials through its public service; the firmware chooses the onboarding protocol.
 
-ESPHome imports constants from the checked-in `sensing_schema.py`, generated from the public SDK schema. Importing the component does not read C++ headers. During configuration, CMake compares the schema fingerprint with the selected SDK and rejects mismatches before compilation. After changing the canonical schema, run `.venv/bin/python .github/scripts/generate_esphome_schema.py`; use `--check` to verify the artifact without writing it.
-
-### Advanced task scheduling
-
-Full-runtime ESP-IDF integrations expose ESPectre-owned FreeRTOS priorities under the `Advanced task scheduling` menu. These settings are compile-time policies, not runtime controls. Values range from `1` to `10`; higher-priority tasks preempt lower-priority work. Change them only with workload-specific validation because an unsuitable priority can starve sensing, Direct delivery, managed traffic, or system networking. ESP-IDF continues to own the internal Wi-Fi and lwIP task priorities.
-
-The shared runtime defines these priorities:
-
-| Kconfig option | Default | Owner |
-|----------------|---------|-------|
-| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `1` | Direct HTTP server |
-| `CONFIG_ESPECTRE_DIRECT_WORKER_TASK_PRIORITY` | `2` | Direct control responses and SSE delivery |
-| `CONFIG_ESPECTRE_RAW_WORKER_TASK_PRIORITY` | `3` | Raw CSI HTTP delivery |
-| `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY` | `1` | Managed PING or DNS traffic |
-
-The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY`, with a default of `5`, for its frontend and sensing loop. A custom integration owns the task that calls `RuntimeFrontendController::loop()` and must select that task's priority as part of its own scheduling policy.
-
-The Direct HTTP server defaults to priority `1` on every target. Custom integrations can override it after workload-specific validation. Existing `sdkconfig` files retain explicitly saved priorities; set `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1` to adopt the shared default in those builds.
-
-See [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
-
-### Optional capability groups
-
-| Menuconfig option | `espectre_sources.cmake` variable | Adds | Additional source-list requirements |
-|-------------------|-----------------------------------|------|------------------------------------|
-| `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | None beyond the base runtime |
-| `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` | `mqtt` |
-| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | None beyond the base runtime |
-| `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
-
-Each group is off by default, so a minimal integration does not link transport code it never calls. ESP-IDF resolves component requirements before menuconfig. The vendored component therefore declares every optional stack dependency up front, while the source switches control what reaches the firmware image. Its manifest constrains the Espressif mDNS version for Direct builds. Source-list integrations declare their selected stack dependencies themselves.
-
-For a core-only integration with managed traffic, link `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES`. The traffic group requires ESP-IDF's `esp_netif`, `esp_timer`, `esp_wifi`, `freertos`, and `lwip` components. The full ESP-IDF runtime already includes this group; add it separately only when using the focused integration. Micro-ESPectre uses this path while MicroPython owns capture, calibration, and event delivery.
-
-Shared frontend code owns Improv Serial; the SDK archive and manifest exclude it. You can implement `IMqttTransport` or `IDirectHttpService` without enabling a group because the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
+ESPHome imports constants from the checked-in `sensing_schema.py`, generated from the public SDK schema. Importing the component does not read C++ headers. During configuration, CMake compares the schema fingerprint with the selected SDK and rejects mismatches before compilation.
 
 ## Published SDK channels
 
-ESPectre publishes source-first SDK bundles alongside the firmware release channels:
+The GitHub/web SDK bundles provide source archives for vendoring and evaluation. They use the repository-style layout below, separately from the registry component, and follow the firmware release channels:
 
 | Channel | Source | Intended use |
 |---------|--------|--------------|
@@ -466,7 +516,7 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 
 Rolling releases publish `sdk-manifest-preview.json` and `sdk-manifest-develop.json`; the manifest filename follows the channel, while `release_tag` retains the GitHub tag shown above. Tagged releases publish `sdk-manifest-<release-tag>.json`.
 
-Each SDK bundle includes:
+Each GitHub/web SDK bundle includes:
 
 - `docs/SDK.md`
 - `src/cpp/espectre_sdk.h`
@@ -484,26 +534,18 @@ Each SDK bundle includes:
 
 The published bundle is a versioned C++ source SDK with stamped packaging metadata, ready to vendor or unpack into your firmware tree. ESPectre is compiled together with the product firmware; the bundle does not include chip-specific precompiled libraries or promise binary ABI compatibility. In the bundled copy of this guide, repository-relative links point to GitHub URLs pinned to the commit or release tag used for that package. The `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
 
-## Validation assets
-
-- [README.md](performance/README.md) publishes the current benchmark and validation metrics per chip and detector.
-- `test/cpp/` builds the full sensing stack on a host machine, including integration suites that replay real CSI recordings through the production pipeline; `test/python/` mirrors the algorithm behavior for parity checks.
-- `test/cpp/suites/runtime/test_sdk_surface.cpp` compiles against `espectre_sdk.h` alone, so it fails if the facade stops reaching the documented surface or a published default drifts out of its range.
-- `test/python/contracts/test_sdk_surface_invariants.py` verifies the generated ESPHome schema and rejects frontend dependencies on private SDK headers. It also checks that all public facade headers appear in the API reference and this guide's header map, and that reachable types have definitions.
-- The dataset collection and quality workflow is documented in [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md).
-
 ## Generated API reference
 
-The headers carry Doxygen-compatible documentation. Generate the portal-ready reference for the supported surface from the repository root with:
+Browse the [C++ API reference](https://espectre.dev/sdk/api/) for public types and methods. The headers also carry Doxygen comments. The online reference displays the SDK version from which it was generated.
 
-```bash
-python3 .github/scripts/generate_sdk_api.py
+GitHub/web SDK bundles include `src/cpp/Doxyfile`, stamped with the bundle version and configured to write XML under `output/xml/`. From an extracted bundle root, run:
+
+```sh
+doxygen src/cpp/Doxyfile
 ```
 
-The generator requires Doxygen 1.17.0, stamps `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, generates XML in an isolated build directory, and renders it through a pinned m.css revision. Only an index manifest and HTML fragments are written to `docs/web/artifacts/sdk/api/`; the existing `/sdk/api/` SPA owns navigation, search, styling, header, and footer. The generated output is not committed, so it never drifts from the headers.
-
-An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/xml/` and stamped with that bundle's version. Running `doxygen src/cpp/Doxyfile` from the bundle root therefore produces a tool-neutral XML reference without shipping the website or a second HTML shell. The browsable reference is integrated at `https://espectre.dev/sdk/api/` and rebuilt from source on every deploy.
+This produces a local XML reference. The registry component omits the Doxyfile; use the online reference when consuming that package. Instructions for generating the website's API pages from a repository checkout are in [README.md](web/README.md#firmware-and-artifacts).
 
 ## Licensing
 
-ESPectre is dual-licensed: GPLv3 for open-source use, with commercial licenses available for embedding into proprietary firmware. See [LICENSING.md](../LICENSING.md).
+The public SDK is `GPL-3.0-only`, which permits commercial use subject to GPLv3's terms and applicable corresponding-source obligations. A separate commercial license is available for proprietary firmware. See [LICENSING.md](../LICENSING.md).

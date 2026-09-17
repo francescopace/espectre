@@ -1,0 +1,20 @@
+menu "ESPectre example"
+
+config ESPECTRE_EXAMPLE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config ESPECTRE_EXAMPLE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+    help
+        Leave empty for an open network. Credentials stay in the local sdkconfig.
+
+config ESPECTRE_EXAMPLE_WIFI_BSSID
+    string "Wi-Fi BSSID (optional)"
+    default ""
+    help
+        Pin the station to one access point, using XX:XX:XX:XX:XX:XX format.
+        Leave empty to let the station select an access point.
+
+endmenu

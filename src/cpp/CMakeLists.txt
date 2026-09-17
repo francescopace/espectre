@@ -23,15 +23,11 @@ set(espectre_sdk_requires
     esp_netif
     esp_timer
     mqtt
-    esp_http_client
     esp_http_server
-    esp-tls
     nvs_flash
     lwip
-    driver
     freertos
     heap
-    mdns
     mbedtls
     ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}
 )
@@ -41,8 +37,9 @@ if(ESPECTRE_SDK_EXCLUDED_REQUIRES)
 endif()
 
 # ESP-IDF expands component requirements before menuconfig values are
-# available. Declare the dependencies for every opt-in source group here; the
-# source switches below still keep their code out of the linked firmware.
+# available. Declare the built-in dependencies needed by the public headers
+# here. The manifest resolves external stacks through Kconfig conditions;
+# the source switches below keep unused service code out of the firmware.
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES})

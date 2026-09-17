@@ -9,9 +9,11 @@
  */
 #pragma once
 
-#include <mdns.h>
-
 #include "peer_discovery.h"
+
+// Only private members use mDNS handles; consumers need no mDNS headers.
+typedef struct mdns_result_s mdns_result_t;
+typedef struct mdns_search_once_s mdns_search_once_t;
 
 namespace espectre {
 

@@ -1,0 +1,57 @@
+name: SDK Staging Cleanup
+
+on:
+  schedule:
+    - cron: '23 3 * * 1'  # Monday at 03:23 UTC
+  workflow_dispatch:
+    inputs:
+      keep_per_branch:
+        description: Number of snapshots to keep per branch (positive integer)
+        type: number
+        required: true
+        default: 10
+      dry_run:
+        description: List old snapshots without deleting them
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-staging-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Clean old staging SDK snapshots
+    if: github.repository == 'francescopace/espectre' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: sdk-registry-staging
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-sdk-packaging
+      - name: Plan or apply staging cleanup
+        env:
+          APPLY_CLEANUP: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
+          KEEP_PER_BRANCH: ${{ github.event_name == 'schedule' && 10 || inputs.keep_per_branch }}
+          IDF_COMPONENT_API_TOKEN: ${{ secrets.SDK_REGISTRY_STAGING_CLEANUP_TOKEN }}
+        run: |
+          args=()
+          if [[ "$APPLY_CLEANUP" == "true" ]]; then
+            args+=(--apply)
+          fi
+          python .github/scripts/cleanup_sdk_registry.py \
+            --keep-per-branch "$KEEP_PER_BRANCH" \
+            --report "$RUNNER_TEMP/sdk-staging-cleanup.json" "${args[@]}"
+      - name: Upload cleanup report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-staging-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-staging-cleanup.json
+          if-no-files-found: ignore
+          retention-days: 30

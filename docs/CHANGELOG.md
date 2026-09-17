@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.0.0] - in progress - SDK component distribution
+
+- Prepare `francescopace/espectre` for the ESP Component Registry, with a reproducible source archive, an independent Wi-Fi sensing example, and ESP-IDF 5.5.5 build coverage across six targets.
+- Validate optional SDK services individually and together, including S2 TinyUSB and Direct's pinned mDNS dependency.
+- Make bootstrap select its provisioning dependency, and share Wi-Fi snapshot support with provisioning independently of Direct.
+- Run checks for every push through a shared CI pipeline, then publish snapshots or tagged releases from the same tested artifacts.
+- Publish SDK snapshots from successful `main` and `develop` CI runs to staging through OIDC, with versions bound to the source commit and channel. Add release staging checks and stable-only production publication with content verification. First publication remains pending the release gates in [ROADMAP.md](ROADMAP.md).
+
+---
+
 ## [3.0.0-rc2] - 2026-09-16 - Signed firmware, CSI capture controls, and standalone SDK builds
 
 ### Highlights

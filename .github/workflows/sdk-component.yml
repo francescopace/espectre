@@ -1,0 +1,127 @@
+name: SDK Component Builds
+
+on:
+  workflow_call:
+    inputs:
+      registry_url:
+        description: Registry to test; empty builds the unpacked artifact with a local override
+        type: string
+        default: ''
+      source_run_id:
+        description: Source CI run; empty uses artifacts from the current run
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  registry-example:
+    name: Download and Verify Registry Contents
+    if: inputs.registry_url != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.example.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-sdk-packaging
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          name: registry-component
+          path: .cache/registry
+      - name: Download and compare the component and standalone example
+        env:
+          REGISTRY_URL: ${{ inputs.registry_url }}
+        run: |
+          python .github/scripts/verify_sdk_component.py fetch-example \
+            --inventory .cache/registry/component-inventory.json \
+            --registry-url "$REGISTRY_URL" \
+            --destination "$RUNNER_TEMP/sdk-registry-example"
+      - name: Share the verified example with the build matrix
+        id: example
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-registry-example-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-registry-example
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: SDK ${{ matrix.target }} / ${{ matrix.profile }}
+    needs: registry-example
+    if: >
+      !cancelled() &&
+      (needs.registry-example.result == 'success' ||
+       (inputs.registry_url == '' && needs.registry-example.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: esp32, profile: minimal}
+          - {target: esp32s2, profile: minimal}
+          - {target: esp32s3, profile: minimal}
+          - {target: esp32c3, profile: minimal}
+          - {target: esp32c5, profile: minimal}
+          - {target: esp32c6, profile: minimal}
+          - {target: esp32c3, profile: frontend_support}
+          - {target: esp32c3, profile: mqtt}
+          - {target: esp32c3, profile: provisioning}
+          - {target: esp32c3, profile: direct}
+          - {target: esp32c3, profile: all}
+          - {target: esp32s2, profile: all}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-sdk-packaging
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          name: registry-component
+          path: .cache/registry
+      - name: Download the verified registry example
+        if: inputs.registry_url != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.registry-example.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/sdk-registry-example
+      - name: Prepare isolated consumer
+        env:
+          REGISTRY_URL: ${{ inputs.registry_url }}
+          SDK_TARGET: ${{ matrix.target }}
+          SDK_PROFILE: ${{ matrix.profile }}
+        run: |
+          example_args=()
+          if [ -n "$REGISTRY_URL" ]; then
+            example_args=(--example-dir "$RUNNER_TEMP/sdk-registry-example")
+          fi
+          python .github/scripts/verify_sdk_component.py prepare \
+            --inventory .cache/registry/component-inventory.json \
+            --destination "$RUNNER_TEMP/sdk-consumer" \
+            --target "$SDK_TARGET" --profile "$SDK_PROFILE" \
+            --registry-url "$REGISTRY_URL" "${example_args[@]}"
+      - name: Build with ESP-IDF 5.5.5 and verify installation
+        env:
+          REGISTRY_URL: ${{ inputs.registry_url }}
+          SDK_TARGET: ${{ matrix.target }}
+        run: |
+          python .github/scripts/verify_sdk_component.py build --docker \
+            --inventory .cache/registry/component-inventory.json \
+            --destination "$RUNNER_TEMP/sdk-consumer" \
+            --target "$SDK_TARGET" --registry-url "$REGISTRY_URL" \
+            > "$RUNNER_TEMP/sdk-build.log" 2>&1 \
+            || { tail -n 100 "$RUNNER_TEMP/sdk-build.log"; exit 1; }
+          tail -n 5 "$RUNNER_TEMP/sdk-build.log"
+      - name: Retain build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: registry-build-${{ inputs.registry_url != '' && 'registry' || 'local' }}-${{ matrix.target }}-${{ matrix.profile }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-build.log
+          retention-days: 7

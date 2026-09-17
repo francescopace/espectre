@@ -43,13 +43,14 @@ docker run --rm \
     esac
     # ESP-IDF activates a venv where --user installs are rejected; install into HOME instead.
     SITE_PACKAGES=\"\${HOME}/.local/lib/python/site-packages\"
-    REQUIREMENTS_HASH=\"\$(sha256sum /work/requirements.txt | cut -d ' ' -f 1)\"
+    REQUIREMENTS_HASH=\"\$(cat /work/requirements.txt /work/.github/scripts/build_matter_firmware.sh | sha256sum | cut -d ' ' -f 1)\"
     REQUIREMENTS_MARKER=\"\${HOME}/.espectre-requirements-\${REQUIREMENTS_HASH}\"
     export PYTHONPATH=\"\${SITE_PACKAGES}\${PYTHONPATH:+:\${PYTHONPATH}}\"
     if [ ! -f \"\${REQUIREMENTS_MARKER}\" ]; then
       rm -rf \"\${SITE_PACKAGES}\"
       mkdir -p \"\${SITE_PACKAGES}\"
       python -m pip install --target \"\${SITE_PACKAGES}\" -r /work/requirements.txt
+      python \"\${IDF_PATH}/tools/idf_tools.py\" check-python-dependencies
       rm -f \"\${HOME}\"/.espectre-requirements-*
       touch \"\${REQUIREMENTS_MARKER}\"
     fi
