@@ -68,8 +68,8 @@ Refresh strategy: `display` is set to `update_interval: never`; a single 1 s `in
 | File | Description |
 |---|---|
 | `src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml` | Complete NM-CYD-C5 config (extends `espectre-c5.yaml`, with display + touch + buttons) |
-| `docs/NM-CYD-C5/DISPLAY-NM-CYD-C5.md` | This design document |
-| `docs/NM-CYD-C5/USAGE-NM-CYD-C5.md` / `USAGE-NM-CYD-C5_zh.md` | English / Chinese usage guides |
+| [DISPLAY-NM-CYD-C5.md](DISPLAY-NM-CYD-C5.md) | This design document |
+| [USAGE-NM-CYD-C5.md](USAGE-NM-CYD-C5.md) / [USAGE-NM-CYD-C5_zh.md](USAGE-NM-CYD-C5_zh.md) | English / Chinese usage guides |
 
 ## 6. Optional future extensions (require component changes)
 

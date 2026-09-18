@@ -4,7 +4,8 @@
 # Board: NM-CYD-C5 (ESP32-C5-WROOM-1, 16MB Flash / 8MB PSRAM)
 # https://github.com/RockBase-iot/NM-CYD-C5
 #
-# Display design doc: docs/NM-CYD-C5/DISPLAY-NM-CYD-C5.md
+# Display notes: NM-CYD-C5/DISPLAY-NM-CYD-C5.md
+# Contributed by: @RockBase-iot (https://github.com/RockBase-iot)
 #
 # On-screen features:
 # - Scrolling Movement score curve with adaptive Threshold line
@@ -19,7 +20,7 @@
 # - RGB:   WS2812 on GPIO27 (unused here)
 
 substitutions:
-  detection_algorithm: lightweight # lightweight (default) or high_accuracy
+  example_config: espectre-cyd-c5.yaml
 
 packages:
   base: !include espectre-c5.yaml
@@ -37,7 +38,6 @@ packages:
 # graph lambda de-duplicates curve points, so nothing is lost.
 espectre:
   id: espectre_csi
-  detection_algorithm: ${detection_algorithm}
   movement_sensor:
     id: espectre_movement_score
   motion_sensor:
