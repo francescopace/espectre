@@ -20,11 +20,20 @@ ESPectre is a WiFi CSI (Channel State Information) based human motion detection 
 
 ## 2. First-Time Provisioning
 
+Build this board's configuration from the repository root:
+
+```bash
+./espectre esphome config --chip c5 --config src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml
+./espectre esphome build --chip c5 --config src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml
+```
+
+The generic C5 image does not include this display configuration. Shared provisioning and update instructions are in [README.md](../../README.md).
+
 The device ships with no saved WiFi credentials and automatically starts a provisioning hotspot on first boot after flashing:
 
 1. On your phone or computer, scan for WiFi networks and connect to the **`ESPectre Fallback`** hotspot;
 2. The captive portal opens automatically in the browser (or browse manually to `192.168.4.1`);
-3. Select your WiFi network and enter its password — **a 2.4 GHz network is recommended** (ESPectre's CSI detection operates on the 2.4 GHz band);
+3. Select your WiFi network and enter its password;
 4. After a successful save, the device reboots and connects to your WiFi automatically;
 5. Once connected, **the device IP address is shown directly in the top-left header of the screen** (yellow `NO WIFI` is displayed while disconnected).
 
@@ -72,7 +81,7 @@ Once added, the main entities are:
 
 ## 5. Web Tools
 
-Open https://espectre.dev/tools/device-settings/ and point it at the device (by IP or `espectre.local`) to view and control the device. The device also serves the ESPectre Direct HTTP API (see `docs/DISCOVERY.md`).
+Open https://espectre.dev/tools/device-settings/ and point it at the device (by IP or `espectre.local`) to view and control the device. The device also serves the ESPectre Direct HTTP API (see [DISCOVERY.md](../../../../../../docs/DISCOVERY.md)).
 
 Firmware updates: use the ESPHome dashboard or `esphome upload` (direct over WiFi, no USB needed).
 
