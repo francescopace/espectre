@@ -8,14 +8,12 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
-import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -2087,6 +2085,14 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     for job_id in ("publish-sdk", "publish-coverage", "dispatch-pages"):
         assert cd_jobs[job_id].get("if", "success()") == "success()"
     assert cd_jobs["publish-pages"]["if"] == "fromJSON(needs.release.outputs.metadata).publish_website"
+    pages_checkout = next(
+        step for step in cd_jobs["publish-pages"]["steps"]
+        if step.get("uses", "").startswith("actions/checkout@")
+    )
+    # validate-run proves that the dispatch revision is the successful CI source;
+    # keep the checkout on that trusted workflow revision instead of accepting a
+    # dynamic ref from job output.
+    assert "ref" not in pages_checkout["with"]
     coverage_steps = cd_jobs["publish-coverage"]["steps"]
     assert coverage_steps[0]["with"]["run-id"] == "${{ fromJSON(needs.release.outputs.metadata).run_id }}"
     assert coverage_steps[0]["with"]["pattern"] == "*-coverage-badge"
