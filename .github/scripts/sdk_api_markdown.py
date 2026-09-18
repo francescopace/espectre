@@ -227,11 +227,3 @@ def generate_registry_api(bundle_root: Path, destination: Path, version: str, co
         reference = MarkdownReference(xml_directory)
         markdown = reference.document(version, commit)
         (destination / "API.md").write_text(markdown, encoding="utf-8")
-        readme = destination / "README.md"
-        readme.write_text(
-            readme.read_text(encoding="utf-8").rstrip()
-            + "\n\n## C++ API reference\n\n"
-            "[API.md](API.md) contains the complete C++ reference and integration contracts "
-            "for this component's version and source commit.\n",
-            encoding="utf-8",
-        )

@@ -456,7 +456,42 @@ def test_sdk_staging_cleanup_fails_without_unsafe_deletions(
         assert not deletions
 
 
-def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
+def assert_sdk_registry_installation(files: dict[str, bytes], version: str,
+                                     registry_url: str, tmp_path: Path) -> None:
+    example = yaml.safe_load(files["examples/wifi_motion_detection/main/idf_component.yml"])
+    assert example["dependencies"] == {
+        "francescopace/espectre": {"version": version, "registry_url": registry_url}
+    }
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    recorder = bin_dir / "idf.py"
+    recorder.write_text("""#!/bin/sh
+printf '%s\\t' "$@"; printf '\\n'
+if [ "$1" = create-project-from-example ]; then mkdir wifi_motion_detection; fi
+""")
+    recorder.chmod(0o755)
+    for name in ("README.md", "examples/wifi_motion_detection/README.md"):
+        blocks = re.findall(r"```sh\n(.*?)\n```", files[name].decode(), re.DOTALL)
+        commands = "\n".join(block for block in blocks if any(token in block for token in (
+            "ESPECTRE_VERSION=", "idf.py add-dependency ", "idf.py create-project-from-example ",
+        )))
+        # Execute the documented shell expansion, replacing every IDF action with a recorder.
+        project = tmp_path / name.removesuffix(".md")
+        project.mkdir(parents=True)
+        result = subprocess.run(["/bin/sh", "-e", "-c", commands],
+                                cwd=project, capture_output=True, text=True,
+                                env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
+        assert result.returncode == 0, result.stderr
+        calls = [line.rstrip("\t").split("\t") for line in result.stdout.splitlines()]
+        dependency = f"francescopace/espectre={version}"
+        assert ["create-project-from-example", "--registry-url", registry_url,
+                f"{dependency}:wifi_motion_detection"] in calls
+        if name == "README.md":
+            assert ["add-dependency", "--registry-url", registry_url, dependency] in calls
+
+
+@pytest.mark.parametrize("version", ["3.0.0", "3.0.0-rc2"])
+def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str) -> None:
     builder = load_script("build_sdk_package")
     component_cmake = (REPO_ROOT / "src" / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
     for dependency in (
@@ -468,8 +503,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     for output in outputs:
         args = argparse.Namespace(
             channel="release",
-            version="3.0.0",
-            release_tag="3.0.0",
+            version=version,
+            release_tag=version,
             output_dir=str(output),
             component_output_dir=str(tmp_path / f"component-{output.name}" / "espectre"),
             commit="0123456789abcdef0123456789abcdef01234567",
@@ -498,7 +533,6 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", readme_sections))
     anchors = re.findall(r'<a id="([^"]+)"></a>', api)
     assert len(anchors) == len(set(anchors))
-    assert "](API.md)" in readme
     for document in (readme, api):
         for link in re.findall(r"\]\(([^)]+)\)", document):
             if link.startswith("API.md#") or (document is api and link.startswith("#")):
@@ -517,14 +551,14 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert component_manifest["dependencies"]["espressif/mdns"]["registry_url"] == "https://components.espressif.com"
     assert component_manifest["targets"] == source_manifest["targets"]
     assert component_manifest["license"] == "GPL-3.0-only"
-    assert component_manifest["version"] == "3.0.0"
+    assert component_manifest["version"] == version
     assert {"LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "README.md", "API.md"} <= component_files.keys()
     assert not any(part in {"frontend", "build", "managed_components", ".git"}
                    for name in component_files for part in Path(name).parts)
-    assert b'"3.0.0"' in component_files["runtime/espectre_sdk_version.h"]
-    assert yaml.safe_load(component_files["examples/wifi_motion_detection/main/idf_component.yml"])["dependencies"] == {
-        "francescopace/espectre": {"version": "3.0.0"}
-    }
+    assert f'"{version}"'.encode() in component_files["runtime/espectre_sdk_version.h"]
+    registry_url = ("https://components.espressif.com" if version == "3.0.0"
+                    else "https://components-staging.espressif.com")
+    assert_sdk_registry_installation(component_files, version, registry_url, tmp_path / "consumer")
     for name in ("README.md", "API.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         for link in re.findall(r"\]\(([^)]+)\)", component_files[name].decode()):
             link = link.strip("<>")
@@ -559,7 +593,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", guide_sections))
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
-    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
+    assert re.search(rf"(?m)^PROJECT_NUMBER\s*=\s*{re.escape(version)}\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^GENERATE_HTML\s*=\s*NO\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^GENERATE_XML\s*=\s*YES\s*$", bundled_doxyfile)
     assert not any("/src/cpp/doxygen/" in path for path in archived)
@@ -577,19 +611,26 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         assert artifact["sha256"] == file_sha256(outputs[0] / artifact["filename"])
 
 
-@pytest.mark.parametrize(("field", "value"), [
-    ((), None),
-    (("version",), "3.0.1"),
-    (("license",), "MIT"),
-    (("repository_info", "commit_sha"), "b" * 40),
-    (("dependencies", "idf", "version"), ">=5.0"),
-    (("targets",), ["esp32c3"]),
-    (("targets",), ["esp32s2", "esp32c3"]),
-    (("files", "use_gitignore"), 1),
-    (("description",), "Unexpected field"),
+@pytest.mark.parametrize(("manifest_name", "field", "value"), [
+    ("idf_component.yml", (), None),
+    ("idf_component.yml", ("version",), "3.0.1"),
+    ("idf_component.yml", ("license",), "MIT"),
+    ("idf_component.yml", ("repository_info", "commit_sha"), "b" * 40),
+    ("idf_component.yml", ("dependencies", "idf", "version"), ">=5.0"),
+    ("idf_component.yml", ("targets",), ["esp32c3"]),
+    ("idf_component.yml", ("targets",), ["esp32s2", "esp32c3"]),
+    ("idf_component.yml", ("files", "use_gitignore"), 1),
+    ("idf_component.yml", ("description",), "Unexpected field"),
+    ("examples/wifi_motion_detection/main/idf_component.yml",
+     ("dependencies", "francescopace/espectre", "version"), "3.0.1"),
+    ("examples/wifi_motion_detection/main/idf_component.yml",
+     ("dependencies", "francescopace/espectre", "registry_url"), "https://other.example"),
+    ("examples/wifi_motion_detection/main/idf_component.yml",
+     ("dependencies", "francescopace/espectre", "override_path"), "../../espectre"),
 ])
 def test_registry_and_install_checks_preserve_manifest_values(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: tuple[str, ...], value: object,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    manifest_name: str, field: tuple[str, ...], value: object,
 ) -> None:
     from idf_component_tools.registry import multi_storage_client
 
@@ -602,17 +643,23 @@ def test_registry_and_install_checks_preserve_manifest_values(
         "targets": ["esp32c3", "esp32s2"],
         "files": {"use_gitignore": True},
     }
+    example_name = "examples/wifi_motion_detection/main/idf_component.yml"
+    example = {"dependencies": {verifier.COMPONENT_NAME: {
+        "version": "3.0.0", "registry_url": "https://registry.example",
+    }}}
+    manifests = {"idf_component.yml": manifest, example_name: example}
     expected = {
         "idf_component.yml": yaml.safe_dump(manifest, sort_keys=False).encode(),
         "sdk.cpp": b"void setup() {}\n",
-        "examples/wifi_motion_detection/main/idf_component.yml": b"dependencies: {}\n",
+        example_name: yaml.safe_dump(example, sort_keys=False).encode(),
     }
     if field:
-        parent = manifest
+        parent = manifests[manifest_name]
         for key in field[:-1]:
             parent = parent[key]
         parent[field[-1]] = value
-    actual = {**expected, "idf_component.yml": yaml.safe_dump(manifest, sort_keys=True).encode()}
+    actual = {**expected, **{name: yaml.safe_dump(data, sort_keys=True).encode()
+                            for name, data in manifests.items()}}
     archive = tmp_path / "registry.zip"
     with zipfile.ZipFile(archive, "w") as zipped:
         for name, data in actual.items():
@@ -644,16 +691,16 @@ def test_registry_and_install_checks_preserve_manifest_values(
     )
     for check in checks:
         if field:
-            with pytest.raises(ValueError, match="Component contents differ: idf_component.yml"):
+            with pytest.raises(ValueError, match=f"Component contents differ: {re.escape(manifest_name)}$"):
                 check()
         else:
             check()
     if not field:
         # Local artifact hashes remain byte-exact, even for equivalent YAML.
-        with pytest.raises(ValueError, match="Component contents differ: idf_component.yml"):
+        with pytest.raises(ValueError, match="Component contents differ"):
             verifier.require_same_files(verifier.hashes(actual), inventory["files"])
         for name in expected:
-            changed = {**actual, name: actual[name] + b"# changed\n"} if name != "idf_component.yml" else {
+            changed = {**actual, name: actual[name] + b"# changed\n"} if name == "sdk.cpp" else {
                 key: data for key, data in actual.items() if key != name
             }
             with pytest.raises(ValueError, match="Component contents differ"):
@@ -1067,6 +1114,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     inventory_path = tmp_path / "registry" / "component-inventory.json"
     inventory, files = load_script("verify_sdk_component").load_package(inventory_path)
     registry_version = inventory["version"]
+    assert_sdk_registry_installation(files, registry_version,
+                                     "https://components-staging.espressif.com", tmp_path / "consumer")
     branch = "main" if channel == "preview" else "develop"
     assert registry_version == f"{registry_base}.{branch}"
     assert f'#define ESPECTRE_SDK_VERSION_STRING "{registry_version}"'.encode() in files["API.md"]

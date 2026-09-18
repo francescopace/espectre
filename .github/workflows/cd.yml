@@ -423,6 +423,7 @@ jobs:
           skip_pre_release: ${{ fromJSON(needs.release.outputs.metadata).stable }}
 
   verify-sdk:
+    name: Registry SDK
     needs: publish-sdk
     if: needs.publish-sdk.outputs.published == 'true'
     uses: ./.github/workflows/sdk-component.yml

@@ -57,9 +57,9 @@ def archive_files(data: bytes) -> dict[str, bytes]:
 def hashes(files: dict[str, bytes], *, normalize_manifest: bool = False) -> dict[str, str]:
     result = {}
     for name, data in files.items():
-        if normalize_manifest and name == "idf_component.yml":
-            # Component Manager rewrites YAML when packing for upload. Compare all
-            # manifest values, preserving scalar types and list order, instead of layout.
+        if normalize_manifest and PurePosixPath(name).name == "idf_component.yml":
+            # Component Manager rewrites component and example manifests for upload.
+            # Compare all values, preserving scalar types and list order, instead of layout.
             data = json.dumps(yaml.safe_load(data), sort_keys=True, allow_nan=False).encode("utf-8")
         result[name] = hashlib.sha256(data).hexdigest()
     return result
@@ -144,7 +144,7 @@ def registry_example(registry: str, inventory: dict, files: dict[str, bytes],
     example = archive_files(download(example_url))
     prefix = "examples/wifi_motion_detection/"
     expected = {name.removeprefix(prefix): data for name, data in files.items() if name.startswith(prefix)}
-    require_same_files(hashes(example), hashes(expected))
+    require_same_files(hashes(example, normalize_manifest=True), hashes(expected, normalize_manifest=True))
     return example
 
 
@@ -162,7 +162,8 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
         if args.example_dir:
             downloaded_example = {str(path.relative_to(args.example_dir)): path.read_bytes()
                                   for path in args.example_dir.rglob("*") if path.is_file()}
-            require_same_files(hashes(downloaded_example), hashes(expected_example))
+            require_same_files(hashes(downloaded_example, normalize_manifest=True),
+                               hashes(expected_example, normalize_manifest=True))
         else:
             downloaded_example = registry_example(args.registry_url, inventory, files, args.wait_seconds)
         write_files(project, downloaded_example)

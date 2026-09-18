@@ -26,7 +26,6 @@
 **Remaining release gates**:
 
 - [ ] Complete the dataset collection backlog and pass dataset-quality, training, and C++/Python parity gates on the final corpus. See [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) and [ML_TRAINING.md](ML_TRAINING.md).
-- [ ] Publish the C++ SDK as an ESP-IDF component on the ESP Component Registry, with a self-contained source package, verified ESP-IDF and target compatibility, a standalone example validated in CI, and complete integration and licensing documentation. Validate installation through the staging registry before production publication, and connect publication to versioned releases. See [SDK.md](SDK.md).
 
 **Exit criteria**: no release blockers remain, required gates pass on the release commit, and published artifacts match the tagged source and documentation. Release evidence covers first-use setup, sensing readiness after Wi-Fi recovery, detector alarms and misses, and OTA recovery for every supported path. A clean external ESP-IDF project can install the released SDK through Component Manager and build the standalone example on every declared target without access to the ESPectre checkout.
 

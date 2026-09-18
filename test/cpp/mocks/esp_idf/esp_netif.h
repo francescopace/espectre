@@ -13,6 +13,7 @@
 #include "esp_err.h"
 #include "lwip/ip_addr.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,9 @@ typedef struct {
   int get_handle_call_count;
   int handle_available;
   int impl_index;
+  bool station_created;
+  int create_station_call_count;
+  int destroy_station_call_count;
 } esp_netif_mock_state_t;
 
 extern esp_netif_mock_state_t g_esp_netif_mock;
@@ -50,8 +54,17 @@ typedef struct {
 static inline esp_err_t esp_netif_init(void) { return ESP_OK; }
 
 static inline esp_netif_t *esp_netif_create_default_wifi_sta(void) {
+  g_esp_netif_mock.create_station_call_count++;
+  if (g_esp_netif_mock.station_created) return nullptr;
+  g_esp_netif_mock.station_created = true;
   static esp_netif_t dummy_netif = (esp_netif_t)0x2;
   return &dummy_netif;
+}
+
+static inline void esp_netif_destroy_default_wifi(void *netif) {
+  if (netif == nullptr) return;
+  g_esp_netif_mock.destroy_station_call_count++;
+  g_esp_netif_mock.station_created = false;
 }
 
 static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {

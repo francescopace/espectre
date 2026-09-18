@@ -186,7 +186,7 @@
       "name": "sdk",
       "pathLabel": "SDK",
       "title": "SDK | ESPectre",
-      "description": "Embed the ESPectre C++ sensing runtime in an ESP-IDF product with a concise setup path, integration examples, and architecture overview.",
+      "description": "Install the ESPectre C++ SDK from the ESP Component Registry with idf.py, run the Wi-Fi motion detection example, and integrate sensing into your firmware.",
       "staticPath": "/sdk/",
       "analyticsName": "overview"
     },
@@ -235,7 +235,7 @@
       "group": "sdk",
       "pathLabel": "Examples",
       "title": "Examples | ESPectre",
-      "description": "Choose among the maintained ESPHome, Native, and Matter frontends when embedding ESPectre in a product.",
+      "description": "Create the Wi-Fi motion detection example with idf.py, configure your board, and adapt the ESPectre runtime to your ESP-IDF application.",
       "staticPath": "/sdk/examples/"
     },
     {

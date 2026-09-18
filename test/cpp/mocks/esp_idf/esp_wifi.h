@@ -326,6 +326,7 @@ typedef struct {
   int set_ps_call_count;
   wifi_ps_type_t last_set_ps_type;
 
+  esp_err_t init_result;
   int init_call_count;
   esp_err_t deinit_result;
   int deinit_call_count;
@@ -409,7 +410,7 @@ void esp_wifi_mock_reset(void);
 static inline esp_err_t esp_wifi_init(const wifi_init_config_t *config) {
   (void)config;
   g_esp_wifi_mock.init_call_count++;
-  return ESP_OK;
+  return g_esp_wifi_mock.init_result;
 }
 
 static inline esp_err_t esp_wifi_deinit(void) {

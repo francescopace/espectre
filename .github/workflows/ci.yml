@@ -719,6 +719,7 @@ jobs:
           category: firmware/native
 
   verify-sdk-component:
+    name: SDK
     needs: build-sdk
     permissions:
       contents: read

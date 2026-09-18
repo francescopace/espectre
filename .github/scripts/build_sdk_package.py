@@ -530,14 +530,18 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
         target = destination / "examples" / "wifi_motion_detection" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(example_root / relative, target)
+    registry_url = ("https://components-staging.espressif.com" if "-" in version
+                    else "https://components.espressif.com")
     for readme_path in (destination / "README.md", destination / "examples/wifi_motion_detection/README.md"):
         readme = readme_path.read_text(encoding="utf-8")
-        readme = re.sub(r'francescopace/espectre([=^])[^"\s:]+',
-                        lambda match: f"{COMPONENT_NAME}{match[1]}{version}", readme)
+        for name, value in (("ESPECTRE_VERSION", version), ("ESPECTRE_REGISTRY_URL", registry_url)):
+            readme, count = re.subn(rf'(?m)^{name}="[^"]+"$', f'{name}="{value}"', readme)
+            if count != 1:
+                raise ValueError(f"Expected one {name} setting in {readme_path}")
         readme_path.write_text(readme, encoding="utf-8")
     example_manifest = destination / "examples" / "wifi_motion_detection" / "main" / "idf_component.yml"
     example = yaml.safe_load(example_manifest.read_text())
-    example["dependencies"][COMPONENT_NAME] = {"version": version}
+    example["dependencies"][COMPONENT_NAME] = {"version": version, "registry_url": registry_url}
     example_manifest.write_text(yaml.safe_dump(example, sort_keys=False), encoding="utf-8")
 
     manifest_path = destination / "idf_component.yml"

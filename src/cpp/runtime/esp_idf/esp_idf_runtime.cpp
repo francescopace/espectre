@@ -469,6 +469,14 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
     notify_fault_("Failed to configure runtime detector");
     return false;
   }
+  std::unique_ptr<StartupThresholdCalibrator> next_calibrator;
+  if (algorithm == DetectionAlgorithm::LIGHTWEIGHT && csi_pipeline_.is_enabled()) {
+    next_calibrator.reset(new (std::nothrow) StartupThresholdCalibrator());
+    if (!next_calibrator) {
+      notify_fault_("Failed to allocate startup calibrator");
+      return false;
+    }
+  }
   const esp_err_t persist_err = save_runtime_detection_algorithm(algorithm);
   if (persist_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist detector: %s", esp_err_to_name(persist_err));
@@ -493,7 +501,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   ESPECTRE_LOGI(RUNTIME_TAG, "Detector changed to %s", detection_algorithm_name(algorithm));
 
   if (algorithm == DetectionAlgorithm::LIGHTWEIGHT && csi_pipeline_.is_enabled()) {
-    return start_calibration_();
+    return start_calibration_(true, std::move(next_calibrator));
   }
   return true;
 }
@@ -921,7 +929,15 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
   on_wifi_connected_(ip_info);
 }
 
-bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold) {
+bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold,
+                                      std::unique_ptr<StartupThresholdCalibrator> prepared) {
+  if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT && !prepared) {
+    prepared.reset(new (std::nothrow) StartupThresholdCalibrator());
+    if (!prepared) {
+      notify_fault_("Failed to allocate startup calibrator");
+      return false;
+    }
+  }
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 
   if (config_.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
@@ -952,29 +968,16 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold) {
     calibration_target_packets = UINT16_MAX;
   }
 
-  if (!snapshot_.calibrating) {
-    snapshot_.calibrating = true;
-    snapshot_.calibration_packets = 0U;
-    snapshot_.calibration_target_packets = static_cast<uint16_t>(calibration_target_packets);
-    if (listener_ != nullptr) {
-      listener_->on_calibration_started(get_snapshot());
-    }
-  }
+  const bool notify_started = !snapshot_.calibrating;
 
   // Calibrate on the runtime detector itself (cold-cleared first), so the
   // observed metric matches the configured algorithm. Mirrors the Python
   // runtime calibration flow.
-  threshold_calibrator_.reset(new (std::nothrow) StartupThresholdCalibrator());
-  if (!threshold_calibrator_) {
-    snapshot_.calibrating = false;
-    snapshot_.calibration_packets = 0U;
-    snapshot_.calibration_target_packets = 0U;
-    notify_fault_("Failed to allocate startup calibrator");
-    return false;
-  }
+  threshold_calibrator_ = std::move(prepared);
   threshold_calibrator_->begin(static_cast<uint16_t>(calibration_target_packets),
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
+  snapshot_.calibrating = true;
   snapshot_.calibration_packets = 0U;
   snapshot_.calibration_target_packets = static_cast<uint16_t>(calibration_target_packets);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
@@ -985,6 +988,9 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold) {
   csi_pipeline_.set_packet_interceptor(&EspIdfRuntime::threshold_calibration_packet_callback_, this);
   ESPECTRE_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
            detector_ != nullptr ? detector_->get_name() : "detector");
+  if (notify_started && listener_ != nullptr) {
+    listener_->on_calibration_started(get_snapshot());
+  }
   return true;
 }
 
@@ -1053,6 +1059,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   snapshot_.calibration_packets = 0U;
   snapshot_.calibration_target_packets = 0U;
 
+  bool threshold_changed = false;
   if (success && threshold_calibrator_) {
     const float auto_factor = detector_ != nullptr
                                   ? detector_->get_startup_threshold_factor()
@@ -1069,21 +1076,24 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
       config_.segmentation_threshold = applied_threshold;
       snapshot_.startup_threshold = applied_threshold;
       snapshot_.threshold = applied_threshold;
-      if (listener_ != nullptr) {
-        listener_->on_threshold_changed(get_snapshot());
-      }
+      threshold_changed = true;
       ESPECTRE_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (shared proposal %.6f)",
                applied_threshold, adaptive_threshold);
     }
     csi_pipeline_.clear_detector_buffer();
   }
 
-  if (listener_ != nullptr) {
-    listener_->on_calibration_finished(get_snapshot(), success);
-  }
   ESPECTRE_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
+  // Finish this operation before callbacks can start another calibration.
   threshold_calibrator_.reset();
   reset_periodic_status_logger_();
+  const RuntimeSnapshot completed_snapshot = get_snapshot();
+  if (threshold_changed && listener_ != nullptr) {
+    listener_->on_threshold_changed(completed_snapshot);
+  }
+  if (listener_ != nullptr) {
+    listener_->on_calibration_finished(completed_snapshot, success);
+  }
 }
 
 void EspIdfRuntime::log_periodic_status_(uint32_t packets_received) {

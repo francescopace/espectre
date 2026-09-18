@@ -13,6 +13,7 @@
 #include <string>
 
 #include "esp_event.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_private/wifi.h"
 #include "standalone_wifi_service.h"
@@ -56,6 +57,7 @@ void setUp(void) {
   // into an already configured station explicitly.
   g_esp_netif_mock.ip_addr = 0U;
   esp_wifi_mock_reset();
+  esp_timer_mock::reset();
   g_esp_wifi_fixed_rate_mock = {};
 }
 
@@ -1126,9 +1128,150 @@ void test_standalone_wifi_service_setup_failure_unregisters_partial_handlers(voi
       TEST_ASSERT_EQUAL(ESP_FAIL, service.setup(config));
       TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.start_call_count);
       for (const auto &slot : g_esp_event_mock.slots) TEST_ASSERT_FALSE(slot.active);
+      TEST_ASSERT_FALSE(g_esp_netif_mock.station_created);
+      TEST_ASSERT_EQUAL(1, g_esp_netif_mock.destroy_station_call_count);
+      TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.deinit_call_count);
       service.shutdown();
+      // Reuse the mock's bounded registration slots after verifying cleanup.
+      esp_event_mock_reset();
+      TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
     }
   }
+}
+
+void test_standalone_wifi_service_releases_station_and_allows_setup_again(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.start());
+  for (int cycle = 1; cycle <= 2; ++cycle) {
+    TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+    TEST_ASSERT_TRUE(g_esp_netif_mock.station_created);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.setup(config));
+    TEST_ASSERT_EQUAL(cycle, g_esp_netif_mock.create_station_call_count);
+    TEST_ASSERT_EQUAL(ESP_OK, service.start());
+    service.shutdown();
+    service.shutdown();
+    TEST_ASSERT_FALSE(g_esp_netif_mock.station_created);
+    TEST_ASSERT_EQUAL(cycle, g_esp_netif_mock.destroy_station_call_count);
+    TEST_ASSERT_EQUAL(cycle, g_esp_wifi_mock.deinit_call_count);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.start());
+  }
+}
+
+void test_standalone_wifi_service_releases_station_after_driver_init_failure(void) {
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  {
+    StandaloneWifiService service;
+    g_esp_wifi_mock.init_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL(ESP_FAIL, service.setup(config));
+    TEST_ASSERT_FALSE(g_esp_netif_mock.station_created);
+    TEST_ASSERT_EQUAL(1, g_esp_netif_mock.destroy_station_call_count);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.deinit_call_count);
+    g_esp_wifi_mock.init_result = ESP_OK;
+    TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  }
+  TEST_ASSERT_FALSE(g_esp_netif_mock.station_created);
+  TEST_ASSERT_EQUAL(2, g_esp_netif_mock.destroy_station_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.deinit_call_count);
+}
+
+void test_standalone_wifi_service_preserves_full_width_credentials(void) {
+  StandaloneWifiService service;
+  const std::string ssid(32U, 's');
+  const std::string password(64U, 'a');
+  StandaloneWifiConfig config;
+  config.ssid = ssid.c_str();
+  config.password = password.c_str();
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(0, std::memcmp(ssid.data(), g_esp_wifi_mock.last_config.sta.ssid, 32U));
+  TEST_ASSERT_EQUAL(0, std::memcmp(password.data(), g_esp_wifi_mock.last_config.sta.password, 64U));
+  const int configured = g_esp_wifi_mock.set_config_call_count;
+  const std::string oversized_ssid(33U, 's');
+  const std::string oversized_password(65U, 'a');
+  config.ssid = oversized_ssid.c_str();
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, service.update_station_config(config));
+  config.ssid = ssid.c_str();
+  config.password = oversized_password.c_str();
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, service.update_station_config(config));
+  TEST_ASSERT_EQUAL(configured, g_esp_wifi_mock.set_config_call_count);
+  service.shutdown();
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, service.setup(config));
+  TEST_ASSERT_FALSE(g_esp_netif_mock.station_created);
+}
+
+void test_standalone_wifi_service_retries_after_exhausting_retry_burst(void) {
+  esp_timer_mock::reset(1000, 0);
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.max_retry = 2;
+  config.manage_csi_lifecycle = false;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  service.loop();
+  StandaloneWifiServiceTestAccess::expire_deferred_connect_fallback(service);
+  service.loop();
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  for (int burst = 0; burst < 2; ++burst) {
+    wifi_event_sta_disconnected_t disconnected{};
+    for (int attempt = 0; attempt < 3; ++attempt) {
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+      service.loop();
+    }
+    const int calls_after_burst = g_esp_wifi_mock.connect_call_count;
+    TEST_ASSERT_EQUAL(3 + burst * 3, calls_after_burst);
+    esp_timer_mock::advance(29999999);
+    service.loop();
+    TEST_ASSERT_EQUAL(calls_after_burst, g_esp_wifi_mock.connect_call_count);
+    esp_timer_mock::advance(1);
+    service.loop();
+    TEST_ASSERT_EQUAL(calls_after_burst + 1, g_esp_wifi_mock.connect_call_count);
+  }
+
+  ip_event_got_ip_t got_ip{};
+  got_ip.ip_info.ip.addr = 0x3701A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip);
+  service.loop();
+  esp_timer_mock::advance(60000000);
+  service.loop();
+  TEST_ASSERT_EQUAL(7, g_esp_wifi_mock.connect_call_count);
+  StandaloneWifiInfo info;
+  TEST_ASSERT_TRUE(service.get_info(&info));
+  TEST_ASSERT_TRUE(info.connected);
+}
+
+void test_standalone_wifi_service_retries_connect_error_without_disconnect_event(void) {
+  esp_timer_mock::reset(1000, 0);
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  config.max_retry = 0;
+  config.manage_csi_lifecycle = false;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  g_esp_wifi_mock.connect_result_count = 1;
+  g_esp_wifi_mock.connect_results[0] = ESP_FAIL;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  service.loop();
+  StandaloneWifiServiceTestAccess::expire_deferred_connect_fallback(service);
+  service.loop();
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  esp_timer_mock::advance(30000000);
+  service.loop();
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+
+  wifi_event_sta_disconnected_t disconnected{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  service.loop();
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+  service.shutdown();
+  esp_timer_mock::advance(30000000);
+  service.loop();
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
 }
 
 void test_standalone_wifi_service_shutdown_clears_pending_events_and_scan(void) {
@@ -1311,6 +1454,11 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_service_reports_asynchronous_scan_snapshot);
   RUN_TEST(test_standalone_wifi_service_shutdown_clears_pending_events_and_scan);
   RUN_TEST(test_standalone_wifi_service_setup_failure_unregisters_partial_handlers);
+  RUN_TEST(test_standalone_wifi_service_releases_station_and_allows_setup_again);
+  RUN_TEST(test_standalone_wifi_service_releases_station_after_driver_init_failure);
+  RUN_TEST(test_standalone_wifi_service_preserves_full_width_credentials);
+  RUN_TEST(test_standalone_wifi_service_retries_after_exhausting_retry_burst);
+  RUN_TEST(test_standalone_wifi_service_retries_connect_error_without_disconnect_event);
   RUN_TEST(test_standalone_wifi_service_recovers_after_scan_failures);
   RUN_TEST(test_standalone_wifi_service_restarts_driver_when_disconnect_fails);
   RUN_TEST(test_standalone_wifi_service_apply_started_policy_and_reconnect_logic);

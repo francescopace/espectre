@@ -15,24 +15,56 @@ ESPectre adds motion detection to ESP-IDF firmware using Wi-Fi Channel State Inf
 
 ## ESP Component Registry
 
-Registry destinations for `francescopace/espectre`:
+Install `francescopace/espectre` through ESP-IDF Component Manager. It downloads the SDK sources and builds them with your application; no manual archive download is required.
 
-- [Production registry](https://components.espressif.com/components/francescopace/espectre): stable releases.
-- [Staging registry](https://components-staging.espressif.com/components/francescopace/espectre): prereleases and snapshots from `main` and `develop`.
+| Registry | Available versions | Website channel |
+|----------|--------------------|-----------------|
+| [Production](https://components.espressif.com/components/francescopace/espectre) | Stable releases only | Release, when the tagged version is stable |
+| [Staging](https://components-staging.espressif.com/components/francescopace/espectre) | Tagged prereleases and branch snapshots | Release candidates, Preview (`main`), and Develop (`develop`) |
 
-The commands below use production. To consume a staging package, select its exact version from the staging page and set `registry_url: https://components-staging.espressif.com` on the `francescopace/espectre` dependency in your project's `idf_component.yml`.
+If the production component page is unavailable, the first stable SDK release has not been published there yet. Use staging to evaluate the SDK. A website **Release** download can be a release candidate; it does not imply production-registry availability.
 
-Add the source component to an existing ESP-IDF project:
+For a specific version or the example project, select an exact version from the registry page. In an activated ESP-IDF environment, replace `VERSION_FROM_REGISTRY` below with that version. Use `https://components-staging.espressif.com` for snapshots and prereleases, or `https://components.espressif.com` for stable releases.
 
 ```sh
-idf.py add-dependency "francescopace/espectre^3.0.0"
+ESPECTRE_VERSION="VERSION_FROM_REGISTRY"
+ESPECTRE_REGISTRY_URL="https://components-staging.espressif.com"
 ```
 
-To try sensing on a board, create the complete example project instead:
+Registry packages fill in these settings with their own version and registry. Snapshot versions end in `.main` or `.develop` and differ from the website archive labels. Older snapshots are periodically removed from staging; use a retained version when resolving a new project.
+
+### Add to an existing project
+
+From your ESP-IDF project directory, add the latest compatible stable release from the default production registry:
 
 ```sh
-idf.py create-project-from-example "francescopace/espectre=3.0.0:wifi_motion_detection"
+idf.py add-dependency "francescopace/espectre"
+```
+
+Component Manager records the resolved version in `dependencies.lock` when configuring the project. Subsequent builds reuse that version; run `idf.py update-dependencies` to resolve newer compatible versions.
+
+For a specific version from staging or production, use the settings above:
+
+```sh
+idf.py add-dependency --registry-url "$ESPECTRE_REGISTRY_URL" "francescopace/espectre=$ESPECTRE_VERSION"
+```
+
+This records the version and registry on the SDK dependency in `main/idf_component.yml`. Other dependencies keep their own registry settings.
+
+### Create the example project
+
+To try sensing on a board, create the complete Wi-Fi motion detection project from the same registry:
+
+```sh
+idf.py create-project-from-example --registry-url "$ESPECTRE_REGISTRY_URL" "francescopace/espectre=$ESPECTRE_VERSION:wifi_motion_detection"
 cd wifi_motion_detection
+```
+
+The packaged example pins its SDK dependency to the same version and registry. For an older staging example whose `main/idf_component.yml` has only a version, add `registry_url: https://components-staging.espressif.com` under `francescopace/espectre` before configuring or building it.
+
+Build and run on your target board:
+
+```sh
 idf.py set-target esp32c3
 idf.py menuconfig
 idf.py build
@@ -51,6 +83,10 @@ When adding the SDK to an existing application:
 4. Check the result of `setup()`, and call `loop()` regularly from the same task. Run `shutdown()` on that task before releasing application services. Publish movement only when `ready_to_publish` is true; calibration and Wi-Fi recovery can temporarily make sensing unavailable.
 
 The SDK has no default logger. Register a [log sink](#logging) before setup if your application needs SDK messages.
+
+`StandaloneWifiService` can own station setup for an application without an existing Wi-Fi driver or station interface. Initialize NVS first; the service creates the netif and default event loop, and initializes the driver. Its `shutdown()` releases the driver, netif, and handlers, and allows another `setup()`; failed setup also releases acquired resources. The default event loop remains available. Shut down the sensing controller before the Wi-Fi service. Call service methods from one task, and keep calling `loop()` to process connection events and retries.
+
+The service borrows the null-terminated `ssid`, `password`, and `bssid` strings until shutdown or replacement. SSIDs up to 32 bytes and passwords up to 64 bytes are preserved; longer values return `ESP_ERR_INVALID_ARG`. `max_retry` sets the number of immediate reconnect attempts per burst, with a default of eight. After an exhausted burst, the service waits 30 seconds before starting another; it continues until connected or shut down. Zero disables immediate retries but keeps the delayed attempts.
 
 ## Public headers
 

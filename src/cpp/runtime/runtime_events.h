@@ -113,6 +113,9 @@ class IRuntimeListener {
   /**
    * Startup calibration finished.
    *
+   * The runtime releases completed threshold calibration resources before
+   * notifying the listener.
+   *
    * @param snapshot Sensing state at completion, carrying the applied threshold.
    * @param success false when calibration was cancelled or could not settle on
    *        a threshold. The runtime keeps sensing with the configured value,

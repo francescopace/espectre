@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
 
 #define private public
@@ -33,6 +34,19 @@
 
 using namespace espectre;
 using namespace espectre::test;
+
+namespace {
+bool reject_calibrator_allocation = false;
+}
+
+void *operator new(std::size_t size, const std::nothrow_t &) noexcept {
+  if (reject_calibrator_allocation && size == sizeof(StartupThresholdCalibrator)) return nullptr;
+  try {
+    return ::operator new(size);
+  } catch (...) {
+    return nullptr;
+  }
+}
 
 namespace {
 
@@ -77,6 +91,7 @@ constexpr bool kSupportsWifiRaw = true;
 }  // namespace
 
 void setUp(void) {
+  reject_calibrator_allocation = false;
   nvs_mock_reset();
   esp_timer_mock::reset();
   esp_event_mock_reset();
@@ -84,6 +99,99 @@ void setUp(void) {
   esp_wifi_mock_reset();
 }
 void tearDown(void) {}
+
+void test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails(void) {
+  RuntimeConfig config;
+  config.runtime_detector_selection_enabled = true;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  EspIdfRuntime runtime(config);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.csi_pipeline_.init(runtime.detector_.get());
+  runtime.csi_pipeline_.enabled_ = true;
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.75f));
+  const int threshold_changes = listener.threshold_changes;
+
+  reject_calibrator_allocation = true;
+  const bool changed = runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT);
+  reject_calibrator_allocation = false;
+  TEST_ASSERT_FALSE(changed);
+  TEST_ASSERT_EQUAL_STRING("high_accuracy", runtime.get_snapshot().detector_name);
+  TEST_ASSERT_EQUAL_FLOAT(0.75f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  TEST_ASSERT_EQUAL(0, listener.detector_changes);
+  TEST_ASSERT_EQUAL(0, listener.calibration_starts);
+  TEST_ASSERT_EQUAL(threshold_changes, listener.threshold_changes);
+  TEST_ASSERT_EQUAL(1, listener.faults);
+  DetectionAlgorithm stored = DetectionAlgorithm::LIGHTWEIGHT;
+  bool has_stored = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&stored, &has_stored));
+  TEST_ASSERT_TRUE(has_stored);
+  TEST_ASSERT_TRUE(stored == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+}
+
+void test_runtime_calibration_can_restart_from_completion_callback(void) {
+  class RetryListener : public DetectorListener {
+   public:
+    EspIdfRuntime *runtime{nullptr};
+    bool restart_on_threshold{false};
+    bool restarted{false};
+    void on_threshold_changed(const RuntimeSnapshot &snapshot) override {
+      DetectorListener::on_threshold_changed(snapshot);
+      if (restart_on_threshold && !restarted) restarted = runtime->trigger_recalibration();
+    }
+    void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override {
+      TEST_ASSERT_FALSE(snapshot.calibrating);
+      DetectorListener::on_calibration_finished(snapshot, success);
+      if (!restart_on_threshold && !restarted) restarted = runtime->trigger_recalibration();
+    }
+  };
+  for (bool success : {false, true}) {
+    for (bool restart_on_threshold : {false, true}) {
+      if (restart_on_threshold && !success) continue;
+      EspIdfRuntime runtime(RuntimeConfig{});
+      RetryListener listener;
+      listener.runtime = &runtime;
+      listener.restart_on_threshold = restart_on_threshold;
+      runtime.set_listener(&listener);
+      TEST_ASSERT_TRUE(runtime.configure_detector_());
+      runtime.csi_pipeline_.init(runtime.detector_.get());
+      TEST_ASSERT_TRUE(runtime.trigger_recalibration());
+      runtime.finish_threshold_calibration_(success);
+      TEST_ASSERT_TRUE(listener.restarted);
+      TEST_ASSERT_TRUE(runtime.is_calibrating());
+      int8_t csi[HT20_CSI_LEN]{};
+      TEST_ASSERT_TRUE(runtime.handle_threshold_calibration_packet_(
+          csi, sizeof(csi), -50, false, 1U, false));
+      runtime.finish_threshold_calibration_(false);
+      TEST_ASSERT_FALSE(runtime.is_calibrating());
+      TEST_ASSERT_EQUAL(2, listener.calibration_starts);
+      TEST_ASSERT_EQUAL(2, listener.calibration_finishes);
+    }
+  }
+}
+
+void test_runtime_calibration_allocation_failure_does_not_emit_started(void) {
+  EspIdfRuntime runtime(RuntimeConfig{});
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.csi_pipeline_.init(runtime.detector_.get());
+  const auto before = runtime.get_snapshot();
+  reject_calibrator_allocation = true;
+  const bool started = runtime.trigger_recalibration();
+  reject_calibrator_allocation = false;
+  TEST_ASSERT_FALSE(started);
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  TEST_ASSERT_EQUAL_FLOAT(before.threshold, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL(0, listener.calibration_starts);
+  TEST_ASSERT_EQUAL(1, listener.faults);
+  TEST_ASSERT_TRUE(runtime.trigger_recalibration());
+}
 
 void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(void) {
   RuntimeConfig config;
@@ -1042,6 +1150,9 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails);
+  RUN_TEST(test_runtime_calibration_can_restart_from_completion_callback);
+  RUN_TEST(test_runtime_calibration_allocation_failure_does_not_emit_started);
   RUN_TEST(test_traffic_source_target_support_applies_to_config_controls_persistence_and_discovery);
   RUN_TEST(test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_changes);
   RUN_TEST(test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality_gap);

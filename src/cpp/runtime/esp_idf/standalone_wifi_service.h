@@ -36,10 +36,12 @@ using standalone_wifi_scan_callback_t =
     std::function<void(esp_err_t, const std::vector<StandaloneWifiAccessPoint> &)>;
 
 struct StandaloneWifiConfig {
+  /** Borrowed, null-terminated credentials. Keep them alive until shutdown or replacement. */
   const char *ssid{""};
   const char *password{""};
   const char *bssid{""};
   uint8_t channel{0U};
+  /** Immediate retries per burst; exhausted bursts restart after 30 seconds. Zero skips immediate retries. */
   int max_retry{8};
   bool manage_csi_lifecycle{false};
   WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
@@ -54,6 +56,18 @@ struct StandaloneWifiInfo {
 
 class StandaloneWifiService {
  public:
+  /** Release the station driver, netif, and registered handlers. */
+  ~StandaloneWifiService();
+  /**
+   * Own a new station driver and netif; the application must not already own them.
+   *
+   * Requires initialized NVS. The default event loop is created if needed and
+   * remains available after shutdown. Credentials are borrowed; SSIDs up to
+   * 32 bytes and passwords up to 64 bytes are preserved without truncation.
+   * Failure releases acquired resources so setup can be retried. Calling
+   * setup while active returns ESP_ERR_INVALID_STATE. Use one owner task for
+   * all methods; callbacks run from loop().
+   */
   esp_err_t setup(const StandaloneWifiConfig &config,
                   standalone_wifi_callback_t connected_cb = {},
                   standalone_wifi_callback_t disconnected_cb = {});
@@ -63,6 +77,7 @@ class StandaloneWifiService {
   esp_err_t request_scan(standalone_wifi_scan_callback_t callback);
   void loop();
   bool get_info(StandaloneWifiInfo *info) const;
+  /** Stop and release owned Wi-Fi resources. Safe to repeat; setup can be called again. */
   void shutdown();
 
  private:
@@ -95,6 +110,8 @@ class StandaloneWifiService {
   void handle_lifecycle_disconnected_();
   void handle_scan_done_(uint8_t status);
   void maybe_run_deferred_connect_fallback_();
+  void maybe_retry_connect_();
+  esp_err_t connect_station_();
   void clear_cached_ip_info_();
 
   StandaloneWifiConfig config_{};
@@ -104,6 +121,8 @@ class StandaloneWifiService {
   standalone_wifi_scan_callback_t scan_callback_;
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
   esp_event_handler_instance_t ip_event_instance_{nullptr};
+  esp_netif_t *station_netif_{nullptr};
+  bool wifi_initialized_{false};
   bool setup_complete_{false};
   bool wifi_connect_requested_{false};
   bool defer_connect_once_after_start_{false};
@@ -113,6 +132,7 @@ class StandaloneWifiService {
   bool station_disconnect_pending_{false};
   bool scan_pending_{false};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
+  uint64_t reconnect_deadline_us_{0U};
   int wifi_retry_count_{0};
   esp_netif_ip_info_t cached_ip_info_{};
   static constexpr size_t kPendingWifiEventCapacity = 8U;

@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   build:
-    name: Build SDK ${{ matrix.name }}
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -35,18 +35,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: ESP32 / Core, target: esp32, profile: minimal}
-          - {name: ESP32-S2 / Core, target: esp32s2, profile: minimal}
-          - {name: ESP32-S3 / Core, target: esp32s3, profile: minimal}
-          - {name: ESP32-C3 / Core, target: esp32c3, profile: minimal}
-          - {name: ESP32-C5 / Core, target: esp32c5, profile: minimal}
-          - {name: ESP32-C6 / Core, target: esp32c6, profile: minimal}
-          - {name: ESP32-C3 / Frontend, target: esp32c3, profile: frontend_support}
-          - {name: ESP32-C3 / MQTT, target: esp32c3, profile: mqtt}
-          - {name: ESP32-C3 / Provisioning, target: esp32c3, profile: provisioning}
-          - {name: ESP32-C3 / Direct HTTP, target: esp32c3, profile: direct}
-          - {name: ESP32-C3 / Full, target: esp32c3, profile: all}
-          - {name: ESP32-S2 / Full, target: esp32s2, profile: all}
+          - {name: ESP32 Core, target: esp32, profile: minimal}
+          - {name: ESP32-S2 Core, target: esp32s2, profile: minimal}
+          - {name: ESP32-S3 Core, target: esp32s3, profile: minimal}
+          - {name: ESP32-C3 Core, target: esp32c3, profile: minimal}
+          - {name: ESP32-C5 Core, target: esp32c5, profile: minimal}
+          - {name: ESP32-C6 Core, target: esp32c6, profile: minimal}
+          - {name: ESP32-C3 Frontend, target: esp32c3, profile: frontend_support}
+          - {name: ESP32-C3 MQTT, target: esp32c3, profile: mqtt}
+          - {name: ESP32-C3 Provisioning, target: esp32c3, profile: provisioning}
+          - {name: ESP32-C3 Direct HTTP, target: esp32c3, profile: direct}
+          - {name: ESP32-C3 Full, target: esp32c3, profile: all}
+          - {name: ESP32-S2 Full, target: esp32s2, profile: all}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-sdk-packaging

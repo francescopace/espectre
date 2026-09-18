@@ -4,15 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0] - in progress - SDK component distribution
+## [3.0.0] - in progress - SDK component distribution and release delivery
 
-- Prepare `francescopace/espectre` for the ESP Component Registry, with a reproducible source archive, an independent Wi-Fi sensing example, and ESP-IDF 5.5.5 build coverage across six targets.
-- Validate optional SDK services individually and together, including Direct's pinned mDNS dependency.
-- Shorten the registry README and link API details to generated references identified by SDK version and commit. Preserve published references across website deployments.
-- Move primary console setup and TinyUSB to the shared frontend code. SDK integrations own their console setup; `initialize_primary_console()` is no longer part of the SDK API.
-- Make bootstrap select its provisioning dependency, and share Wi-Fi snapshot support with provisioning independently of Direct.
-- Run checks for every push through a shared CI pipeline, then publish snapshots or tagged releases from the same tested artifacts.
-- Publish SDK snapshots from successful `main` and `develop` CI runs to staging through OIDC, with versions bound to the source commit and channel. Add release staging checks and stable-only production publication with content verification. First publication remains pending the release gates in [ROADMAP.md](ROADMAP.md).
+### SDK packaging and integration
+
+- Add a reproducible source package for `francescopace/espectre` on the ESP Component Registry, with a file inventory and a standalone Wi-Fi sensing example.
+- Add twelve isolated consumer build checks using ESP-IDF 5.5.5: minimal sensing on six targets, individual optional service groups on ESP32-C3, and all services together on ESP32-C3 and ESP32-S2. Run the same matrix against installed registry packages after publication, comparing their versions and files with the CI artifact.
+- Include a generated `API.md` in registry packages with the C++ reference and integration contracts for the packaged version and commit. Keep the SDK guide focused on installation and integration, and resolve external documentation links against the packaged source revision.
+- Resolve the pinned mDNS dependency only when Direct is enabled. Make shared bootstrap select provisioning, and provide Wi-Fi snapshot support independently of Direct.
+- Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
+- Release standalone Wi-Fi resources on shutdown and setup failure, preserve full-length credentials, and resume exhausted reconnect bursts after 30 seconds. Document service ownership and align the website's CSI profile descriptions with the runtime.
+
+### Web tools, builds, and publication
+
+- Show the published Release firmware on the home and roadmap badges, using its release tag when available. Preview snapshots no longer replace the home release badge.
+- Generate the website's SDK API reference with each build, display its version and source commit, and verify that its files match the current page inventory.
+- Run shared CI on every branch and tag push, and gate firmware and SDK builds on build preparation and website, C++, and Python tests. Publish snapshots and tagged releases through one CD workflow using the tested CI artifacts, with separate check and publication statuses.
+- Upload SDK snapshots from `main` and `develop`, plus tagged prereleases, to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) through OIDC; reserve the production registry for stable tags. Bind snapshot versions to their branch and source commit, and verify existing package contents before accepting a repeated upload.
+- Add weekly staging cleanup that retains the ten most recently uploaded SDK snapshots per branch and preserves tagged prereleases and stable versions. Manual runs default to a dry run.
+- Dispatch Pages deployments from `main` using the verified website archive from CD, avoiding stale artifacts on tag deployments. Validate the source run and attempt, and reject superseded snapshot websites. See [RELEASING.md](RELEASING.md).
+
+### Breaking changes and migration
+
+- Update SDK integrations to ESP-IDF `>=5.5.5,<5.6.0`; release builds use 5.5.5.
+- Move primary console setup and TinyUSB to shared frontend code. SDK integrations must provide their own console setup; `initialize_primary_console()` is no longer part of the SDK API.
+- Replace `snapshot.yml` and `release.yml` with `cd.yml`. Maintainers must install the dispatch workflows on `main` and update registry trusted uploaders as described in [RELEASING.md](RELEASING.md#migrating-the-workflow-configuration).
 
 ---
 

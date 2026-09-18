@@ -1729,22 +1729,14 @@ body.modal-open { overflow: hidden; }
 }
 .security-reporting-paths { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .docs-step {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 18px;
-  padding: 0 0 52px;
-}
-.docs-step-number {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--accent);
-  padding-top: 7px;
+  padding: 0 0 24px;
 }
 .docs-step-body { min-width: 0; }
 .docs-step-body h3 { margin: 0 0 8px; font-size: 25px; letter-spacing: -.02em; }
 .docs-step-body > p { margin: 0 0 18px; color: var(--dim); text-wrap: pretty; }
 .docs-step-body .code-block { margin-bottom: 14px; }
 .docs-step-body .docs-step-note { margin: 0; font-size: 13px; }
+.docs-step-body > :last-child { margin-bottom: 0; }
 .docs-contracts {
   list-style: none;
   padding: 0;
@@ -3802,7 +3794,6 @@ body.modal-open { overflow: hidden; }
   .api-reference-content { padding-bottom: 38px; }
   .api-reference-content .m-doc-include { float: none; margin: 8px 0 0; text-align: left; }
   .security-guidelines ul { grid-template-columns: 1fr; }
-  .docs-step { grid-template-columns: 36px minmax(0, 1fr); gap: 10px; }
   .api-lifecycle { flex-direction: column; }
   .api-lifecycle > div { min-width: 0; }
   .api-lifecycle > div:not(:last-child)::after {

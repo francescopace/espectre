@@ -262,6 +262,7 @@ def render_page(manifest: dict, channel: str) -> str:
     </table></div>
 
     <h2>Downloads</h2>
+    <p>These source archives support manual vendoring and custom builds. To install with ESP-IDF Component Manager, follow the <a href="/sdk/#docs-quick-start-title">registry installation guide</a>, or <a href="/sdk/examples/">create the Wi-Fi motion detection example</a>.</p>
     <ul class="checklist">
 {artifact_links}
     </ul>
