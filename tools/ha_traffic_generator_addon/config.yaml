@@ -1,0 +1,34 @@
+name: "ESPectre Traffic Generator"
+version: "0.2.0"
+slug: "espectre_traffic_generator"
+description: "Generate external traffic for ESPectre devices"
+url: "https://espectre.dev"
+init: false
+startup: application
+boot: auto
+host_network: true
+homeassistant_api: true
+ingress: true
+ingress_port: 0
+panel_icon: mdi:ghost
+panel_title: ESPectre Traffic
+panel_admin: true
+arch:
+  - aarch64
+  - amd64
+options:
+  targets:
+    - "239.255.0.1"
+  port: 5555
+  rate_pps: 100
+  source_ip: ""
+  multicast_ttl: 8
+  dscp: 46
+schema:
+  targets:
+    - str
+  port: port
+  rate_pps: "int(1,1000)"
+  source_ip: "str?"
+  multicast_ttl: "int(1,255)"
+  dscp: "int(0,63)"

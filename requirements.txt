@@ -10,6 +10,7 @@ mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro depl
 pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests
+-r tools/ha_traffic_generator_addon/requirements.txt  # Home Assistant panel and internal API client
 paho-mqtt==1.6.1        # required by ESPHome 2026.9.0 (avoid 2.x)
 click==8.3.3            # required by ESPHome 2026.9.0
 requests==2.34.2        # required by ESPHome 2026.9.0

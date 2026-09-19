@@ -1,0 +1,51 @@
+:root { color-scheme: light dark; --bg: #fafafa; --card: #fff; --text: #212121; --muted: #727272; --border: #e0e0e0; --accent: #007fa8; --soft: #e1f5fe; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 Roboto, "Noto Sans", system-ui, sans-serif; }
+main { max-width: 1200px; margin: auto; padding: 24px; }
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.app-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--border); }
+.brand, .generator-controls { display: flex; align-items: center; gap: 12px; }
+.brand { min-width: 0; }
+.brand a, .generator-controls { flex-shrink: 0; }
+.brand img { display: block; width: 36px; height: 36px; }
+.brand a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+h1 { margin: 0; font-size: 20px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+h2 { margin: 0; font-size: 19px; }
+p { margin: 12px 0; }
+.card { padding: 20px; margin-bottom: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+.summary { display: flex; flex-wrap: wrap; gap: 16px 56px; }
+.summary strong { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+#targets { margin-bottom: 0; }
+.label, .muted, small { color: var(--muted); font-size: 13px; }
+small { display: block; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; color: var(--muted); text-decoration: none; }
+.icon-button:hover { background: var(--soft); }
+.icon-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+button { font: inherit; font-weight: 600; border: 1px solid var(--border); border-radius: 8px; padding: 8px 13px; background: var(--card); color: var(--accent); cursor: pointer; }
+button:hover:not(:disabled) { background: var(--soft); }
+#generator-toggle { min-width: 72px; min-height: 40px; border-color: transparent; border-radius: 20px; background: var(--soft); }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+.toolbar { margin: 0 0 16px; }
+#selection { color: var(--muted); }
+#notice { white-space: pre-line; }
+#notice:empty { display: none; }
+.error { color: #b43c30; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+td, th { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tfoot td { border-top: 1px solid var(--border); border-bottom: 0; }
+td:first-child, th:first-child { padding-left: 0; width: 32px; }
+.row-actions { display: flex; gap: 6px; min-width: 130px; }
+.row-actions button { font-size: 12px; padding: 5px 8px; }
+.device-name { font-weight: 650; color: var(--accent); text-decoration: none; }
+.device-name:hover, .device-name:focus-visible { text-decoration: underline; }
+.device-ip { color: var(--muted); font-size: 13px; }
+dialog { max-width: 520px; width: calc(100% - 32px); background: var(--card); color: var(--text); padding: 24px; border: 1px solid var(--border); border-radius: 14px; }
+dialog::backdrop { background: #071b3780; }
+dialog .toolbar { justify-content: flex-end; margin-bottom: 0; }
+@media (max-width: 700px) { main { padding: 16px; } .app-header { min-height: 56px; padding: 0 16px; gap: 8px; } .brand, .generator-controls { gap: 8px; } .brand img { width: 32px; height: 32px; } .card { padding: 16px; } .summary { gap: 18px 30px; } }
+@media (prefers-color-scheme: dark) { :root { --bg: #111; --card: #1c1c1c; --text: #e1e1e1; --muted: #aaa; --border: #383838; --accent: #4fc3f7; --soft: #143b4b; } .error { color: #ffb1a6; } }

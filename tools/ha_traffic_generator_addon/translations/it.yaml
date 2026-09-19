@@ -1,0 +1,46 @@
+configuration:
+  targets:
+    name: Indirizzi di destinazione
+    description: >-
+      Mantieni 239.255.0.1 per inviare un unico flusso multicast a tutti i
+      dispositivi ESPectre del gruppo. Se il multicast non funziona, sostituiscilo
+      con gli indirizzi IPv4 dei dispositivi. Non inserire nomi host o URL e non
+      inviare traffico allo stesso dispositivo sia tramite multicast sia tramite
+      il suo indirizzo.
+  port:
+    name: Porta UDP di destinazione
+    description: >-
+      Lascia 5555, a meno che tu non abbia modificato la porta del traffico esterno
+      nel firmware ESPectre. È la porta di ricezione dei dispositivi, non un
+      servizio aperto su Home Assistant.
+  rate_pps:
+    name: Pacchetti al secondo per destinazione
+    description: >-
+      Lascia 100 per la configurazione standard di ESPectre. Il valore deve
+      corrispondere alla frequenza CSI desiderata sui dispositivi. Ogni
+      destinazione riceve questo numero di pacchetti al secondo, quindi due
+      indirizzi a 100 generano 200 pacchetti al secondo in totale.
+      Intervallo consentito: 1–1000.
+  source_ip:
+    name: Indirizzo IPv4 di origine (avanzato)
+    description: >-
+      Normalmente va lasciato vuoto, così il sistema sceglie l'interfaccia di
+      uscita. Inserisci un indirizzo IPv4 assegnato alla macchina che esegue
+      Home Assistant solo se devi selezionare un'interfaccia di rete, come
+      Ethernet o Wi-Fi. Non inserire qui l'indirizzo di un dispositivo ESPectre.
+  multicast_ttl:
+    name: TTL multicast (limite di hop tra router)
+    description: >-
+      Lascia 8, a meno che la rete non richieda un limite diverso. Usa 1 per
+      mantenere il multicast nella rete locale; per attraversare N router serve
+      almeno N + 1. Gli switch non consumano hop. Questa opzione non abilita
+      l'instradamento, non aggira i firewall e non modifica il TTL unicast.
+      Intervallo consentito: 1–255.
+  dscp:
+    name: Classe di traffico DSCP (avanzata)
+    description: >-
+      Lascia 46 per richiedere Expedited Forwarding oppure usa 0 per Best Effort.
+      Si applica sia al traffico unicast sia a quello multicast. La rete può
+      ignorare o modificare questa marcatura; numeri più alti non indicano
+      necessariamente una priorità maggiore. Inserisci un valore DSCP da 0 a 63,
+      non un valore IP TOS.

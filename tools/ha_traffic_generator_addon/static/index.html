@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>ESPectre Traffic Generator</title>
+  <link rel="stylesheet" href="static/panel.css">
+  <script src="static/panel.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <a href="https://espectre.dev/" target="_blank" rel="noopener noreferrer" aria-label="ESPectre website"><img src="logo.png" alt="ESPectre" width="36" height="36"></a>
+      <h1>ESPectre Traffic Generator</h1>
+    </div>
+    <div class="generator-controls" role="group" aria-label="Traffic generator controls">
+      <span id="running" hidden></span>
+      <button id="generator-toggle" type="button" disabled>Start</button>
+      <a id="addon-settings" class="icon-button" href="/config/apps" target="_top" aria-label="Add-on configuration" title="Configuration">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.49.49 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.38.31.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.04.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+      </a>
+    </div>
+  </header>
+  <main>
+    <section aria-label="Traffic generator" class="card">
+      <div class="summary">
+        <div><span class="label">Rate / target</span><strong id="rate">—</strong></div>
+        <div><span class="label">Errors</span><strong id="errors">—</strong></div>
+      </div>
+      <p id="targets" class="muted"></p>
+    </section>
+    <section aria-label="Devices" class="card">
+      <p id="notice" role="status" aria-live="polite">Connecting…</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th><input id="select-all" type="checkbox" aria-label="Select all supported devices"></th>
+            <th>Device</th><th>Traffic / s</th><th>CSI / s</th>
+            <th>Occupancy</th><th>Wi-Fi RSSI</th><th>Traffic Generator</th>
+          </tr></thead>
+          <tbody id="devices"></tbody>
+          <tfoot id="bulk-actions" hidden><tr>
+            <td colspan="6"><span id="selection" aria-live="polite"></span></td>
+            <td><div class="row-actions" role="group" aria-label="Selected devices">
+              <button id="external" type="button" disabled>External</button>
+              <button id="internal" type="button" disabled>Internal</button>
+            </div></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </section>
+    <dialog id="confirm">
+      <form method="dialog">
+        <h2 id="confirm-title">Change traffic mode?</h2>
+        <p id="confirm-message"></p>
+        <div class="toolbar"><button value="cancel">Cancel</button><button id="confirm-apply" value="apply">Apply</button></div>
+      </form>
+    </dialog>
+  </main>
+</body>
+</html>

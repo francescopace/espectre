@@ -1,0 +1,25 @@
+configuration:
+  targets:
+    name: 目标地址
+    description: >-
+      保留 239.255.0.1，可通过单个组播数据流向该组内的所有 ESPectre 设备发送流量。如果组播无法正常工作，请改用各设备的 IPv4 地址。请勿输入主机名或 URL，也不要同时通过组播和设备自身的地址向同一设备发送流量。
+  port:
+    name: 目标 UDP 端口
+    description: >-
+      除非已在 ESPectre 固件中修改外部流量端口，否则请保留 5555。这是设备接收数据的端口，不是在 Home Assistant 上开放的服务。
+  rate_pps:
+    name: 每个目标每秒的数据包数
+    description: >-
+      ESPectre 标准配置请保留 100。此值应与设备的 CSI 目标速率一致。每个目标都会接收该速率的流量，因此向两个设备地址分别以 100 的速率发送时，总流量为每秒 200 个数据包。允许范围：1–1000。
+  source_ip:
+    name: 源 IPv4 地址（高级）
+    description: >-
+      通常请留空，由系统选择发送接口。仅在需要指定以太网或 Wi-Fi 等网络接口时，填写分配给 Home Assistant 主机的 IPv4 地址。请勿在此填写 ESPectre 设备的地址。
+  multicast_ttl:
+    name: 组播 TTL（路由跳数上限）
+    description: >-
+      除非网络要求其他上限，否则请保留 8。设为 1 可将组播限制在本地网络内；经过 N 个路由器至少需要 N + 1。交换机不消耗跳数。此选项不会启用路由、绕过防火墙或更改单播 TTL。允许范围：1–255。
+  dscp:
+    name: DSCP 流量类别（高级）
+    description: >-
+      保留 46 可请求 Expedited Forwarding，设为 0 则请求 Best Effort。适用于单播和组播。网络设备可能忽略或改写此标记；数值越大并不一定代表优先级越高。请输入 0 到 63 的 DSCP 码点，而不是 IP TOS 值。

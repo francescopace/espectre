@@ -48,7 +48,12 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, ESP32-S2, an
 | `replay_lightweight_candidates.py` | fit and replay research-only Lightweight candidates end to end |
 | `fit_lightweight_detector.py` | fit production Lightweight coefficients and optionally apply an approved result |
 | `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
-| `espectre_traffic_generator.py` | send phase-paced, DSCP 46 unicast or local-link multicast UDP traffic to devices in `csi_traffic_mode: external` |
+| `ha_traffic_generator_addon/espectre_traffic_generator.py` | send phase-paced unicast or multicast UDP traffic to devices in `csi_traffic_mode: external`; configurable DSCP and multicast TTL default to 46 and 8; shared by the CLI and Home Assistant add-on |
+| `ha_traffic_generator_addon/` | Home Assistant OS add-on that runs the external traffic generator continuously |
+
+## Home Assistant Traffic Generator Add-on
+
+The add-on targets current 64-bit Home Assistant OS installations and runs the external CSI generator continuously. Once published on the selected GitHub branch, it can be installed from the ESPectre repository through the App Store. See [ha_traffic_generator_addon/DOCS.md](ha_traffic_generator_addon/DOCS.md) for step-by-step installation, requirements, configuration, and the current validation limits.
 
 ## Dataset Inspection And Validation
 

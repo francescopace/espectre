@@ -375,7 +375,7 @@ def _run_live_collect(args) -> None:
             CSICollector,
             DirectRawCSIReceiver,
         )
-        from tools.espectre_traffic_generator import ExternalTrafficGenerator
+        from tools.ha_traffic_generator_addon.espectre_traffic_generator import ExternalTrafficGenerator
         from .device_transport import DirectClient
         from tools.lib.temporal_replay import TemporalReplayController
         import config
@@ -398,7 +398,7 @@ def _run_live_collect(args) -> None:
                 CSICollector,
                 DirectRawCSIReceiver,
             )
-            from tools.espectre_traffic_generator import ExternalTrafficGenerator
+            from tools.ha_traffic_generator_addon.espectre_traffic_generator import ExternalTrafficGenerator
             from .device_transport import DirectClient
             from tools.lib.temporal_replay import TemporalReplayController
             import src.config as config

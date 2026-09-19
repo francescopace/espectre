@@ -8,16 +8,21 @@ Unit tests for the transport-neutral CSI raw record parser and dataset writer.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+import asyncio
 import copy
 import io
+import json
 import socket
 import threading
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from tools import espectre_traffic_generator
+from tools.ha_traffic_generator_addon import espectre_traffic_generator
+from tools.ha_traffic_generator_addon import traffic as traffic_addon
+from tools.ha_traffic_generator_addon import ha_client, panel
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
     CSICollector,
@@ -576,7 +581,7 @@ def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch
     espectre_traffic_generator.configure_socket(sock)
 
     assert (socket.IPPROTO_IP, socket.IP_TOS, 46 << 2) in sock.options
-    assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1) in sock.options
+    assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 8) in sock.options
 
 
 def test_external_traffic_generator_uses_canonical_ghost_marker():
@@ -591,7 +596,15 @@ def test_external_traffic_generator_help_exits_successfully(capsys):
     assert "python3 espectre_traffic_generator.py run" in output
 
 
-def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypatch):
+@pytest.mark.parametrize("targets,multicast_ttl", [
+    (["127.0.0.1", "127.0.0.2"], 8),
+    (["127.0.0.1", "239.255.0.1"], 1),
+    (["239.255.0.1", "239.255.0.2"], 255),
+])
+@pytest.mark.parametrize("dscp", [0, 46, 63])
+def test_external_traffic_generator_rates_each_target_and_stops_safely(
+    monkeypatch, targets, multicast_ttl, dscp,
+):
     sockets = []
 
     class FakeSocket:
@@ -618,9 +631,11 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
 
     monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *_args: FakeSocket())
     generator = espectre_traffic_generator.ExternalTrafficGenerator(
-        ["127.0.0.1", "127.0.0.2"],
+        targets,
         rate_pps=1000,
         source_ip="127.0.0.3",
+        multicast_ttl=multicast_ttl,
+        dscp=dscp,
     )
 
     with generator as active:
@@ -630,11 +645,567 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
 
     assert not generator.running
     assert generator.sent_packets == 4
-    assert generator.sent_by_target == {"127.0.0.1": 2, "127.0.0.2": 2}
-    assert generator.errors_by_target == {"127.0.0.1": 0, "127.0.0.2": 0}
+    assert generator.sent_by_target == dict.fromkeys(targets, 2)
+    assert generator.errors_by_target == dict.fromkeys(targets, 0)
     assert sockets[0].bound == ("127.0.0.3", 0)
+    options = {(level, option): value for level, option, value in sockets[0].options}
+    assert options[socket.IPPROTO_IP, socket.IP_TOS] == dscp << 2
+    assert (socket.IPPROTO_IP, socket.IP_TTL) not in options  # Preserve the OS unicast TTL.
+    if "239.255.0.1" in targets:
+        assert options[socket.IPPROTO_IP, socket.IP_MULTICAST_TTL] == multicast_ttl
+        assert options[socket.IPPROTO_IP, socket.IP_MULTICAST_IF] == socket.inet_aton("127.0.0.3")
+    else:
+        assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL) not in options
+        assert (socket.IPPROTO_IP, socket.IP_MULTICAST_IF) not in options
     assert all(payload == bytes.fromhex("f09f91bb") for payload, _destination in sockets[0].sent)
     assert sockets[0].closed
+
+
+@pytest.mark.parametrize("multicast_ttl", [-1, 0, 256, True, 1.5, "8", None])
+def test_external_traffic_generator_rejects_invalid_multicast_ttl(tmp_path, multicast_ttl):
+    with pytest.raises(ValueError, match="multicast_ttl"):
+        espectre_traffic_generator.ExternalTrafficGenerator(
+            ["239.255.0.1"], multicast_ttl=multicast_ttl,
+        )
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "multicast_ttl": multicast_ttl,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="multicast_ttl"):
+        traffic_addon.load_options(options_file)
+
+
+@pytest.mark.parametrize("dscp", [-1, 64, 184, True, False, 1.5, "46", None])
+def test_external_traffic_generator_rejects_invalid_dscp(tmp_path, dscp):
+    with pytest.raises(ValueError, match="dscp"):
+        espectre_traffic_generator.ExternalTrafficGenerator(["239.255.0.1"], dscp=dscp)
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100, "dscp": dscp,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="dscp"):
+        traffic_addon.load_options(options_file)
+
+
+@pytest.mark.parametrize("overrides", [
+    {}, {"multicast_ttl": 1}, {"multicast_ttl": 255},
+    {"dscp": 0}, {"dscp": 63}, {"multicast_ttl": 1, "dscp": 0},
+])
+def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monkeypatch, overrides):
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "source_ip": "192.168.1.10", **overrides,
+    }), encoding="utf-8")
+    options = traffic_addon.load_options(options_file)
+    observed = []
+    monkeypatch.setattr(traffic_addon, "load_options", lambda: options)
+    monkeypatch.setattr(traffic_addon, "run", lambda **kwargs: observed.append(kwargs))
+
+    traffic_addon.main()
+
+    assert observed == [{
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "source_ip": "192.168.1.10", "multicast_ttl": 8, "dscp": 46, **overrides,
+    }]
+
+
+def _ha_panel_inventory(platform="esphome", version=3):
+    devices = [{"id": "sensor-a", "name": "ESPectre kitchen", "name_by_user": "Kitchen",
+                "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
+    entities, states = [], []
+    values = {"ownership": "internal", "source": "ping", "refresh": "unknown",
+              "traffic": "100", "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
+    for role, (domain, suffix) in ha_client.ENTITY_ROLES.items():
+        name = suffix.replace("_", " ").title()
+        if platform == "mqtt":
+            unique_id = "espectre_0123456789abcdef_" + suffix
+        elif version == 3:
+            unique_id = f"aabbccddeeff/0/{domain}/{name}"
+        else:
+            unique_id = f"aabbccddeeff-{domain}-" + (suffix if version == 1 else name)
+        entity_id = domain + ".renamed_" + role
+        entities.append({"entity_id": entity_id, "device_id": "sensor-a", "platform": platform,
+                         "unique_id": unique_id, "name": "A custom HA name", "disabled_by": None})
+        states.append({"entity_id": entity_id, "state": values[role],
+                       "attributes": {"options": ["internal", "external"]} if role == "ownership" else {},
+                       "last_updated": "2026-09-19T10:00:00+00:00"})
+    return devices, entities, states, [{"area_id": "kitchen", "name": "Kitchen"}]
+
+
+@pytest.mark.parametrize("platform,version", [("esphome", 1), ("esphome", 2), ("esphome", 3), ("mqtt", 1)])
+def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, version):
+    inventory = _ha_panel_inventory(platform, version)
+    row, = ha_client.build_inventory(*inventory)
+    assert row["name"] == row["area"] == "Kitchen"
+    assert row["can_control"] and row["can_refresh"]
+    assert row["fields"]["ownership"]["value"] == "internal"
+    assert row["fields"]["accepted"]["value"] == 99.5
+    assert row["fields"]["occupancy"]["value"] == 98
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ({"model": "ESP32-C3"}, "ESP32-C3"),
+    ({"model": "ESPectre (esp32s3)"}, "ESP32-S3"),
+    ({"model": "ESP32", "hw_version": "ESP32-C6"}, "ESP32-C6"),
+    ({"model_id": "ESP32-S2"}, "ESP32-S2"),
+    ({"model": "ESP32"}, "ESP32"),
+    ({"model": "espectre", "name": "ESP32-C3"}, None),
+    ({"model": "ESP32-C3", "hw_version": "ESP32-S3"}, None),
+    ({}, None),
+])
+def test_ha_panel_chip_uses_explicit_hardware_metadata(metadata, expected):
+    inventory = _ha_panel_inventory()
+    inventory[0][0].update(metadata)
+    assert ha_client.build_inventory(*inventory)[0]["chip"] == expected
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("http://192.168.1.42:80", "192.168.1.42"),
+    ("https://[2001:db8::42]:443/", "2001:db8::42"),
+    ("http://espectre.local", None),
+    ("homeassistant://app/esphome", None),
+    ("http://[invalid", None),
+    (None, None),
+])
+def test_ha_panel_device_ip_uses_only_literal_registry_address(url, expected):
+    inventory = _ha_panel_inventory()
+    inventory[0][0]["configuration_url"] = url
+    row, = ha_client.build_inventory(*inventory)
+    assert row["ip_address"] == expected
+
+
+def test_ha_panel_dhcp_matches_mac_not_name_and_updates_addresses():
+    inventory = _ha_panel_inventory()
+    device = inventory[0][0]
+    device["connections"] = [["mac", "AA:BB:CC:DD:EE:FF"]]
+    device["configuration_url"] = "http://192.168.1.9"
+    ha_client.network_addresses(inventory[0], {"aabbccddeeff": "192.168.1.4"})
+    assert ha_client.build_inventory(*inventory)[0]["ip_address"] == "192.168.1.4"
+    ha_client.network_addresses(inventory[0], {"aabbccddeeff": "192.168.1.5"})
+    assert ha_client.build_inventory(*inventory)[0]["ip_address"] == "192.168.1.5"
+    ha_client.network_addresses(inventory[0], {"112233445566": "192.168.1.4"})
+    assert ha_client.build_inventory(*inventory)[0]["ip_address"] == "192.168.1.9"
+
+
+@pytest.mark.parametrize("case", ["disabled", "device_disabled", "offline", "missing", "ambiguous", "options"])
+def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case):
+    devices, entities, states, areas = _ha_panel_inventory("mqtt")
+    if case == "disabled":
+        entities[0]["disabled_by"] = "user"
+    elif case == "device_disabled":
+        devices[0]["disabled_by"] = "user"
+    elif case == "offline":
+        states[0]["state"] = "unavailable"
+    elif case == "missing":
+        entities.pop(0)
+    elif case == "ambiguous":
+        duplicate = dict(entities[0], entity_id="select.duplicate")
+        entities.append(duplicate)
+    else:
+        states[0]["attributes"]["options"] = ["on", "off"]
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+    assert not row["can_control"]
+    assert row["reason"]
+
+
+def test_ha_panel_does_not_infer_entities_from_mutable_display_names():
+    devices, entities, states, areas = _ha_panel_inventory()
+    for entity in entities:
+        entity["unique_id"] = "unrelated-identifier"
+        entity["name"] = "CSI Traffic Ownership"
+    assert ha_client.build_inventory(devices, entities, states, areas) == []
+    devices[0]["manufacturer"] = "ESPectre"
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+    assert not row["can_control"] and not row["can_refresh"]
+
+
+@pytest.mark.parametrize("value", ["unavailable", "unknown", "nan", "inf", "bad"])
+def test_ha_panel_missing_diagnostics_are_not_zero(value):
+    inventory = _ha_panel_inventory()
+    inventory[2][4]["state"] = value
+    row, = ha_client.build_inventory(*inventory)
+    assert row["fields"]["accepted"]["value"] is None
+
+
+class _PanelHomeAssistantServer:
+    """Exercise the actual internal WebSocket protocol without a live HA instance."""
+
+    def __init__(self):
+        self.inventory = _ha_panel_inventory()
+        self.calls = []
+        self.confirm = True
+        self.reject = False
+        self.subscriptions = {}
+        self.connections = 0
+        self.emit_diagnostics = False
+
+    async def emit(self, event_type, data):
+        for websocket, subscriptions in list(self.subscriptions.items()):
+            if not websocket.closed and event_type in subscriptions:
+                await websocket.send_json({"id": subscriptions[event_type], "type": "event",
+                                           "event": {"event_type": event_type, "data": data}})
+
+    async def websocket(self, request):
+        from aiohttp import web
+        websocket = web.WebSocketResponse()
+        await websocket.prepare(request)
+        await websocket.send_json({"type": "auth_required"})
+        auth = await websocket.receive_json()
+        assert auth == {"type": "auth", "access_token": "test-supervisor-secret"}
+        await websocket.send_json({"type": "auth_ok"})
+        self.connections += 1
+        self.subscriptions[websocket] = {}
+        async for message in websocket:
+            command = json.loads(message.data)
+            self.calls.append(command)
+            kind = command["type"]
+            if kind == "dhcp/subscribe_discovery":
+                await websocket.send_json({"id": command["id"], "type": "result", "success": True, "result": None})
+                await websocket.send_json({"id": command["id"], "type": "event", "event": {"add": [
+                    {"mac_address": "AA:BB:CC:DD:EE:FF", "ip_address": "192.168.1.4", "hostname": "espectre"}
+                ]}})
+                continue
+            if kind == "subscribe_events":
+                self.subscriptions[websocket][command["event_type"]] = command["id"]
+                result = None
+            elif kind == "call_service":
+                if self.reject:
+                    await websocket.send_json({"id": command["id"], "type": "result", "success": False,
+                                               "error": {"message": "private details"}})
+                    continue
+                if self.confirm and command["domain"] == "select":
+                    self.inventory[2][0]["state"] = command["service_data"]["option"]
+                if self.emit_diagnostics and command["domain"] == "button":
+                    state = self.inventory[2][4]
+                    state["state"] = str(float(state["state"]) + 1)
+                    await self.emit("state_changed", {"entity_id": state["entity_id"], "new_state": state})
+                result = {"context": {"id": "test"}}
+            else:
+                index = {"config/device_registry/list": 0, "config/entity_registry/list": 1,
+                         "get_states": 2, "config/area_registry/list": 3}[kind]
+                result = self.inventory[index]
+            await websocket.send_json({"id": command["id"], "type": "result", "success": True, "result": result})
+        return websocket
+
+
+@pytest.mark.parametrize("status,payload,expected", [
+    (200, {"data": {"storage_data": {"device_info": {"model": "esp32-c3"}}}}, "ESP32-C3"),
+    (200, {"data": {"storage_data": {"device_info": {"model": "esp32-s3"}}}}, "ESP32-S3"),
+    (200, {"data": None}, None),
+    (200, {"data": {}}, None),
+    (401, {}, None),
+    (404, {}, None),
+])
+def test_ha_panel_esphome_model_uses_optional_cached_diagnostics(status, payload, expected):
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.inventory[0][0].update(model="espectre", config_entries=["entry-a"])
+        for entity in fake.inventory[1]:
+            entity["config_entry_id"] = "entry-a"
+        requests = []
+
+        async def diagnostics(request):
+            assert request.headers["Authorization"] == "Bearer test-supervisor-secret"
+            requests.append(request.path)
+            return web.json_response(payload, status=status)
+
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        app.router.add_get("/core/api/diagnostics/config_entry/entry-a", diagnostics)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"))
+            for _ in range(2):
+                row, = await ha.snapshot()
+                assert row["chip"] == expected
+                assert row["can_control"]
+            assert len(requests) == 1
+            fake.inventory[0][0]["sw_version"] = "new firmware"
+            await ha.snapshot()
+            assert len(requests) == 2
+            assert not any(call["type"] == "call_service" for call in fake.calls)
+            fake.inventory[0][0]["model"] = "ESP32-C6"
+            assert (await ha.snapshot())[0]["chip"] == "ESP32-C6"
+            assert len(requests) == 2
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("outcome", ["confirmed", "unconfirmed", "error"])
+def test_ha_panel_actions_use_internal_services_and_check_returned_state(outcome):
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.confirm, fake.reject = outcome == "confirmed", outcome == "error"
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
+                                         confirmation_timeout=0)
+            assert (await ha.snapshot())[0]["can_control"]
+            assert all(call["type"] != "call_service" for call in fake.calls)
+            data = await ha.act(["sensor-a", "unknown-device"], "external")
+            assert [result["status"] for result in data["results"]] == [outcome, "error"]
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert len(writes) == 1
+            assert writes[0]["target"] == {"entity_id": "select.renamed_ownership"}
+            assert writes[0]["service_data"] == {"option": "external"}
+            assert "test-supervisor-secret" not in json.dumps(data)
+            assert "private details" not in json.dumps(data)
+            if outcome == "confirmed":
+                assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "unchanged"
+                assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
+                assert (await ha.act(["sensor-a"], "refresh"))["results"][0]["status"] == "requested"
+                button = [call for call in fake.calls if call.get("domain") == "button"]
+                assert len(button) == 1 and button[0]["service"] == "press"
+    asyncio.run(exercise())
+
+
+def test_ha_panel_http_routes_restrict_ingress_csrf_and_action_scope():
+    async def exercise():
+        from aiohttp.test_utils import TestClient, TestServer
+        class HA:
+            calls = []
+            async def snapshot(self):
+                return ha_client.build_inventory(*_ha_panel_inventory())
+            async def act(self, ids, action):
+                self.calls.append((ids, action))
+                return {"results": []}
+        generator = SimpleNamespace(running=True, targets=["239.255.0.1"], port=5555,
+                                    rate_pps=100, sent_packets=10, send_errors=0)
+        ha = HA()
+        async with TestClient(TestServer(panel.create_app(ha, generator))) as client:
+            response = await client.get("/api/status", headers={"X-Forwarded-For": panel.INGRESS_ADDRESS})
+            assert response.status == 403
+        async with TestClient(TestServer(panel.create_app(ha, generator, allowed_peer="127.0.0.1"))) as client:
+            assert (await client.get("/")).status == 200
+            assert (await client.get("/static/panel.js")).status == 200
+            assert (await client.get("/static/../config.yaml")).status == 404
+            response = await client.get("/api/status")
+            data = await response.json()
+            assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+            headers = {"X-ESPectre-CSRF": data["csrf"]}
+            payload = {"device_ids": ["sensor-a"], "action": "external"}
+            assert (await client.post("/api/action", json=payload)).status == 403
+            for invalid in [[], {}, dict(payload, service="turn_on"), dict(payload, action="delete"),
+                            dict(payload, device_ids=["sensor-a"] * 33), dict(payload, device_ids=[{}])]:
+                assert (await client.post("/api/action", json=invalid, headers=headers)).status == 400
+            assert not ha.calls
+            generator.running = False
+            assert (await client.post("/api/action", json=payload, headers=headers)).status == 409
+            generator.running = True
+            assert (await client.post("/api/action", json=payload, headers=headers)).status == 200
+            assert ha.calls == [(["sensor-a"], "external")]
+            assert (await client.get("/api/devices")).status == 200
+    asyncio.run(exercise())
+
+
+def test_ha_panel_bulk_keeps_disabled_devices_unchanged():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        device = dict(fake.inventory[0][0], id="sensor-b", manufacturer="ESPectre")
+        fake.inventory[0].append(device)
+        entity = dict(fake.inventory[1][0], device_id="sensor-b", entity_id="select.disabled_ownership", disabled_by="user")
+        fake.inventory[1].append(entity)
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"))
+            result = await ha.act(["sensor-a", "sensor-b"], "external")
+            assert [item["status"] for item in result["results"]] == ["confirmed", "error"]
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert len(writes) == 1 and writes[0]["target"] == {"entity_id": "select.renamed_ownership"}
+            assert fake.inventory[1][-1]["disabled_by"] == "user"
+    asyncio.run(exercise())
+
+
+def test_ha_panel_generator_controls_preserve_panel_and_device_modes():
+    async def exercise():
+        from aiohttp.test_utils import TestClient, TestServer
+        class HA:
+            async def snapshot(self):
+                return ha_client.build_inventory(*_ha_panel_inventory())
+            async def act(self, *_args):
+                raise AssertionError("Generator controls must not change device modes")
+        generator = espectre_traffic_generator.ExternalTrafficGenerator(["127.0.0.1"])
+        app = panel.create_app(HA(), generator, allowed_peer="127.0.0.1")
+        try:
+            async with TestClient(TestServer(app)) as client:
+                data = await (await client.get("/api/status")).json()
+                headers = {"X-ESPectre-CSRF": data["csrf"]}
+                assert (await client.get("/logo.png")).content_type == "image/png"
+                assert (await client.post("/api/generator", json={"action": "start"})).status == 403
+                for payload in [[], {}, {"action": []}, {"action": "restart"}, {"action": "start", "targets": []}]:
+                    assert (await client.post("/api/generator", json=payload, headers=headers)).status == 400
+                async with app[panel.ACTION_LOCK]:
+                    assert (await client.post("/api/generator", json={"action": "start"}, headers=headers)).status == 409
+                for operation in ["start", "start", "stop", "stop", "start", "stop"]:
+                    previous_sent = generator.sent_packets
+                    response = await client.post("/api/generator", json={"action": operation}, headers=headers)
+                    assert response.status == 200
+                    assert (await response.json())["generator"]["running"] is (operation == "start")
+                    assert not panel.generator_failed(app)
+                    assert generator.sent_packets >= previous_sent
+                    assert (await client.get("/")).status == 200
+                    snapshot = await (await client.get("/api/devices")).json()
+                    assert snapshot["devices"][0]["fields"]["ownership"]["value"] == "internal"
+                    if operation == "start":
+                        await asyncio.sleep(0.03)
+                    else:
+                        sent = generator.sent_packets
+                        await asyncio.sleep(0.03)
+                        assert generator.sent_packets == sent
+                assert generator.sent_packets > 0
+                app[panel.GENERATOR_STATE].expected_running = True
+                assert panel.generator_failed(app)
+        finally:
+            generator.stop()
+    asyncio.run(exercise())
+
+
+def test_ha_panel_shared_event_feed_reads_once_and_tracks_registry_changes():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.emit_diagnostics = True
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"))
+            feed = ha_client.HomeAssistantFeed(ha)
+            async with feed.subscribe() as first, feed.subscribe() as second:
+                async def next_rows(queue, predicate):
+                    async with asyncio.timeout(4):
+                        while True:
+                            data = await queue.get()
+                            if data["devices"] and predicate(data["devices"]):
+                                return data
+                await next_rows(first, lambda rows: rows[0]["fields"]["accepted"]["value"] >= 100.5)
+                await next_rows(second, lambda rows: rows[0]["fields"]["accepted"]["value"] >= 101.5)
+                assert fake.connections == 1
+                assert sum(call["type"] == "get_states" for call in fake.calls) == 1
+                assert sum(call["type"] == "config/entity_registry/list" for call in fake.calls) == 1
+                assert all(call.get("domain") != "select" for call in fake.calls)
+                fake.inventory[0][0]["name_by_user"] = "Renamed room"
+                await fake.emit("device_registry_updated", {"action": "update", "device_id": "sensor-a"})
+                await next_rows(first, lambda rows: rows[0]["name"] == "Renamed room")
+                assert sum(call["type"] == "get_states" for call in fake.calls) == 2
+                for websocket in list(fake.subscriptions):
+                    await websocket.close()
+                await next_rows(first, lambda rows: fake.connections == 2 and rows[0]["name"] == "Renamed room")
+                assert fake.connections == 2
+            count = len(fake.calls)
+            await asyncio.sleep(1.1)
+            assert len(fake.calls) == count
+            assert feed.task is None
+    asyncio.run(exercise())
+
+
+def test_ha_panel_websocket_requires_csrf_and_streams_without_browser_polling():
+    async def exercise():
+        from aiohttp import web, WSMsgType
+        from aiohttp.test_utils import TestClient, TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.inventory[0][0]["connections"] = [["mac", "aa:bb:cc:dd:ee:ff"]]
+        fake.emit_diagnostics = True
+        backend = web.Application()
+        backend.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(backend) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"))
+            generator = SimpleNamespace(running=False, targets=["239.255.0.1"], port=5555,
+                                        rate_pps=100, sent_packets=7, send_errors=0)
+            async with TestClient(TestServer(panel.create_app(ha, generator, allowed_peer="127.0.0.1"))) as client:
+                async with client.ws_connect("/api/stream") as socket:
+                    await socket.send_json({"csrf": "wrong"})
+                    assert (await socket.receive()).type == WSMsgType.CLOSE
+                assert fake.connections == 0
+                csrf = (await (await client.get("/api/status")).json())["csrf"]
+                async with client.ws_connect("/api/stream") as socket:
+                    await socket.send_json({"csrf": csrf})
+                    async with asyncio.timeout(3):
+                        while True:
+                            data = await socket.receive_json()
+                            assert data["generator"]["sent_packets"] == 7
+                            assert "test-supervisor-secret" not in json.dumps(data)
+                            if data.get("devices") and data["devices"][0]["fields"]["accepted"]["value"] >= 100.5:
+                                assert data["devices"][0]["ip_address"] == "192.168.1.4"
+                                assert data["devices"][0]["fields"]["rssi"]["value"] == -54
+                                break
+                await asyncio.sleep(0.1)
+                assert not client.app[panel.STREAMS]
+                assert not client.app[panel.FEED].listeners
+                assert client.app[panel.FEED].task is None
+                async with client.ws_connect("/api/stream") as socket:
+                    await socket.send_json({"csrf": csrf})
+                    await socket.receive_json()
+                    async with asyncio.timeout(2):
+                        await panel.close_feed(client.app)
+                    assert client.app[panel.FEED].task is None
+                    assert not client.app[panel.STREAMS]
+    asyncio.run(exercise())
+
+
+def test_ha_panel_ha_failure_does_not_stop_udp_generator():
+    async def exercise():
+        from aiohttp.test_utils import TestClient, TestServer
+        with espectre_traffic_generator.ExternalTrafficGenerator(["127.0.0.1"], rate_pps=100) as generator:
+            app = panel.create_app(ha_client.HomeAssistant(""), generator, allowed_peer="127.0.0.1")
+            async with TestClient(TestServer(app)) as client:
+                before = generator.sent_packets
+                assert (await client.get("/api/devices")).status == 503
+                await asyncio.sleep(0.1)
+                assert generator.running and generator.sent_packets > before
+                assert (await client.get("/api/status")).status == 200
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("report_interval", [0, 1])
+def test_external_traffic_generator_bounds_error_logs(monkeypatch, capsys, report_interval):
+    attempts = 0
+    closed = False
+
+    class FailingSocket:
+        def setsockopt(self, *_args):
+            pass
+
+        def sendto(self, _payload, _destination):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 250:
+                generator._stop_event.set()
+            raise OSError("network unreachable")
+
+        def close(self):
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *_args: FailingSocket())
+    monkeypatch.setattr(espectre_traffic_generator.time, "perf_counter", lambda: attempts / 100)
+    generator = espectre_traffic_generator.ExternalTrafficGenerator(["239.255.0.1"])
+    monkeypatch.setattr(generator._stop_event, "wait", lambda _timeout: False)
+
+    generator.run_forever(report_interval=report_interval)
+
+    assert attempts == generator.send_errors == 250
+    assert generator.sent_packets == 0
+    assert closed
+    lines = capsys.readouterr().out.splitlines()
+    if report_interval:
+        assert len(lines) == 3  # One initial error, then one report per simulated second.
+        assert "network unreachable" in lines[0]
+    else:
+        assert lines == []  # Library use must not write over CLI collection output.
 
 
 def test_background_traffic_stop_never_signals_pid_from_state_file(tmp_path, monkeypatch):

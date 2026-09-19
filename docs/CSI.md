@@ -37,13 +37,17 @@ Fixed OFDM 6 Mbps avoided the TX queue saturation and Direct TCP stalls observed
 
 In `external` mode, the internal generator stops. The ESP-IDF frontends accept UDP markers or unicast ICMP Echo Requests addressed to the device. The host owns pacing. UDP can use unicast or the configured multicast group; the listener joins that group unless the setting is empty.
 
+For continuous external traffic on 64-bit Home Assistant OS, use the **ESPectre Traffic Generator** add-on. It runs the shared UDP generator and provides an Ingress panel for traffic ownership and automatically updated diagnostics through existing ESPHome or Native MQTT entities in Home Assistant. Set each device to `csi_traffic_mode: external` and match the add-on's `rate_pps` to the device's `csi_target_pps`; mode changes require an explicit action. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md) for installation, requirements, and configuration. Stop the add-on before running `./espectre collect` for the same devices, because collection starts its own generator.
+
+The host UDP generator defaults to multicast TTL 8, allowing up to seven router hops when multicast forwarding is configured in the network. Set `multicast_ttl` to 1 to keep multicast local; Layer 2 switches do not consume TTL. Unicast uses the operating system's normal TTL. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md#switches-vlans-and-routed-networks) for cross-VLAN setup and interface selection.
+
 Subnet and limited broadcast do not produce reliable HT20 CSI. Use the destination, port, and marker contract in [API.md](API.md#external-csi-traffic). Host generation and collection workflows are in [CLI.md](CLI.md#collect).
 
 ### Pacing
 
 The C++ generator and host UDP generator preserve the configured send phase through ordinary scheduler jitter. If the next deadline would fall less than half a period after a send, they restart the phase from that send time to avoid a close catch-up pair. Socket failures use local backoff; the runtime does not chase occupancy by changing the target.
 
-Internal IP traffic and the host UDP generator request DSCP 46 treatment. A particular WMM priority or improvement in delivery is not guaranteed. [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md) records the pacing decision and measurements.
+Internal IP traffic requests DSCP 46 treatment. The host UDP generator uses the same default, with a configurable `dscp` codepoint from 0 to 63; see [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md#advanced-dscp-marking). A particular WMM priority or improvement in delivery is not guaranteed. [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md) records the pacing decision and measurements.
 
 ## Wi-Fi and capture lifecycle
 
