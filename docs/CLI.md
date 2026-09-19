@@ -127,7 +127,7 @@ The `esphome` namespace exposes:
 Common flags include `--chip`, `--config`, and `--device`. Serial `flash` and `monitor` follow the shared `--chip` selection rule when `--device` is omitted or names a serial port. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build: serial flashing expects an ESPHome factory image written at offset `0x0`, while a hostname or IP address expects an ESPHome OTA image.
 
 ```bash
-./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
+./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
 `esphome flash --erase` clears all flash data before a serial upload. It resolves or requires a serial device and cannot be combined with an OTA hostname.

@@ -11,9 +11,9 @@
 # from "espectre", replace the `espectre_` prefix. 
 # Check Settings → Devices & services → Entities for the exact IDs.
 #
-# ⚠️ Multiple devices? If you uncommented "name_add_mac_suffix: true" in your
-# device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
-# Replace "espectre_" with "espectre_XXXXXX_" where XXXXXX is your MAC suffix.
+# Official ESPectre images add a MAC suffix to each device name. Entity IDs
+# therefore include it (for example, "espectre_a1b2c3"). Replace "espectre_"
+# with "espectre_XXXXXX_", where XXXXXX is the device MAC suffix.
 
 views:
   - title: ESPectre

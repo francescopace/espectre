@@ -19,6 +19,10 @@ For an unstable access-point association, follow [TROUBLESHOOTING.md](../../../.
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
+Official images add the last three MAC bytes to the ESPHome hostname, for example
+`espectre-a1b2c3.local`. This lets one image serve multiple devices on the same
+network. The Home Assistant device and entity IDs use the same suffix.
+
 ## Integration Surface
 
 The frontend maps runtime state and controls into the ESPHome entities listed under [Integrated Entities](#integrated-entities). Those entities are created automatically when the `espectre:` component is declared.
@@ -146,8 +150,12 @@ To manage configuration and OTA updates, install ESPHome Device Builder and adop
 To install a prebuilt OTA image from GitHub Releases instead, download the `espectre-esphome-<channel-or-version>-<chip>-ota.bin` asset and upload it over the network:
 
 ```bash
-./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
+./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
+
+An existing installation without a MAC-suffixed hostname remains reachable at
+`espectre.local` for this update. After it restarts with an official image, use
+its new `espectre-<mac-suffix>.local` hostname for subsequent OTA uploads.
 
 To stay on a released version, use the matching prebuilt image rather than the rolling `main` example.
 
@@ -167,7 +175,7 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update the entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Inspect the exact IDs under the Home Assistant device before adapting the dashboard because an existing registry collision can add a suffix such as `_2`.
+Official images use `name_add_mac_suffix: true`, so include the six-character MAC suffix in the entity IDs when adapting the dashboard. If you changed the base device name from `espectre`, update that prefix too. Inspect the exact IDs under the Home Assistant device because an existing registry collision can add a suffix such as `_2`.
 
 ## Traffic Configuration
 

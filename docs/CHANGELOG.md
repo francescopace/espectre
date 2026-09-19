@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file.
 - Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
 - Release standalone Wi-Fi resources on shutdown and setup failure, preserve full-length credentials, and resume exhausted reconnect bursts after 30 seconds. Document service ownership and align the website's CSI profile descriptions with the runtime.
 
+### ESPHome firmware and Home Assistant
+
+- Give official ESPHome images MAC-suffixed hostnames, so one Web Serial image can provision and discover multiple ESPectre devices without custom YAML. Existing installations use the new hostname after their first update.
+
 ### Web tools, builds, and publication
 
 - Add the ESPectre Traffic Generator add-on for 64-bit Home Assistant OS, using the shared external UDP generator with configurable unicast or multicast targets, packet rate, source interface, multicast TTL, and DSCP. Its minimal Ingress panel controls traffic ownership, streams Home Assistant entity changes, and requests diagnostics every second while visible through existing ESPHome or Native MQTT entities, with individual and bulk actions and an optional sidebar shortcut. Include translated configuration help and an installation guide in [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md).

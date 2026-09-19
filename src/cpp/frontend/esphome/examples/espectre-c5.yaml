@@ -28,8 +28,8 @@ esphome:
   name: espectre
   friendly_name: ESPectre
   min_version: 2026.7.0
-  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
-  # name_add_mac_suffix: true
+  # Keep the hostname unique when one official image is used on multiple devices.
+  name_add_mac_suffix: true
   project:
     name: francescopace.espectre
     version: ${project_version}
