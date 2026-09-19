@@ -13,7 +13,7 @@ import numpy as np
 from espectre_cli.app import build_parser
 from espectre_cli import device_discovery, host
 from espectre_cli.device_discovery import DiscoveredDevice, ESPECTRE_DIRECT_PORT, ESPECTRE_SERVICE_TYPE
-from tools.espectre_traffic_generator import ExternalTrafficGenerator
+from tools.ha_traffic_generator_addon.espectre_traffic_generator import ExternalTrafficGenerator
 from tools.lib import csi_io
 
 

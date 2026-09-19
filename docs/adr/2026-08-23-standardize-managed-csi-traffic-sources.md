@@ -496,7 +496,7 @@ Standardize managed CSI traffic as follows:
 - preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;
 - request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
 - preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
-- apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/espectre_traffic_generator.py`;
+- apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/ha_traffic_generator_addon/espectre_traffic_generator.py`;
 - limit pacing multicast to the local link and prefer unicast or the joined multicast group over subnet or limited broadcast;
 - in ESP-IDF `external` mode, admit unicast ICMP Echo Requests addressed to the device as well as canonical UDP markers, while keeping the internal generator stopped;
 - keep occupancy diagnostic-only and never make device send rate chase admitted occupancy;

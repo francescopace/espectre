@@ -51,6 +51,12 @@ Once the device joins your network:
 
 If the browser cannot reach the device, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md#device-not-reachable). The frontend READMEs describe their available controls and configuration syntax; [SDK.md](SDK.md#shared-sensing-options) contains the shared parameter reference.
 
+### Optional: external traffic from Home Assistant
+
+To supply traffic from Home Assistant instead of each sensor's internal generator, install the **ESPectre Traffic Generator** add-on on 64-bit Home Assistant OS. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md) for requirements, installation, and configuration.
+
+Start the add-on, then set each device's `csi_traffic_mode` to `external` through its frontend controls or Device settings. Match the add-on's `rate_pps` to the device's `csi_target_pps`, and check the CSI input rate and sensing readiness in Monitor. The add-on does not change device settings automatically. [CSI.md](CSI.md#external-sources) explains external traffic and how to avoid overlapping generators.
+
 ## Sensor placement
 
 Keep the device out of metal enclosures and behind as few heavy obstacles as practical. A distance of roughly `3-8 m` from the access point is a starting point. Walls, antenna orientation, access-point power, and furniture can matter more than distance.

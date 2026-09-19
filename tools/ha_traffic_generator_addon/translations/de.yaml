@@ -1,0 +1,46 @@
+configuration:
+  targets:
+    name: Zieladressen
+    description: >-
+      Behalten Sie 239.255.0.1 bei, um einen einzigen Multicast-Datenstrom an alle
+      ESPectre-Geräte in dieser Gruppe zu senden. Falls Multicast nicht
+      funktioniert, ersetzen Sie die Adresse durch die IPv4-Adressen der Geräte.
+      Geben Sie keine Hostnamen oder URLs ein und senden Sie nicht gleichzeitig
+      per Multicast und über die eigene Adresse an dasselbe Gerät.
+  port:
+    name: UDP-Zielport
+    description: >-
+      Behalten Sie 5555 bei, sofern Sie den Port für externen Datenverkehr in der
+      ESPectre-Firmware nicht geändert haben. Dies ist der Empfangsport der
+      Geräte, kein auf Home Assistant geöffneter Dienst.
+  rate_pps:
+    name: Pakete pro Sekunde und Ziel
+    description: >-
+      Behalten Sie für die Standardkonfiguration von ESPectre den Wert 100 bei.
+      Der Wert muss der CSI-Zielrate der Geräte entsprechen. Jedes Ziel erhält
+      diese Paketrate. Zwei Geräteadressen mit jeweils 100 ergeben daher
+      insgesamt 200 Pakete pro Sekunde. Zulässiger Bereich: 1–1000.
+  source_ip:
+    name: IPv4-Quelladresse (erweitert)
+    description: >-
+      Lassen Sie dieses Feld normalerweise leer, damit das System die ausgehende
+      Netzwerkschnittstelle auswählt. Geben Sie nur dann eine IPv4-Adresse des
+      Home-Assistant-Hosts an, wenn Sie eine bestimmte Schnittstelle
+      wie Ethernet oder WLAN auswählen müssen. Geben Sie hier nicht die Adresse
+      eines ESPectre-Geräts ein.
+  multicast_ttl:
+    name: Multicast-TTL (maximale Router-Hops)
+    description: >-
+      Behalten Sie 8 bei, sofern Ihr Netzwerk keinen anderen Grenzwert erfordert.
+      Verwenden Sie 1, um Multicast auf das lokale Netzwerk zu beschränken. Für
+      N Router ist mindestens N + 1 erforderlich. Switches verbrauchen keine
+      Hops. Diese Einstellung aktiviert kein Routing, umgeht keine Firewalls
+      und ändert die Unicast-TTL nicht. Zulässiger Bereich: 1–255.
+  dscp:
+    name: DSCP-Verkehrsklasse (erweitert)
+    description: >-
+      Behalten Sie 46 bei, um Expedited Forwarding anzufordern, oder verwenden
+      Sie 0 für Best Effort. Gilt für Unicast und Multicast. Ihr Netzwerk kann
+      diese Markierung ignorieren oder ändern. Höhere Zahlen bedeuten nicht
+      unbedingt eine höhere Priorität. Geben Sie einen DSCP-Codepunkt von 0 bis
+      63 ein, keinen IP-TOS-Wert.

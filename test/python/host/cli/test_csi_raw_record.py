@@ -10,6 +10,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 import copy
 import io
+import json
 import socket
 import threading
 import time
@@ -17,7 +18,8 @@ import time
 import numpy as np
 import pytest
 
-from tools import espectre_traffic_generator
+from tools.ha_traffic_generator_addon import espectre_traffic_generator
+from tools.ha_traffic_generator_addon import traffic as traffic_addon
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
     CSICollector,
@@ -576,7 +578,7 @@ def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch
     espectre_traffic_generator.configure_socket(sock)
 
     assert (socket.IPPROTO_IP, socket.IP_TOS, 46 << 2) in sock.options
-    assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1) in sock.options
+    assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 8) in sock.options
 
 
 def test_external_traffic_generator_uses_canonical_ghost_marker():
@@ -591,7 +593,15 @@ def test_external_traffic_generator_help_exits_successfully(capsys):
     assert "python3 espectre_traffic_generator.py run" in output
 
 
-def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypatch):
+@pytest.mark.parametrize("targets,multicast_ttl", [
+    (["127.0.0.1", "127.0.0.2"], 8),
+    (["127.0.0.1", "239.255.0.1"], 1),
+    (["239.255.0.1", "239.255.0.2"], 255),
+])
+@pytest.mark.parametrize("dscp", [0, 46, 63])
+def test_external_traffic_generator_rates_each_target_and_stops_safely(
+    monkeypatch, targets, multicast_ttl, dscp,
+):
     sockets = []
 
     class FakeSocket:
@@ -618,9 +628,11 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
 
     monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *_args: FakeSocket())
     generator = espectre_traffic_generator.ExternalTrafficGenerator(
-        ["127.0.0.1", "127.0.0.2"],
+        targets,
         rate_pps=1000,
         source_ip="127.0.0.3",
+        multicast_ttl=multicast_ttl,
+        dscp=dscp,
     )
 
     with generator as active:
@@ -630,11 +642,108 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
 
     assert not generator.running
     assert generator.sent_packets == 4
-    assert generator.sent_by_target == {"127.0.0.1": 2, "127.0.0.2": 2}
-    assert generator.errors_by_target == {"127.0.0.1": 0, "127.0.0.2": 0}
+    assert generator.sent_by_target == dict.fromkeys(targets, 2)
+    assert generator.errors_by_target == dict.fromkeys(targets, 0)
     assert sockets[0].bound == ("127.0.0.3", 0)
+    options = {(level, option): value for level, option, value in sockets[0].options}
+    assert options[socket.IPPROTO_IP, socket.IP_TOS] == dscp << 2
+    assert (socket.IPPROTO_IP, socket.IP_TTL) not in options  # Preserve the OS unicast TTL.
+    if "239.255.0.1" in targets:
+        assert options[socket.IPPROTO_IP, socket.IP_MULTICAST_TTL] == multicast_ttl
+        assert options[socket.IPPROTO_IP, socket.IP_MULTICAST_IF] == socket.inet_aton("127.0.0.3")
+    else:
+        assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL) not in options
+        assert (socket.IPPROTO_IP, socket.IP_MULTICAST_IF) not in options
     assert all(payload == bytes.fromhex("f09f91bb") for payload, _destination in sockets[0].sent)
     assert sockets[0].closed
+
+
+@pytest.mark.parametrize("multicast_ttl", [-1, 0, 256, True, 1.5, "8", None])
+def test_external_traffic_generator_rejects_invalid_multicast_ttl(tmp_path, multicast_ttl):
+    with pytest.raises(ValueError, match="multicast_ttl"):
+        espectre_traffic_generator.ExternalTrafficGenerator(
+            ["239.255.0.1"], multicast_ttl=multicast_ttl,
+        )
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "multicast_ttl": multicast_ttl,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="multicast_ttl"):
+        traffic_addon.load_options(options_file)
+
+
+@pytest.mark.parametrize("dscp", [-1, 64, 184, True, False, 1.5, "46", None])
+def test_external_traffic_generator_rejects_invalid_dscp(tmp_path, dscp):
+    with pytest.raises(ValueError, match="dscp"):
+        espectre_traffic_generator.ExternalTrafficGenerator(["239.255.0.1"], dscp=dscp)
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100, "dscp": dscp,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="dscp"):
+        traffic_addon.load_options(options_file)
+
+
+@pytest.mark.parametrize("overrides", [
+    {}, {"multicast_ttl": 1}, {"multicast_ttl": 255},
+    {"dscp": 0}, {"dscp": 63}, {"multicast_ttl": 1, "dscp": 0},
+])
+def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monkeypatch, overrides):
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "source_ip": "192.168.1.10", **overrides,
+    }), encoding="utf-8")
+    options = traffic_addon.load_options(options_file)
+    observed = []
+    monkeypatch.setattr(traffic_addon, "load_options", lambda: options)
+    monkeypatch.setattr(traffic_addon, "run", lambda **kwargs: observed.append(kwargs))
+
+    traffic_addon.main()
+
+    assert observed == [{
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
+        "source_ip": "192.168.1.10", "multicast_ttl": 8, "dscp": 46, **overrides,
+    }]
+
+
+@pytest.mark.parametrize("report_interval", [0, 1])
+def test_external_traffic_generator_bounds_error_logs(monkeypatch, capsys, report_interval):
+    attempts = 0
+    closed = False
+
+    class FailingSocket:
+        def setsockopt(self, *_args):
+            pass
+
+        def sendto(self, _payload, _destination):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 250:
+                generator._stop_event.set()
+            raise OSError("network unreachable")
+
+        def close(self):
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *_args: FailingSocket())
+    monkeypatch.setattr(espectre_traffic_generator.time, "perf_counter", lambda: attempts / 100)
+    generator = espectre_traffic_generator.ExternalTrafficGenerator(["239.255.0.1"])
+    monkeypatch.setattr(generator._stop_event, "wait", lambda _timeout: False)
+
+    generator.run_forever(report_interval=report_interval)
+
+    assert attempts == generator.send_errors == 250
+    assert generator.sent_packets == 0
+    assert closed
+    lines = capsys.readouterr().out.splitlines()
+    if report_interval:
+        assert len(lines) == 3  # One initial error, then one report per simulated second.
+        assert "network unreachable" in lines[0]
+    else:
+        assert lines == []  # Library use must not write over CLI collection output.
 
 
 def test_background_traffic_stop_never_signals_pid_from_state_file(tmp_path, monkeypatch):

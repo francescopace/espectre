@@ -12,21 +12,25 @@ Do not target a subnet or limited broadcast address. Those frames usually
 arrive as legacy PHY and do not produce HT20 CSI.
 
 Usage:
+  From tools/ha_traffic_generator_addon/:
   python3 espectre_traffic_generator.py start         # Start in background
   python3 espectre_traffic_generator.py stop          # Stop running instance
   python3 espectre_traffic_generator.py status        # Check if running
   python3 espectre_traffic_generator.py run           # Run in foreground (Ctrl+C to stop)
 
 Configuration:
-  Edit TARGETS, PORT, RATE below. Unicast each device IP, or use the joined
-  multicast group 239.255.0.1. Do not use x.x.x.255.
+  Edit TARGETS, PORT, RATE, MULTICAST_TTL, and DSCP below. Unicast each device IP,
+  or use the joined multicast group 239.255.0.1. Do not use x.x.x.255.
+  MULTICAST_TTL defaults to 8; routed multicast still needs multicast routing.
+  Ordinary switches on the same VLAN do not consume TTL.
+  DSCP defaults to 46 (Expedited Forwarding); use 0 for Best Effort.
 
 The ./espectre collect command imports the same ExternalTrafficGenerator
 class, persistently selects external mode on one raw-capable device, and
 uses --pps as this generator's intentional rate.
 
 Home Assistant integration:
-  See src/cpp/frontend/esphome/README.md for external traffic mode.
+  See DOCS.md in this directory for add-on installation and external traffic mode.
 
 Thanks to: https://github.com/phoenixtechnam
 
@@ -52,10 +56,11 @@ TARGETS = ['192.168.1.100']  # Unicast device IP
 # TARGETS = ['239.255.0.1']  # All devices that joined the default multicast group
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
+MULTICAST_TTL = 8  # Allows up to seven router hops when multicast routing is configured.
+DSCP = 46  # Expedited Forwarding; 0 requests Best Effort (valid range: 0-63).
 _RUNTIME_OWNER = str(os.getuid()) if hasattr(os, "getuid") else "user"
 PID_FILE = Path(tempfile.gettempdir()) / f"espectre_traffic_{_RUNTIME_OWNER}.pid"
 CONTROL_FILE = Path(tempfile.gettempdir()) / f"espectre_traffic_{_RUNTIME_OWNER}.control"
-SENSING_IP_TOS = 46 << 2
 # =========================================
 
 
@@ -72,13 +77,17 @@ def next_send_deadline(previous_deadline, send_started, interval):
     return phase_deadline
 
 
-def configure_socket(sock, targets=None, source_ip=None):
-    """Configure low-latency unicast or local-link multicast delivery."""
+def configure_socket(sock, targets=None, source_ip=None, multicast_ttl=MULTICAST_TTL,
+                     dscp=DSCP):
+    """Configure DSCP, multicast scope, and an optional source interface."""
     targets = TARGETS if targets is None else list(targets)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, SENSING_IP_TOS)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, dscp << 2)
     if any(ipaddress.ip_address(target).is_multicast for target in targets):
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, multicast_ttl)
+        if source_ip:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+                            socket.inet_aton(source_ip))
     if source_ip:
         sock.bind((source_ip, 0))
 
@@ -133,7 +142,8 @@ class ExternalTrafficGenerator:
     TRAFFIC_MARKER = '👻'
     PAYLOAD = TRAFFIC_MARKER.encode('utf-8')
 
-    def __init__(self, targets, port=PORT, rate_pps=RATE, source_ip=None, control_token=None):
+    def __init__(self, targets, port=PORT, rate_pps=RATE, source_ip=None, control_token=None,
+                 multicast_ttl=MULTICAST_TTL, dscp=DSCP):
         raw_targets = [targets] if isinstance(targets, str) else list(targets)
         self.targets = []
         for target in raw_targets:
@@ -147,6 +157,10 @@ class ExternalTrafficGenerator:
             raise ValueError("port must be in the 1-65535 range")
         if float(rate_pps) <= 0:
             raise ValueError("rate_pps must be greater than zero")
+        if type(multicast_ttl) is not int or not 1 <= multicast_ttl <= 255:
+            raise ValueError("multicast_ttl must be an integer in the 1-255 range")
+        if type(dscp) is not int or not 0 <= dscp <= 63:
+            raise ValueError("dscp must be an integer in the 0-63 range")
         if source_ip is not None:
             source = ipaddress.ip_address(str(source_ip).strip())
             if source.version != 4:
@@ -155,6 +169,8 @@ class ExternalTrafficGenerator:
         self.port = int(port)
         self.rate_pps = float(rate_pps)
         self.source_ip = source_ip
+        self.multicast_ttl = multicast_ttl
+        self.dscp = dscp
         self.control_token = control_token
         self.sent_packets = 0
         self.send_errors = 0
@@ -202,19 +218,22 @@ class ExternalTrafficGenerator:
                 self._socket.close()
                 self._socket = None
 
-    def run_forever(self):
-        """Run synchronously until ``stop`` is requested."""
+    def run_forever(self, report_interval=0):
+        """Run synchronously, optionally reporting counters every N seconds."""
         self._stop_event.clear()
-        self._run()
+        self._run(report_interval=report_interval)
 
-    def _run(self):
+    def _run(self, report_interval=0):
         interval = 1.0 / self.rate_pps
         next_time = 0.0
+        next_report = time.perf_counter() + report_interval if report_interval > 0 else None
+        first_error_reported = False
+        last_error = None
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         with self._lifecycle_lock:
             self._socket = sock
         try:
-            configure_socket(sock, self.targets, self.source_ip)
+            configure_socket(sock, self.targets, self.source_ip, self.multicast_ttl, self.dscp)
             while not self._stop_event.is_set() and (
                 self.control_token is None or _control_matches(self.control_token)
             ):
@@ -228,10 +247,22 @@ class ExternalTrafficGenerator:
                         sock.sendto(self.PAYLOAD, (target, self.port))
                         self.sent_packets += 1
                         self.sent_by_target[target] += 1
-                    except OSError:
+                    except OSError as error:
                         self.send_errors += 1
                         self.errors_by_target[target] += 1
+                        last_error = f"{target}: {error}"
+                        if next_report is not None and not first_error_reported:
+                            print(f"Failed to send traffic to {last_error}; "
+                                  f"further errors summarized every {report_interval:g}s", flush=True)
+                            first_error_reported = True
                 next_time = next_send_deadline(next_time, send_started, interval)
+                if next_report is not None and send_started >= next_report:
+                    message = f"Sent {self.sent_packets} packets; send errors: {self.send_errors}"
+                    if last_error is not None:
+                        message += f"; last error: {last_error}"
+                    print(message, flush=True)
+                    last_error = None
+                    next_report = send_started + report_interval
         finally:
             sock.close()
             with self._lifecycle_lock:
@@ -331,14 +362,9 @@ def status():
     print("Not running (stale state file)")
 
 
-def run(token=None):
+def run(token=None, *, targets=None, port=None, rate_pps=None, source_ip=None,
+        multicast_ttl=None, dscp=None):
     """Run traffic generator in foreground (Ctrl+C to stop)."""
-    print(f"Sending UDP to {TARGETS}:{PORT} @ {RATE} pps (Ctrl+C to stop)")
-    run_loop(token)
-
-
-def run_loop(token=None):
-    """Main packet sending loop."""
     def handle_signal(sig, frame):
         sys.exit(0)
 
@@ -346,17 +372,27 @@ def run_loop(token=None):
     signal.signal(signal.SIGINT, handle_signal)
 
     generator = ExternalTrafficGenerator(
-        TARGETS,
-        port=PORT,
-        rate_pps=RATE,
+        TARGETS if targets is None else targets,
+        port=PORT if port is None else port,
+        rate_pps=RATE if rate_pps is None else rate_pps,
+        source_ip=source_ip,
         control_token=token,
+        multicast_ttl=MULTICAST_TTL if multicast_ttl is None else multicast_ttl,
+        dscp=DSCP if dscp is None else dscp,
     )
     try:
-        generator.run_forever()
+        scope = (f"; multicast TTL {generator.multicast_ttl}"
+                 if any(ipaddress.ip_address(target).is_multicast
+                        for target in generator.targets) else "")
+        print(f"Sending UDP to {generator.targets}:{generator.port} "
+              f"@ {generator.rate_pps:g} pps per target; DSCP {generator.dscp}"
+              f"{scope} (Ctrl+C to stop)", flush=True)
+        generator.run_forever(report_interval=60)
     finally:
         generator.stop()
         if token is not None:
             _remove_runtime_files(token)
+        print("External CSI traffic generator stopped", flush=True)
 
 
 def main(argv=None):

@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Web tools, builds, and publication
 
+- Add the ESPectre Traffic Generator add-on for 64-bit Home Assistant OS, using the shared external UDP generator with configurable unicast or multicast targets, packet rate, source interface, multicast TTL, and DSCP. Include translated configuration help and an installation guide in [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md).
 - Show the published Release firmware on the home and roadmap badges, using its release tag when available. Preview snapshots no longer replace the home release badge.
 - Generate the website's SDK API reference with each build, display its version and source commit, and verify that its files match the current page inventory.
 - Run shared CI on every branch and tag push, and gate firmware and SDK builds on build preparation and website, C++, and Python tests. Publish snapshots and tagged releases through one CD workflow using the tested CI artifacts, with separate check and publication statuses.

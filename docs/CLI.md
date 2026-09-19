@@ -334,7 +334,7 @@ The collector uses the same event-driven completion as `devices`: once a complet
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-Live collection negotiates CSI support, persistently sets `csi_traffic_mode` to `external`, verifies the resulting resource, starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`, and only then opens `GET /csi`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. Closing the response ends collection, then the generator stops. The collector intentionally does not restore the previous traffic mode.
+Live collection negotiates CSI support, persistently sets `csi_traffic_mode` to `external`, verifies the resulting resource, starts `ExternalTrafficGenerator` from `tools/ha_traffic_generator_addon/espectre_traffic_generator.py`, and only then opens `GET /csi`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. Closing the response ends collection, then the generator stops. The collector intentionally does not restore the previous traffic mode.
 
 Example:
 

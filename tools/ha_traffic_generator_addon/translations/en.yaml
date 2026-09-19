@@ -1,0 +1,41 @@
+configuration:
+  targets:
+    name: Target addresses
+    description: >-
+      Keep 239.255.0.1 to send one multicast stream to all ESPectre devices in
+      that group. If multicast does not work, replace it with the devices'
+      IPv4 addresses. Do not enter hostnames or URLs, or target the same device
+      through both multicast and its own address.
+  port:
+    name: Destination UDP port
+    description: >-
+      Leave at 5555 unless you changed the external traffic port in the
+      ESPectre firmware. This is the receiving port on the devices, not a
+      service opened on Home Assistant.
+  rate_pps:
+    name: Packets per second per target
+    description: >-
+      Leave at 100 for the standard ESPectre configuration. Match the devices'
+      CSI target rate. Each target receives this rate, so two device addresses
+      at 100 generate 200 packets per second in total. Allowed range: 1–1000.
+  source_ip:
+    name: Source IPv4 address (advanced)
+    description: >-
+      Normally leave empty so the system chooses the outgoing interface.
+      Set this only to an IPv4 address assigned to the Home Assistant host
+      when you need to select a network interface, such as Ethernet or Wi-Fi.
+      Do not enter an ESPectre device's address here.
+  multicast_ttl:
+    name: Multicast TTL (router hop limit)
+    description: >-
+      Leave at 8 unless your network requires a different limit. Use 1 to
+      keep multicast on the local network; crossing N routers requires at
+      least N + 1. Switches do not consume hops. This does not enable routing,
+      bypass firewalls, or change unicast TTL. Allowed range: 1–255.
+  dscp:
+    name: DSCP traffic class (advanced)
+    description: >-
+      Leave at 46 to request Expedited Forwarding, or use 0 for Best Effort.
+      Applies to unicast and multicast. Your network may ignore or rewrite
+      this marking; larger numbers do not necessarily mean higher priority.
+      Enter a DSCP codepoint from 0 to 63, not an IP TOS value.
