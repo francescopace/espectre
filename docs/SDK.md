@@ -39,16 +39,16 @@ Install `francescopace/espectre` through ESP-IDF Component Manager. It downloads
 
 | Registry | Available versions | Website channel |
 |----------|--------------------|-----------------|
-| [Production](https://components.espressif.com/components/francescopace/espectre) | Stable releases only | Release, when the tagged version is stable |
-| [Staging](https://components-staging.espressif.com/components/francescopace/espectre) | Tagged prereleases and branch snapshots | Release candidates, Preview (`main`), and Develop (`develop`) |
+| [Production](https://components.espressif.com/components/francescopace/espectre) | Tagged releases, including prereleases | Release |
+| [Staging](https://components-staging.espressif.com/components/francescopace/espectre) | Branch snapshots | Preview (`main`) and Develop (`develop`) |
 
-If the production component page is unavailable, the first stable SDK release has not been published there yet. Use staging to evaluate the SDK. A website **Release** download can be a release candidate; it does not imply production-registry availability.
+A website **Release** download can be a release candidate. Tagged prereleases are published to production for evaluation; their API can still change before the final release. Older prereleases published under the previous policy remain on staging.
 
-For a specific version or the example project, select an exact version from the registry page. In an activated ESP-IDF environment, replace `VERSION_FROM_REGISTRY` below with that version. Use `https://components-staging.espressif.com` for snapshots and prereleases, or `https://components.espressif.com` for stable releases.
+For a specific version or the example project, select an exact version from the registry page. In an activated ESP-IDF environment, replace `VERSION_FROM_REGISTRY` below with that version. Use `https://components.espressif.com` for tagged releases, including release candidates, or `https://components-staging.espressif.com` for branch snapshots.
 
 ```sh
 ESPECTRE_VERSION="VERSION_FROM_REGISTRY"
-ESPECTRE_REGISTRY_URL="https://components-staging.espressif.com"
+ESPECTRE_REGISTRY_URL="https://components.espressif.com"
 ```
 
 Registry packages fill in these settings with their own version and registry. Snapshot versions end in `.main` or `.develop` and differ from the website archive labels. Older snapshots are periodically removed from staging; use a retained version when resolving a new project.

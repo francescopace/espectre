@@ -70,8 +70,8 @@ module.exports = async ({ github, context, core, publication }) => {
     run_id: String(runId), head_sha: sha, head_branch: source.head_branch,
     created_at: source.created_at, publication, channel, stable,
     release_tag: snapshot ? (channel === 'develop' ? 'snapshot-dev' : 'snapshot') : source.head_branch,
-    registry_url: stable ? 'https://components.espressif.com' : 'https://components-staging.espressif.com',
-    environment: stable ? 'sdk-registry-production' : 'sdk-registry-staging',
+    registry_url: snapshot ? 'https://components-staging.espressif.com' : 'https://components.espressif.com',
+    environment: snapshot ? 'sdk-registry-staging' : 'sdk-registry-production',
     publish_website: !snapshot || source.head_branch === 'main',
   }));
   core.info(current ? `Source CI: ${source.html_url} (${source.conclusion}).` : 'Skipping a superseded snapshot.');

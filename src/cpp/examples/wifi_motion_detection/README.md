@@ -4,18 +4,18 @@ This ESP-IDF project connects to Wi-Fi and logs motion events through the public
 
 ## Create the project
 
-Use ESP-IDF 5.5.3 or newer with its environment activated. Choose an exact version from the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) for a snapshot or prerelease, or the [production registry](https://components.espressif.com/components/francescopace/espectre) for a stable release. If production is not available yet, use staging for evaluation.
+Use ESP-IDF 5.5.3 or newer with its environment activated. Choose an exact version from the [production registry](https://components.espressif.com/components/francescopace/espectre) for a tagged release, including a release candidate, or the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) for a branch snapshot. Older prereleases published under the previous policy remain on staging.
 
-Replace `VERSION_FROM_REGISTRY` below with the selected version. For a stable release, change the registry URL to `https://components.espressif.com`. Packaged copies of this README already select their own version and registry.
+Replace `VERSION_FROM_REGISTRY` below with the selected version. For a snapshot, change the registry URL to `https://components-staging.espressif.com`. Packaged copies of this README already select their own version and registry.
 
 ```sh
 ESPECTRE_VERSION="VERSION_FROM_REGISTRY"
-ESPECTRE_REGISTRY_URL="https://components-staging.espressif.com"
+ESPECTRE_REGISTRY_URL="https://components.espressif.com"
 idf.py create-project-from-example --registry-url "$ESPECTRE_REGISTRY_URL" "francescopace/espectre=$ESPECTRE_VERSION:wifi_motion_detection"
 cd wifi_motion_detection
 ```
 
-The packaged example's `main/idf_component.yml` pins the SDK version and registry. For an older staging example with only a version, add `registry_url: https://components-staging.espressif.com` under `francescopace/espectre` before building. Preview snapshots come from `main`; Develop snapshots come from `develop`. Both use staging, as do tagged prereleases.
+The packaged example's `main/idf_component.yml` pins the SDK version and registry. For an older staging example with only a version, add `registry_url: https://components-staging.espressif.com` under `francescopace/espectre` before building. Preview snapshots come from `main`; Develop snapshots come from `develop`. Both use staging.
 
 Component Manager downloads the example and resolves its SDK dependency when configuring the project. ESP-IDF 5.5.x supplies MQTT internally; ESP-IDF 6.x resolves the SDK's pinned `espressif/mqtt` `1.0.0` dependency from the production registry. Enabling Direct in menuconfig adds mDNS. After changing that option in an existing project, run `idf.py update-dependencies` to refresh the lockfile before building. The application owns its console configuration; select the appropriate ESP-IDF console for your board, or add and initialize TinyUSB in your application if needed.
 

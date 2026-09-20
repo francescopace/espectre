@@ -500,7 +500,7 @@ def sha256_file(path: Path) -> str:
 
 
 def stage_registry_component(bundle_root: Path, destination: Path, version: str,
-                             source_ref: str, epoch: int) -> None:
+                             source_ref: str, epoch: int, channel: str) -> None:
     """Package the SDK with the registry identity and Component Manager's file rules."""
     from idf_component_tools.manager import ManifestManager
     from sdk_api_markdown import generate_registry_api
@@ -530,8 +530,8 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
         target = destination / "examples" / "wifi_motion_detection" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(example_root / relative, target)
-    registry_url = ("https://components-staging.espressif.com" if "-" in version
-                    else "https://components.espressif.com")
+    registry_url = ("https://components.espressif.com" if channel == "release"
+                    else "https://components-staging.espressif.com")
     for readme_path in (destination / "README.md", destination / "examples/wifi_motion_detection/README.md"):
         readme = readme_path.read_text(encoding="utf-8")
         for name, value in (("ESPECTRE_VERSION", version), ("ESPECTRE_REGISTRY_URL", registry_url)):
@@ -700,7 +700,7 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
         if getattr(args, "component_output_dir", None):
             component_version = registry_component_version(args.version, args.channel, source_ref)
             stage_registry_component(staged_root, Path(args.component_output_dir), component_version,
-                                     source_ref, source_date_epoch)
+                                     source_ref, source_date_epoch, args.channel)
 
     manifest = build_manifest(
         channel=args.channel,

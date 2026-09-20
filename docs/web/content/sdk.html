@@ -50,19 +50,19 @@
     <div class="article table-wrap"><table>
       <thead><tr><th>Registry</th><th>Versions</th><th>Website channel</th></tr></thead>
       <tbody>
-        <tr><td><a href="https://components.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">Production</a></td><td>Stable releases only</td><td>Release, when stable</td></tr>
-        <tr><td><a href="https://components-staging.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">Staging</a></td><td>Prereleases and snapshots</td><td>Release candidates, Preview (<code>main</code>), and Develop (<code>develop</code>)</td></tr>
+        <tr><td><a href="https://components.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">Production</a></td><td>Tagged releases, including prereleases</td><td>Release</td></tr>
+        <tr><td><a href="https://components-staging.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">Staging</a></td><td>Branch snapshots</td><td>Preview (<code>main</code>) and Develop (<code>develop</code>)</td></tr>
       </tbody>
     </table></div>
-    <p>If production has no component page yet, use staging for evaluation until the first stable SDK release is published. The website's Release channel can contain a release candidate.</p>
+    <p>The website's Release channel can contain a release candidate.</p>
     <div class="docs-steps">
       <section class="docs-step">
         <div class="docs-step-body">
           <h3>1. Add the SDK</h3>
           <p>Activate ESP-IDF, open your project directory, and add the latest compatible stable release from production:</p>
           <div class="code-block"><pre>idf.py add-dependency <span class="s">"francescopace/espectre"</span></pre></div>
-          <p>For prereleases and snapshots, use staging and replace <code>VERSION_FROM_REGISTRY</code> with an exact version from the registry:</p>
-          <div class="code-block"><pre>idf.py add-dependency --registry-url <span class="s">"https://components-staging.espressif.com"</span> <span class="s">"francescopace/espectre=VERSION_FROM_REGISTRY"</span></pre></div>
+          <p>For a tagged prerelease or another exact release version, replace <code>VERSION_FROM_REGISTRY</code> with a version from production. For a branch snapshot, use its version and change the URL to <code>https://components-staging.espressif.com</code>:</p>
+          <div class="code-block"><pre>idf.py add-dependency --registry-url <span class="s">"https://components.espressif.com"</span> <span class="s">"francescopace/espectre=VERSION_FROM_REGISTRY"</span></pre></div>
           <p>Component Manager records the dependency in <code>main/idf_component.yml</code> and the resolved version in <code>dependencies.lock</code> when configuring the project. Snapshot registry versions end in <code>.main</code> or <code>.develop</code>; select one from the registry instead of copying a website archive label.</p>
           <p>Enable <code>CONFIG_ESP_WIFI_CSI_ENABLED=y</code> in your project configuration. The sensing runtime is always built; enable optional service groups in menuconfig when needed. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#minimal-configuration" target="_blank" rel="noopener">full SDK guide</a> for configuration and the <a href="/sdk/api/#sdk-public-facades">public headers</a> for your integration.</p>
         </div>

@@ -488,7 +488,7 @@ if [ "$1" = create-project-from-example ]; then mkdir wifi_motion_detection; fi
             assert ["add-dependency", "--registry-url", registry_url, dependency] in calls
 
 
-@pytest.mark.parametrize("version", ["3.0.0", "3.0.0-rc2"])
+@pytest.mark.parametrize("version", ["3.0.0", "3.0.0-rc3"])
 def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str) -> None:
     builder = load_script("build_sdk_package")
     component_cmake = (REPO_ROOT / "src" / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
@@ -554,9 +554,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str
     assert not any(part in {"frontend", "build", "managed_components", ".git"}
                    for name in component_files for part in Path(name).parts)
     assert f'"{version}"'.encode() in component_files["runtime/espectre_sdk_version.h"]
-    registry_url = ("https://components.espressif.com" if version == "3.0.0"
-                    else "https://components-staging.espressif.com")
-    assert_sdk_registry_installation(component_files, version, registry_url, tmp_path / "consumer")
+    assert_sdk_registry_installation(component_files, version, "https://components.espressif.com",
+                                     tmp_path / "consumer")
     for name in ("README.md", "API.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
         for link in re.findall(r"\]\(([^)]+)\)", component_files[name].decode()):
             link = link.strip("<>")
