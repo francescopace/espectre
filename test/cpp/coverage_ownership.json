@@ -78,7 +78,7 @@
     },
     {
       "kind": "host_test",
-      "owners": ["test_device_identity"],
+      "owners": ["test_device_identity", "test_device_identity_psa"],
       "sources": ["src/cpp/runtime/esp_idf/device_identity.cpp"]
     },
     {

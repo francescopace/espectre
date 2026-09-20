@@ -4,12 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0] - in progress - SDK component distribution and release delivery
+## [3.0.0-rc3] - in progress - SDK component distribution and release delivery
 
 ### SDK packaging and integration
 
 - Add a reproducible source package for `francescopace/espectre` on the ESP Component Registry, with a file inventory and a standalone Wi-Fi sensing example.
 - Add twelve isolated consumer build checks using ESP-IDF 5.5.5: minimal sensing on six targets, individual optional service groups on ESP32-C3, and all services together on ESP32-C3 and ESP32-S2. Run the same matrix against installed registry packages after publication, comparing their versions and files with the CI artifact.
+- Add ESP-IDF 6.x support to the SDK alongside 5.5.x (`>=5.5.3`). Keep bundled MQTT on 5.5.x, pin external MQTT to ESPHome-compatible `1.0.0` on 6.x, switch device identity hashing to PSA Crypto on 6.x without changing IDs, and use the shared Wi-Fi bandwidth enum names. Earlier 5.5 patches lack the ESP32-C5 LLTF format selector required by the runtime. Release builds remain on 5.5.5; see [SDK.md](SDK.md#esp-idf-compatibility-validation) for build coverage and pending hardware checks.
 - Include a generated `API.md` in registry packages with the C++ reference and integration contracts for the packaged version and commit. Keep the SDK guide focused on installation and integration, and resolve external documentation links against the packaged source revision.
 - Resolve the pinned mDNS dependency only when Direct is enabled. Make shared bootstrap select provisioning, and provide Wi-Fi snapshot support independently of Direct.
 - Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
@@ -25,16 +26,14 @@ All notable changes to this project will be documented in this file.
 - Add the ESPectre Traffic Generator add-on for 64-bit Home Assistant OS, using the shared external UDP generator with configurable unicast or multicast targets, packet rate, source interface, multicast TTL, and DSCP. Its minimal Ingress panel controls traffic ownership, streams Home Assistant entity changes, and requests diagnostics every second while visible through existing ESPHome or Native MQTT entities, with individual and bulk actions and an optional sidebar shortcut. Include translated configuration help and an installation guide in [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md).
 - Show the published Release firmware on the home and roadmap badges, using its release tag when available. Preview snapshots no longer replace the home release badge.
 - Generate the website's SDK API reference with each build, display its version and source commit, and verify that its files match the current page inventory.
-- Run shared CI on every branch and tag push, and gate firmware and SDK builds on build preparation and website, C++, and Python tests. Publish snapshots and tagged releases through one CD workflow using the tested CI artifacts, with separate check and publication statuses.
+- Run shared CI on every branch and tag push, and gate firmware and SDK builds on build preparation and website, C++, and Python tests. Replace `snapshot.yml` and `release.yml` with one `cd.yml` workflow that publishes snapshots and tagged releases from the tested CI artifacts, with separate check and publication statuses. Install the dispatch workflows on `main` and update registry trusted uploaders as described in [RELEASING.md](RELEASING.md#migrating-the-workflow-configuration).
 - Upload SDK snapshots from `main` and `develop`, plus tagged prereleases, to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) through OIDC; reserve the production registry for stable tags. Bind snapshot versions to their branch and source commit, and verify existing package contents before accepting a repeated upload.
 - Add weekly staging cleanup that retains the ten most recently uploaded SDK snapshots per branch and preserves tagged prereleases and stable versions. Manual runs default to a dry run.
 - Dispatch Pages deployments from `main` using the verified website archive from CD, avoiding stale artifacts on tag deployments. Validate the source run and attempt, and reject superseded snapshot websites. See [RELEASING.md](RELEASING.md).
 
 ### Breaking changes and migration
 
-- Update SDK integrations to ESP-IDF `>=5.5.5,<5.6.0`; release builds use 5.5.5.
 - Move primary console setup and TinyUSB to shared frontend code. SDK integrations must provide their own console setup; `initialize_primary_console()` is no longer part of the SDK API.
-- Replace `snapshot.yml` and `release.yml` with `cd.yml`. Maintainers must install the dispatch workflows on `main` and update registry trusted uploaders as described in [RELEASING.md](RELEASING.md#migrating-the-workflow-configuration).
 
 ---
 

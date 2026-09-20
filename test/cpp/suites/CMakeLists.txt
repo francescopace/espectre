@@ -148,6 +148,26 @@ add_espectre_test(test_device_identity
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_device_identity_psa
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_device_identity.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+target_sources(test_device_identity_psa PRIVATE
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
+)
+target_compile_definitions(test_device_identity_psa PRIVATE ESP_IDF_VERSION=0x060000)
+
+foreach(target IN ITEMS test_device_identity test_device_identity_psa)
+    set(identity_failures mac_failure hash_failure)
+    if(target STREQUAL "test_device_identity_psa")
+        list(APPEND identity_failures init_failure short_digest long_digest empty_digest)
+    endif()
+    foreach(scenario IN LISTS identity_failures)
+        add_test(NAME "${target}.${scenario}" COMMAND "${target}" "${scenario}")
+        set_tests_properties("${target}.${scenario}" PROPERTIES LABELS "unit")
+    endforeach()
+endforeach()
+
 add_espectre_test(test_ota_service_https
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_ota_service_https.cpp"
     LIBRARIES espectre_ota_https_testlib

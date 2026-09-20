@@ -209,7 +209,7 @@ Component Manager configures the registered component automatically. The followi
 - **Core-only CMake**: include `espectre_sources.cmake` from the SDK root, compile `ESPECTRE_CORE_SOURCES`, and add `ESPECTRE_SHARED_INCLUDE_DIRS`. No ESP-IDF runtime sources are required.
 - **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, and provisioning lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS` and the dependencies listed under [Optional capability groups](https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups).
 - **Vendored ESP-IDF component**: copy the SDK root to your project's `components/espectre/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
-- **Toolchain**: C++17, ESP-IDF `>=5.5.5,<5.6.0` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
+- **Toolchain**: C++17, ESP-IDF `>=5.5.3` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
 Source-list integrations and vendored ESP-IDF components use the version header directly; no version resolution step is required. For a GitHub/web SDK bundle extracted into `espectre/`, a complete core-only target is:
 

@@ -56,7 +56,7 @@ struct WiFiProtocolPolicyResult {
 // published ESPectre targets. 802.11b/g do not exist on 5 GHz, where 802.11a is
 // the legacy OFDM floor under 802.11n.
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
-constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
+constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW20;
 #if ESPECTRE_WIFI_DUAL_BAND
 constexpr uint16_t WIFI_PROTOCOL_CSI_5G =
     WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC;
@@ -91,9 +91,9 @@ const char *wifi_band_policy_to_str_(WifiBandPolicy policy) {
 
 const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
   switch (bw) {
-    case WIFI_BW_HT20:
+    case WIFI_BW20:
       return "HT20";
-    case WIFI_BW_HT40:
+    case WIFI_BW40:
       return "HT40";
 #ifdef WIFI_BW80
     case WIFI_BW80:
@@ -190,7 +190,7 @@ esp_err_t set_wifi_bandwidth_for_csi_(WifiBandPolicy policy) {
     return esp_wifi_set_bandwidths(WIFI_IF_STA, &bandwidths);
   }
 #endif
-  wifi_bandwidth_t current_bandwidth = WIFI_BW_HT20;
+  wifi_bandwidth_t current_bandwidth = WIFI_BW20;
   if (esp_wifi_get_bandwidth(WIFI_IF_STA, &current_bandwidth) == ESP_OK &&
       current_bandwidth == WIFI_BANDWIDTH_CSI) {
     return ESP_OK;
@@ -227,7 +227,7 @@ bool wifi_csi_policy_is_active_(WifiBandPolicy policy) {
       WIFI_PROTOCOL_CSI_2G;
 #endif
   uint8_t protocol = 0U;
-  wifi_bandwidth_t bandwidth = WIFI_BW_HT20;
+  wifi_bandwidth_t bandwidth = WIFI_BW20;
   return esp_wifi_get_protocol(WIFI_IF_STA, &protocol) == ESP_OK &&
          protocol == requested_protocol &&
          esp_wifi_get_bandwidth(WIFI_IF_STA, &bandwidth) == ESP_OK &&
@@ -281,7 +281,7 @@ void log_wifi_bandwidth_state_(const char *log_tag, WifiBandPolicy policy) {
     return;
   }
 #endif
-  wifi_bandwidth_t bw = WIFI_BW_HT20;
+  wifi_bandwidth_t bw = WIFI_BW20;
   const esp_err_t err = esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
   if (err != ESP_OK) {
     ESPECTRE_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));

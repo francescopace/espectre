@@ -6,6 +6,7 @@ if(POLICY CMP0135)
 endif()
 
 find_package(ZLIB REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 
 find_path(ARDUINOJSON_INCLUDE_DIR ArduinoJson.h)
 if(NOT ARDUINOJSON_INCLUDE_DIR)
@@ -131,6 +132,7 @@ target_link_libraries(espectre_runtime_testlib
         espectre_core_testlib
         espectre_test_mocks
         improv_wifi_testlib
+        OpenSSL::Crypto
 )
 target_compile_definitions(espectre_runtime_testlib
     PRIVATE

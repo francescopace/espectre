@@ -227,7 +227,9 @@ typedef struct {
 // WiFi Bandwidth
 typedef enum {
   WIFI_BW_HT20 = 1,
-  WIFI_BW_HT40,
+  WIFI_BW20 = WIFI_BW_HT20,
+  WIFI_BW_HT40 = 2,
+  WIFI_BW40 = WIFI_BW_HT40,
 } wifi_bandwidth_t;
 
 typedef enum {

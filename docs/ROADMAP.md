@@ -6,7 +6,8 @@
 | --- | --- | --- | --- |
 | **v3.0.0-rc1** | Released | September 5, 2026 | Publish the first complete candidate of the shared sensing platform |
 | **v3.0.0-rc2** | Released | September 16, 2026 | Validate signed firmware, sensing fixes, and SDK packaging |
-| **v3.0.0** | Planned | `rc2` is published | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
+| **v3.0.0-rc3** | Released | In progress | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
+| **v3.0.0** | Planned | `rc3` is published | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
 | **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Apple Home over Matter leaves a documented product gap | Add a dedicated Apple Home frontend when HomeKit solves that gap |

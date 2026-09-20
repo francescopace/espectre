@@ -8,14 +8,15 @@
 #pragma once
 
 #include <cstddef>
-#include <cstring>
+#include <vector>
+
+#include <openssl/evp.h>
 
 struct mbedtls_sha256_mock_state_t {
   int result{0};
-  unsigned char digest[32]{
-      0x3c, 0xf7, 0x91, 0x80, 0xd3, 0xa0, 0xac, 0xa4,
-  };
+  std::vector<unsigned char> input;
   size_t input_len{0U};
+  int is224{-1};
   int call_count{0};
 };
 
@@ -23,13 +24,14 @@ inline mbedtls_sha256_mock_state_t g_mbedtls_sha256_mock{};
 
 inline int mbedtls_sha256(const unsigned char* input, size_t input_len,
                           unsigned char output[32], int is224) {
-  (void)input;
-  (void)is224;
+  g_mbedtls_sha256_mock.input.assign(input, input + input_len);
+  g_mbedtls_sha256_mock.is224 = is224;
   g_mbedtls_sha256_mock.input_len = input_len;
   g_mbedtls_sha256_mock.call_count++;
   if (g_mbedtls_sha256_mock.result == 0 && output != nullptr) {
-    std::memcpy(output, g_mbedtls_sha256_mock.digest,
-                sizeof(g_mbedtls_sha256_mock.digest));
+    unsigned int length = 0;
+    return EVP_Digest(input, input_len, output, &length,
+                      is224 ? EVP_sha224() : EVP_sha256(), nullptr) == 1 ? 0 : -1;
   }
   return g_mbedtls_sha256_mock.result;
 }

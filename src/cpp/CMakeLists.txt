@@ -37,8 +37,10 @@ if(ESPECTRE_SDK_EXCLUDED_REQUIRES)
 endif()
 
 # ESP-IDF expands component requirements before menuconfig values are
-# available. Declare the built-in dependencies needed by the public headers
-# here. The manifest resolves external stacks through Kconfig conditions;
+# available. Declare the dependencies needed by the public headers here.
+# `mqtt` resolves to the built-in component on IDF 5 and the manifest's
+# espressif/mqtt component on IDF 6. mbedtls also exports the PSA headers.
+# The manifest resolves external stacks through version and Kconfig conditions;
 # the source switches below keep unused service code out of the firmware.
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)

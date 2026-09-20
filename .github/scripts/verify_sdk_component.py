@@ -220,6 +220,8 @@ def verify_dependencies(project: Path) -> None:
             if config.get(option, False) != (value == "y"):
                 raise ValueError(f"SDK build did not apply requested option: {line}")
     expected = set()
+    if int(str(lock["dependencies"]["idf"]["version"]).split(".", 1)[0]) >= 6:
+        expected.add("espressif/mqtt")
     if config.get("ESPECTRE_SDK_ENABLE_DIRECT"):
         expected.add("espressif/mdns")
     actual = set(lock["dependencies"]) - {COMPONENT_NAME, "idf"}

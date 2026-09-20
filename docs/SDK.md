@@ -8,10 +8,30 @@ ESPectre adds motion detection to ESP-IDF firmware using Wi-Fi Channel State Inf
 
 | Requirement | Supported configuration |
 |-------------|-------------------------|
-| ESP-IDF | `>=5.5.5,<5.6.0`; release builds use 5.5.5 |
+| ESP-IDF | `>=5.5.3`; release builds use 5.5.5 |
 | C++ | C++17 |
 | Target | ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6 |
 | License | `GPL-3.0-only`, with a separate commercial agreement available; see [Licensing](#licensing) |
+
+### ESP-IDF compatibility validation
+
+The 2026-09-20 compatibility check compiled and linked the `wifi_motion_detection` example against an isolated local copy of the SDK, with frontend support, MQTT, provisioning, and Direct enabled. Each cell below includes the application and bootloader build using the corresponding `espressif/idf` Docker image.
+
+| ESP-IDF image | ESP32 | ESP32-C3 | ESP32-C5 | ESP32-C6 |
+|---------------|-------|----------|----------|----------|
+| `v5.5.3` | Pass | Pass | Pass | Pass |
+| `v5.5.4` | Pass | Pass | Pass | Pass |
+| `v5.5.5` | Pass | Pass | Pass | Pass |
+| `v6.0.3` | Pass | Pass | Pass | Pass |
+| `v6.1.0` | Pass | Pass | Pass | Pass |
+
+ESP-IDF 5.5.0 through 5.5.2 are excluded: their ESP32-C5 `wifi_csi_config_t` lacks `lltf_bit_mode`, which the runtime uses to request 8-bit LLTF samples. The field is absent in the [5.5.2 header](https://github.com/espressif/esp-idf/blob/v5.5.2/components/esp_wifi/include/esp_wifi_he_types.h) and present in [5.5.3](https://github.com/espressif/esp-idf/blob/v5.5.3/components/esp_wifi/include/esp_wifi_he_types.h). These older patches were checked against the official headers; full firmware builds were not run. The minimum applies to the SDK across all supported targets.
+
+The build lockfiles and CMake component lists confirm bundled MQTT on 5.5.3, 5.5.4, and 5.5.5, and `espressif/mqtt` `1.0.0` on 6.x. The linked applications contain the expected SHA-256 backend: mbedTLS before IDF 6 and PSA Crypto from IDF 6 onward. The compatibility change preserves device identity input bytes, digest byte order, and identifier formatting. It also uses the `WIFI_BW20` and `WIFI_BW40` enum names shared by these versions; the sensing bandwidth remains 20 MHz.
+
+Host tests exercise both identity branches with real OpenSSL-backed SHA-256 adapters, three known vectors, a deterministic MAC, cached results, crypto initialization and hashing failures, and invalid digest lengths. For MAC `7c:2c:67:42:bb:ac`, both branches produce `3cf79180d3a0aca4`. These automated tests do not execute ESP-IDF's hardware crypto drivers.
+
+No hardware validation was performed for this compatibility matrix. Before publishing, compare the same device's ID before and after upgrading from 5.5.3 and 5.5.5 to each 6.x version, and verify boot, Wi-Fi reconnection, CSI acquisition and sensing readiness, MQTT, and Direct on the representative targets. Include the minimum supported 5.5.3, both supported bands on C5, and the supported traffic modes on C6. S2 and S3 were not compiled in this matrix. Full ESPHome, Native, and Matter firmware builds and a clean registry installation remain separate integration gates.
 
 ## ESP Component Registry
 
@@ -183,9 +203,9 @@ The included example connects the sink to ESP-IDF Log v2 through `esp_log_va` an
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | None beyond the base runtime |
 | `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
 
-Each group is off by default. The minimal SDK uses only components bundled with ESP-IDF and downloads no additional stack dependencies. `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` also selects provisioning because its bootstrap helpers call that service.
+Each group is off by default. On supported ESP-IDF 5.5.x versions, the minimal SDK uses only components bundled with ESP-IDF. On ESP-IDF 6 and later, the manifest resolves `espressif/mqtt` from the production registry even when the MQTT service group is disabled, because the public MQTT headers require that component. It is pinned to exactly `1.0.0` to remain compatible with ESPHome's MQTT dependency. CMake keeps `mqtt` in `REQUIRES`: ESP-IDF resolves the bundled component on 5.5.x and the managed component on 6.x. `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` also selects provisioning because its bootstrap helpers call that service.
 
-The manifest uses [Kconfig dependency conditions](https://docs.espressif.com/projects/idf-component-manager/en/latest/reference/manifest_file.html#kconfig-options), supported by ESP-IDF 5.5.5 and Component Manager 2.2 or newer. Declare ESPectre as a direct project dependency so Component Manager can read its Kconfig options. Enabling `ESPECTRE_SDK_ENABLE_DIRECT` downloads `espressif/mdns`, pinned to `1.12.0` because the bootstrap responder uses its private API. Direct is off by default. External components retain their own licenses. Source-list integrations declare their selected stack dependencies themselves.
+The manifest uses [Kconfig dependency conditions](https://docs.espressif.com/projects/idf-component-manager/en/latest/reference/manifest_file.html#kconfig-options), available since ESP-IDF 5.5 with Component Manager 2.2 or newer. Declare ESPectre as a direct project dependency so Component Manager can read its Kconfig options. Enabling `ESPECTRE_SDK_ENABLE_DIRECT` downloads `espressif/mdns`, pinned to `1.12.0` because the bootstrap responder uses its private API. Direct is off by default. External components retain their own licenses. Source-list integrations declare their selected stack dependencies themselves.
 
 After changing Direct in an existing project through menuconfig, run `idf.py update-dependencies` before `idf.py build`. This refreshes the lockfile for the selected configuration; a normal reconfigure can retain previously resolved optional dependencies after their switches are disabled.
 

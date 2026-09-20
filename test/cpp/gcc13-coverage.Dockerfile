@@ -11,6 +11,7 @@ RUN apt-get update \
         python3 \
         python3-pip \
         zlib1g-dev \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --break-system-packages --no-cache-dir gcovr==8.6

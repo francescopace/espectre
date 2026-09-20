@@ -151,7 +151,10 @@ jobs:
           pip install -r requirements.txt
       
       - name: Run Host-side Tests with Coverage
-        run: ./test/cpp/run_coverage.sh --ci
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev
+          ./test/cpp/run_coverage.sh --ci
 
       - name: Build C++ coverage badge
         if: always() && hashFiles('.cache/reports/coverage/cpp/coverage-summary.json') != ''

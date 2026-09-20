@@ -15,7 +15,12 @@
 #include <cstring>
 
 #include <esp_mac.h>
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+#include <psa/crypto.h>
+#else
 #include <mbedtls/sha256.h>
+#endif
 
 namespace espectre {
 
@@ -34,9 +39,23 @@ uint64_t derive_device_id_once() {
   std::memcpy(input.data() + sizeof(kDeviceIdDomain) - 1U, mac, sizeof(mac));
 
   std::array<unsigned char, 32U> digest{};
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+  // IDF initializes PSA at startup; repeated initialization is safe and lets
+  // this SDK entry point check initialization before using the crypto API.
+  if (psa_crypto_init() != PSA_SUCCESS) {
+    return ESPECTRE_DEFAULT_DEVICE_ID;
+  }
+  size_t digest_length = 0U;
+  if (psa_hash_compute(PSA_ALG_SHA_256, input.data(), input.size(),
+                       digest.data(), digest.size(), &digest_length) != PSA_SUCCESS ||
+      digest_length != digest.size()) {
+    return ESPECTRE_DEFAULT_DEVICE_ID;
+  }
+#else
   if (mbedtls_sha256(input.data(), input.size(), digest.data(), 0) != 0) {
     return ESPECTRE_DEFAULT_DEVICE_ID;
   }
+#endif
 
   uint64_t device_id = 0U;
   for (size_t i = 0U; i < sizeof(device_id); ++i) {

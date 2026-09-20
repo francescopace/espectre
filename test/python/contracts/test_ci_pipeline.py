@@ -637,7 +637,7 @@ def test_registry_and_install_checks_preserve_manifest_values(
         "version": "3.0.0",
         "license": "GPL-3.0-only",
         "repository_info": {"commit_sha": "a" * 40},
-        "dependencies": {"idf": {"version": ">=5.5.5,<5.6.0"}},
+        "dependencies": {"idf": {"version": ">=5.5.3"}},
         "targets": ["esp32c3", "esp32s2"],
         "files": {"use_gitignore": True},
     }
@@ -1052,6 +1052,33 @@ def test_detect_git_version_ignores_rolling_tags(monkeypatch: pytest.MonkeyPatch
         detector.parse_version_core("preview")
 
 
+@pytest.mark.parametrize(("idf_version", "supported", "external_mqtt"), [
+    ("5.5.0", False, False),
+    ("5.5.1", False, False),
+    ("5.5.2", False, False),
+    ("5.5.3", True, False),
+    ("5.5.4", True, False),
+    ("5.5.5", True, False),
+    ("5.5.6", True, False),
+    ("6.0.0", True, True),
+    ("6.0.3", True, True),
+    ("6.1.0", True, True),
+])
+def test_sdk_idf_and_mqtt_compatibility(idf_version, supported, external_mqtt, monkeypatch):
+    from idf_component_tools.manifest import if_parser
+
+    manifest = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text())
+    dependencies = manifest["dependencies"]
+    assert SimpleSpec(dependencies["idf"]["version"]).match(Version(idf_version)) is supported
+    mqtt = dependencies["espressif/mqtt"]
+    # ESPHome pins this exact release; a newer requirement would conflict.
+    assert mqtt["version"] == "1.0.0"
+    assert mqtt["registry_url"] == "https://components.espressif.com"
+    monkeypatch.setattr(if_parser, "get_idf_version", lambda: idf_version)
+    assert all(if_parser.parse_if_clause(rule["if"]).get_value()
+               for rule in mqtt["rules"]) is external_mqtt
+
+
 @pytest.mark.parametrize("channel", ["preview", "develop"])
 @pytest.mark.parametrize(("source_version", "registry_base"), [
     ("2.8.0-237-g7439944", "2.8.0-237-g7439944"),
@@ -1106,7 +1133,7 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert yml.split("\ndependencies:\n", 1)[1] == source_manifest.split("\ndependencies:\n", 1)[1]
     assert yaml.safe_load(yml)["dependencies"]["idf"] == component_manifest["dependencies"]["idf"]
     assert "espressif/mdns:" in yml
-    assert set(yaml.safe_load(yml)["dependencies"]) == {"idf", "espressif/mdns"}
+    assert set(yaml.safe_load(yml)["dependencies"]) == {"idf", "espressif/mdns", "espressif/mqtt"}
     assert re.search(rf"(?m)^PROJECT_NUMBER\s*=\s*{re.escape(source_version)}\s*$", bundled_doxyfile)
 
     inventory_path = tmp_path / "registry" / "component-inventory.json"
