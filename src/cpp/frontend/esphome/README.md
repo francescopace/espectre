@@ -195,6 +195,8 @@ The `traffic_generator_mode_select` entity can change the internal source at run
 
 ### External Traffic Mode
 
+Home Assistant OS users can install the ESPectre Traffic Generator add-on and switch devices to external traffic from its panel. Follow the [web guide](https://espectre.dev/guides/home-assistant/#ha-traffic-generator) for setup instructions and screenshots. See [DOCS.md](../../../../tools/ha_traffic_generator_addon/DOCS.md) for requirements, options, and troubleshooting.
+
 To disable the internal generator and rely on external traffic:
 
 ```yaml

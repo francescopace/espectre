@@ -8,7 +8,6 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { index, read, routeManifest } from './fixtures/site_test_helpers.mjs';
 
 const contentPath = (route) => `docs/web/content${route.staticPath.slice(0, -1)}.html`;
@@ -23,11 +22,10 @@ const deviceReportPaths = [
 ];
 const cppFrontends = ['Native', 'ESPHome', 'Matter'];
 
-function committedCppFrontendMeans(profile) {
+function cppFrontendMeans(profile) {
     const samples = [];
     for (const path of deviceReportPaths) {
-        const report = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
-        const sections = report.split(/^### /m);
+        const sections = read(path).split(/^### /m);
         for (const frontend of cppFrontends) {
             const section = sections.find((candidate) => candidate.startsWith(`${frontend} ${profile}\n`));
             if (!section || !section.includes('Result: **PASS**')) continue;
@@ -38,7 +36,7 @@ function committedCppFrontendMeans(profile) {
             samples.push({ detectionUs, runtimeCpu });
         }
     }
-    assert.ok(samples.length > 0, `${profile} must have committed C++ frontend results`);
+    assert.ok(samples.length > 0, `${profile} must have C++ frontend results`);
     return {
         detectionMs: samples.reduce((sum, sample) => sum + sample.detectionUs, 0) / samples.length / 1000,
         runtimeCpu: samples.reduce((sum, sample) => sum + sample.runtimeCpu, 0) / samples.length,
@@ -81,7 +79,7 @@ describe('website documentation route contracts', () => {
         assert.match(mqttApi, /commands\/result/);
     });
 
-    it('keeps published detector means aligned with committed campaign reports', () => {
+    it('keeps published detector means aligned with campaign reports', () => {
         const detectors = read('docs/web/content/sdk/detectors.html');
         for (const profile of ['Lightweight', 'High Accuracy']) {
             const row = detectors.match(new RegExp(
@@ -89,7 +87,7 @@ describe('website documentation route contracts', () => {
                 + '<td>([0-9.]+) ms</td><td>([0-9.]+)%</td></tr>',
             ));
             assert.ok(row, `${profile} comparison row must publish device means`);
-            const expected = committedCppFrontendMeans(profile);
+            const expected = cppFrontendMeans(profile);
             assert.equal(row[1], expected.detectionMs.toFixed(3));
             assert.equal(row[2], expected.runtimeCpu.toFixed(2));
         }

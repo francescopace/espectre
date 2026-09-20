@@ -154,7 +154,7 @@
       "group": "guides",
       "pathLabel": "Home Assistant",
       "title": "Build your Home Assistant dashboard | ESPectre",
-      "description": "Build the maintained ESPectre Home Assistant dashboard for motion, movement history, and runtime controls.",
+      "description": "Build the ESPectre Home Assistant dashboard for ESPHome or MQTT Discovery and set up the external traffic generator add-on.",
       "staticPath": "/guides/home-assistant/"
     },
     {

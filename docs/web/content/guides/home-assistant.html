@@ -3,13 +3,13 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">HOME ASSISTANT · 6 MIN READ</span>
+    <span class="guide-tag">HOME ASSISTANT · 9 MIN READ</span>
     <h1>Build your Home Assistant dashboard</h1>
-    <p class="article-lead">Turn ESPectre's discovered entities into a focused dashboard for motion, movement history, and runtime controls.</p>
+    <p class="article-lead">Turn ESPectre's discovered entities into a focused dashboard for motion, movement history, and runtime controls. Add the optional traffic generator to supply external traffic from Home Assistant.</p>
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#ha-before">Requirements</a><a href="#ha-prefix">Find entity IDs</a><a href="#ha-create">Create the dashboard</a><a href="#ha-template">Paste the template</a><a href="#ha-result">Verify the result</a><a href="#ha-troubleshooting">Troubleshooting</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#ha-before">Requirements</a><a href="#ha-prefix">Find entity IDs</a><a href="#ha-create">Create the dashboard</a><a href="#ha-template">Paste the template</a><a href="#ha-result">Verify the result</a><a href="#ha-traffic-generator">External traffic add-on</a><a href="#ha-troubleshooting">Troubleshooting</a></nav>
     </details>
 
     <h2 id="ha-before">Before you start</h2>
@@ -83,6 +83,44 @@
       <li>Select <em>Refresh Diagnostics</em> to populate Traffic TX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
       <li>Press Recalibrate only when the room can remain still, and use Calibration Active to confirm when Lightweight calibration finishes.</li>
     </ul>
+
+    <h2 id="ha-traffic-generator">Optional — Run the external traffic add-on</h2>
+    <p>The <strong>ESPectre Traffic Generator</strong> add-on sends UDP traffic from Home Assistant to your sensors. In external mode, several sensors can share one multicast stream instead of generating their own requests to the router. Use the sidebar panel to switch ESPHome and Native MQTT devices between internal and external traffic. You can use the add-on without creating the dashboard above.</p>
+    <p>You need a current 64-bit Home Assistant OS installation (<code>aarch64</code> or <code>amd64</code>), an administrator account, Internet access for installation, and ESPectre 3.0 firmware, including prereleases. Home Assistant must be able to reach the devices on UDP port <code>5555</code>. The add-on does not support Container, standalone Core, Supervised, or 32-bit installations.</p>
+
+    <h3>Install and start the add-on</h3>
+    <ol class="steps-list">
+      <li><h3>Add the repository</h3><p>Open <em>Settings → Apps → Install app</em>, then select <em>⋮ → Repositories</em>. Add <code>https://github.com/francescopace/espectre</code> and close the dialog.</p></li>
+      <li><h3>Install ESPectre Traffic Generator</h3><p>Search for the app and select <em>Install</em>. If it is missing, select <em>⋮ → Check for updates</em>. The first installation can take several minutes.</p></li>
+      <li><h3>Start it with the defaults</h3><p>Check <em>Configuration</em> against the settings below. On <em>Info</em>, enable <em>Start on boot</em> and <em>Watchdog</em>, then select <em>Start</em>. Enable <em>Show in sidebar</em> for quick access, or select <em>Open Web UI</em>.</p></li>
+    </ol>
+    <!-- Screenshot source: https://github.com/user-attachments/assets/ad355e81-23cd-42d4-83aa-08133cfd1531 -->
+    <figure>
+      <a href="/assets/images/guides/traffic-generator-info.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-info.avif" alt="ESPectre Traffic Generator Info tab with Start on boot, Watchdog, Show in sidebar, and Open Web UI controls" width="1068" height="723" loading="lazy"></a>
+      <figcaption>Use the Info tab to start the add-on and show ESPectre Traffic in the sidebar. Select any screenshot to view it at full size.</figcaption>
+    </figure>
+
+    <h3>Check the traffic settings</h3>
+    <p>For a first test, keep <em>Target addresses</em> at <code>239.255.0.1</code>, the UDP port at <code>5555</code>, and the rate at <code>100</code> packets per second per target. Leave <em>Source IPv4 address</em> empty so Home Assistant chooses the outgoing interface. The group, port, and rate must match the devices' external traffic settings; installing the add-on does not change them.</p>
+    <p>If multicast does not reach your sensors, replace the target with their individual IPv4 addresses and reserve those addresses in your router's DHCP settings. Avoid sending to the same sensor through both multicast and its IP address, or running another generator for it at the same time. Save and restart the add-on after changing options.</p>
+    <!-- Screenshot source: https://github.com/user-attachments/assets/f76b0fc0-d770-40d7-8d82-6807fd1de6c7 -->
+    <figure>
+      <a href="/assets/images/guides/traffic-generator-config.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-config.avif" alt="Traffic generator Configuration tab showing multicast target 239.255.0.1, UDP port 5555, 100 packets per second, and an empty source address" width="1068" height="873" loading="lazy"></a>
+      <figcaption>Default configuration for a multicast stream. Advanced network options are documented in the add-on's Documentation tab.</figcaption>
+    </figure>
+
+    <h3>Switch devices to external traffic</h3>
+    <ol class="steps-list">
+      <li><h3>Find your devices</h3><p>Open <em>ESPectre Traffic</em>. The panel lists devices already added to Home Assistant through ESPHome or Native MQTT Discovery. If a device or its controls are missing, check the integration and enable its traffic entities under <em>Settings → Devices &amp; services → Entities</em>.</p></li>
+      <li><h3>Select External</h3><p>Use <em>External</em> on a device row, or select several devices and use the button above the table. Confirm the change. External mode persists across device restarts; <em>Internal</em> restores the device's configured internal generator.</p></li>
+      <li><h3>Verify reception and sensing</h3><p>Check <em>Traffic / s</em>, <em>CSI / s</em>, and <em>Occupancy</em>. The panel refreshes diagnostics automatically while visible. In external mode, <em>Traffic / s</em> shows the received packet rate. Occupancy here means valid CSI coverage. Check calibration and sensing readiness in the device's entities or <a href="/tools/monitor/">Monitor</a>, then walk through the room and confirm that Motion Detected changes state.</p></li>
+    </ol>
+    <!-- Screenshot source: https://github.com/user-attachments/assets/3701bf3b-38fd-484a-b821-47755c2cc61e -->
+    <figure>
+      <a href="/assets/images/guides/traffic-generator-panel.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-panel.avif" alt="ESPectre Traffic panel with two devices in external mode, traffic and CSI rates, occupancy, Wi-Fi RSSI, and Internal buttons" width="1068" height="471" loading="lazy"></a>
+      <figcaption>Two devices receiving external traffic. All three screenshots show add-on 0.2.0, shared in <a href="https://github.com/francescopace/espectre/issues/168#issuecomment-5746145460" target="_blank" rel="noopener">the original feature request, issue #168</a>.</figcaption>
+    </figure>
+    <div class="note">The panel's <em>Stop</em> button pauses outgoing traffic without changing device modes. Switch sensors back to <em>Internal</em> if they need to keep sensing without the add-on. Generator counters alone do not prove reception. For missing CSI, VLANs, and other network issues, use the <a href="https://github.com/francescopace/espectre/blob/main/tools/ha_traffic_generator_addon/DOCS.md" target="_blank" rel="noopener">add-on documentation</a>. Matter devices can receive its traffic, but their traffic mode must be configured separately in <a href="/tools/device-settings/">Device settings</a>.</div>
 
     <h2 id="ha-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">

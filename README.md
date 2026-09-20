@@ -2,7 +2,6 @@
 [![SoC](https://img.shields.io/badge/SoC-ESP32-orange.svg)](https://www.espressif.com/en/products/socs)
 [![ESP-IDF component](https://img.shields.io/badge/ESP--IDF-component-E7352C?logo=espressif)](https://components.espressif.com/components/francescopace/espectre)
 [![ESP-IDF staging](https://img.shields.io/badge/ESP--IDF-staging-E7352C?logo=espressif)](https://components-staging.espressif.com/components/francescopace/espectre)
-[![CI main](https://github.com/francescopace/espectre/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![Python coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-python.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
 [![Web coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-web.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
