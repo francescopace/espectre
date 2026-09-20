@@ -114,6 +114,7 @@ void test_espectre_component_setup_uses_mock_runtime_snapshot(void) {
   TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener != &component);
   TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_instance);
+  TEST_ASSERT_TRUE(component.runtime_.config().wifi_scan_results_managed_externally);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.get_threshold());
   TEST_ASSERT_EQUAL(1, g_httpd_mock.start_calls);

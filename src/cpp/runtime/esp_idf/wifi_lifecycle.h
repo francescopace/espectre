@@ -70,17 +70,25 @@ class WiFiLifecycleManager {
   esp_err_t process_pending_events();
 
   /**
-   * Run the asynchronous station scan required to refresh the CSI receive
-   * path after reassociation. Promiscuous mode is kept disabled throughout.
-   * The completion callback runs from process_pending_events().
+   * Attempt an asynchronous scan to recover a silent CSI receive path.
+   * Busy drivers and unconsumed scan results return ESP_ERR_INVALID_STATE.
+   * Completion, including a 30-second timeout, runs from process_pending_events().
+   * Promiscuous mode stays disabled. With manage_scan_results enabled, callers
+   * must keep independent scanners idle until csi_receive_path_refresh_active()
+   * becomes false. Disable it when the Wi-Fi stack consumes all scan results;
+   * cleanup then leaves the driver's result list entirely to that stack.
    */
-  esp_err_t refresh_csi_receive_path(wifi_csi_rx_refresh_callback_t callback);
+  esp_err_t refresh_csi_receive_path(wifi_csi_rx_refresh_callback_t callback,
+                                   bool manage_scan_results = true);
 
   /**
    * Cancel an in-flight CSI receive-path refresh. Late scan completion events
    * are invalidated and cannot invoke the canceled callback.
    */
   void cancel_csi_receive_path_refresh();
+
+  /** Whether an SDK CSI refresh owns the scanner, including pending cleanup. */
+  static bool csi_receive_path_refresh_active();
 
   /**
    * Apply the short CSI radio policy that must run after WIFI_EVENT_STA_START
@@ -98,6 +106,7 @@ class WiFiLifecycleManager {
       wifi_storage_t storage = WIFI_STORAGE_RAM);
 
  private:
+  void release_csi_receive_path_refresh_();
   esp_err_t init();
   static esp_err_t apply_csi_wifi_policy(WifiBandPolicy band_policy);
   static void log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy);
@@ -142,6 +151,11 @@ class WiFiLifecycleManager {
   std::atomic<bool> started_policy_applied_{false};
   std::atomic<uint32_t> started_policy_driver_generation_{0U};
   std::atomic<uint32_t> csi_rx_refresh_generation_{0U};
+  std::atomic<bool> csi_rx_scan_running_{false};
+  std::atomic<bool> csi_rx_scan_results_owned_{false};
+  bool csi_rx_manage_scan_results_{true};
+  uint64_t csi_rx_refresh_deadline_us_{0U};
+  bool csi_rx_refresh_cleanup_pending_{false};
   // Distinguishes "STA_START never reached us" from "it did and the policy
   // failed". Only the first is recoverable at GOT_IP; the second is a real
   // radio failure that must propagate. The error code alone cannot tell them

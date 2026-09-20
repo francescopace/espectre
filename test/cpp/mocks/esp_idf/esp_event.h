@@ -131,16 +131,20 @@ static inline esp_err_t esp_event_handler_instance_register(
     return result;
   }
 
-  if (call_index < 8) {
-    g_esp_event_mock.slots[call_index].event_base = event_base;
-    g_esp_event_mock.slots[call_index].event_id = event_id;
-    g_esp_event_mock.slots[call_index].handler = event_handler;
-    g_esp_event_mock.slots[call_index].handler_arg = event_handler_arg;
-    g_esp_event_mock.slots[call_index].instance =
+  for (size_t i = 0; i < sizeof(g_esp_event_mock.slots) / sizeof(g_esp_event_mock.slots[0]); i++) {
+    esp_event_mock_slot_t *slot = &g_esp_event_mock.slots[i];
+    if (slot->active) {
+      continue;
+    }
+    slot->event_base = event_base;
+    slot->event_id = event_id;
+    slot->handler = event_handler;
+    slot->handler_arg = event_handler_arg;
+    slot->instance =
         (esp_event_handler_instance_t)(size_t)(call_index + 1);
-    g_esp_event_mock.slots[call_index].active = 1;
+    slot->active = 1;
     if (instance) {
-      *instance = g_esp_event_mock.slots[call_index].instance;
+      *instance = slot->instance;
     }
     return ESP_OK;
   }

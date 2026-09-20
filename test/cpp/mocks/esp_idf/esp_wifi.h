@@ -112,6 +112,10 @@ typedef struct {
 } wifi_scan_config_t;
 
 typedef struct {
+  uint16_t home_chan_dwell_time;
+} wifi_scan_default_params_t;
+
+typedef struct {
   uint8_t reason;
 } wifi_event_sta_disconnected_t;
 
@@ -355,6 +359,10 @@ typedef struct {
   esp_err_t get_ap_info_result;
   wifi_ap_record_t current_ap_info;
   esp_err_t scan_start_result;
+  esp_err_t get_scan_parameters_result;
+  esp_err_t set_scan_parameters_result;
+  wifi_scan_default_params_t scan_parameters;
+  int clear_ap_list_call_count;
   int scan_start_call_count;
   esp_err_t scan_stop_result;
   int scan_stop_call_count;
@@ -472,6 +480,24 @@ static inline esp_err_t esp_wifi_disconnect(void) {
   }
   g_esp_wifi_mock.disconnect_call_count++;
   return result;
+}
+
+static inline esp_err_t esp_wifi_get_scan_parameters(wifi_scan_default_params_t *config) {
+  *config = g_esp_wifi_mock.scan_parameters;
+  return g_esp_wifi_mock.get_scan_parameters_result;
+}
+
+static inline esp_err_t esp_wifi_set_scan_parameters(const wifi_scan_default_params_t *config) {
+  if (g_esp_wifi_mock.set_scan_parameters_result == ESP_OK) {
+    g_esp_wifi_mock.scan_parameters = *config;
+  }
+  return g_esp_wifi_mock.set_scan_parameters_result;
+}
+
+static inline esp_err_t esp_wifi_clear_ap_list(void) {
+  g_esp_wifi_mock.clear_ap_list_call_count++;
+  g_esp_wifi_mock.scan_ap_count = 0U;
+  return ESP_OK;
 }
 
 static inline esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *config, bool block) {

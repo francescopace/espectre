@@ -501,6 +501,8 @@ void test_wifi_lifecycle_refreshes_csi_receive_path_without_promiscuous_mode(voi
   TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
   TEST_ASSERT_EQUAL(1, callback_count);
   TEST_ASSERT_EQUAL(ESP_OK, observed_result);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
 }
 
 void test_wifi_lifecycle_csi_receive_refresh_requires_promiscuous_disabled(void) {
@@ -527,7 +529,8 @@ void test_wifi_lifecycle_cancel_invalidates_pending_csi_refresh_completion(void)
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
 
   manager.cancel_csi_receive_path_refresh();
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
   TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
   TEST_ASSERT_EQUAL(0, canceled_callback_count);
 
@@ -541,6 +544,207 @@ void test_wifi_lifecycle_cancel_invalidates_pending_csi_refresh_completion(void)
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
   TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
   TEST_ASSERT_EQUAL(1, completed_callback_count);
+  manager.unregister_handlers();
+}
+
+void test_wifi_lifecycle_refresh_defers_to_busy_driver_and_unconsumed_results(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.scan_parameters.home_chan_dwell_time = 75U;
+  g_esp_wifi_mock.set_scan_parameters_result = ESP_ERR_INVALID_STATE;
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, manager.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+  g_esp_wifi_mock.set_scan_parameters_result = ESP_OK;
+  g_esp_wifi_mock.scan_ap_count = 3U;
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, manager.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+  TEST_ASSERT_EQUAL(3U, g_esp_wifi_mock.scan_ap_count);
+  TEST_ASSERT_EQUAL(75U, g_esp_wifi_mock.scan_parameters.home_chan_dwell_time);
+}
+
+void test_wifi_lifecycle_refresh_releases_results_and_serializes_sdk_scanners(void) {
+  WiFiLifecycleManager manager;
+  WiFiLifecycleManager other;
+  int callbacks = 0;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([&](esp_err_t result) {
+    TEST_ASSERT_EQUAL(ESP_OK, result);
+    TEST_ASSERT_TRUE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+    callbacks++;
+  }));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, other.refresh_csi_receive_path([](esp_err_t) {}));
+  g_esp_wifi_mock.scan_ap_count = 5U;
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callbacks);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, other.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0U, g_esp_wifi_mock.scan_ap_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(ESP_OK, other.refresh_csi_receive_path([](esp_err_t) {}));
+  other.cancel_csi_receive_path_refresh();
+}
+
+void test_wifi_lifecycle_refresh_times_out_once_and_releases_owned_scan(void) {
+  esp_timer_mock::reset(0, 0);
+  WiFiLifecycleManager manager;
+  int callbacks = 0;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([&](esp_err_t result) {
+    TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT, result);
+    callbacks++;
+  }));
+  esp_timer_mock::advance(29999000);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, callbacks);
+  esp_timer_mock::advance(1000);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callbacks);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
+  TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+  wifi_event_sta_scan_done_t late{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &late);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callbacks);
+}
+
+void test_wifi_lifecycle_aborted_refresh_does_not_stop_or_clear_a_superseding_scan(void) {
+  WiFiLifecycleManager manager;
+  int callbacks = 0;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([&](esp_err_t result) {
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+    callbacks++;
+  }));
+  g_esp_wifi_mock.scan_ap_count = 4U;
+  g_esp_wifi_mock.set_scan_parameters_result = ESP_ERR_INVALID_STATE;
+  wifi_event_sta_scan_done_t aborted{};
+  aborted.status = 1U;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &aborted);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callbacks);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+  TEST_ASSERT_EQUAL(4U, g_esp_wifi_mock.scan_ap_count);
+}
+
+void test_wifi_lifecycle_failed_refresh_releases_partial_results(void) {
+  WiFiLifecycleManager manager;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([](esp_err_t result) {
+    TEST_ASSERT_EQUAL(ESP_FAIL, result);
+  }));
+  g_esp_wifi_mock.scan_ap_count = 2U;
+  wifi_event_sta_scan_done_t failed{};
+  failed.status = 1U;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &failed);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
+  TEST_ASSERT_EQUAL(0U, g_esp_wifi_mock.scan_ap_count);
+  TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+}
+
+void test_wifi_lifecycle_refresh_cleanup_preserves_new_frontend_scan_results(void) {
+  for (const bool completed : {false, true}) {
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    WiFiLifecycleManager manager;
+    TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([](esp_err_t) {}));
+    wifi_event_sta_scan_done_t event{};
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    g_esp_wifi_mock.scan_ap_count = 6U;
+    if (completed) {
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+    } else {
+      g_esp_wifi_mock.set_scan_parameters_result = ESP_ERR_INVALID_STATE;
+    }
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+    TEST_ASSERT_EQUAL(6U, g_esp_wifi_mock.scan_ap_count);
+    TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+  }
+}
+
+void test_wifi_lifecycle_rejected_refresh_does_not_cancel_or_clear_another_scan(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.scan_start_result = ESP_ERR_WIFI_STATE;
+  TEST_ASSERT_EQUAL(ESP_ERR_WIFI_STATE, manager.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+}
+
+void test_wifi_lifecycle_external_scan_results_survive_cleanup_before_event_dispatch(void) {
+  for (const bool cancel : {false, true}) {
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    WiFiLifecycleManager manager;
+    TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([](esp_err_t) {}, false));
+    wifi_event_sta_scan_done_t recovery{};
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &recovery);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+
+    // The frontend starts another scan after consuming recovery's results.
+    // The driver finishes it before the runtime's next loop, but SCAN_DONE
+    // is still queued. The idle-driver probe therefore returns ESP_OK.
+    TEST_ASSERT_EQUAL(ESP_OK, esp_wifi_scan_start(nullptr, false));
+    g_esp_wifi_mock.scan_ap_count = 6U;
+    if (cancel) manager.cancel_csi_receive_path_refresh();
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    wifi_event_sta_scan_done_t successor{};
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &successor);
+    uint16_t available = 0U;
+    TEST_ASSERT_EQUAL(ESP_OK, esp_wifi_scan_get_ap_num(&available));
+    TEST_ASSERT_EQUAL(6U, available);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+    TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+  }
+}
+
+void test_wifi_lifecycle_lost_scan_completion_still_times_out_and_cleans_up(void) {
+  esp_timer_mock::reset(0, 0);
+  WiFiLifecycleManager manager;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers({}, {}));
+  int callbacks = 0;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([&](esp_err_t result) {
+    TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT, result);
+    callbacks++;
+  }));
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  ip_event_got_ip_t ip{};
+  ip.ip_info.ip.addr = ip.ip_info.gw.addr = 0x0101A8C0U;
+  for (unsigned i = 0; i < 16; ++i) {
+    esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip);
+  }
+  esp_timer_mock::advance(30000000);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, callbacks);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_stop_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.clear_ap_list_call_count);
+  manager.unregister_handlers();
+}
+
+void test_standalone_wifi_service_defers_scans_until_csi_refresh_cleanup(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  WiFiLifecycleManager manager;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  service.loop();
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_OK, service.request_scan({}));
+  service.shutdown();
 }
 
 void test_wifi_lifecycle_restores_an_already_connected_station(void) {
@@ -1430,6 +1634,16 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_refreshes_csi_receive_path_without_promiscuous_mode);
   RUN_TEST(test_wifi_lifecycle_csi_receive_refresh_requires_promiscuous_disabled);
   RUN_TEST(test_wifi_lifecycle_cancel_invalidates_pending_csi_refresh_completion);
+  RUN_TEST(test_wifi_lifecycle_refresh_defers_to_busy_driver_and_unconsumed_results);
+  RUN_TEST(test_wifi_lifecycle_refresh_releases_results_and_serializes_sdk_scanners);
+  RUN_TEST(test_wifi_lifecycle_refresh_times_out_once_and_releases_owned_scan);
+  RUN_TEST(test_wifi_lifecycle_aborted_refresh_does_not_stop_or_clear_a_superseding_scan);
+  RUN_TEST(test_wifi_lifecycle_failed_refresh_releases_partial_results);
+  RUN_TEST(test_wifi_lifecycle_refresh_cleanup_preserves_new_frontend_scan_results);
+  RUN_TEST(test_wifi_lifecycle_rejected_refresh_does_not_cancel_or_clear_another_scan);
+  RUN_TEST(test_wifi_lifecycle_external_scan_results_survive_cleanup_before_event_dispatch);
+  RUN_TEST(test_wifi_lifecycle_lost_scan_completion_still_times_out_and_cleans_up);
+  RUN_TEST(test_standalone_wifi_service_defers_scans_until_csi_refresh_cleanup);
   RUN_TEST(test_wifi_lifecycle_restores_an_already_connected_station);
   RUN_TEST(test_wifi_lifecycle_waits_for_fresh_ip_after_late_policy_change);
   RUN_TEST(test_wifi_lifecycle_restarts_station_when_late_policy_getter_fails);

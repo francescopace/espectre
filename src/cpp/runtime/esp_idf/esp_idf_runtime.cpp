@@ -36,6 +36,10 @@ namespace {
 
 static const char *const RUNTIME_TAG = "espectre.runtime";
 static constexpr uint32_t CSI_ENABLE_SETTLE_MS = 100U;
+static constexpr uint32_t CSI_STARTUP_OBSERVATION_MS = 5000U;
+static constexpr uint32_t CSI_STARTUP_TRAFFIC_IDLE_MS = 1000U;
+static constexpr uint32_t CSI_REFRESH_RETRY_INTERVAL_MS = 500U;
+static constexpr uint32_t CSI_REFRESH_REQUEST_WINDOW_MS = 15000U;
 
 }  // namespace
 
@@ -100,7 +104,7 @@ bool EspIdfRuntime::setup() {
     return true;
   }
 
-  csi_receive_path_refresh_required_ = false;
+  csi_receive_path_check_pending_ = false;
   csi_receive_path_refresh_in_progress_ = false;
 
   const RuntimeConfigError config_error = validate_runtime_config(config_);
@@ -209,7 +213,7 @@ void EspIdfRuntime::shutdown() {
   }
   set_services_armed(false);
   on_wifi_disconnected_();
-  csi_receive_path_refresh_required_ = false;
+  csi_receive_path_check_pending_ = false;
   csi_receive_path_refresh_in_progress_ = false;
   wifi_lifecycle_.unregister_handlers();
   setup_complete_ = false;
@@ -240,6 +244,7 @@ void EspIdfRuntime::loop() {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return;
   }
+  check_csi_receive_path_();
   csi_pipeline_.heartbeat_if_due(monotonic_now_ms());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
@@ -310,8 +315,7 @@ void EspIdfRuntime::set_services_armed(bool armed) {
   if (!services_armed_) {
     ESPECTRE_LOGI(RUNTIME_TAG, "CSI services disarmed");
     invalidate_csi_receive_path_refresh_();
-    csi_receive_path_refresh_required_ =
-        csi_receive_path_refresh_required_ || csi_pipeline_.is_enabled();
+    csi_receive_path_check_pending_ = false;
     stop_sensing_services_();
     return;
   }
@@ -528,7 +532,7 @@ RuntimeOperationState EspIdfRuntime::operation_state() const {
 bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, void *context) {
   if (!capabilities_.supports_raw_csi || callback == nullptr || !setup_complete_ || !services_armed_ ||
       !wifi_ready_ || wifi_ip_info_.ip.addr == 0U ||
-      operation_state() != RuntimeOperationState::SENSING) {
+      operation_state() != RuntimeOperationState::SENSING || csi_receive_path_refresh_in_progress_) {
     return false;
   }
 
@@ -567,6 +571,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
     }
   }
 
+  csi_receive_path_check_pending_ = false;
   ESPECTRE_LOGI(RUNTIME_TAG, "Entered raw CSI collection mode");
   return true;
 }
@@ -742,8 +747,7 @@ void EspIdfRuntime::on_wifi_disconnected_() {
     return;
   }
   invalidate_csi_receive_path_refresh_();
-  csi_receive_path_refresh_required_ =
-      csi_receive_path_refresh_required_ || csi_pipeline_.is_enabled();
+  csi_receive_path_check_pending_ = false;
   stop_sensing_services_();
 }
 
@@ -754,7 +758,7 @@ void EspIdfRuntime::invalidate_csi_receive_path_refresh_() {
 
   wifi_lifecycle_.cancel_csi_receive_path_refresh();
   csi_receive_path_refresh_in_progress_ = false;
-  csi_receive_path_refresh_required_ = true;
+  csi_receive_path_check_pending_ = false;
 }
 
 void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
@@ -762,41 +766,85 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
       wifi_ip_info_.ip.addr == 0U || csi_receive_path_refresh_in_progress_) {
     return;
   }
-  if (!csi_receive_path_refresh_required_) {
-    start_sensing_services_(wifi_ip_info_);
-    return;
-  }
 
-  csi_receive_path_refresh_required_ = false;
-  csi_receive_path_refresh_in_progress_ = true;
-  const esp_err_t refresh_err = wifi_lifecycle_.refresh_csi_receive_path(
-      [this](esp_err_t result) { finish_csi_receive_path_refresh_(result); });
-  if (refresh_err == ESP_OK) {
-    ESPECTRE_LOGI(RUNTIME_TAG,
-                  "Starting post-reassociation Wi-Fi scan to refresh the CSI receive path");
-    return;
-  }
-
-  csi_receive_path_refresh_in_progress_ = false;
-  ESPECTRE_LOGW(RUNTIME_TAG,
-                "Could not start post-reassociation Wi-Fi scan: %s; resuming sensing",
-                esp_err_to_name(refresh_err));
+  csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
+  csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.is_running();
+  csi_receive_path_traffic_total_ = csi_traffic_service_.get_traffic_packets_total();
+  csi_receive_path_traffic_seen_ = false;
+}
+
+void EspIdfRuntime::check_csi_receive_path_() {
+  if (!csi_receive_path_check_pending_ || csi_receive_path_refresh_in_progress_ ||
+      !services_armed_ || !wifi_ready_ || !csi_pipeline_.is_enabled()) {
+    return;
+  }
+  // Any hardware callback proves that the receive path works. Rejected packets
+  // and a low movement score are not reasons to disturb the radio.
+  if (csi_pipeline_.capture_callback_invocations_total() != csi_receive_path_callbacks_at_start_) {
+    csi_receive_path_check_pending_ = false;
+    return;
+  }
+
+  const uint64_t traffic = csi_traffic_service_.get_traffic_packets_total();
+  const uint32_t now = monotonic_now_ms();
+  if (traffic < csi_receive_path_traffic_total_) {
+    csi_receive_path_traffic_total_ = traffic;
+    csi_receive_path_traffic_seen_ = false;
+  }
+  if (!csi_receive_path_traffic_seen_) {
+    if (traffic == csi_receive_path_traffic_total_) return;
+    csi_receive_path_traffic_seen_ = true;
+    csi_receive_path_traffic_total_ = traffic;
+    csi_receive_path_check_started_ms_ = now;
+    csi_receive_path_last_traffic_ms_ = now;
+    csi_receive_path_last_attempt_ms_ = now;
+    return;
+  }
+  if (traffic != csi_receive_path_traffic_total_) {
+    csi_receive_path_traffic_total_ = traffic;
+    csi_receive_path_last_traffic_ms_ = now;
+  }
+  const uint32_t elapsed = now - csi_receive_path_check_started_ms_;
+  if (elapsed >= CSI_REFRESH_REQUEST_WINDOW_MS) {
+    csi_receive_path_check_pending_ = false;
+    ESPECTRE_LOGW(RUNTIME_TAG, "CSI receive-path refresh deferred too long; continuing capture");
+    return;
+  }
+  if (now - csi_receive_path_last_traffic_ms_ >= CSI_STARTUP_TRAFFIC_IDLE_MS) {
+    // A short burst followed by silence is not a CSI receive-path fault.
+    csi_receive_path_traffic_seen_ = false;
+    return;
+  }
+  if (elapsed < CSI_STARTUP_OBSERVATION_MS) return;
+  if (now - csi_receive_path_last_attempt_ms_ < CSI_REFRESH_RETRY_INTERVAL_MS) return;
+  csi_receive_path_last_attempt_ms_ = now;
+
+  const esp_err_t err = wifi_lifecycle_.refresh_csi_receive_path(
+      [this](esp_err_t result) { finish_csi_receive_path_refresh_(result); },
+      !config_.wifi_scan_results_managed_externally);
+  if (err == ESP_ERR_INVALID_STATE || err == ESP_ERR_WIFI_STATE) {
+    return;  // Leave the other scan/connection and the current capture intact.
+  }
+  // One accepted attempt per sensing session, including a failed completion.
+  csi_receive_path_check_pending_ = false;
+  if (err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Could not refresh the CSI receive path: %s; continuing capture",
+                  esp_err_to_name(err));
+    return;
+  }
+  csi_receive_path_refresh_in_progress_ = true;
+  stop_sensing_services_();
+  ESPECTRE_LOGW(RUNTIME_TAG, "No CSI callbacks despite traffic; refreshing the receive path");
 }
 
 void EspIdfRuntime::finish_csi_receive_path_refresh_(esp_err_t result) {
   csi_receive_path_refresh_in_progress_ = false;
   if (result == ESP_OK) {
-    ESPECTRE_LOGI(RUNTIME_TAG, "Post-reassociation Wi-Fi scan completed; resuming sensing");
+    ESPECTRE_LOGI(RUNTIME_TAG, "CSI receive-path refresh completed; resuming sensing");
   } else {
-    csi_receive_path_refresh_required_ = true;
-    ESPECTRE_LOGW(RUNTIME_TAG,
-                  "Post-reassociation Wi-Fi scan failed: %s; retrying refresh",
+    ESPECTRE_LOGW(RUNTIME_TAG, "CSI receive-path refresh failed: %s; resuming sensing",
                   esp_err_to_name(result));
-    if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
-      maybe_resume_sensing_after_wifi_reconfigure_();
-    }
-    return;
   }
   if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
     start_sensing_services_(wifi_ip_info_);

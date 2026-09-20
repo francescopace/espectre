@@ -377,7 +377,7 @@ esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t ca
   if (!setup_complete_ || !wifi_started_) {
     return ESP_ERR_INVALID_STATE;
   }
-  if (scan_pending_) {
+  if (scan_pending_ || WiFiLifecycleManager::csi_receive_path_refresh_active()) {
     return ESP_ERR_INVALID_STATE;
   }
 

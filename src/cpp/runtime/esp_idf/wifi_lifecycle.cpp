@@ -13,6 +13,7 @@
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"
 #include "wifi_tx_rate.h"
+#include "esp_timer.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -31,6 +32,8 @@ static const char *WIFI_LIFECYCLE_TAG = "WiFiLifecycle";
 namespace {
 
 std::atomic<uint32_t> wifi_driver_generation{0U};
+std::atomic<WiFiLifecycleManager *> csi_refresh_owner{nullptr};
+constexpr uint64_t CSI_RX_REFRESH_TIMEOUT_US = 30000000U;
 #ifdef ESP_PLATFORM
 constexpr uint32_t WIFI_DRIVER_POWER_CYCLE_SETTLE_MS = 250U;
 #endif
@@ -607,6 +610,9 @@ void WiFiLifecycleManager::unregister_handlers() {
 }
 
 esp_err_t WiFiLifecycleManager::process_pending_events() {
+  // Give other event consumers one loop turn to retrieve their scan snapshot.
+  // Retain the SDK reservation through cleanup of SDK-managed results.
+  if (csi_rx_refresh_cleanup_pending_) release_csi_receive_path_refresh_();
   PendingWifiEvent event;
   while (pending_events_.take(event)) {
     if (event.type == PendingWifiEventType::CSI_RX_REFRESHED) {
@@ -614,10 +620,8 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
           csi_rx_refresh_generation_.load(std::memory_order_acquire)) {
         continue;
       }
-      if (scan_done_instance_) {
-        esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
-        scan_done_instance_ = nullptr;
-      }
+      csi_rx_refresh_cleanup_pending_ = true;
+      csi_rx_refresh_deadline_us_ = 0U;
       wifi_csi_rx_refresh_callback_t callback = std::move(csi_rx_refresh_callback_);
       csi_rx_refresh_callback_ = {};
       if (callback) {
@@ -682,62 +686,100 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     active_ip_info_ = event.ip_info;
     roaming_ = false;
   }
+  if (csi_rx_refresh_deadline_us_ != 0U && static_cast<uint64_t>(esp_timer_get_time()) >= csi_rx_refresh_deadline_us_) {
+    wifi_csi_rx_refresh_callback_t callback = std::move(csi_rx_refresh_callback_);
+    cancel_csi_receive_path_refresh();
+    if (callback) callback(ESP_ERR_TIMEOUT);
+  }
   return ESP_OK;
 }
 
+bool WiFiLifecycleManager::csi_receive_path_refresh_active() {
+  return csi_refresh_owner.load(std::memory_order_acquire) != nullptr;
+}
+
 esp_err_t WiFiLifecycleManager::refresh_csi_receive_path(
-    wifi_csi_rx_refresh_callback_t callback) {
-  if (!callback) {
-    return ESP_ERR_INVALID_ARG;
-  }
-  if (scan_done_instance_ != nullptr || csi_rx_refresh_callback_) {
+    wifi_csi_rx_refresh_callback_t callback, bool manage_scan_results) {
+  if (!callback) return ESP_ERR_INVALID_ARG;
+  if (scan_done_instance_ != nullptr || csi_rx_refresh_callback_) return ESP_ERR_INVALID_STATE;
+
+  WiFiLifecycleManager *expected = nullptr;
+  if (!csi_refresh_owner.compare_exchange_strong(expected, this, std::memory_order_acq_rel)) {
     return ESP_ERR_INVALID_STATE;
   }
-
-  const esp_err_t promiscuous_err = esp_wifi_set_promiscuous(false);
-  if (promiscuous_err != ESP_OK) {
-    return promiscuous_err;
+  // ESP-IDF has no public scan-status getter. Reapplying the current parameters
+  // preserves the frontend's policy and is rejected while scanning/connecting.
+  wifi_scan_default_params_t scan_parameters{};
+  esp_err_t err = esp_wifi_get_scan_parameters(&scan_parameters);
+  if (err == ESP_OK) err = esp_wifi_set_scan_parameters(&scan_parameters);
+  uint16_t pending_records = 0U;
+  if (err == ESP_OK) err = esp_wifi_scan_get_ap_num(&pending_records);
+  if (err == ESP_OK && pending_records != 0U) err = ESP_ERR_INVALID_STATE;
+  if (err == ESP_OK) err = esp_wifi_set_promiscuous(false);
+  if (err != ESP_OK) {
+    csi_refresh_owner.store(nullptr, std::memory_order_release);
+    return err;
   }
 
   csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
-  esp_err_t err = esp_event_handler_instance_register(
-      WIFI_EVENT,
-      WIFI_EVENT_SCAN_DONE,
-      &WiFiLifecycleManager::wifi_event_handler_,
-      this,
+  err = esp_event_handler_instance_register(
+      WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &WiFiLifecycleManager::wifi_event_handler_, this,
       &scan_done_instance_);
   if (err != ESP_OK) {
+    csi_refresh_owner.store(nullptr, std::memory_order_release);
     return err;
   }
 
   csi_rx_refresh_callback_ = std::move(callback);
+  csi_rx_manage_scan_results_ = manage_scan_results;
+  csi_rx_scan_results_owned_.store(false, std::memory_order_release);
+  csi_rx_scan_running_.store(true, std::memory_order_release);
+  csi_rx_refresh_deadline_us_ = static_cast<uint64_t>(esp_timer_get_time()) + CSI_RX_REFRESH_TIMEOUT_US;
   err = esp_wifi_scan_start(nullptr, false);
   if (err != ESP_OK) {
-    csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
-    esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
-    scan_done_instance_ = nullptr;
-    csi_rx_refresh_callback_ = {};
+    csi_rx_scan_running_.store(false, std::memory_order_release);
+    cancel_csi_receive_path_refresh();
   }
   return err;
 }
 
-void WiFiLifecycleManager::cancel_csi_receive_path_refresh() {
-  if (scan_done_instance_ == nullptr && !csi_rx_refresh_callback_) {
-    return;
-  }
-
-  csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
-  csi_rx_refresh_callback_ = {};
-  const esp_err_t stop_err = esp_wifi_scan_stop();
-  if (stop_err != ESP_OK) {
-    ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG,
-                  "CSI receive-path refresh scan was already stopped: %s",
-                  esp_err_to_name(stop_err));
-  }
+void WiFiLifecycleManager::release_csi_receive_path_refresh_() {
   if (scan_done_instance_) {
     esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, scan_done_instance_);
     scan_done_instance_ = nullptr;
   }
+  if (csi_rx_scan_running_.exchange(false, std::memory_order_acq_rel)) {
+    const esp_err_t err = esp_wifi_scan_stop();
+    if (err == ESP_OK) {
+      csi_rx_scan_results_owned_.store(true, std::memory_order_release);
+    } else {
+      ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Could not stop CSI refresh scan: %s", esp_err_to_name(err));
+    }
+  }
+  if (csi_rx_scan_results_owned_.exchange(false, std::memory_order_acq_rel) &&
+      csi_rx_manage_scan_results_) {
+    // Only a scanner reservation establishes ownership. An autonomous scan
+    // can finish before its event is dispatched, so an idle driver alone
+    // cannot authorize clearing an externally managed result list.
+    wifi_scan_default_params_t parameters{};
+    if (esp_wifi_get_scan_parameters(&parameters) == ESP_OK &&
+        esp_wifi_set_scan_parameters(&parameters) == ESP_OK) {
+      const esp_err_t err = esp_wifi_clear_ap_list();
+      if (err != ESP_OK) {
+        ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Could not release CSI scan results: %s", esp_err_to_name(err));
+      }
+    }
+  }
+  csi_rx_refresh_deadline_us_ = 0U;
+  csi_rx_refresh_cleanup_pending_ = false;
+  WiFiLifecycleManager *expected = this;
+  csi_refresh_owner.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+}
+
+void WiFiLifecycleManager::cancel_csi_receive_path_refresh() {
+  csi_rx_refresh_generation_.fetch_add(1U, std::memory_order_acq_rel);
+  csi_rx_refresh_callback_ = {};
+  release_csi_receive_path_refresh_();
 }
 
 void WiFiLifecycleManager::log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy) {
@@ -825,8 +867,15 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
       ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
     }
   } else if (event_id == WIFI_EVENT_SCAN_DONE) {
+    if (!manager->csi_rx_scan_running_.exchange(false, std::memory_order_acq_rel)) {
+      manager->csi_rx_scan_results_owned_.store(false, std::memory_order_release);
+      return;
+    }
     const auto *event = static_cast<const wifi_event_sta_scan_done_t *>(event_data);
     const esp_err_t result = event != nullptr && event->status == 0U ? ESP_OK : ESP_FAIL;
+    // Failed scans can retain partial results too. Only the configured result
+    // owner may release them.
+    manager->csi_rx_scan_results_owned_.store(true, std::memory_order_release);
     if (!manager->pending_events_.post_overwrite_oldest(
             PendingWifiEvent{PendingWifiEventType::CSI_RX_REFRESHED, {}, result,
                              manager->csi_rx_refresh_generation_.load(

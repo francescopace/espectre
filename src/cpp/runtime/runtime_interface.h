@@ -142,6 +142,15 @@ struct RuntimeConfig {
   uint8_t hampel_window{RUNTIME_HAMPEL_WINDOW_DEFAULT};
   /** Hampel MAD multiplier (1.0..10.0). Ignored unless `hampel_enabled`. */
   float hampel_threshold{RUNTIME_HAMPEL_THRESHOLD_DEFAULT};
+  /**
+   * The Wi-Fi stack consumes scan results, including CSI recovery scans.
+   *
+   * Enable for stacks with autonomous scans, such as ESPHome. The runtime
+   * must not clear their driver result list, even after its own scan completes.
+   * Otherwise, independent scanners must wait until the SDK releases its
+   * scanner reservation after cleanup.
+   */
+  bool wifi_scan_results_managed_externally{false};
 };
 
 /**

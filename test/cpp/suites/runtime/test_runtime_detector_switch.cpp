@@ -82,6 +82,14 @@ class DetectorListener : public IRuntimeListener {
 
 bool accept_raw_packet(void *, const RawCsiPacketView &) { return true; }
 
+void complete_csi_receive_path_refresh(EspIdfRuntime &runtime) {
+  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
+  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
+}
+
 #if defined(CONFIG_IDF_TARGET_ESP32C6) && CONFIG_IDF_TARGET_ESP32C6
 constexpr bool kSupportsWifiRaw = false;
 #else
@@ -96,9 +104,203 @@ void setUp(void) {
   esp_timer_mock::reset();
   esp_event_mock_reset();
   esp_netif_mock_reset();
+  g_esp_netif_mock.ip_addr = 0U;
   esp_wifi_mock_reset();
 }
 void tearDown(void) {}
+
+void test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected(void) {
+  for (const bool already_connected : {false, true}) {
+    esp_event_mock_reset();
+    esp_netif_mock_reset();
+    esp_wifi_mock_reset();
+    g_esp_netif_mock.ip_addr = already_connected ? 0x3701A8C0U : 0U;
+    g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+    RuntimeConfig config;
+    config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    DetectorListener listener;
+    runtime.set_listener(&listener);
+    TEST_ASSERT_TRUE(runtime.setup());
+    if (already_connected) {
+      runtime.loop();
+    } else {
+      esp_netif_ip_info_t ip{};
+      ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+      runtime.on_wifi_connected_(ip);
+    }
+    TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_TRUE(generator.is_running());
+    TEST_ASSERT_EQUAL(1, listener.calibration_starts);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    // The callback counter includes packets that cannot enter the detector.
+    g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+    generator.send_successes = 1000U;
+    esp_timer_mock::advance(6000000);
+    runtime.loop();
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_EQUAL(0U, runtime.csi_pipeline_.accepted_packets_total());
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeout(void) {
+  for (const int completion : {0, 1, 2}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    generator.send_successes = 1U;
+    runtime.check_csi_receive_path_();
+    generator.send_successes = 400U;
+    esp_timer_mock::advance(4999000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    TEST_ASSERT_TRUE(generator.is_running());
+    esp_timer_mock::advance(1000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    TEST_ASSERT_FALSE(generator.is_running());
+    TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+    if (completion < 2) {
+      wifi_event_sta_scan_done_t event{};
+      event.status = completion;
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+    } else {
+      esp_timer_mock::advance(30001000);
+    }
+    runtime.loop();
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
+    TEST_ASSERT_TRUE(generator.is_running());
+    TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_TRUE(runtime.is_calibrating());
+    generator.send_successes += 1000U;
+    esp_timer_mock::advance(60000000);
+    runtime.loop();
+    TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh(void) {
+  for (const auto mode : {CsiTrafficMode::INTERNAL, CsiTrafficMode::EXTERNAL}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    config.csi_traffic_mode = mode;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    esp_timer_mock::advance(60000000);
+    runtime.loop();
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    generator.send_successes = 1U;
+    ingress.packets_received = 1U;
+    runtime.check_csi_receive_path_();
+    esp_timer_mock::advance(500000);
+    generator.send_successes = 20U;
+    ingress.packets_received = 20U;
+    runtime.check_csi_receive_path_();
+    esp_timer_mock::advance(4500000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    generator.send_successes++;
+    ingress.packets_received++;
+    runtime.check_csi_receive_path_();
+    esp_timer_mock::advance(5000000);
+    generator.send_successes++;
+    ingress.packets_received++;
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    complete_csi_receive_path_refresh(runtime);
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_external_wifi_stack_owns_recovery_scan_results(void) {
+  for (const int completion : {0, 1, 2}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    config.wifi_scan_results_managed_externally = true;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    generator.send_successes = 1U;
+    runtime.check_csi_receive_path_();
+    generator.send_successes++;
+    esp_timer_mock::advance(5000000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
+    g_esp_wifi_mock.scan_ap_count = 6U;
+    if (completion < 2) {
+      wifi_event_sta_scan_done_t event{};
+      event.status = completion;
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+    } else {
+      esp_timer_mock::advance(30001000);
+    }
+    runtime.loop();
+    runtime.loop();
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
+    TEST_ASSERT_TRUE(generator.is_running());
+    TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_FALSE(WiFiLifecycleManager::csi_receive_path_refresh_active());
+    runtime.shutdown();
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.clear_ap_list_call_count);
+    TEST_ASSERT_EQUAL(6U, g_esp_wifi_mock.scan_ap_count);
+  }
+}
+
+void test_runtime_defers_busy_refresh_with_capture_running_and_a_bounded_request_window(void) {
+  esp_timer_mock::reset(0, 0);
+  RuntimeConfig config;
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+  generator.send_successes = 1U;
+  runtime.check_csi_receive_path_();
+  g_esp_wifi_mock.set_scan_parameters_result = ESP_ERR_INVALID_STATE;
+  generator.send_successes = 1000U;
+  esp_timer_mock::advance(5000000);
+  runtime.check_csi_receive_path_();
+  TEST_ASSERT_TRUE(generator.is_running());
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+  esp_timer_mock::advance(10000000);
+  runtime.check_csi_receive_path_();
+  TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+  g_esp_wifi_mock.set_scan_parameters_result = ESP_OK;
+  esp_timer_mock::advance(1000000);
+  runtime.check_csi_receive_path_();
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+  runtime.shutdown();
+}
 
 void test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails(void) {
   RuntimeConfig config;
@@ -582,78 +784,31 @@ void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
 }
 
 void test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture(void) {
-  esp_event_mock_reset();
-  esp_wifi_mock_reset();
   RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  DetectorListener listener;
-  runtime.set_listener(&listener);
-  TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get());
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
-  runtime.setup_complete_ = true;
-  runtime.wifi_ready_ = true;
-  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
-  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
-  const esp_netif_ip_info_t ip_info = runtime.wifi_ip_info_;
-  runtime.snapshot_.ready_to_publish = true;
-
-  runtime.set_services_armed(false);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback == nullptr);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_required_);
-  TEST_ASSERT_TRUE(runtime.wifi_ready_);
-  TEST_ASSERT_EQUAL(0x0101A8C0U, runtime.wifi_ip_info_.ip.addr);
-  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
-
-  runtime.set_services_armed(true);
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback == nullptr);
-  TEST_ASSERT_TRUE(runtime.wifi_ready_);
-  TEST_ASSERT_EQUAL(0x0101A8C0U, runtime.wifi_ip_info_.ip.addr);
-
-  wifi_event_sta_scan_done_t event{};
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
-  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
-  TEST_ASSERT_TRUE(runtime.is_calibrating());
-  TEST_ASSERT_EQUAL(1, listener.calibration_starts);
-
-  runtime.on_wifi_disconnected_();
-  TEST_ASSERT_FALSE(runtime.wifi_ready_);
-  TEST_ASSERT_EQUAL(0U, runtime.wifi_ip_info_.ip.addr);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback == nullptr);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_required_);
-
-  runtime.on_wifi_connected_(ip_info);
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
-  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
-  runtime.csi_traffic_service_.stop();
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.disable());
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  for (unsigned cycle = 0; cycle < 2; ++cycle) {
+    runtime.set_services_armed(false);
+    TEST_ASSERT_TRUE(runtime.setup());
+    runtime.on_wifi_connected_(ip);
+    TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_EQUAL(cycle, generator.start_calls);
+    runtime.set_services_armed(true);
+    TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_TRUE(runtime.is_calibrating());
+    TEST_ASSERT_EQUAL(cycle + 1U, generator.start_calls);
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+    runtime.set_services_armed(false);
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_TRUE(runtime.wifi_ready_);
+    TEST_ASSERT_EQUAL(ip.ip.addr, runtime.wifi_ip_info_.ip.addr);
+    runtime.shutdown();
+  }
 }
 
 void test_runtime_sensing_reasserts_promiscuous_disabled_before_capture(void) {
@@ -683,158 +838,42 @@ void test_runtime_sensing_reasserts_promiscuous_disabled_before_capture(void) {
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.disable());
 }
 
-void test_runtime_scans_before_rearming_csi_after_services_resume(void) {
-  esp_event_mock_reset();
-  esp_wifi_mock_reset();
-
-  RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get());
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
-  runtime.setup_complete_ = true;
-  runtime.wifi_ready_ = true;
-  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
-  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
-
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-
-  runtime.set_services_armed(false);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback == nullptr);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_required_);
-
-  runtime.set_services_armed(true);
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback == nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_promiscuous);
-
-  wifi_event_sta_scan_done_t event{};
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
-  runtime.csi_traffic_service_.stop();
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.disable());
-}
-
-void test_runtime_restarts_csi_refresh_after_disconnect_during_scan(void) {
-  esp_event_mock_reset();
-  esp_wifi_mock_reset();
-
-  RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get());
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
-  runtime.setup_complete_ = true;
-  runtime.wifi_ready_ = true;
-  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
-  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
-  const esp_netif_ip_info_t ip_info = runtime.wifi_ip_info_;
-
-  runtime.set_services_armed(false);
-  runtime.set_services_armed(true);
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-
-  wifi_event_sta_scan_done_t stale_event{};
-  stale_event.status = 1U;
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &stale_event);
-  runtime.on_wifi_disconnected_();
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_stop_call_count);
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_required_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  runtime.on_wifi_connected_(ip_info);
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-
-  wifi_event_sta_scan_done_t fresh_event{};
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &fresh_event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
-  runtime.csi_traffic_service_.stop();
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.disable());
-}
-
-void test_runtime_retries_failed_refresh_before_a_pending_disconnect(void) {
-  esp_event_mock_reset();
-  esp_wifi_mock_reset();
-
-  RuntimeConfig config;
-  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  FakeCsiTrafficGenerator traffic_generator;
-  FakeCsiTrafficIngress traffic_ingress;
-  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
-  TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get());
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
-  runtime.setup_complete_ = true;
-  runtime.wifi_ready_ = true;
-  runtime.wifi_ip_info_.ip.addr = 0x0101A8C0U;
-  runtime.wifi_ip_info_.gw.addr = 0x0101A8C0U;
-  const esp_netif_ip_info_t ip_info = runtime.wifi_ip_info_;
-
-  runtime.set_services_armed(false);
-  runtime.set_services_armed(true);
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
-
-  wifi_event_sta_scan_done_t failed_event{};
-  failed_event.status = 1U;
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &failed_event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-
-  runtime.on_wifi_disconnected_();
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_stop_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_required_);
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  runtime.on_wifi_connected_(ip_info);
-  TEST_ASSERT_EQUAL(3, g_esp_wifi_mock.scan_start_call_count);
-  TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-
-  wifi_event_sta_scan_done_t fresh_event{};
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &fresh_event);
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
-  TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_required_);
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
-  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_callback != nullptr);
-  TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
-  runtime.csi_traffic_service_.stop();
-  TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.disable());
+void test_runtime_disconnect_or_disarm_cancels_refresh_and_discards_queued_completion(void) {
+  for (const bool disconnect : {false, true}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    generator.send_successes = 1U;
+    runtime.check_csi_receive_path_();
+    generator.send_successes++;
+    esp_timer_mock::advance(5000000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
+    TEST_ASSERT_FALSE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
+    wifi_event_sta_scan_done_t stale{};
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &stale);
+    if (disconnect) runtime.on_wifi_disconnected_();
+    else runtime.set_services_armed(false);
+    runtime.loop();
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_refresh_in_progress_);
+    TEST_ASSERT_FALSE(generator.is_running());
+    TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+    if (disconnect) runtime.on_wifi_connected_(ip);
+    else runtime.set_services_armed(true);
+    TEST_ASSERT_TRUE(generator.is_running());
+    TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    runtime.shutdown();
+  }
 }
 
 void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
@@ -993,13 +1032,10 @@ void test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change(vo
     ++g_esp_wifi_mock.current_ap_info.bssid[5];
     esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
     TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
-    TEST_ASSERT_FALSE(traffic_generator.is_running());
-    TEST_ASSERT_TRUE(traffic_generator.stop_calls > stops);
-    TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
-    wifi_event_sta_scan_done_t scan_done{};
-    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &scan_done);
-    TEST_ASSERT_EQUAL(ESP_OK, runtime.wifi_lifecycle_.process_pending_events());
     TEST_ASSERT_TRUE(traffic_generator.is_running());
+    TEST_ASSERT_TRUE(traffic_generator.stop_calls > stops);
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
     TEST_ASSERT_EQUAL(starts + 1U, traffic_generator.start_calls);
     TEST_ASSERT_EQUAL(config.traffic_generator_mode, traffic_generator.mode);
     TEST_ASSERT_EQUAL(ip.ip_info.gw.addr, traffic_generator.gateway_addr);
@@ -1063,7 +1099,7 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
     TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
-    runtime.stop_sensing_services_();
+    runtime.shutdown();
   }
 }
 
@@ -1150,6 +1186,11 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected);
+  RUN_TEST(test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeout);
+  RUN_TEST(test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh);
+  RUN_TEST(test_runtime_external_wifi_stack_owns_recovery_scan_results);
+  RUN_TEST(test_runtime_defers_busy_refresh_with_capture_running_and_a_bounded_request_window);
   RUN_TEST(test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails);
   RUN_TEST(test_runtime_calibration_can_restart_from_completion_callback);
   RUN_TEST(test_runtime_calibration_allocation_failure_does_not_emit_started);
@@ -1172,9 +1213,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);
   RUN_TEST(test_runtime_sensing_reasserts_promiscuous_disabled_before_capture);
-  RUN_TEST(test_runtime_scans_before_rearming_csi_after_services_resume);
-  RUN_TEST(test_runtime_restarts_csi_refresh_after_disconnect_during_scan);
-  RUN_TEST(test_runtime_retries_failed_refresh_before_a_pending_disconnect);
+  RUN_TEST(test_runtime_disconnect_or_disarm_cancels_refresh_and_discards_queued_completion);
   RUN_TEST(test_runtime_raw_collection_restores_armed_and_disarmed_sensing);
   RUN_TEST(test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change);
   RUN_TEST(test_runtime_channel_change_cold_resets_ml_without_calibration);

@@ -54,6 +54,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
     // ESPHome always generates the detector select entity, so this frontend
     // always wants the NVS-backed runtime detector store behind it.
     this->runtime_.config().runtime_detector_selection_enabled = true;
+    // ESPHome consumes scan events and may start another scan before the
+    // runtime's next loop. Its Wi-Fi component owns the driver result list.
+    this->runtime_.config().wifi_scan_results_managed_externally = true;
   }
 
   void setup() override;

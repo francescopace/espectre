@@ -71,6 +71,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void on_wifi_disconnected_();
   void invalidate_csi_receive_path_refresh_();
   void maybe_resume_sensing_after_wifi_reconfigure_();
+  void check_csi_receive_path_();
   void finish_csi_receive_path_refresh_(esp_err_t result);
   void refresh_wifi_association_from_csi_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
@@ -118,8 +119,14 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   esp_netif_ip_info_t wifi_ip_info_{};
   int8_t wifi_rssi_dbm_{INT8_MIN};
   uint8_t wifi_channel_{0U};
-  bool csi_receive_path_refresh_required_{false};
+  bool csi_receive_path_check_pending_{false};
   bool csi_receive_path_refresh_in_progress_{false};
+  bool csi_receive_path_traffic_seen_{false};
+  uint32_t csi_receive_path_check_started_ms_{0U};
+  uint32_t csi_receive_path_last_traffic_ms_{0U};
+  uint32_t csi_receive_path_last_attempt_ms_{0U};
+  uint64_t csi_receive_path_callbacks_at_start_{0U};
+  uint64_t csi_receive_path_traffic_total_{0U};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
 };
 
