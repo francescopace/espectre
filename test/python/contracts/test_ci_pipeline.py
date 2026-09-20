@@ -491,12 +491,6 @@ if [ "$1" = create-project-from-example ]; then mkdir wifi_motion_detection; fi
 @pytest.mark.parametrize("version", ["3.0.0", "3.0.0-rc3"])
 def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str) -> None:
     builder = load_script("build_sdk_package")
-    component_cmake = (REPO_ROOT / "src" / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
-    for dependency in (
-        "mqtt",
-        "esp_http_server",
-    ):
-        assert re.search(rf"(?m)^    {re.escape(dependency)}$", component_cmake)
     outputs = [tmp_path / "first", tmp_path / "second"]
     for output in outputs:
         args = argparse.Namespace(
@@ -1063,7 +1057,8 @@ def test_detect_git_version_ignores_rolling_tags(monkeypatch: pytest.MonkeyPatch
     ("6.0.3", True, True),
     ("6.1.0", True, True),
 ])
-def test_sdk_idf_and_mqtt_compatibility(idf_version, supported, external_mqtt, monkeypatch):
+@pytest.mark.parametrize("mqtt_enabled", [False, True])
+def test_sdk_idf_and_mqtt_compatibility(idf_version, supported, external_mqtt, mqtt_enabled, monkeypatch):
     from idf_component_tools.manifest import if_parser
 
     manifest = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text())
@@ -1074,8 +1069,9 @@ def test_sdk_idf_and_mqtt_compatibility(idf_version, supported, external_mqtt, m
     assert mqtt["version"] == "1.0.0"
     assert mqtt["registry_url"] == "https://components.espressif.com"
     monkeypatch.setattr(if_parser, "get_idf_version", lambda: idf_version)
+    monkeypatch.setitem(if_parser.KCONFIG_CONTEXT.get().sdkconfig, "ESPECTRE_SDK_ENABLE_MQTT", mqtt_enabled)
     assert all(if_parser.parse_if_clause(rule["if"]).get_value()
-               for rule in mqtt["rules"]) is external_mqtt
+               for rule in mqtt["rules"]) is (external_mqtt and mqtt_enabled)
 
 
 @pytest.mark.parametrize("channel", ["preview", "develop"])

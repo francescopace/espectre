@@ -22,8 +22,6 @@ set(espectre_sdk_requires
     esp_event
     esp_netif
     esp_timer
-    mqtt
-    esp_http_server
     nvs_flash
     lwip
     freertos
@@ -36,12 +34,9 @@ if(ESPECTRE_SDK_EXCLUDED_REQUIRES)
     list(REMOVE_ITEM espectre_sdk_requires ${ESPECTRE_SDK_EXCLUDED_REQUIRES})
 endif()
 
-# ESP-IDF expands component requirements before menuconfig values are
-# available. Declare the dependencies needed by the public headers here.
-# `mqtt` resolves to the built-in component on IDF 5 and the manifest's
-# espressif/mqtt component on IDF 6. mbedtls also exports the PSA headers.
-# The manifest resolves external stacks through version and Kconfig conditions;
-# the source switches below keep unused service code out of the firmware.
+# ESP-IDF expands REQUIRES before menuconfig values are available. Keep only
+# unconditional dependencies there, and link optional stacks after registration.
+# The manifest resolves external stacks through version and Kconfig conditions.
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES})
@@ -72,7 +67,13 @@ idf_component_register(
         ${espectre_sdk_requires}
 )
 
+if(CONFIG_ESPECTRE_SDK_ENABLE_MQTT)
+    # IDF 5 bundles MQTT; IDF 6 resolves it through the component manifest.
+    idf_component_optional_requires(PUBLIC mqtt espressif__mqtt)
+endif()
+
 if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
+    idf_component_optional_requires(PRIVATE esp_http_server)
     idf_component_get_property(espectre_mdns_dir espressif__mdns COMPONENT_DIR)
     target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/private_include")
     target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_receive_action")

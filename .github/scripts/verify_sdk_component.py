@@ -185,6 +185,14 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
     profiles = () if args.profile == "minimal" else (args.profile,)
     if args.profile == "all":
         profiles = SDK_SERVICE_PROFILES
+    if args.profile == "minimal":
+        # Compile only the example's dependency closure, so unused bundled
+        # stacks cannot hide unconditional SDK dependencies in this check.
+        cmake = project / "CMakeLists.txt"
+        cmake.write_text(cmake.read_text(encoding="utf-8").replace(
+            'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+            'set(COMPONENTS main)\ninclude($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+        ), encoding="utf-8")
     with defaults.open("a", encoding="utf-8") as output:
         # Keep the sensing startup reachable to the linker in credential-free CI.
         output.write('\nCONFIG_ESPECTRE_EXAMPLE_WIFI_SSID="sdk-ci-placeholder"\n')
@@ -220,13 +228,21 @@ def verify_dependencies(project: Path) -> None:
             if config.get(option, False) != (value == "y"):
                 raise ValueError(f"SDK build did not apply requested option: {line}")
     expected = set()
-    if int(str(lock["dependencies"]["idf"]["version"]).split(".", 1)[0]) >= 6:
+    if (config.get("ESPECTRE_SDK_ENABLE_MQTT")
+            and int(str(lock["dependencies"]["idf"]["version"]).split(".", 1)[0]) >= 6):
         expected.add("espressif/mqtt")
     if config.get("ESPECTRE_SDK_ENABLE_DIRECT"):
         expected.add("espressif/mdns")
     actual = set(lock["dependencies"]) - {COMPONENT_NAME, "idf"}
     if actual != expected:
         raise ValueError(f"Unexpected SDK dependencies: expected {sorted(expected)}, got {sorted(actual)}")
+    if not any(config.get(f"ESPECTRE_SDK_ENABLE_{profile.upper()}") for profile in SDK_SERVICE_PROFILES):
+        description = json.loads((project / "build/project_description.json").read_text(encoding="utf-8"))
+        unused_stacks = set(description["build_components"]) & {
+            "mqtt", "espressif__mqtt", "esp_http_server", "mdns", "espressif__mdns",
+        }
+        if unused_stacks:
+            raise ValueError(f"Minimal SDK compiled unused stacks: {sorted(unused_stacks)}")
     for name in expected:
         source = lock["dependencies"][name]["source"]
         if (source["type"] != "service"

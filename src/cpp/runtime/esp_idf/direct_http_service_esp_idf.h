@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include <esp_http_server.h>
+#include <esp_err.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -31,6 +31,10 @@ using portMUX_TYPE = int;
 #include "csi_types.h"
 #include "direct_http_service.h"
 #include "pending_event.h"
+
+// HTTP request details are private to the implementation. Keep the services
+// facade usable without the HTTP server component when Direct is disabled.
+struct httpd_req;
 
 namespace espectre {
 
@@ -69,7 +73,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   };
 
   struct EventClient {
-    httpd_req_t *request{nullptr};
+    httpd_req *request{nullptr};
     int fd{-1};
     uint8_t consecutive_send_failures{0U};
     uint64_t last_send_us{0U};
@@ -78,7 +82,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
 
   struct PendingRequest {
     uint64_t token{0U};
-    httpd_req_t *request{nullptr};
+    httpd_req *request{nullptr};
     DirectRequest direct;
     std::string origin;
   };
@@ -107,7 +111,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   struct RawSessionState {
     RawCsiSessionConfig config{};
     RawSessionStoppedCallback stopped_callback{};
-    httpd_req_t *request{nullptr};
+    httpd_req *request{nullptr};
     int fd{-1};
     bool binary_bound{false};
     uint64_t generation{0U};
@@ -118,29 +122,29 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   };
 
   struct PendingRawOpen {
-    httpd_req_t *request{nullptr};
+    httpd_req *request{nullptr};
     std::string origin;
   };
 
-  static esp_err_t request_uri_handler_(httpd_req_t *request);
-  static esp_err_t events_handler_(httpd_req_t *request);
-  static esp_err_t raw_handler_(httpd_req_t *request);
-  static esp_err_t options_handler_(httpd_req_t *request);
-  static esp_err_t open_session_(httpd_handle_t server, int socket);
+  static esp_err_t request_uri_handler_(httpd_req *request);
+  static esp_err_t events_handler_(httpd_req *request);
+  static esp_err_t raw_handler_(httpd_req *request);
+  static esp_err_t options_handler_(httpd_req *request);
+  static esp_err_t open_session_(void *server, int socket);
   static void worker_entry_(void *context);
   static void raw_worker_entry_(void *context);
 
-  esp_err_t handle_request_(httpd_req_t *request);
-  esp_err_t handle_events_(httpd_req_t *request);
-  esp_err_t handle_raw_(httpd_req_t *request);
-  esp_err_t handle_options_(httpd_req_t *request);
-  bool validate_origin_(httpd_req_t *request, std::string *origin);
-  void set_response_headers_(httpd_req_t *request, const std::string &origin) const;
-  esp_err_t send_error_(httpd_req_t *request,
+  esp_err_t handle_request_(httpd_req *request);
+  esp_err_t handle_events_(httpd_req *request);
+  esp_err_t handle_raw_(httpd_req *request);
+  esp_err_t handle_options_(httpd_req *request);
+  bool validate_origin_(httpd_req *request, std::string *origin);
+  void set_response_headers_(httpd_req *request, const std::string &origin) const;
+  esp_err_t send_error_(httpd_req *request,
                         const char *status,
                         const char *message,
                         const std::string &origin) const;
-  bool read_header_(httpd_req_t *request, const char *name, std::string *value) const;
+  bool read_header_(httpd_req *request, const char *name, std::string *value) const;
   bool request_allowed_locked_(uint64_t now_us);
   bool mutation_allowed_locked_(const std::string &method, uint64_t now_us);
   bool enqueue_event_locked_(EventClient *client, OutboundEvent event);
@@ -168,7 +172,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
 
   mutable SemaphoreHandle_t mutex_{nullptr};
   SemaphoreHandle_t raw_send_mutex_{nullptr};
-  httpd_handle_t server_{nullptr};
+  void *server_{nullptr};
   DirectHttpServiceConfig config_{};
   RequestHandler request_handler_{};
   DeferredRequestHandler deferred_request_handler_{};

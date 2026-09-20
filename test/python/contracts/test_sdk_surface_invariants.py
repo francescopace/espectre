@@ -286,7 +286,9 @@ def test_services_facade_is_complete(header: Path) -> None:
     """Integrators can construct every local type named by the services facade."""
     reachable = include_closure(SERVICES_FACADE) + include_closure(MQTT_FACADE)
     definitions = set().union(*(set(DEFINITION_PATTERN.findall(p.read_text())) for p in reachable))
-    declared = set(FORWARD_DECLARATION_PATTERN.findall(header.read_text()))
+    # Opaque platform types declared outside our namespace are not SDK types.
+    sdk_source = header.read_text().partition("namespace espectre {")[2]
+    declared = set(FORWARD_DECLARATION_PATTERN.findall(sdk_source))
     assert declared <= definitions, f"{header.name}: incomplete SDK types {sorted(declared - definitions)}"
 
 
