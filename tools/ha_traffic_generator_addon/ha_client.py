@@ -120,6 +120,9 @@ def build_inventory(devices, entities, state_list, areas):
             grouped.setdefault(entity["device_id"], []).append(entity)
     result = []
     for device in devices:
+        # Supervisor apps are service entries, even when branded as ESPectre.
+        if device.get("entry_type") == "service":
+            continue
         candidates = {}
         for entity in grouped.get(device["id"], []):
             role = entity_role(entity)

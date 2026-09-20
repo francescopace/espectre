@@ -745,6 +745,28 @@ def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, versio
     assert row["fields"]["occupancy"]["value"] == 98
 
 
+@pytest.mark.parametrize("manufacturer", ["ESPectre", "https://espectre.dev"])
+def test_ha_panel_excludes_supervisor_apps_from_sensor_inventory(manufacturer):
+    devices, entities, states, areas = _ha_panel_inventory("mqtt")
+    devices[0]["entry_type"] = None
+    devices.append({
+        "id": "traffic-app", "name": "ESPectre Traffic Generator",
+        "name_by_user": "Renamed traffic app", "manufacturer": manufacturer,
+        "model": "Home Assistant Add-on", "entry_type": "service",
+        "identifiers": [["hassio", "b04e5925_espectre_traffic_generator"]],
+    })
+    entities.append({
+        "entity_id": "sensor.renamed_app_cpu", "device_id": "traffic-app",
+        "platform": "hassio", "unique_id": "b04e5925_espectre_traffic_generator_cpu_percent",
+        "disabled_by": "integration",
+    })
+
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+
+    assert row["id"] == "sensor-a"
+    assert row["can_control"] and row["can_refresh"]
+
+
 @pytest.mark.parametrize("metadata,expected", [
     ({"model": "ESP32-C3"}, "ESP32-C3"),
     ({"model": "ESPectre (esp32s3)"}, "ESP32-S3"),

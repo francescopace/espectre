@@ -1,8 +1,8 @@
 name: "ESPectre Traffic Generator"
-version: "0.2.0"
+version: "0.2.1"
 slug: "espectre_traffic_generator"
-description: "Generate external traffic for ESPectre devices"
-url: "https://espectre.dev"
+description: "Generate external traffic for ESPectre devices."
+url: "https://espectre.dev/guides/home-assistant/"
 init: false
 startup: application
 boot: auto
