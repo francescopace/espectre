@@ -16,6 +16,6 @@
     "@rollup/plugin-commonjs": "29.0.3",
     "@rollup/plugin-json": "6.1.0",
     "@rollup/plugin-node-resolve": "16.0.3",
-    "rollup": "4.63.2"
+    "rollup": "4.63.3"
   }
 }
