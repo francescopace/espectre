@@ -262,14 +262,6 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   }
 }
 
-const char *subcarrier_source_name(RuntimeSubcarrierSource source) {
-  switch (source) {
-    case RuntimeSubcarrierSource::FIXED_DEFAULT:
-    default:
-      return "fixed";
-  }
-}
-
 RuntimeTrafficMode parse_traffic_mode(const char *mode) {
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME) == 0) {
     return RuntimeTrafficMode::WIFI_RAW;

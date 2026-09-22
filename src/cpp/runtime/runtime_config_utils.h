@@ -61,7 +61,6 @@ const char *csi_traffic_mode_name(CsiTrafficMode mode);
 bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode);
 CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode);
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
-const char *subcarrier_source_name(RuntimeSubcarrierSource source);
 
 RuntimeTrafficMode parse_traffic_mode(const char *mode);
 CsiTrafficMode parse_csi_traffic_mode(const char *mode);

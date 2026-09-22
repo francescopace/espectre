@@ -1061,14 +1061,14 @@ void ESpectreComponent::dump_config() {
                 static_cast<unsigned>(config.segmentation_window_size_ms));
   ESP_LOGCONFIG(TAG, " └─ Startup threshold .. %.6f", snapshot.startup_threshold);
   ESP_LOGCONFIG(TAG, " ");
+  const SelectedSubcarriers &subcarriers = this->runtime_.subcarriers();
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
-                snapshot.fixed_subcarriers[0], snapshot.fixed_subcarriers[1],
-                snapshot.fixed_subcarriers[2], snapshot.fixed_subcarriers[3],
-                snapshot.fixed_subcarriers[4], snapshot.fixed_subcarriers[5],
-                snapshot.fixed_subcarriers[6], snapshot.fixed_subcarriers[7],
-                snapshot.fixed_subcarriers[8], snapshot.fixed_subcarriers[9],
-                snapshot.fixed_subcarriers[10], snapshot.fixed_subcarriers[11]);
-  ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source_name(snapshot.subcarrier_source));
+                subcarriers[0], subcarriers[1],
+                subcarriers[2], subcarriers[3],
+                subcarriers[4], subcarriers[5],
+                subcarriers[6], subcarriers[7],
+                subcarriers[8], subcarriers[9],
+                subcarriers[10], subcarriers[11]);
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
   ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));

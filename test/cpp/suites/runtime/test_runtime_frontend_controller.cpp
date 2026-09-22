@@ -236,6 +236,17 @@ void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setu
   TEST_ASSERT_EQUAL_STRING("invalid evaluation interval", listener.last_fault.c_str());
 }
 
+void test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup(void) {
+  RuntimeFrontendController controller;
+  const SelectedSubcarriers expected = make_default_subcarriers();
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.data(), controller.subcarriers().data(), expected.size());
+
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected.data(), controller.subcarriers().data(), expected.size());
+  controller.shutdown();
+}
+
 void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -630,6 +641,7 @@ int process(void) {
   RUN_TEST(test_frontend_bootstrap_sets_up_wifi_and_propagates_start_failure);
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
+  RUN_TEST(test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks);
   RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_setters);

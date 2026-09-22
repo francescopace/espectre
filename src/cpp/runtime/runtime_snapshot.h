@@ -18,12 +18,6 @@
 
 namespace espectre {
 
-/** How the runtime chose the subcarriers it measures on. */
-enum class RuntimeSubcarrierSource {
-  /** The fixed band validated for the shipped detectors. Currently the only mode. */
-  FIXED_DEFAULT,
-};
-
 /**
  * Low-frequency counters and radio state used by optional diagnostic surfaces.
  *
@@ -184,10 +178,6 @@ struct RuntimeSnapshot {
    * names, not `BaseDetector::get_name()`, which is capitalized for logs.
    */
   const char *detector_name{"unknown"};
-  /** How `fixed_subcarriers` was chosen. */
-  RuntimeSubcarrierSource subcarrier_source{RuntimeSubcarrierSource::FIXED_DEFAULT};
-  /** Subcarrier indices the detector is measuring on. */
-  SelectedSubcarriers fixed_subcarriers{make_default_subcarriers()};
 };
 
 }  // namespace espectre

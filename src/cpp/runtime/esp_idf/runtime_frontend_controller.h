@@ -11,6 +11,7 @@
 
 #include <memory>
 
+#include "core/csi_types.h"
 #include "runtime/raw_csi.h"
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_events.h"
@@ -121,6 +122,8 @@ class RuntimeFrontendController : private IRuntimeListener {
    * a control the runtime will reject.
    */
   const RuntimeCapabilities &capabilities() const { return capabilities_; }
+  /** Subcarrier indices the detector measures on. Fixed for this SDK version. */
+  const SelectedSubcarriers &subcarriers() const;
   /** True between a successful `setup()` and the next `shutdown()`. */
   bool is_setup_complete() const { return setup_complete_; }
 

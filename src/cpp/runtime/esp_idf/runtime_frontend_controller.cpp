@@ -20,6 +20,7 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.runtime";
+static constexpr SelectedSubcarriers SELECTED_SUBCARRIERS = make_default_subcarriers();
 
 }  // namespace
 
@@ -27,6 +28,8 @@ RuntimeFrontendController::RuntimeFrontendController() = default;
 
 // The listener may already be partly destroyed, so scope exit sends no callback.
 RuntimeFrontendController::~RuntimeFrontendController() { shutdown_(false); }
+
+const SelectedSubcarriers &RuntimeFrontendController::subcarriers() const { return SELECTED_SUBCARRIERS; }
 
 void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
   if (runtime_) {

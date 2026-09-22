@@ -41,6 +41,7 @@ static constexpr uint32_t CSI_STARTUP_OBSERVATION_MS = 5000U;
 static constexpr uint32_t CSI_STARTUP_TRAFFIC_IDLE_MS = 1000U;
 static constexpr uint32_t CSI_REFRESH_RETRY_INTERVAL_MS = 500U;
 static constexpr uint32_t CSI_REFRESH_REQUEST_WINDOW_MS = 15000U;
+static constexpr SelectedSubcarriers SELECTED_SUBCARRIERS = make_default_subcarriers();
 
 }  // namespace
 
@@ -86,7 +87,6 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config,
 void EspIdfRuntime::initialize_runtime_state_() {
   detection_timing_supported_ = true;
   snapshot_.threshold = config_.segmentation_threshold;
-  snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
   // and it drives the live-telemetry callback used by transport adapters.
   capabilities_.supports_runtime_threshold_updates = true;
@@ -1026,7 +1026,6 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold,
       return false;
     }
   }
-  snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
 
   if (config_.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
     const float threshold = reset_high_accuracy_threshold
@@ -1099,7 +1098,7 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
     detector_->on_startup_calibration_begin();
   }
 
-  detector_->process_packet(csi_data, csi_len, snapshot_.fixed_subcarriers.data(),
+  detector_->process_packet(csi_data, csi_len, SELECTED_SUBCARRIERS.data(),
                             HT20_SELECTED_BAND_SIZE, rssi_dbm);
   // The pipeline owns the cadence, so calibration evaluates exactly when
   // steady-state detection would and the threshold is fitted at the resolution
