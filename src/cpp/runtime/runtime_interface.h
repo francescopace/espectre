@@ -92,7 +92,9 @@ struct RuntimeConfig {
    * Advertise runtime detector switching.
    *
    * When true the runtime restores the persisted detector choice at `setup()`
-   * and sets `RuntimeCapabilities::supports_runtime_detector_selection`.
+   * and sets `RuntimeCapabilities::supports_runtime_detector_selection`. A
+   * persisted detector that differs from `detection_algorithm` also replaces
+   * `segmentation_threshold` with that detector's default.
    */
   bool runtime_detector_selection_enabled{false};
   /**

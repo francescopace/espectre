@@ -122,7 +122,8 @@ bool EspIdfRuntime::setup() {
     const esp_err_t err = load_runtime_detection_algorithm(&saved_algorithm, &has_saved_value);
     if (err != ESP_OK) {
       ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
-    } else if (has_saved_value) {
+    } else if (has_saved_value && saved_algorithm != config_.detection_algorithm) {
+      // Thresholds are per-detector; keep the configured one when the detector is unchanged.
       config_.detection_algorithm = saved_algorithm;
       config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
       snapshot_.threshold = config_.segmentation_threshold;

@@ -722,6 +722,15 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   TEST_ASSERT_TRUE(runtime.csi_traffic_service_.mode() == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_TRUE(traffic_generator.mode == RuntimeTrafficMode::DNS);
   runtime.shutdown();
+
+  // A persisted detector matching the configured one keeps the configured threshold.
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  config.segmentation_threshold = 0.73f;
+  EspIdfRuntime same_detector_runtime(config, traffic_generator, traffic_ingress);
+  TEST_ASSERT_TRUE(same_detector_runtime.setup());
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, same_detector_runtime.effective_config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, same_detector_runtime.detector_->get_threshold());
+  same_detector_runtime.shutdown();
 }
 
 void test_runtime_diagnostics_cache_current_wifi_association(void) {
