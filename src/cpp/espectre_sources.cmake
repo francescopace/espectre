@@ -41,6 +41,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/network_traffic.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES

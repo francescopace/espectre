@@ -119,7 +119,8 @@
         "src/cpp/runtime/esp_idf/traffic_generator_manager.cpp",
         "src/cpp/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp",
         "src/cpp/runtime/esp_idf/udp_listener.cpp",
-        "src/cpp/runtime/esp_idf/wifi_lifecycle.cpp"
+        "src/cpp/runtime/esp_idf/wifi_lifecycle.cpp",
+        "src/cpp/runtime/esp_idf/wifi_tx_rate.cpp"
       ]
     },
     {

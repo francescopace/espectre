@@ -11,8 +11,8 @@
 #include "core/espectre_log.h"
 #include "esp_wifi.h"
 #include "sdkconfig.h"
+#include "network_traffic.h"
 #include "wifi_band_helpers.h"
-#include "wifi_tx_rate.h"
 #include "esp_timer.h"
 
 #ifdef ESP_PLATFORM

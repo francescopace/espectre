@@ -4,6 +4,8 @@
 
 #include <cstdint>
 
+#include "esp_err.h"
+
 namespace espectre {
 
 /** Default Wi-Fi station packet counters, each wrapping modulo 2^32. */
@@ -27,5 +29,18 @@ struct NetworkTrafficSnapshot {
  * directly. The SDK component already supplies these link options.
  */
 NetworkTrafficSnapshot read_network_traffic();
+
+/**
+ * Apply the station transmit-rate policy to the associated access point.
+ *
+ * `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` selects Auto, OFDM 6 Mbps, or HT20 MCS0
+ * with long GI; Auto and TX A-MPDU builds leave driver rate selection
+ * unchanged. The full runtime applies it itself. Integrations that own the
+ * Wi-Fi station call it after every association, including reassociation,
+ * and before starting CSI. Requires ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES.
+ *
+ * @return `ESP_OK`, or the driver error that prevented applying the policy.
+ */
+esp_err_t apply_station_tx_rate();
 
 }  // namespace espectre

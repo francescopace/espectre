@@ -93,7 +93,6 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/standalone_wifi_service.h \
                          src/cpp/runtime/esp_idf/task_scheduling_config.h \
                          src/cpp/runtime/esp_idf/traffic_generator_manager.h \
-                         src/cpp/runtime/esp_idf/wifi_tx_rate.h \
                          src/cpp/runtime/csi_traffic_service.h \
                          src/cpp/runtime/udp_datagram_socket.h \
                          src/cpp/runtime/esp_idf/wifi_band_helpers.h \

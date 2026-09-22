@@ -38,7 +38,6 @@
 #include "runtime/esp_idf/wifi_band_helpers.h"
 #include "runtime/esp_idf/wifi_bssid_pin_service.h"
 #include "runtime/esp_idf/wifi_provisioning_service.h"
-#include "runtime/esp_idf/wifi_tx_rate.h"
 #include "runtime/espectre_banner.h"
 #include "runtime/frontend_command_engine.h"
 #include "runtime/peer_discovery.h"

@@ -75,6 +75,7 @@ add_espectre_test(test_traffic_generator_s2
 )
 target_sources(test_traffic_generator_s2 PRIVATE
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 target_compile_definitions(test_traffic_generator_s2 PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32S2=1
@@ -87,6 +88,7 @@ add_espectre_test(test_traffic_generator_ampdu
 )
 target_sources(test_traffic_generator_ampdu PRIVATE
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 target_compile_definitions(test_traffic_generator_ampdu PRIVATE
     CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=1
@@ -100,6 +102,7 @@ foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
     )
     target_sources(test_traffic_generator_${variant} PRIVATE
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
     )
 endforeach()
 target_compile_definitions(test_traffic_generator_auto PRIVATE
@@ -218,6 +221,7 @@ foreach(variant IN ITEMS s2 auto ampdu 6m)
     )
     target_sources(test_wifi_lifecycle_${variant} PRIVATE
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
     )
 endforeach()
 target_compile_definitions(test_wifi_lifecycle_s2 PRIVATE
