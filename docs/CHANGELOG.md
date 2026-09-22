@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
 - Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
 - Added the SDK API reference to the website, with its version and commit.
+- Added `RuntimeConfig::persist_runtime_overrides`. Set it to false when your firmware owns configuration: the runtime then neither restores nor saves live control changes. The runtime now logs each saved value that overrides the config.
 
 ### Changed
 

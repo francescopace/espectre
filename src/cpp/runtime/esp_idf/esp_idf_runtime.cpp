@@ -100,6 +100,78 @@ void EspIdfRuntime::initialize_runtime_state_() {
   capabilities_.supports_raw_csi = true;
 }
 
+void EspIdfRuntime::load_persisted_overrides_() {
+  if (config_.runtime_detector_selection_enabled) {
+    DetectionAlgorithm saved_algorithm = config_.detection_algorithm;
+    bool has_saved_value = false;
+    const esp_err_t err = load_runtime_detection_algorithm(&saved_algorithm, &has_saved_value);
+    if (err != ESP_OK) {
+      ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
+    } else if (has_saved_value && saved_algorithm != config_.detection_algorithm) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted detector override: configured=%s saved=%s",
+                    detection_algorithm_name(config_.detection_algorithm),
+                    detection_algorithm_name(saved_algorithm));
+      // Thresholds are per-detector; keep the configured one when the detector is unchanged.
+      config_.detection_algorithm = saved_algorithm;
+      config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
+      snapshot_.threshold = config_.segmentation_threshold;
+    }
+  }
+
+  bool has_saved_csi_traffic_mode = false;
+  CsiTrafficMode saved_csi_traffic_mode = config_.csi_traffic_mode;
+  const esp_err_t csi_traffic_err =
+      load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
+  if (csi_traffic_err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
+  } else if (has_saved_csi_traffic_mode) {
+    if (saved_csi_traffic_mode != config_.csi_traffic_mode) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted CSI traffic mode override: configured=%s saved=%s",
+                    csi_traffic_mode_name(config_.csi_traffic_mode),
+                    csi_traffic_mode_name(saved_csi_traffic_mode));
+    }
+    config_.csi_traffic_mode = saved_csi_traffic_mode;
+  }
+
+  bool has_saved_generator_mode = false;
+  RuntimeTrafficMode saved_generator_mode = config_.traffic_generator_mode;
+  const esp_err_t generator_err =
+      load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
+  if (generator_err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
+  } else if (has_saved_generator_mode &&
+             runtime_traffic_mode_supported(saved_generator_mode) &&
+             runtime_capture_profile_supports_traffic(config_.csi_capture_profile, saved_generator_mode)) {
+    if (saved_generator_mode != config_.traffic_generator_mode) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted traffic generator mode override: configured=%s saved=%s",
+                    traffic_mode_name(config_.traffic_generator_mode),
+                    traffic_mode_name(saved_generator_mode));
+    }
+    config_.traffic_generator_mode = saved_generator_mode;
+  } else if (has_saved_generator_mode) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with this target or CSI profile");
+  }
+
+  uint8_t saved_motion_on_hits = config_.motion_on_hits;
+  uint8_t saved_motion_off_hits = config_.motion_off_hits;
+  bool has_saved_motion_hits = false;
+  const esp_err_t motion_hits_err =
+      load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
+  if (motion_hits_err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
+  } else if (has_saved_motion_hits) {
+    if (saved_motion_on_hits != config_.motion_on_hits || saved_motion_off_hits != config_.motion_off_hits) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted motion hits override: configured=%u/%u saved=%u/%u",
+                    static_cast<unsigned>(config_.motion_on_hits),
+                    static_cast<unsigned>(config_.motion_off_hits),
+                    static_cast<unsigned>(saved_motion_on_hits),
+                    static_cast<unsigned>(saved_motion_off_hits));
+    }
+    config_.motion_on_hits = saved_motion_on_hits;
+    config_.motion_off_hits = saved_motion_off_hits;
+  }
+}
+
 bool EspIdfRuntime::setup() {
   if (setup_complete_) {
     return true;
@@ -116,54 +188,8 @@ bool EspIdfRuntime::setup() {
 
   ESPECTRE_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
 
-  if (config_.runtime_detector_selection_enabled) {
-    DetectionAlgorithm saved_algorithm = config_.detection_algorithm;
-    bool has_saved_value = false;
-    const esp_err_t err = load_runtime_detection_algorithm(&saved_algorithm, &has_saved_value);
-    if (err != ESP_OK) {
-      ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
-    } else if (has_saved_value && saved_algorithm != config_.detection_algorithm) {
-      // Thresholds are per-detector; keep the configured one when the detector is unchanged.
-      config_.detection_algorithm = saved_algorithm;
-      config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
-      snapshot_.threshold = config_.segmentation_threshold;
-    }
-  }
-
-  bool has_saved_csi_traffic_mode = false;
-  CsiTrafficMode saved_csi_traffic_mode = config_.csi_traffic_mode;
-  const esp_err_t csi_traffic_err =
-      load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
-  if (csi_traffic_err != ESP_OK) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
-  } else if (has_saved_csi_traffic_mode) {
-    config_.csi_traffic_mode = saved_csi_traffic_mode;
-  }
-
-  bool has_saved_generator_mode = false;
-  RuntimeTrafficMode saved_generator_mode = config_.traffic_generator_mode;
-  const esp_err_t generator_err =
-      load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
-  if (generator_err != ESP_OK) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
-  } else if (has_saved_generator_mode &&
-             runtime_traffic_mode_supported(saved_generator_mode) &&
-             runtime_capture_profile_supports_traffic(config_.csi_capture_profile, saved_generator_mode)) {
-    config_.traffic_generator_mode = saved_generator_mode;
-  } else if (has_saved_generator_mode) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with this target or CSI profile");
-  }
-
-  uint8_t saved_motion_on_hits = config_.motion_on_hits;
-  uint8_t saved_motion_off_hits = config_.motion_off_hits;
-  bool has_saved_motion_hits = false;
-  const esp_err_t motion_hits_err =
-      load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
-  if (motion_hits_err != ESP_OK) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
-  } else if (has_saved_motion_hits) {
-    config_.motion_on_hits = saved_motion_on_hits;
-    config_.motion_off_hits = saved_motion_off_hits;
+  if (config_.persist_runtime_overrides) {
+    load_persisted_overrides_();
   }
 
   if (!configure_detector_()) {
@@ -377,7 +403,9 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
     return false;
   }
 
-  const esp_err_t persist_err = save_runtime_motion_hits(motion_on_hits, motion_off_hits);
+  const esp_err_t persist_err = config_.persist_runtime_overrides
+                                    ? save_runtime_motion_hits(motion_on_hits, motion_off_hits)
+                                    : ESP_OK;
   if (persist_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist motion hits: %s", esp_err_to_name(persist_err));
     return false;
@@ -410,7 +438,8 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  const esp_err_t persist_err = save_runtime_csi_traffic_mode(mode);
+  const esp_err_t persist_err =
+      config_.persist_runtime_overrides ? save_runtime_csi_traffic_mode(mode) : ESP_OK;
   if (persist_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
     restore_traffic_runtime_config_(previous_config);
@@ -445,7 +474,8 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  const esp_err_t persist_err = save_runtime_traffic_generator_mode(mode);
+  const esp_err_t persist_err =
+      config_.persist_runtime_overrides ? save_runtime_traffic_generator_mode(mode) : ESP_OK;
   if (persist_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist traffic generator mode: %s", esp_err_to_name(persist_err));
     restore_traffic_runtime_config_(previous_config);
@@ -486,7 +516,8 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
       return false;
     }
   }
-  const esp_err_t persist_err = save_runtime_detection_algorithm(algorithm);
+  const esp_err_t persist_err =
+      config_.persist_runtime_overrides ? save_runtime_detection_algorithm(algorithm) : ESP_OK;
   if (persist_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist detector: %s", esp_err_to_name(persist_err));
     return false;

@@ -153,6 +153,17 @@ struct RuntimeConfig {
    * scanner reservation after cleanup.
    */
   bool wifi_scan_results_managed_externally{false};
+  /**
+   * Remember runtime control changes across reboots.
+   *
+   * When true, `setup()` restores the CSI traffic source, generator packet,
+   * and motion hits saved by earlier control calls, plus the detector when
+   * `runtime_detector_selection_enabled` is set, and those calls save their
+   * new values. Set it to false when your firmware owns configuration, for
+   * example from YAML or a cloud service: this config is then the only source
+   * of truth, and the runtime neither reads nor writes saved controls.
+   */
+  bool persist_runtime_overrides{true};
 };
 
 /**

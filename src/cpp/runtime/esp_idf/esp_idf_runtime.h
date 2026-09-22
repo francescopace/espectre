@@ -98,6 +98,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void log_periodic_status_(uint32_t packets_received);
   void reset_periodic_status_logger_();
   void initialize_runtime_state_();
+  void load_persisted_overrides_();
 
   std::unique_ptr<BaseDetector> detector_;
   uint16_t resolved_window_packets_{DETECTOR_DEFAULT_WINDOW_SIZE};

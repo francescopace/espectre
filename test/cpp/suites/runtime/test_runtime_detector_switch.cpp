@@ -733,6 +733,53 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   same_detector_runtime.shutdown();
 }
 
+void test_runtime_without_persistence_ignores_and_never_writes_saved_controls(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(8U, 6U));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+
+  RuntimeConfig config;
+  config.persist_runtime_overrides = false;
+  config.runtime_detector_selection_enabled = true;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  config.motion_on_hits = 4U;
+  config.motion_off_hits = 3U;
+  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  config.traffic_generator_mode = RuntimeTrafficMode::PING;
+  FakeCsiTrafficGenerator traffic_generator;
+  FakeCsiTrafficIngress traffic_ingress;
+  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
+
+  TEST_ASSERT_TRUE(runtime.setup());
+  const RuntimeConfig &effective = runtime.effective_config();
+  TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
+  TEST_ASSERT_EQUAL_UINT8(4U, effective.motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(3U, effective.motion_off_hits);
+  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::PING);
+
+  // Controls must not touch storage: they succeed even when NVS cannot open.
+  nvs_mock_set_open_result(ESP_FAIL);
+  TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(9U, 7U));
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_EQUAL_UINT8(9U, effective.motion_on_hits);
+  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  runtime.shutdown();
+
+  nvs_mock_set_open_result(ESP_OK);
+  uint8_t saved_on = 0U;
+  uint8_t saved_off = 0U;
+  bool has_saved = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&saved_on, &saved_off, &has_saved));
+  TEST_ASSERT_EQUAL_UINT8(8U, saved_on);
+  TEST_ASSERT_EQUAL_UINT8(6U, saved_off);
+}
+
 void test_runtime_diagnostics_cache_current_wifi_association(void) {
   esp_wifi_mock_reset();
   RuntimeConfig config;
@@ -1218,6 +1265,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed_without_live_telemetry);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   RUN_TEST(test_runtime_setup_loads_all_persisted_runtime_controls);
+  RUN_TEST(test_runtime_without_persistence_ignores_and_never_writes_saved_controls);
   RUN_TEST(test_runtime_diagnostics_cache_current_wifi_association);
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);
