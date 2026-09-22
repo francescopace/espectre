@@ -56,7 +56,9 @@ class IRuntimeListener {
    * Public sensing readiness changed, including warm-up and input expiry.
    *
    * RuntimeFrontendController emits this from loop(), after caching the current
-   * snapshot. Publish the sensing resource on both availability transitions.
+   * snapshot, and once from an explicit shutdown() when sensing was ready; the
+   * controller destructor does not call the listener. Publish the sensing
+   * resource on both availability transitions.
    *
    * @param snapshot Current sensing state, including public readiness.
    */

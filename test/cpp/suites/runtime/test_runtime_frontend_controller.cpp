@@ -110,6 +110,26 @@ void test_controller_notifies_readiness_edges_once_and_defers_callback_shutdown(
   controller.loop();
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
   TEST_ASSERT_FALSE(controller.is_setup_complete());
+
+  // Shutting down a ready runtime closes the availability edge exactly once.
+  listener.shutdown_on_readiness = false;
+  frontend_runtime_shim::state.snapshot.ready_to_publish = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  const int before_shutdown = listener.readiness_count;
+  controller.shutdown();
+  TEST_ASSERT_EQUAL(before_shutdown + 1, listener.readiness_count);
+  TEST_ASSERT_FALSE(listener.last_ready);
+  controller.shutdown();
+  TEST_ASSERT_EQUAL(before_shutdown + 1, listener.readiness_count);
+
+  // Scope exit may run while the listener is being destroyed, so it stays silent.
+  frontend_runtime_shim::state.shutdown_called = false;
+  {
+    RuntimeFrontendController scoped;
+    TEST_ASSERT_TRUE(scoped.setup(&listener));
+  }
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
+  TEST_ASSERT_EQUAL(before_shutdown + 1, listener.readiness_count);
 }
 
 void test_frontend_bootstrap_loads_defaults_and_preserves_runtime_identity(void) {
