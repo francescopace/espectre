@@ -87,7 +87,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
  public:
   /** Configure the send rate and backend while stopped. */
   void init(uint32_t target_pps,
-            RuntimeTrafficMode mode = RuntimeTrafficMode::PING) override;
+            TrafficGeneratorMode mode = TrafficGeneratorMode::PING) override;
 
   /** Start sending to an IPv4 address in network byte order; WIFI_RAW ignores the address. */
   bool start(uint32_t target_addr) override;
@@ -121,7 +121,7 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
   int sock_{-1};
   uint32_t target_addr_{0U};
   uint32_t target_pps_{0U};
-  RuntimeTrafficMode mode_{RuntimeTrafficMode::PING};
+  TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   uint16_t icmp_identifier_{0U};
   uint8_t null_data_frame_[TRAFFIC_NULL_DATA_FRAME_SIZE]{};
   std::atomic<uint32_t> current_rate_pps_{0U};

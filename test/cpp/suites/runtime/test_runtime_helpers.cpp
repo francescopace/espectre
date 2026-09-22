@@ -638,22 +638,22 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(validate_runtime_threshold(1.0f));
     TEST_ASSERT_FALSE(validate_runtime_threshold(-0.1f));
     TEST_ASSERT_FALSE(validate_runtime_threshold(1.1f));
-    TEST_ASSERT_EQUAL_STRING("ping", traffic_mode_name(RuntimeTrafficMode::PING));
-    TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
-    TEST_ASSERT_EQUAL_STRING("dns_tcp", traffic_mode_name(RuntimeTrafficMode::DNS_TCP));
-    TEST_ASSERT_EQUAL_STRING("internal", csi_traffic_mode_name(CsiTrafficMode::INTERNAL));
-    TEST_ASSERT_EQUAL_STRING("external", csi_traffic_mode_name(CsiTrafficMode::EXTERNAL));
+    TEST_ASSERT_EQUAL_STRING("ping", traffic_generator_mode_name(TrafficGeneratorMode::PING));
+    TEST_ASSERT_EQUAL_STRING("dns", traffic_generator_mode_name(TrafficGeneratorMode::DNS));
+    TEST_ASSERT_EQUAL_STRING("dns_tcp", traffic_generator_mode_name(TrafficGeneratorMode::DNS_TCP));
+    TEST_ASSERT_EQUAL_STRING("internal", csi_traffic_source_name(CsiTrafficSource::INTERNAL));
+    TEST_ASSERT_EQUAL_STRING("external", csi_traffic_source_name(CsiTrafficSource::EXTERNAL));
     TEST_ASSERT_EQUAL_STRING("high_accuracy", detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
     TEST_ASSERT_EQUAL_STRING("lightweight", detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT));
-    TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);
-    TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
-    TEST_ASSERT_TRUE(parse_traffic_mode("dns_tcp") == RuntimeTrafficMode::DNS_TCP);
-    TEST_ASSERT_TRUE(parse_traffic_mode("unsupported") == RuntimeTrafficMode::PING);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("internal") == CsiTrafficMode::INTERNAL);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("external") == CsiTrafficMode::EXTERNAL);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::INTERNAL);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::INTERNAL);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("unsupported") == CsiTrafficMode::INTERNAL);
+    TEST_ASSERT_TRUE(parse_traffic_generator_mode("ping") == TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(parse_traffic_generator_mode("dns") == TrafficGeneratorMode::DNS);
+    TEST_ASSERT_TRUE(parse_traffic_generator_mode("dns_tcp") == TrafficGeneratorMode::DNS_TCP);
+    TEST_ASSERT_TRUE(parse_traffic_generator_mode("unsupported") == TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(parse_csi_traffic_source("internal") == CsiTrafficSource::INTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_source("external") == CsiTrafficSource::EXTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_source("pacing") == CsiTrafficSource::INTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_source("disabled") == CsiTrafficSource::INTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_source("unsupported") == CsiTrafficSource::INTERNAL);
     TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
     TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
     TEST_ASSERT_EQUAL_STRING("2g", wifi_band_policy_name(WifiBandPolicy::BAND_2G));
@@ -701,26 +701,26 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     config.detection_algorithm = static_cast<DetectionAlgorithm>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::DETECTION_ALGORITHM);
     config = RuntimeConfig{};
-    config.segmentation_threshold = 2.0f;
+    config.threshold = 2.0f;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::SEGMENTATION_THRESHOLD);
     config = RuntimeConfig{};
-    config.segmentation_window_size_ms = 0U;
+    config.window_size_ms = 0U;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS);
     config = RuntimeConfig{};
     config.csi_target_pps = 0U;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TARGET_PPS);
     config = RuntimeConfig{};
-    config.traffic_generator_mode = static_cast<RuntimeTrafficMode>(0x7f);
+    config.traffic_generator_mode = static_cast<TrafficGeneratorMode>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::TRAFFIC_GENERATOR_MODE);
     config = RuntimeConfig{};
-    config.csi_traffic_mode = static_cast<CsiTrafficMode>(0x7f);
+    config.csi_traffic_source = static_cast<CsiTrafficSource>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MODE);
     config = RuntimeConfig{};
-    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+    config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
     config.csi_traffic_udp_port = 0U;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_UDP_PORT);
     config = RuntimeConfig{};
-    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+    config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
     config.csi_traffic_multicast_group = "192.168.1.2";
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP);
     config = RuntimeConfig{};
@@ -753,7 +753,7 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
 
 void test_capture_profile_selection_and_source_constraints(void) {
     RuntimeConfig config;
-    TEST_ASSERT_EQUAL(CsiCapturePolicy::AUTO, config.csi_capture_profile);
+    TEST_ASSERT_EQUAL(CsiCapturePolicy::AUTO, config.csi_capture_policy);
     for (bool prefers_lltf : {false, true}) {
         for (bool supports_vht : {false, true}) {
             for (uint8_t channel : {6U, 36U}) {
@@ -770,19 +770,19 @@ void test_capture_profile_selection_and_source_constraints(void) {
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, select_csi_capture_profile(6U, false, CsiCapturePolicy::HT_VHT));
 
     for (auto profile : {CsiCapturePolicy::AUTO, CsiCapturePolicy::LLTF, CsiCapturePolicy::HT_VHT}) {
-        config.csi_capture_profile = profile;
-        config.traffic_generator_mode = RuntimeTrafficMode::PING;
+        config.csi_capture_policy = profile;
+        config.traffic_generator_mode = TrafficGeneratorMode::PING;
         for (auto band : {WifiBandPolicy::BAND_2G, WifiBandPolicy::BAND_5G, WifiBandPolicy::AUTO}) {
             config.wifi_band_policy = band;
             TEST_ASSERT_EQUAL(RuntimeConfigError::NONE, validate_runtime_config(config));
         }
-        config.traffic_generator_mode = RuntimeTrafficMode::WIFI_RAW;
+        config.traffic_generator_mode = TrafficGeneratorMode::WIFI_RAW;
         const bool compatible = profile != CsiCapturePolicy::HT_VHT;
         TEST_ASSERT_EQUAL(compatible ? RuntimeConfigError::NONE : RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC,
                           validate_runtime_config(config));
     }
     config = RuntimeConfig{};
-    config.csi_capture_profile = static_cast<CsiCapturePolicy>(0x7f);
+    config.csi_capture_policy = static_cast<CsiCapturePolicy>(0x7f);
     TEST_ASSERT_EQUAL(RuntimeConfigError::CSI_CAPTURE_PROFILE, validate_runtime_config(config));
     WiFiCSIReal wifi;
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, configure_csi(&wifi, static_cast<CsiCaptureProfile>(0x7f)));

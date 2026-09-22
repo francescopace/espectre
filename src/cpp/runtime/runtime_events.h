@@ -87,10 +87,10 @@ class IRuntimeListener {
    * through `on_live_telemetry()`.
    *
    * @param snapshot Current sensing state, including the metric and threshold.
-   * @param packets_received CSI packets accepted since the previous heartbeat,
+   * @param csi_accepted CSI packets accepted since the previous heartbeat,
    *        which is the honest measure of the achieved capture rate.
    */
-  virtual void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {}
+  virtual void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) {}
   /**
    * The active threshold changed, from a control call, calibration, or
    * detector-driven adaptation such as Lightweight settled-level recovery.

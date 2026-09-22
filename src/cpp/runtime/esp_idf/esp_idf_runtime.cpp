@@ -51,7 +51,7 @@ void EspIdfRuntime::notify_threshold_if_changed_(float threshold) {
     return;
   }
   snapshot_.threshold = threshold;
-  config_.segmentation_threshold = threshold;
+  config_.threshold = threshold;
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(get_snapshot());
   }
@@ -87,7 +87,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config,
 
 void EspIdfRuntime::initialize_runtime_state_() {
   detection_timing_supported_ = true;
-  snapshot_.threshold = config_.segmentation_threshold;
+  snapshot_.threshold = config_.threshold;
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
   // and it drives the live-telemetry callback used by transport adapters.
   capabilities_.supports_runtime_threshold_updates = true;
@@ -114,39 +114,39 @@ void EspIdfRuntime::load_persisted_overrides_() {
                     detection_algorithm_name(saved_algorithm));
       // Thresholds are per-detector; keep the configured one when the detector is unchanged.
       config_.detection_algorithm = saved_algorithm;
-      config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
-      snapshot_.threshold = config_.segmentation_threshold;
+      config_.threshold = runtime_default_threshold(saved_algorithm);
+      snapshot_.threshold = config_.threshold;
     }
   }
 
   bool has_saved_csi_traffic_mode = false;
-  CsiTrafficMode saved_csi_traffic_mode = config_.csi_traffic_mode;
+  CsiTrafficSource saved_csi_traffic_mode = config_.csi_traffic_source;
   const esp_err_t csi_traffic_err =
       load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
   if (csi_traffic_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
   } else if (has_saved_csi_traffic_mode) {
-    if (saved_csi_traffic_mode != config_.csi_traffic_mode) {
+    if (saved_csi_traffic_mode != config_.csi_traffic_source) {
       ESPECTRE_LOGI(RUNTIME_TAG, "Persisted CSI traffic mode override: configured=%s saved=%s",
-                    csi_traffic_mode_name(config_.csi_traffic_mode),
-                    csi_traffic_mode_name(saved_csi_traffic_mode));
+                    csi_traffic_source_name(config_.csi_traffic_source),
+                    csi_traffic_source_name(saved_csi_traffic_mode));
     }
-    config_.csi_traffic_mode = saved_csi_traffic_mode;
+    config_.csi_traffic_source = saved_csi_traffic_mode;
   }
 
   bool has_saved_generator_mode = false;
-  RuntimeTrafficMode saved_generator_mode = config_.traffic_generator_mode;
+  TrafficGeneratorMode saved_generator_mode = config_.traffic_generator_mode;
   const esp_err_t generator_err =
       load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
   if (generator_err != ESP_OK) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
   } else if (has_saved_generator_mode &&
-             runtime_traffic_mode_supported(saved_generator_mode) &&
-             runtime_capture_profile_supports_traffic(config_.csi_capture_profile, saved_generator_mode)) {
+             runtime_traffic_generator_mode_supported(saved_generator_mode) &&
+             runtime_capture_profile_supports_traffic(config_.csi_capture_policy, saved_generator_mode)) {
     if (saved_generator_mode != config_.traffic_generator_mode) {
       ESPECTRE_LOGI(RUNTIME_TAG, "Persisted traffic generator mode override: configured=%s saved=%s",
-                    traffic_mode_name(config_.traffic_generator_mode),
-                    traffic_mode_name(saved_generator_mode));
+                    traffic_generator_mode_name(config_.traffic_generator_mode),
+                    traffic_generator_mode_name(saved_generator_mode));
     }
     config_.traffic_generator_mode = saved_generator_mode;
   } else if (has_saved_generator_mode) {
@@ -204,7 +204,7 @@ bool EspIdfRuntime::setup() {
   csi_pipeline_.init(detector_.get());
   csi_pipeline_.set_evaluation_interval_ms(config_.evaluation_interval_ms);
   if (!csi_pipeline_.set_csi_target_pps(config_.csi_target_pps) ||
-      !csi_pipeline_.set_segmentation_window_size_ms(config_.segmentation_window_size_ms)) {
+      !csi_pipeline_.set_segmentation_window_size_ms(config_.window_size_ms)) {
     notify_fault_("Failed to allocate temporal CSI sampler");
     return false;
   }
@@ -365,7 +365,7 @@ void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
   update_live_telemetry_callback_();
 }
 
-bool EspIdfRuntime::set_threshold_runtime(float threshold) {
+bool EspIdfRuntime::set_threshold(float threshold) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
@@ -380,7 +380,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   if (!csi_pipeline_.set_threshold(threshold)) {
     return false;
   }
-  config_.segmentation_threshold = threshold;
+  config_.threshold = threshold;
   snapshot_.threshold = threshold;
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(get_snapshot());
@@ -389,7 +389,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   return true;
 }
 
-bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+bool EspIdfRuntime::set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
@@ -422,19 +422,19 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
   return true;
 }
 
-bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+bool EspIdfRuntime::set_csi_traffic_source(CsiTrafficSource mode) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
-  if (!runtime_csi_traffic_mode_valid(mode)) {
+  if (!runtime_csi_traffic_source_valid(mode)) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
     return false;
   }
-  if (mode == config_.csi_traffic_mode) {
+  if (mode == config_.csi_traffic_source) {
     return true;
   }
   const RuntimeConfig previous_config = config_;
-  config_.csi_traffic_mode = mode;
+  config_.csi_traffic_source = mode;
   if (!apply_traffic_runtime_config_(true, false)) {
     restore_traffic_runtime_config_(previous_config);
     return false;
@@ -449,19 +449,19 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
   if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
     (void) trigger_recalibration();
   }
-  ESPECTRE_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
+  ESPECTRE_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_source_name(mode));
   return true;
 }
 
-bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
-  if (!runtime_capture_profile_supports_traffic(config_.csi_capture_profile, mode)) {
+bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
+  if (!runtime_capture_profile_supports_traffic(config_.csi_capture_policy, mode)) {
     ESPECTRE_LOGW(RUNTIME_TAG, "wifi_raw requires auto or lltf CSI capture profile");
     return false;
   }
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
-  if (!runtime_traffic_mode_supported(mode)) {
+  if (!runtime_traffic_generator_mode_supported(mode)) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Invalid or unsupported traffic generator mode");
     return false;
   }
@@ -470,7 +470,7 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
   }
   const RuntimeConfig previous_config = config_;
   config_.traffic_generator_mode = mode;
-  const bool generator_active = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL;
+  const bool generator_active = config_.csi_traffic_source == CsiTrafficSource::INTERNAL;
   if (generator_active && !apply_traffic_runtime_config_(true, false)) {
     restore_traffic_runtime_config_(previous_config);
     return false;
@@ -485,11 +485,11 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
   if (generator_active && config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
     (void) trigger_recalibration();
   }
-  ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_mode_name(mode));
+  ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_generator_mode_name(mode));
   return true;
 }
 
-bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+bool EspIdfRuntime::set_detection_algorithm(DetectionAlgorithm algorithm) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
@@ -528,7 +528,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   detector_ = std::move(next_detector);
   csi_pipeline_.set_detector(detector_.get());
   config_.detection_algorithm = algorithm;
-  config_.segmentation_threshold = threshold;
+  config_.threshold = threshold;
   snapshot_.detector_name = detection_algorithm_name(algorithm);
   snapshot_.threshold = threshold;
   snapshot_.startup_threshold = 0.0f;
@@ -641,9 +641,9 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
 }
 
 CsiCaptureProfile EspIdfRuntime::sensing_capture_profile_() const {
-  const bool requires_lltf = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL &&
-                             config_.traffic_generator_mode == RuntimeTrafficMode::WIFI_RAW;
-  return select_csi_capture_profile(wifi_channel_, requires_lltf, config_.csi_capture_profile);
+  const bool requires_lltf = config_.csi_traffic_source == CsiTrafficSource::INTERNAL &&
+                             config_.traffic_generator_mode == TrafficGeneratorMode::WIFI_RAW;
+  return select_csi_capture_profile(wifi_channel_, requires_lltf, config_.csi_capture_policy);
 }
 
 bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
@@ -692,21 +692,21 @@ bool EspIdfRuntime::configure_detector_() {
     notify_fault_("Invalid CSI target PPS");
     return false;
   }
-  if (!validate_runtime_uint32(config_.segmentation_window_size_ms,
-                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
-                               RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX)) {
+  if (!validate_runtime_uint32(config_.window_size_ms,
+                               RUNTIME_WINDOW_SIZE_MS_MIN,
+                               RUNTIME_WINDOW_SIZE_MS_MAX)) {
     notify_fault_("Invalid detector window duration");
     return false;
   }
-  if (!validate_runtime_threshold_for_algorithm(config_.segmentation_threshold,
+  if (!validate_runtime_threshold_for_algorithm(config_.threshold,
                                                 config_.detection_algorithm)) {
     notify_fault_("Invalid segmentation threshold");
     return false;
   }
-  const float threshold = config_.segmentation_threshold;
+  const float threshold = config_.threshold;
   snapshot_.threshold = threshold;
   resolved_window_packets_ = static_cast<uint16_t>(temporal_window_slots(
-      config_.csi_target_pps, config_.segmentation_window_size_ms));
+      config_.csi_target_pps, config_.window_size_ms));
   detector_ = make_detector_(config_.detection_algorithm, threshold, resolved_window_packets_);
 
   if (detector_ == nullptr) {
@@ -807,7 +807,7 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
   csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
   csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.is_running();
-  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() == CsiTrafficMode::INTERNAL
+  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() == CsiTrafficSource::INTERNAL
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
   csi_receive_path_traffic_seen_ = false;
@@ -825,7 +825,7 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
 
-  const uint64_t traffic = (csi_traffic_service_.mode() == CsiTrafficMode::INTERNAL
+  const uint64_t traffic = (csi_traffic_service_.mode() == CsiTrafficSource::INTERNAL
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
   const uint32_t now = monotonic_now_ms();
@@ -1031,11 +1031,11 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold,
   if (config_.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
     const float threshold = reset_high_accuracy_threshold
                                 ? runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY)
-                                : config_.segmentation_threshold;
+                                : config_.threshold;
     if (detector_ != nullptr) {
       detector_->set_threshold(threshold);
     }
-    config_.segmentation_threshold = threshold;
+    config_.threshold = threshold;
     snapshot_.threshold = threshold;
     snapshot_.startup_threshold = threshold;
     snapshot_.calibrating = false;
@@ -1049,7 +1049,7 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold,
   }
 
   const uint32_t calibration_duration_ms =
-      config_.segmentation_window_size_ms * CALIBRATION_NUM_WINDOWS;
+      config_.window_size_ms * CALIBRATION_NUM_WINDOWS;
   uint32_t calibration_target_packets = temporal_window_slots(
       config_.csi_target_pps, calibration_duration_ms);
   if (calibration_target_packets > UINT16_MAX) {
@@ -1161,7 +1161,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
     if (detector_ != nullptr) {
       detector_->set_adaptive_threshold(adaptive_threshold);
       const float applied_threshold = detector_->get_threshold();
-      config_.segmentation_threshold = applied_threshold;
+      config_.threshold = applied_threshold;
       snapshot_.startup_threshold = applied_threshold;
       snapshot_.threshold = applied_threshold;
       threshold_changed = true;
@@ -1199,7 +1199,7 @@ void EspIdfRuntime::reset_periodic_status_logger_() {
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
   CsiFrameFilterConfig filter;
-  filter.traffic_mode = config_.csi_traffic_mode;
+  filter.traffic_mode = config_.csi_traffic_source;
   filter.internal_mode = config_.traffic_generator_mode;
   filter.local_ip_addr = local_ip_addr;
   filter.internal_target_ip_addr = runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr);

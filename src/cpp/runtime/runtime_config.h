@@ -49,7 +49,7 @@ enum class WifiBandPolicy : uint8_t {
  * instead of assigning fields by hand.
  *
  * The config is copied into the runtime at `setup()`. Later edits to your own
- * copy have no effect; use the `set_*_runtime()` control methods instead.
+ * copy have no effect; use the `RuntimeFrontendController` setters instead.
  */
 struct RuntimeConfig {
   /**
@@ -60,7 +60,7 @@ struct RuntimeConfig {
    */
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::AUTO};
   /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
-  CsiCapturePolicy csi_capture_profile{CsiCapturePolicy::AUTO};
+  CsiCapturePolicy csi_capture_policy{CsiCapturePolicy::AUTO};
   /** Detection profile to run. Lightweight self-calibrates; High Accuracy uses trained weights. */
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
   /**
@@ -70,38 +70,38 @@ struct RuntimeConfig {
    * Lightweight Detection overwrites this during startup calibration, so the
    * configured value only governs the pre-calibration window. High-Accuracy Detection keeps it as given.
    */
-  float segmentation_threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
+  float threshold{RUNTIME_THRESHOLD_DEFAULT};
   /**
    * Detector window duration in milliseconds (1000..2000).
    *
    * Runtimes resolve the duration to a fixed temporal grid from
    * `csi_target_pps`; live arrival jitter never resizes the detector.
    */
-  uint32_t segmentation_window_size_ms{RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT};
+  uint32_t window_size_ms{RUNTIME_WINDOW_SIZE_MS_DEFAULT};
   /**
    * Advertise runtime detector switching.
    *
    * When true the runtime restores the persisted detector choice at `setup()`
    * and sets `RuntimeCapabilities::supports_runtime_detector_selection`. A
    * persisted detector that differs from `detection_algorithm` also replaces
-   * `segmentation_threshold` with that detector's default.
+   * `threshold` with that detector's default.
    */
   bool runtime_detector_selection_enabled{false};
   /**
    * Target CSI sensing cadence, in packets per second.
    *
    * This value is always positive and defines detector temporal slots as well
-   * as the target for managed traffic. `csi_traffic_mode` alone selects who
+   * as the target for managed traffic. `csi_traffic_source` alone selects who
    * supplies traffic. The detector coefficients are fitted at 100 pps; see
    * `docs/ALGORITHMS.md` before moving far from it.
    */
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
   /** Which packet the internal generator sends to solicit CSI. */
-  RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
+  TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
   std::string traffic_generator_target_ip;
   /** Where the CSI-bearing traffic comes from. See `csi_traffic_types.h`. */
-  CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
+  CsiTrafficSource csi_traffic_source{CsiTrafficSource::INTERNAL};
   /** UDP port used by the external CSI traffic mode. */
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
   /**

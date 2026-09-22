@@ -226,11 +226,11 @@ Other notes:
 
 ## Supported hardware
 
-The targets in [Requirements](#requirements) need no extra hardware: sensing uses the built-in single-antenna Wi-Fi radio at 20 MHz with AGC on. ESP32-C5 supports 2.4 and 5 GHz; the others use 2.4 GHz. ESP32-C6 does not support `RuntimeTrafficMode::WIFI_RAW`.
+The targets in [Requirements](#requirements) need no extra hardware: sensing uses the built-in single-antenna Wi-Fi radio at 20 MHz with AGC on. ESP32-C5 supports 2.4 and 5 GHz; the others use 2.4 GHz. ESP32-C6 does not support `TrafficGeneratorMode::WIFI_RAW`.
 
 `wifi_band_policy` defaults to `AUTO` in both `RuntimeConfig` and Kconfig. `AUTO` uses every band the radio has, so it means 2.4 GHz on single-band chips. `BAND_5G` fails setup on chips without 5 GHz.
 
-Set `RuntimeConfig::csi_capture_profile` before setup; it cannot change at runtime. Packets outside the selected profile are dropped and counted. See [capture profiles](CSI.md#capture-profiles) for what each value selects.
+Set `RuntimeConfig::csi_capture_policy` before setup; it cannot change at runtime. Packets outside the selected profile are dropped and counted. See [capture profiles](CSI.md#capture-profiles) for what each value selects.
 
 ## Choosing a detection profile
 
@@ -246,13 +246,13 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 |-----------------------|-------------------|---------|---------------|
 | `wifi_band_policy` | `WifiBandPolicy`: `BAND_2G`, `BAND_5G`, or `AUTO` | `AUTO` | `BAND_5G` requires ESP32-C5 among the supported targets |
 | `detection_algorithm` | `DetectionAlgorithm`: `LIGHTWEIGHT` or `HIGH_ACCURACY` | `LIGHTWEIGHT` | Lightweight uses less detector CPU and working memory; High Accuracy skips quiet-room threshold calibration |
-| `segmentation_threshold` | `float` | `RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT` | `0-1`; Lightweight replaces it during calibration, while High Accuracy keeps the configured value. Use `set_threshold_runtime()` for session changes when supported |
-| `segmentation_window_size_ms` | `uint32_t` | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
+| `threshold` | `float` | `RUNTIME_THRESHOLD_DEFAULT` | `0-1`; Lightweight replaces it during calibration, while High Accuracy keeps the configured value. Use `set_threshold()` for session changes when supported |
+| `window_size_ms` | `uint32_t` | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | `uint32_t` | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
-| `csi_capture_profile` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Set before setup; no runtime setter. `HT_VHT` resolves HT20 or VHT20 from chip and band; `WIFI_RAW` requires `AUTO` or `LLTF` |
-| `csi_traffic_mode` | `CsiTrafficMode`: `INTERNAL` or `EXTERNAL` | `INTERNAL` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps` |
+| `csi_capture_policy` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Set before setup; no runtime setter. `HT_VHT` resolves HT20 or VHT20 from chip and band; `WIFI_RAW` requires `AUTO` or `LLTF` |
+| `csi_traffic_source` | `CsiTrafficSource`: `INTERNAL` or `EXTERNAL` | `INTERNAL` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps` |
 | `csi_traffic_multicast_group` | `std::string`: IPv4 multicast address, or empty | `"239.255.0.1"` | Joined by the UDP listener in `EXTERNAL`. Empty disables the join. Unicast to the device IP still works |
-| `traffic_generator_mode` | `RuntimeTrafficMode`: `PING`, `DNS`, `DNS_TCP`, or `WIFI_RAW` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP |
+| `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, or `WIFI_RAW` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP |
 | `traffic_generator_target_ip` | `std::string`: unicast IPv4 address, or empty | empty | Destination for internal `PING`, `DNS`, and `DNS_TCP`; empty uses the Wi-Fi default gateway. Ignored by `WIFI_RAW` and external traffic |
 | `evaluation_interval_ms` | `uint32_t` | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | `uint8_t` | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
@@ -267,7 +267,7 @@ The transmit rate is a build-time Kconfig string, not a `RuntimeConfig` field: `
 
 Only some settings can change at runtime. Check the advertised capabilities, then use the runtime setters or the [sensing operations](API.md#sensing-update-and-calibration). See [tuning essentials](TROUBLESHOOTING.md#tuning-essentials) for when to change a setting.
 
-Migrating from an early v3 snapshot? Move `traffic_generator_rate` to `csi_target_pps` and set `csi_traffic_mode` to `CsiTrafficMode::INTERNAL`. Saved `pacing` and `disabled` values become `internal` automatically. An integer `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` must be quoted or removed.
+Migrating from an early v3 snapshot? Move `traffic_generator_rate` to `csi_target_pps` and set `csi_traffic_source` to `CsiTrafficSource::INTERNAL`. Saved `pacing` and `disabled` values become `internal` automatically. An integer `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` must be quoted or removed.
 
 ### Traffic destination
 

@@ -70,23 +70,23 @@ class ESpectreComponent : public Component, public IRuntimeListener
   // Setters for YAML configuration
   void set_direct_api(bool enabled) { this->direct_api_enabled_ = enabled; }
   void set_segmentation_window_size_ms(uint32_t size_ms) {
-    this->runtime_.config().segmentation_window_size_ms = size_ms;
+    this->runtime_.config().window_size_ms = size_ms;
   }
   void set_wifi_band_policy(const std::string &policy) {
     this->runtime_.config().wifi_band_policy = parse_wifi_band_policy(policy.c_str());
   }
   void set_csi_target_pps(uint32_t target_pps) { this->runtime_.config().csi_target_pps = target_pps; }
   void set_csi_capture_profile(CsiCapturePolicy profile) {
-    this->runtime_.config().csi_capture_profile = profile;
+    this->runtime_.config().csi_capture_policy = profile;
   }
   void set_csi_traffic_mode(const std::string &mode) {
-    this->runtime_.config().csi_traffic_mode = parse_csi_traffic_mode(mode.c_str());
+    this->runtime_.config().csi_traffic_source = parse_csi_traffic_source(mode.c_str());
   }
   void set_csi_traffic_multicast_group(const std::string &group) {
     this->runtime_.config().csi_traffic_multicast_group = group;
   }
   void set_traffic_generator_mode(const std::string &mode) { 
-    this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
+    this->runtime_.config().traffic_generator_mode = parse_traffic_generator_mode(mode.c_str());
   }
   void set_traffic_generator_target_ip(const std::string &address) {
     this->runtime_.config().traffic_generator_target_ip = address;
@@ -160,7 +160,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_sensing_readiness_changed(const RuntimeSnapshot &snapshot) override;
-  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
+  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) override;
   void on_live_telemetry(float movement, float threshold) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;

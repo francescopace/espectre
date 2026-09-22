@@ -166,14 +166,14 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
                     static_cast<int>(config.wifi_band_policy));
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::LIGHTWEIGHT),
                     static_cast<int>(config.detection_algorithm));
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL), static_cast<int>(config.csi_traffic_mode));
+  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficSource::INTERNAL), static_cast<int>(config.csi_traffic_source));
   TEST_ASSERT_TRUE(runtime_detection_algorithm_valid(config.detection_algorithm));
-  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, config.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, config.threshold);
 
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_ON_HITS_DEFAULT, config.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_OFF_HITS_DEFAULT, config.motion_off_hits);
-  TEST_ASSERT_EQUAL(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT,
-                    config.segmentation_window_size_ms);
+  TEST_ASSERT_EQUAL(RUNTIME_WINDOW_SIZE_MS_DEFAULT,
+                    config.window_size_ms);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_CSI_TARGET_PPS_DEFAULT),
                         static_cast<int>(config.csi_target_pps));
 
@@ -199,9 +199,9 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
   // integrators at.
   const RuntimeConfig config;
 
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.segmentation_window_size_ms,
-                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
-                                           RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX));
+  TEST_ASSERT_TRUE(validate_runtime_uint32(config.window_size_ms,
+                                           RUNTIME_WINDOW_SIZE_MS_MIN,
+                                           RUNTIME_WINDOW_SIZE_MS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.csi_target_pps,
                                            RUNTIME_CSI_TARGET_PPS_MIN,
                                            RUNTIME_CSI_TARGET_PPS_MAX));

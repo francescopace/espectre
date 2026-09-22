@@ -61,7 +61,7 @@ ESPectre captures CSI only while connected to an access point and never uses pro
 
 ### Capture profiles
 
-A capture profile decides which part of the Wi-Fi frame is measured. Set `csi_capture_profile` at build time through ESPHome YAML, Kconfig, or `RuntimeConfig`. It cannot be changed at runtime. The read-only `csi_profile` diagnostic shows the profile in use.
+A capture profile decides which part of the Wi-Fi frame is measured. Set it at build time with `csi_capture_profile` in ESPHome YAML, the Kconfig option, or `RuntimeConfig::csi_capture_policy`. It cannot be changed at runtime. The read-only `csi_profile` diagnostic shows the profile in use.
 
 | Setting | With internal `wifi_raw` | On a 5 GHz VHT link | Otherwise |
 |---------|--------------------------|---------------------|-----------|

@@ -88,7 +88,7 @@
  * - Keep callbacks bounded and non-blocking. Slow work delays `loop()` and can
  *   fill the bounded CSI mailbox, dropping incoming frames. Queue network I/O,
  *   NVS writes, and other blocking work for another task.
- * - Call `set_*_runtime()` only from the owner task. Queue commands received
+ * - Call the controller setters only from the owner task. Queue commands received
  *   by network callbacks and apply them from that task's loop.
  * - Do not drive the controller from inside `on_runtime_fault()` beyond
  *   `shutdown()`.

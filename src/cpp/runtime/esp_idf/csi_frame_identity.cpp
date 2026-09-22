@@ -189,17 +189,17 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
   ParsedIpv4 packet;
   if (!parse_bounded_payload(info, &packet) ||
       !destination_mac_matches(packet, config, info->dmac)) return false;
-  if (config.traffic_mode == CsiTrafficMode::EXTERNAL) {
+  if (config.traffic_mode == CsiTrafficSource::EXTERNAL) {
     return matches_external_udp(packet, config) || matches_external_ping(packet, config);
   }
   switch (config.internal_mode) {
-    case RuntimeTrafficMode::WIFI_RAW:
+    case TrafficGeneratorMode::WIFI_RAW:
       return false;  // Only the LLTF20 ACK path above supplies raw Wi-Fi samples.
-    case RuntimeTrafficMode::DNS:
+    case TrafficGeneratorMode::DNS:
       return matches_internal_dns_udp(packet, config);
-    case RuntimeTrafficMode::DNS_TCP:
+    case TrafficGeneratorMode::DNS_TCP:
       return matches_internal_dns_tcp(packet, config);
-    case RuntimeTrafficMode::PING:
+    case TrafficGeneratorMode::PING:
     default:
       return matches_internal_ping(packet, config);
   }

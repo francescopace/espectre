@@ -299,12 +299,12 @@ void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
   mqtt.emit_command(
       "{\"command_id\":\"traffic-1b\",\"command\":\"update_sensing\",\"csi_traffic_mode\":\"external\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::EXTERNAL);
 
   mqtt.emit_command(
       "{\"command_id\":\"traffic-2\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"ping\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::PING);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
                    std::string::npos);

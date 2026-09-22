@@ -13,7 +13,7 @@ namespace espectre {
 
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
   CsiTrafficServiceConfig traffic_config;
-  traffic_config.mode = config.csi_traffic_mode;
+  traffic_config.mode = config.csi_traffic_source;
   traffic_config.rate_pps = config.csi_target_pps;
   traffic_config.traffic_mode = config.traffic_generator_mode;
   traffic_config.udp_port = config.csi_traffic_udp_port;
@@ -34,9 +34,9 @@ void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
 
 bool CsiTrafficService::start(uint32_t target_addr) {
   switch (mode_) {
-    case CsiTrafficMode::INTERNAL:
+    case CsiTrafficSource::INTERNAL:
       return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
-    case CsiTrafficMode::EXTERNAL:
+    case CsiTrafficSource::EXTERNAL:
       return traffic_ingress_.is_running() || traffic_ingress_.start();
     default:
       return false;
@@ -68,9 +68,9 @@ void CsiTrafficService::set_packet_callback(csi_traffic_packet_callback_t callba
 
 bool CsiTrafficService::is_running() const {
   switch (mode_) {
-    case CsiTrafficMode::INTERNAL:
+    case CsiTrafficSource::INTERNAL:
       return traffic_generator_.is_running();
-    case CsiTrafficMode::EXTERNAL:
+    case CsiTrafficSource::EXTERNAL:
       return traffic_ingress_.is_running();
     default:
       return false;
@@ -86,7 +86,7 @@ uint64_t CsiTrafficService::get_packets_received() const {
 }
 
 uint32_t CsiTrafficService::get_generator_packets_total() const {
-  return mode_ == CsiTrafficMode::INTERNAL
+  return mode_ == CsiTrafficSource::INTERNAL
              ? traffic_generator_.send_success_count()
              : 0U;
 }

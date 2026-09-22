@@ -63,7 +63,7 @@ class NativeFrontend : public IRuntimeListener {
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_sensing_readiness_changed(const RuntimeSnapshot &snapshot) override;
-  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
+  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
@@ -82,8 +82,8 @@ class NativeFrontend : public IRuntimeListener {
   EspectreCapabilityProfile command_capability_profile_(bool allow_local_config) const;
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
-  bool handle_csi_traffic_mode_write_(CsiTrafficMode mode);
-  bool handle_traffic_generator_mode_write_(RuntimeTrafficMode mode);
+  bool handle_csi_traffic_mode_write_(CsiTrafficSource mode);
+  bool handle_traffic_generator_mode_write_(TrafficGeneratorMode mode);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_recalibration_write_();
   void drain_pending_runtime_events_();

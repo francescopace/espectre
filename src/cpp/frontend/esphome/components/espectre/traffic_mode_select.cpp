@@ -35,9 +35,9 @@ void ESpectreTrafficModeSelect::republish_state() {
     return;
   }
   if (this->csi_traffic_mode_) {
-    this->publish_state(::espectre::csi_traffic_mode_name(this->parent_->runtime_.config().csi_traffic_mode));
+    this->publish_state(::espectre::csi_traffic_source_name(this->parent_->runtime_.config().csi_traffic_source));
   } else {
-    this->publish_state(::espectre::traffic_mode_name(this->parent_->runtime_.config().traffic_generator_mode));
+    this->publish_state(::espectre::traffic_generator_mode_name(this->parent_->runtime_.config().traffic_generator_mode));
   }
 }
 

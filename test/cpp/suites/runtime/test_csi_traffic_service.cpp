@@ -26,7 +26,7 @@ void test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics(v
   FakeCsiTrafficIngress ingress;
   CsiTrafficService service(generator, ingress);
   CsiTrafficServiceConfig config;
-  config.mode = CsiTrafficMode::EXTERNAL;
+  config.mode = CsiTrafficSource::EXTERNAL;
   config.udp_port = 6001U;
   config.multicast_group = "239.12.12.12";
 
@@ -64,13 +64,13 @@ void test_csi_traffic_service_selects_internal_generator(void) {
   FakeCsiTrafficIngress ingress;
   CsiTrafficService service(generator, ingress);
   CsiTrafficServiceConfig config;
-  config.mode = CsiTrafficMode::INTERNAL;
+  config.mode = CsiTrafficSource::INTERNAL;
   config.rate_pps = 94U;
-  config.traffic_mode = RuntimeTrafficMode::DNS_TCP;
+  config.traffic_mode = TrafficGeneratorMode::DNS_TCP;
 
   service.init(config);
   TEST_ASSERT_EQUAL(94U, generator.rate_pps);
-  TEST_ASSERT_TRUE(generator.mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(generator.mode == TrafficGeneratorMode::DNS_TCP);
 
   TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
   TEST_ASSERT_EQUAL(1U, generator.start_calls);
@@ -85,25 +85,25 @@ void test_csi_traffic_service_selects_internal_generator(void) {
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
   RuntimeConfig runtime_config;
   runtime_config.csi_target_pps = 94U;
-  runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  runtime_config.csi_traffic_source = CsiTrafficSource::INTERNAL;
 
   CsiTrafficServiceConfig service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficSource::INTERNAL);
   TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::PING);
 
-  runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+  runtime_config.traffic_generator_mode = TrafficGeneratorMode::DNS;
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS);
 
-  runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
+  runtime_config.traffic_generator_mode = TrafficGeneratorMode::DNS_TCP;
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS_TCP);
 
-  runtime_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  runtime_config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   runtime_config.csi_traffic_multicast_group.clear();
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficSource::EXTERNAL);
   TEST_ASSERT_TRUE(service_config.multicast_group.empty());
 }
 

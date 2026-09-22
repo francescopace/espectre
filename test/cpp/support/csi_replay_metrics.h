@@ -133,14 +133,14 @@ inline uint16_t detector_window_packets(const ReplayPacketMetadata& metadata,
                                         int packet_count) {
   return temporal_window_slots(
       target_pps(metadata, packet_count),
-      RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+      RUNTIME_WINDOW_SIZE_MS_DEFAULT);
 }
 
 /** Resolve the production startup duration for one replay stream. */
 inline uint16_t calibration_packet_count(const ReplayPacketMetadata& metadata,
                                          int packet_count) {
   const uint64_t duration_us =
-      static_cast<uint64_t>(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT) *
+      static_cast<uint64_t>(RUNTIME_WINDOW_SIZE_MS_DEFAULT) *
       1000U * CALIBRATION_NUM_WINDOWS;
   const uint64_t rounded_packets =
       (duration_us * target_pps(metadata, packet_count) + 500000U) / 1000000U;
@@ -225,7 +225,7 @@ inline bool calibrate_lightweight_detector(
       std::max<uint32_t>(1U, static_cast<uint32_t>(std::llround(
           1000000.0 / replay_target_pps)));
   TemporalCsiSampler sampler(
-      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+      replay_target_pps, RUNTIME_WINDOW_SIZE_MS_DEFAULT);
   detector.set_minimum_valid_samples(
       static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
@@ -324,7 +324,7 @@ ReplayMetrics evaluate_detector(
       std::max<uint32_t>(1U, static_cast<uint32_t>(std::llround(
           1000000.0 / replay_target_pps)));
   TemporalCsiSampler sampler(
-      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+      replay_target_pps, RUNTIME_WINDOW_SIZE_MS_DEFAULT);
   detector.set_minimum_valid_samples(
       static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
@@ -391,7 +391,7 @@ ReplayMetrics evaluate_detector(
   // The motion stream is a separate recording, so it gets a fresh temporal
   // admission grid while retaining the detector state used by paired replay.
   sampler = TemporalCsiSampler(
-      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+      replay_target_pps, RUNTIME_WINDOW_SIZE_MS_DEFAULT);
   pending = {};
   selected = {};
   cadence.reset();

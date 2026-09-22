@@ -640,11 +640,11 @@ void ESpectreComponent::sync_direct_config_() {
     this->motion_off_hits_number_->publish_state(this->runtime_.config().motion_off_hits);
   }
   if (this->csi_traffic_mode_select_ != nullptr) {
-    this->csi_traffic_mode_select_->publish_state(csi_traffic_mode_name(this->runtime_.config().csi_traffic_mode));
+    this->csi_traffic_mode_select_->publish_state(csi_traffic_source_name(this->runtime_.config().csi_traffic_source));
   }
   if (this->traffic_generator_mode_select_ != nullptr) {
     this->traffic_generator_mode_select_->publish_state(
-        traffic_mode_name(this->runtime_.config().traffic_generator_mode));
+        traffic_generator_mode_name(this->runtime_.config().traffic_generator_mode));
   }
   if (this->sensing_switch_ != nullptr) {
     static_cast<ESpectreSensingSwitch *>(this->sensing_switch_)->republish_state();
@@ -794,22 +794,22 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
           append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
           out += ",\"motion_on_hits\":" + std::to_string(config.motion_on_hits);
           out += ",\"motion_off_hits\":" + std::to_string(config.motion_off_hits);
-          append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
-          append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
+          append_json_pair(&out, "csi_traffic_mode", csi_traffic_source_name(config.csi_traffic_source));
+          append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
           out += "}";
           return out;
         }
         return std::string{};
       },
       {},
-      [this](float value, std::string *) { return this->runtime_.set_threshold_runtime(value); },
-      [this](uint8_t on, uint8_t off, std::string *) { return this->runtime_.set_motion_hits_runtime(on, off); },
-      [this](CsiTrafficMode mode, std::string *) { return this->runtime_.set_csi_traffic_mode_runtime(mode); },
-      [this](RuntimeTrafficMode mode, std::string *) {
-        return this->runtime_.set_traffic_generator_mode_runtime(mode);
+      [this](float value, std::string *) { return this->runtime_.set_threshold(value); },
+      [this](uint8_t on, uint8_t off, std::string *) { return this->runtime_.set_motion_hits(on, off); },
+      [this](CsiTrafficSource mode, std::string *) { return this->runtime_.set_csi_traffic_source(mode); },
+      [this](TrafficGeneratorMode mode, std::string *) {
+        return this->runtime_.set_traffic_generator_mode(mode);
       },
       [this](DetectionAlgorithm algorithm, std::string *) {
-        return this->runtime_.set_detection_algorithm_runtime(algorithm);
+        return this->runtime_.set_detection_algorithm(algorithm);
       },
       [this](std::string *) { return this->runtime_.trigger_recalibration(); },
       {},
@@ -899,8 +899,8 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
   (void) this->runtime_events_.post_motion_state(snapshot);
 }
 
-void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
-  (void) packets_received;
+void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) {
+  (void) csi_accepted;
   if (!snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
     this->detector_republished_ = false;
@@ -1058,7 +1058,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ Detector ........... %s", snapshot.detector_name);
   ESP_LOGCONFIG(TAG, " ├─ Threshold .......... %.6f", snapshot.threshold);
   ESP_LOGCONFIG(TAG, " ├─ Window ............. %u ms",
-                static_cast<unsigned>(config.segmentation_window_size_ms));
+                static_cast<unsigned>(config.window_size_ms));
   ESP_LOGCONFIG(TAG, " └─ Startup threshold .. %.6f", snapshot.startup_threshold);
   ESP_LOGCONFIG(TAG, " ");
   const SelectedSubcarriers &subcarriers = this->runtime_.subcarriers();
@@ -1071,13 +1071,13 @@ void ESpectreComponent::dump_config() {
                 subcarriers[10], subcarriers[11]);
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
-  ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
+  ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_generator_mode_name(config.traffic_generator_mode));
   ESP_LOGCONFIG(TAG, " ├─ Target IP .......... %s",
                 config.traffic_generator_target_ip.empty() ? "[gateway]"
                                                           : config.traffic_generator_target_ip.c_str());
   ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
                 static_cast<unsigned>(config.csi_target_pps));
-  ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_mode_name(config.csi_traffic_mode));
+  ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_source_name(config.csi_traffic_source));
   ESP_LOGCONFIG(TAG, " ├─ Multicast join ..... %s",
                 config.csi_traffic_multicast_group.empty() ? "[disabled]"
                                                           : config.csi_traffic_multicast_group.c_str());

@@ -65,7 +65,7 @@ esp_err_t save_string_key(const char *key, const char *value) {
 
 }  // namespace
 
-esp_err_t load_runtime_csi_traffic_mode(CsiTrafficMode *mode, bool *has_saved_value) {
+esp_err_t load_runtime_csi_traffic_mode(CsiTrafficSource *mode, bool *has_saved_value) {
   if (mode == nullptr || has_saved_value == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -76,17 +76,17 @@ esp_err_t load_runtime_csi_traffic_mode(CsiTrafficMode *mode, bool *has_saved_va
   }
   if (std::strcmp(value, "pacing") == 0 || std::strcmp(value, "disabled") == 0) {
     ESPECTRE_LOGW(kTag, "Migrating removed CSI traffic mode '%s' to internal", value);
-    *mode = CsiTrafficMode::INTERNAL;
+    *mode = CsiTrafficSource::INTERNAL;
     return save_string_key(kCsiTrafficModeKey, RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME);
   }
-  *mode = parse_csi_traffic_mode(value);
-  if (!runtime_csi_traffic_mode_valid(*mode) || std::strcmp(value, csi_traffic_mode_name(*mode)) != 0) {
+  *mode = parse_csi_traffic_source(value);
+  if (!runtime_csi_traffic_source_valid(*mode) || std::strcmp(value, csi_traffic_source_name(*mode)) != 0) {
     return ESP_ERR_INVALID_STATE;
   }
   return ESP_OK;
 }
 
-esp_err_t load_runtime_traffic_generator_mode(RuntimeTrafficMode *mode, bool *has_saved_value) {
+esp_err_t load_runtime_traffic_generator_mode(TrafficGeneratorMode *mode, bool *has_saved_value) {
   if (mode == nullptr || has_saved_value == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -95,25 +95,25 @@ esp_err_t load_runtime_traffic_generator_mode(RuntimeTrafficMode *mode, bool *ha
   if (err != ESP_OK || !*has_saved_value) {
     return err;
   }
-  *mode = parse_traffic_mode(value);
-  if (!runtime_traffic_mode_valid(*mode) || std::strcmp(value, traffic_mode_name(*mode)) != 0) {
+  *mode = parse_traffic_generator_mode(value);
+  if (!runtime_traffic_generator_mode_valid(*mode) || std::strcmp(value, traffic_generator_mode_name(*mode)) != 0) {
     return ESP_ERR_INVALID_STATE;
   }
   return ESP_OK;
 }
 
-esp_err_t save_runtime_csi_traffic_mode(CsiTrafficMode mode) {
-  if (!runtime_csi_traffic_mode_valid(mode)) {
+esp_err_t save_runtime_csi_traffic_mode(CsiTrafficSource mode) {
+  if (!runtime_csi_traffic_source_valid(mode)) {
     return ESP_ERR_INVALID_ARG;
   }
-  return save_string_key(kCsiTrafficModeKey, csi_traffic_mode_name(mode));
+  return save_string_key(kCsiTrafficModeKey, csi_traffic_source_name(mode));
 }
 
-esp_err_t save_runtime_traffic_generator_mode(RuntimeTrafficMode mode) {
-  if (!runtime_traffic_mode_valid(mode)) {
+esp_err_t save_runtime_traffic_generator_mode(TrafficGeneratorMode mode) {
+  if (!runtime_traffic_generator_mode_valid(mode)) {
     return ESP_ERR_INVALID_ARG;
   }
-  return save_string_key(kTrafficGeneratorModeKey, traffic_mode_name(mode));
+  return save_string_key(kTrafficGeneratorModeKey, traffic_generator_mode_name(mode));
 }
 
 }  // namespace espectre

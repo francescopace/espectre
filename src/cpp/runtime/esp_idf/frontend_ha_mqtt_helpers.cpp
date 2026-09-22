@@ -338,7 +338,7 @@ std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttS
   append_json_string(&out, "dns");
   out.push_back(',');
   append_json_string(&out, "dns_tcp");
-  if (runtime_traffic_mode_supported(RuntimeTrafficMode::WIFI_RAW)) {
+  if (runtime_traffic_generator_mode_supported(TrafficGeneratorMode::WIFI_RAW)) {
     out.push_back(',');
     append_json_string(&out, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME);
   }

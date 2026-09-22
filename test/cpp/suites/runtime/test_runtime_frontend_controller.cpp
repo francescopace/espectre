@@ -39,7 +39,7 @@ class DummyRuntimeListener : public IRuntimeListener {
     last_threshold = snapshot.threshold;
     if (controller != nullptr) {
       cached_threshold_during_callback = controller->snapshot().threshold;
-      configured_threshold_during_callback = controller->config().segmentation_threshold;
+      configured_threshold_during_callback = controller->config().threshold;
       if (shutdown_on_threshold) {
         controller->shutdown();
       }
@@ -205,11 +205,11 @@ void test_frontend_bootstrap_sets_up_wifi_and_propagates_start_failure(void) {
 void test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
-  config.segmentation_threshold = 0.85f;
+  config.threshold = 0.85f;
 
   controller.set_config(config);
 
-  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.snapshot().threshold);
 
   frontend_runtime_shim::state.snapshot.threshold = 0.7f;
@@ -217,9 +217,9 @@ void test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot(vo
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
   RuntimeConfig updated = controller.config();
-  updated.segmentation_threshold = 0.5f;
+  updated.threshold = 0.5f;
   controller.set_config(updated);
-  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().threshold);
 }
 
 void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup(void) {
@@ -254,7 +254,7 @@ void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validat
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
   controller.config().wifi_band_policy = static_cast<WifiBandPolicy>(0x7f);
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.55f));
+  TEST_ASSERT_TRUE(controller.set_threshold(0.55f));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.55f, controller.snapshot().threshold);
 
@@ -269,7 +269,7 @@ void test_runtime_frontend_controller_preserves_staged_fields_across_live_callba
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
   controller.config().detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-  controller.config().segmentation_threshold = 0.77f;
+  controller.config().threshold = 0.77f;
 
   RuntimeSnapshot current = controller.snapshot();
   current.detector_name = detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT);
@@ -281,14 +281,14 @@ void test_runtime_frontend_controller_preserves_staged_fields_across_live_callba
 
   TEST_ASSERT_TRUE(controller.config().detection_algorithm ==
                    DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.62f, controller.snapshot().threshold);
 
   controller.shutdown();
   TEST_ASSERT_TRUE(controller.setup(&listener));
   TEST_ASSERT_TRUE(controller.config().detection_algorithm ==
                    DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().threshold);
 }
 
 void test_runtime_frontend_controller_preserves_staged_fields_across_live_setters(void) {
@@ -300,33 +300,33 @@ void test_runtime_frontend_controller_preserves_staged_fields_across_live_setter
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
   controller.config().detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-  controller.config().segmentation_threshold = 0.77f;
+  controller.config().threshold = 0.77f;
   controller.config().motion_on_hits = 8U;
   controller.config().motion_off_hits = 6U;
-  controller.config().csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  controller.config().traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
+  controller.config().csi_traffic_source = CsiTrafficSource::EXTERNAL;
+  controller.config().traffic_generator_mode = TrafficGeneratorMode::DNS_TCP;
 
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.55f));
-  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(5U, 2U));
-  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
-  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(controller.set_threshold(0.55f));
+  TEST_ASSERT_TRUE(controller.set_motion_hits(5U, 2U));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_source(CsiTrafficSource::INTERNAL));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT));
 
   TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().threshold);
   TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
-  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
 
   controller.shutdown();
   TEST_ASSERT_TRUE(controller.setup(&listener));
   TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().threshold);
   TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
-  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
 }
 
 void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure(void) {
@@ -359,21 +359,21 @@ void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure
 void test_runtime_frontend_controller_adopts_backend_effective_config(void) {
   RuntimeFrontendController controller;
   RuntimeConfig staged;
-  staged.csi_traffic_mode = CsiTrafficMode::INTERNAL;
-  staged.traffic_generator_mode = RuntimeTrafficMode::PING;
+  staged.csi_traffic_source = CsiTrafficSource::INTERNAL;
+  staged.traffic_generator_mode = TrafficGeneratorMode::PING;
   controller.set_config(staged);
 
   frontend_runtime_shim::state.override_config_on_setup = true;
   frontend_runtime_shim::state.setup_config = staged;
-  frontend_runtime_shim::state.setup_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  frontend_runtime_shim::state.setup_config.traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
+  frontend_runtime_shim::state.setup_config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
+  frontend_runtime_shim::state.setup_config.traffic_generator_mode = TrafficGeneratorMode::DNS_TCP;
   frontend_runtime_shim::state.setup_config.motion_on_hits = 8U;
   frontend_runtime_shim::state.setup_config.motion_off_hits = 6U;
 
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
   TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
 }
@@ -431,12 +431,12 @@ void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snaps
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
 
-  TEST_ASSERT_FALSE(controller.set_threshold_runtime(-0.5f));
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.75f));
+  TEST_ASSERT_FALSE(controller.set_threshold(-0.5f));
+  TEST_ASSERT_TRUE(controller.set_threshold(0.75f));
   TEST_ASSERT_EQUAL_FLOAT(0.75f, controller.snapshot().threshold);
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.5f));
+  TEST_ASSERT_TRUE(controller.set_threshold(0.5f));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.5f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.5f, controller.snapshot().threshold);
@@ -448,23 +448,23 @@ void test_runtime_frontend_controller_threshold_requires_capability(void) {
   frontend_runtime_shim::state.capabilities.supports_runtime_threshold_updates = false;
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_FALSE(controller.set_threshold_runtime(0.5f));
+  TEST_ASSERT_FALSE(controller.set_threshold(0.5f));
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
-                          controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_DEFAULT,
+                          controller.config().threshold);
 }
 
 void test_runtime_frontend_controller_motion_hits_runtime_updates_config(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
 
-  TEST_ASSERT_FALSE(controller.set_motion_hits_runtime(0U, 3U));
-  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(6U, 4U));
+  TEST_ASSERT_FALSE(controller.set_motion_hits(0U, 3U));
+  TEST_ASSERT_TRUE(controller.set_motion_hits(6U, 4U));
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(4U, controller.config().motion_off_hits);
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_motion_hits_runtime(5U, 2U));
+  TEST_ASSERT_TRUE(controller.set_motion_hits(5U, 2U));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
   TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(2U, frontend_runtime_shim::state.last_motion_off_hits);
@@ -474,36 +474,36 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
 
-  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS_TCP));
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::DNS_TCP));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
 
-  TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(static_cast<CsiTrafficMode>(0x7f)));
-  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(static_cast<RuntimeTrafficMode>(0x7f)));
+  TEST_ASSERT_FALSE(controller.set_csi_traffic_source(static_cast<CsiTrafficSource>(0x7f)));
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode(static_cast<TrafficGeneratorMode>(0x7f)));
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_source(CsiTrafficSource::INTERNAL));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::INTERNAL);
 
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::PING));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::PING);
 }
 
 void test_runtime_frontend_controller_rejects_incompatible_capture_profile_source(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
-  controller.config().csi_capture_profile = CsiCapturePolicy::HT_VHT;
-  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::PING);
+  controller.config().csi_capture_policy = CsiCapturePolicy::HT_VHT;
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode(TrafficGeneratorMode::WIFI_RAW));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::PING);
   TEST_ASSERT_TRUE(controller.setup(&listener));
   // A staged build configuration must not override the running profile's constraint.
-  controller.config().csi_capture_profile = CsiCapturePolicy::LLTF;
-  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+  controller.config().csi_capture_policy = CsiCapturePolicy::LLTF;
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode(TrafficGeneratorMode::WIFI_RAW));
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
 }
 
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
@@ -617,17 +617,17 @@ void test_runtime_frontend_controller_switches_detector_and_resets_threshold(voi
   RuntimeFrontendController controller;
   RuntimeConfig config;
   config.runtime_detector_selection_enabled = true;
-  config.segmentation_threshold = 0.4f;
+  config.threshold = 0.4f;
   controller.set_config(config);
 
-  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_TRUE(controller.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 
   frontend_runtime_shim::state.capabilities.supports_runtime_detector_selection = true;
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(controller.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, controller.snapshot().threshold);

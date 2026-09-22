@@ -275,11 +275,11 @@ FrontendCommandResult FrontendCommandEngine::execute(
     }
     if (result.accepted && command.has_csi_traffic_mode) {
       result.accepted = csi_traffic_mode_callback(
-          parse_csi_traffic_mode(command.csi_traffic_mode.c_str()), &result.message);
+          parse_csi_traffic_source(command.csi_traffic_mode.c_str()), &result.message);
     }
     if (result.accepted && command.has_traffic_generator_mode) {
       result.accepted = traffic_generator_mode_callback(
-          parse_traffic_mode(command.traffic_generator_mode.c_str()), &result.message);
+          parse_traffic_generator_mode(command.traffic_generator_mode.c_str()), &result.message);
     }
     if (result.accepted && command.has_sensing_enabled) {
       result.accepted = sensing_control_callback(command.sensing_enabled, &result.message);

@@ -79,7 +79,7 @@ class RuntimeFrontendController : private IRuntimeListener {
    * Stage the configuration used by the next `setup()`.
    *
    * Ignored once setup has started, so reconfiguring a running runtime means
-   * `shutdown()` first, or the `set_*_runtime()` methods for the fields that
+   * `shutdown()` first, or the setters for the fields that
    * support live changes.
    */
   void set_config(const RuntimeConfig &config);
@@ -185,7 +185,7 @@ class RuntimeFrontendController : private IRuntimeListener {
    * @return false when out of range, or when the backend refuses it. Before
    *         setup the value is staged and returns true.
    */
-  bool set_threshold_runtime(float threshold);
+  bool set_threshold(float threshold);
   /**
    * Set the hit filter.
    *
@@ -197,21 +197,21 @@ class RuntimeFrontendController : private IRuntimeListener {
    *         and does not advertise
    *         `RuntimeCapabilities::supports_runtime_motion_hits_updates`.
    */
-  bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
+  bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits);
   /**
    * Change the live CSI traffic ownership mode.
    *
    * @return false when the mode is invalid, or when the runtime is up and does
    *         not advertise `RuntimeCapabilities::supports_traffic_control`.
    */
-  bool set_csi_traffic_mode_runtime(CsiTrafficMode mode);
+  bool set_csi_traffic_source(CsiTrafficSource mode);
   /**
    * Change the live internal traffic generator packet type.
    *
    * @return false when the mode is invalid, or when the runtime is up and does
    *         not advertise `RuntimeCapabilities::supports_traffic_control`.
    */
-  bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode);
+  bool set_traffic_generator_mode(TrafficGeneratorMode mode);
   /**
    * Switch detector while running.
    *
@@ -222,7 +222,7 @@ class RuntimeFrontendController : private IRuntimeListener {
    *         not advertise
    *         `RuntimeCapabilities::supports_runtime_detector_selection`.
    */
-  bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm);
+  bool set_detection_algorithm(DetectionAlgorithm algorithm);
   /**
    * Restart startup calibration.
    *
@@ -257,7 +257,7 @@ class RuntimeFrontendController : private IRuntimeListener {
 
  private:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
-  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
+  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;

@@ -329,8 +329,8 @@ std::string NativeDirectFrontend::sensing_payload() const {
   out += ",\"threshold\":" + std::to_string(owner_.runtime_.snapshot().threshold);
   out += ",\"motion_on_hits\":" + std::to_string(runtime_config.motion_on_hits);
   out += ",\"motion_off_hits\":" + std::to_string(runtime_config.motion_off_hits);
-  append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(runtime_config.csi_traffic_mode));
-  append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(runtime_config.traffic_generator_mode));
+  append_json_pair(&out, "csi_traffic_mode", csi_traffic_source_name(runtime_config.csi_traffic_source));
+  append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(runtime_config.traffic_generator_mode));
   out += ",\"csi_target_pps\":" + std::to_string(runtime_config.csi_target_pps);
   out += ",\"csi_traffic_udp_port\":" + std::to_string(runtime_config.csi_traffic_udp_port);
   append_json_pair(&out, "csi_traffic_multicast_group", runtime_config.csi_traffic_multicast_group.c_str());

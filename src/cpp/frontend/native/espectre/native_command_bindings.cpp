@@ -101,14 +101,14 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         }
         return accepted;
       },
-      [this](CsiTrafficMode mode, std::string *message) {
+      [this](CsiTrafficSource mode, std::string *message) {
         const bool accepted = this->owner_.handle_csi_traffic_mode_write_(mode);
         if (message != nullptr && message->empty()) {
           *message = accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
         }
         return accepted;
       },
-      [this](RuntimeTrafficMode mode, std::string *message) {
+      [this](TrafficGeneratorMode mode, std::string *message) {
         const bool accepted = this->owner_.handle_traffic_generator_mode_write_(mode);
         if (message != nullptr && message->empty()) {
           *message = accepted ? "traffic generator mode updated" : "traffic generator mode rejected";

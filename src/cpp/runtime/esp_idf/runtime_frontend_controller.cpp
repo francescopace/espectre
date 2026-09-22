@@ -36,7 +36,7 @@ void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
     return;
   }
   config_ = config;
-  snapshot_.threshold = config_.segmentation_threshold;
+  snapshot_.threshold = config_.threshold;
 }
 
 bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
@@ -164,14 +164,14 @@ void RuntimeFrontendController::quiesce() {
   set_services_armed(false);
 }
 
-bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
+bool RuntimeFrontendController::set_threshold(float threshold) {
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
   if (!validate_runtime_threshold_for_algorithm(threshold, effective_config.detection_algorithm)) {
     return false;
   }
   if (runtime_) {
     if (!capabilities_.supports_runtime_threshold_updates ||
-        !runtime_->set_threshold_runtime(threshold)) {
+        !runtime_->set_threshold(threshold)) {
       apply_deferred_shutdown_();
       return false;
     }
@@ -181,14 +181,14 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   if (runtime_) {
     adopt_effective_threshold_(threshold);
   } else {
-    config_.segmentation_threshold = threshold;
+    config_.threshold = threshold;
   }
   snapshot_.threshold = threshold;
   apply_deferred_shutdown_();
   return true;
 }
 
-bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+bool RuntimeFrontendController::set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) {
   if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     return false;
@@ -199,7 +199,7 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
       runtime_ && config_.motion_off_hits != active_config_.motion_off_hits;
   if (runtime_) {
     if (!capabilities_.supports_runtime_motion_hits_updates ||
-        !runtime_->set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
+        !runtime_->set_motion_hits(motion_on_hits, motion_off_hits)) {
       apply_deferred_shutdown_();
       return false;
     }
@@ -214,36 +214,36 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
   return true;
 }
 
-bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
-  if (!runtime_csi_traffic_mode_valid(mode)) {
+bool RuntimeFrontendController::set_csi_traffic_source(CsiTrafficSource mode) {
+  if (!runtime_csi_traffic_source_valid(mode)) {
     return false;
   }
   const bool staged_for_next_setup =
-      runtime_ && config_.csi_traffic_mode != active_config_.csi_traffic_mode;
+      runtime_ && config_.csi_traffic_source != active_config_.csi_traffic_source;
   if (runtime_) {
-    if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_mode_runtime(mode)) {
+    if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_source(mode)) {
       apply_deferred_shutdown_();
       return false;
     }
   }
-  if (!staged_for_next_setup) config_.csi_traffic_mode = mode;
-  if (runtime_) active_config_.csi_traffic_mode = mode;
+  if (!staged_for_next_setup) config_.csi_traffic_source = mode;
+  if (runtime_) active_config_.csi_traffic_source = mode;
   apply_deferred_shutdown_();
   return true;
 }
 
-bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+bool RuntimeFrontendController::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  if (!runtime_capture_profile_supports_traffic(effective_config.csi_capture_profile, mode)) {
+  if (!runtime_capture_profile_supports_traffic(effective_config.csi_capture_policy, mode)) {
     return false;
   }
-  if (!runtime_traffic_mode_supported(mode)) {
+  if (!runtime_traffic_generator_mode_supported(mode)) {
     return false;
   }
   const bool staged_for_next_setup =
       runtime_ && config_.traffic_generator_mode != active_config_.traffic_generator_mode;
   if (runtime_) {
-    if (!capabilities_.supports_traffic_control || !runtime_->set_traffic_generator_mode_runtime(mode)) {
+    if (!capabilities_.supports_traffic_control || !runtime_->set_traffic_generator_mode(mode)) {
       apply_deferred_shutdown_();
       return false;
     }
@@ -254,21 +254,21 @@ bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTraffi
   return true;
 }
 
-bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+bool RuntimeFrontendController::set_detection_algorithm(DetectionAlgorithm algorithm) {
   if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;
   }
   if (runtime_) {
     if (!capabilities_.supports_runtime_detector_selection ||
-        !runtime_->set_detection_algorithm_runtime(algorithm)) {
+        !runtime_->set_detection_algorithm(algorithm)) {
       apply_deferred_shutdown_();
       return false;
     }
     snapshot_ = runtime_->get_snapshot();
   } else {
     config_.detection_algorithm = algorithm;
-    config_.segmentation_threshold = runtime_default_threshold(algorithm);
-    snapshot_.threshold = config_.segmentation_threshold;
+    config_.threshold = runtime_default_threshold(algorithm);
+    snapshot_.threshold = config_.threshold;
     snapshot_.detector_name = detection_algorithm_name(algorithm);
   }
   if (runtime_) {
@@ -276,7 +276,7 @@ bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorit
     adopt_effective_threshold_(snapshot_.threshold);
   } else {
     config_.detection_algorithm = algorithm;
-    config_.segmentation_threshold = snapshot_.threshold;
+    config_.threshold = snapshot_.threshold;
   }
   apply_deferred_shutdown_();
   return true;
@@ -339,10 +339,10 @@ void RuntimeFrontendController::cache_snapshot_(const RuntimeSnapshot &snapshot)
 
 void RuntimeFrontendController::adopt_effective_threshold_(float threshold) {
   const bool staged_for_next_setup =
-      config_.segmentation_threshold != active_config_.segmentation_threshold;
-  active_config_.segmentation_threshold = threshold;
+      config_.threshold != active_config_.threshold;
+  active_config_.threshold = threshold;
   if (!staged_for_next_setup) {
-    config_.segmentation_threshold = threshold;
+    config_.threshold = threshold;
   }
 }
 
@@ -379,11 +379,11 @@ void RuntimeFrontendController::on_motion_state_changed(const RuntimeSnapshot &s
 }
 
 void RuntimeFrontendController::on_periodic_update(const RuntimeSnapshot &snapshot,
-                                                   uint32_t packets_received) {
+                                                   uint32_t csi_accepted) {
   cache_snapshot_(snapshot);
   if (listener_ != nullptr) {
     begin_callback_();
-    listener_->on_periodic_update(snapshot, packets_received);
+    listener_->on_periodic_update(snapshot, csi_accepted);
     end_callback_();
   }
 }

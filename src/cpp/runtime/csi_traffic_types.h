@@ -18,7 +18,7 @@ namespace espectre {
  * CSI is only produced when packets actually arrive, so something has to keep
  * the link busy. This picks who does it.
  */
-enum class CsiTrafficMode {
+enum class CsiTrafficSource {
   /**
    * The runtime generates its own traffic at `csi_target_pps`.
    * Default, and the only self-sufficient mode.

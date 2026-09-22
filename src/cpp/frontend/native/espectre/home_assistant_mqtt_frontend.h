@@ -31,7 +31,7 @@ class HomeAssistantMqttFrontend {
   void publish_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits);
   void publish_calibrate(bool calibrating);
   void publish_detector(const char *detector_name);
-  void publish_traffic_control(CsiTrafficMode csi_traffic_mode, RuntimeTrafficMode traffic_generator_mode);
+  void publish_traffic_control(CsiTrafficSource csi_traffic_mode, TrafficGeneratorMode traffic_generator_mode);
   void publish_diagnostics();
   void publish_state(const RuntimeSnapshot &snapshot);
   void publish_current_state();

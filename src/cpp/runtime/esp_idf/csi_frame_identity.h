@@ -21,8 +21,8 @@
 namespace espectre {
 
 struct CsiFrameFilterConfig {
-  CsiTrafficMode traffic_mode{CsiTrafficMode::INTERNAL};
-  RuntimeTrafficMode internal_mode{RuntimeTrafficMode::PING};
+  CsiTrafficSource traffic_mode{CsiTrafficSource::INTERNAL};
+  TrafficGeneratorMode internal_mode{TrafficGeneratorMode::PING};
   uint32_t local_ip_addr{0U};
   uint32_t internal_target_ip_addr{0U};
   uint32_t multicast_ip_addr{0U};

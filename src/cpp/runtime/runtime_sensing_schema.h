@@ -45,7 +45,7 @@ enum class DetectionAlgorithm {
 };
 
 /** Which packet the internal generator sends to solicit CSI from the AP. */
-enum class RuntimeTrafficMode {
+enum class TrafficGeneratorMode {
   /** ICMP echo. Default. */
   PING,
   /** DNS queries over connectionless UDP. */
@@ -73,11 +73,11 @@ constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "lightwei
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
 constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX = 1.0f;
-constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = LIGHTWEIGHT_DEFAULT_THRESHOLD;
+constexpr float RUNTIME_THRESHOLD_DEFAULT = LIGHTWEIGHT_DEFAULT_THRESHOLD;
 
-constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN = 1000U;
-constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX = 2000U;
-constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = 1000U;
+constexpr uint32_t RUNTIME_WINDOW_SIZE_MS_MIN = 1000U;
+constexpr uint32_t RUNTIME_WINDOW_SIZE_MS_MAX = 2000U;
+constexpr uint32_t RUNTIME_WINDOW_SIZE_MS_DEFAULT = 1000U;
 
 constexpr uint32_t RUNTIME_CSI_TARGET_PPS_MIN = 1U;
 // The maximum public two-second window resolves to the detector's 1000-slot
@@ -132,13 +132,13 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
          algorithm == DetectionAlgorithm::HIGH_ACCURACY;
 }
 
-constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING || mode == RuntimeTrafficMode::DNS ||
-         mode == RuntimeTrafficMode::DNS_TCP || mode == RuntimeTrafficMode::WIFI_RAW;
+constexpr bool runtime_traffic_generator_mode_valid(TrafficGeneratorMode mode) {
+  return mode == TrafficGeneratorMode::PING || mode == TrafficGeneratorMode::DNS ||
+         mode == TrafficGeneratorMode::DNS_TCP || mode == TrafficGeneratorMode::WIFI_RAW;
 }
 
-constexpr bool runtime_csi_traffic_mode_valid(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL;
+constexpr bool runtime_csi_traffic_source_valid(CsiTrafficSource mode) {
+  return mode == CsiTrafficSource::INTERNAL || mode == CsiTrafficSource::EXTERNAL;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
@@ -152,13 +152,13 @@ static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == HIGH_ACCURACY_MAX_THRESHOLD
               "Runtime High Accuracy threshold max drifted from high_accuracy_detector.h");
 static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == LIGHTWEIGHT_MAX_THRESHOLD,
               "Lightweight and High Accuracy probability scales must stay aligned");
-static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == LIGHTWEIGHT_DEFAULT_THRESHOLD,
+static_assert(RUNTIME_THRESHOLD_DEFAULT == LIGHTWEIGHT_DEFAULT_THRESHOLD,
               "Runtime segmentation threshold default drifted from lightweight_detector.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN == DETECTOR_WINDOW_SIZE_MS_MIN,
+static_assert(RUNTIME_WINDOW_SIZE_MS_MIN == DETECTOR_WINDOW_SIZE_MS_MIN,
               "Runtime segmentation window duration min drifted from detector_limits.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX == DETECTOR_WINDOW_SIZE_MS_MAX,
+static_assert(RUNTIME_WINDOW_SIZE_MS_MAX == DETECTOR_WINDOW_SIZE_MS_MAX,
               "Runtime segmentation window duration max drifted from detector_limits.h");
-static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT == DETECTOR_WINDOW_SIZE_MS_DEFAULT,
+static_assert(RUNTIME_WINDOW_SIZE_MS_DEFAULT == DETECTOR_WINDOW_SIZE_MS_DEFAULT,
               "Runtime segmentation window duration default drifted from detector_limits.h");
 static_assert(RUNTIME_LOWPASS_CUTOFF_MIN == LOWPASS_CUTOFF_MIN, "Runtime lowpass cutoff min drifted from filters.h");
 static_assert(RUNTIME_LOWPASS_CUTOFF_MAX == LOWPASS_CUTOFF_MAX, "Runtime lowpass cutoff max drifted from filters.h");

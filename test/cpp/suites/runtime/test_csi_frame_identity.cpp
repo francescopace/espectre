@@ -129,7 +129,7 @@ bool matches(const std::vector<uint8_t> &payload,
   return csi_frame_matches_traffic(&info, config, CsiCaptureProfile::HT20);
 }
 
-CsiFrameFilterConfig filter(CsiTrafficMode mode, RuntimeTrafficMode internal = RuntimeTrafficMode::PING) {
+CsiFrameFilterConfig filter(CsiTrafficSource mode, TrafficGeneratorMode internal = TrafficGeneratorMode::PING) {
   CsiFrameFilterConfig config;
   config.traffic_mode = mode;
   config.internal_mode = internal;
@@ -154,9 +154,9 @@ void test_local_ack_requires_lltf20_for_every_traffic_mode(void) {
   info.hdr = header;
   info.rx_ctrl.sig_len = sizeof(header) + 4U;
 
-  for (const auto mode : {CsiTrafficMode::INTERNAL, CsiTrafficMode::EXTERNAL}) {
-    for (const auto internal : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
-                                RuntimeTrafficMode::DNS_TCP}) {
+  for (const auto mode : {CsiTrafficSource::INTERNAL, CsiTrafficSource::EXTERNAL}) {
+    for (const auto internal : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                                TrafficGeneratorMode::DNS_TCP}) {
       const auto config = filter(mode, internal);
       TEST_ASSERT_TRUE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20));
       TEST_ASSERT_FALSE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::HT20));
@@ -166,7 +166,7 @@ void test_local_ack_requires_lltf20_for_every_traffic_mode(void) {
 }
 
 void test_lltf20_rejects_ack_without_valid_local_receiver_or_header(void) {
-  auto config = filter(CsiTrafficMode::EXTERNAL);
+  auto config = filter(CsiTrafficSource::EXTERNAL);
   uint8_t header[10] = {0xD4U, 0U, 0U, 0U};
   std::memcpy(header + 4U, kLocalMac, 6U);
   wifi_csi_info_t info{};
@@ -209,7 +209,7 @@ void test_lltf20_rejects_ack_without_valid_local_receiver_or_header(void) {
 }
 
 void test_lltf20_preserves_ip_traffic_provenance_filter(void) {
-  const auto config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS_TCP);
+  const auto config = filter(CsiTrafficSource::INTERNAL, TrafficGeneratorMode::DNS_TCP);
   const auto reply = dns_tcp_reply(true);
   const auto tcp_ack = dns_tcp_reply(false);
   const auto unrelated = ping_reply(kGateway, 0x1234U);
@@ -221,7 +221,7 @@ void test_lltf20_preserves_ip_traffic_provenance_filter(void) {
 }
 
 void test_external_accepts_only_canonical_unicast_and_multicast_marker(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   const auto unicast = udp_frame(kLocal, 5555U);
   const auto multicast = udp_frame(kMulticast, 5555U);
   TEST_ASSERT_TRUE(matches(unicast, config));
@@ -244,7 +244,7 @@ void test_external_accepts_only_canonical_unicast_and_multicast_marker(void) {
 }
 
 void test_external_rejects_other_mac_fragments_and_truncation(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   const auto valid = udp_frame(kLocal, 5555U);
   auto fragmented = valid;
   fragmented[8U + 6U] = 0x20U;
@@ -265,7 +265,7 @@ void test_external_rejects_other_mac_fragments_and_truncation(void) {
 }
 
 void test_external_accepts_multicast_to_local_mac_with_canonical_identity(void) {
-  CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   const auto multicast = udp_frame(kMulticast, config.external_udp_port);
   TEST_ASSERT_TRUE(matches(multicast, config));
   TEST_ASSERT_FALSE(matches(multicast, config, kOtherMac));
@@ -283,7 +283,7 @@ void test_external_accepts_multicast_to_local_mac_with_canonical_identity(void) 
 }
 
 void test_external_rejects_udp_length_mismatch_and_data_after_marker(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   auto short_udp = udp_frame(kLocal, 5555U);
   write_be16(short_udp.data() + 8U + 20U + 4U, 8U);
   auto trailing = udp_frame(kLocal, 5555U);
@@ -295,7 +295,7 @@ void test_external_rejects_udp_length_mismatch_and_data_after_marker(void) {
 }
 
 void test_external_accepts_bounded_shifted_llc_frame(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   std::vector<uint8_t> shifted(31U, 0x48U);
   const auto valid = udp_frame(kLocal, 5555U);
   shifted.insert(shifted.end(), valid.begin(), valid.end());
@@ -307,13 +307,13 @@ void test_external_accepts_bounded_shifted_llc_frame(void) {
 }
 
 void test_external_accepts_unicast_ping_requests(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   TEST_ASSERT_TRUE(matches(ping_request(kGateway), config));
   TEST_ASSERT_TRUE(matches(ping_request(kOther), config));
 }
 
 void test_external_rejects_other_icmp_traffic(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::EXTERNAL);
   TEST_ASSERT_FALSE(matches(ping_reply(kOther, 0x4321U), config));
   TEST_ASSERT_FALSE(matches(ping_request(kOther, kLocal, 1U), config));
   TEST_ASSERT_FALSE(matches(ping_request(kOther, kOther), config));
@@ -322,7 +322,7 @@ void test_external_rejects_other_icmp_traffic(void) {
 }
 
 void test_internal_ping_requires_gateway_echo_reply_and_active_identifier(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::PING);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::INTERNAL, TrafficGeneratorMode::PING);
   const auto valid = ping_reply(kGateway, 0x1234U);
   const auto wrong_gateway = ping_reply(kOther, 0x1234U);
   const auto wrong_identifier = ping_reply(kGateway, 0x1235U);
@@ -335,7 +335,7 @@ void test_internal_ping_requires_gateway_echo_reply_and_active_identifier(void) 
 }
 
 void test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS_TCP);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::INTERNAL, TrafficGeneratorMode::DNS_TCP);
   const auto valid = dns_tcp_reply(true);
   const auto ack_only = dns_tcp_reply(false);
   auto length_mismatch = dns_tcp_reply(true);
@@ -352,7 +352,7 @@ void test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only(void
 }
 
 void test_internal_dns_udp_requires_gateway_udp_53_response(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS);
+  const CsiFrameFilterConfig config = filter(CsiTrafficSource::INTERNAL, TrafficGeneratorMode::DNS);
   const auto valid = dns_udp_reply();
   auto wrong_length = valid;
   write_be16(wrong_length.data() + 8U + 20U + 4U, 19U);
@@ -371,10 +371,10 @@ void test_internal_dns_udp_requires_gateway_udp_53_response(void) {
 }
 
 void test_internal_ip_modes_accept_only_the_configured_target(void) {
-  for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS, RuntimeTrafficMode::DNS_TCP}) {
-    auto config = filter(CsiTrafficMode::INTERNAL, mode);
-    auto reply = mode == RuntimeTrafficMode::PING ? ping_reply(kGateway, 0x1234U)
-                 : mode == RuntimeTrafficMode::DNS ? dns_udp_reply() : dns_tcp_reply(true);
+  for (const auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP}) {
+    auto config = filter(CsiTrafficSource::INTERNAL, mode);
+    auto reply = mode == TrafficGeneratorMode::PING ? ping_reply(kGateway, 0x1234U)
+                 : mode == TrafficGeneratorMode::DNS ? dns_udp_reply() : dns_tcp_reply(true);
     config.internal_target_ip_addr = inet_addr("192.168.1.77");
     TEST_ASSERT_FALSE(matches(reply, config));
     write_be32(reply.data() + 8U + 12U, 0xC0A8014DU);

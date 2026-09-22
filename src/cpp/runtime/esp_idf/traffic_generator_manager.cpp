@@ -186,34 +186,34 @@ class WifiRawTrafficProtocol final : public TrafficProtocol {
   const uint8_t *frame_;
 };
 
-TrafficProtocol &select_traffic_protocol(RuntimeTrafficMode mode,
+TrafficProtocol &select_traffic_protocol(TrafficGeneratorMode mode,
                                          DnsTcpTrafficProtocol &dns_tcp,
                                          DnsUdpTrafficProtocol &dns_udp,
                                          IcmpTrafficProtocol &ping,
                                          WifiRawTrafficProtocol &wifi_raw) {
   switch (mode) {
-    case RuntimeTrafficMode::PING:
+    case TrafficGeneratorMode::PING:
       return ping;
-    case RuntimeTrafficMode::DNS:
+    case TrafficGeneratorMode::DNS:
       return dns_udp;
-    case RuntimeTrafficMode::DNS_TCP:
+    case TrafficGeneratorMode::DNS_TCP:
       return dns_tcp;
-    case RuntimeTrafficMode::WIFI_RAW:
+    case TrafficGeneratorMode::WIFI_RAW:
       return wifi_raw;
     default:
       return ping;
   }
 }
 
-const char *generator_traffic_mode_name(RuntimeTrafficMode mode) {
+const char *generator_traffic_mode_name(TrafficGeneratorMode mode) {
   switch (mode) {
-    case RuntimeTrafficMode::PING:
+    case TrafficGeneratorMode::PING:
       return "ping";
-    case RuntimeTrafficMode::DNS:
+    case TrafficGeneratorMode::DNS:
       return "dns";
-    case RuntimeTrafficMode::DNS_TCP:
+    case TrafficGeneratorMode::DNS_TCP:
       return "dns_tcp";
-    case RuntimeTrafficMode::WIFI_RAW:
+    case TrafficGeneratorMode::WIFI_RAW:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME;
     default:
       return "ping";
@@ -369,7 +369,7 @@ size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
   return TRAFFIC_NULL_DATA_FRAME_SIZE;
 }
 
-void TrafficGeneratorManager::init(uint32_t target_pps, RuntimeTrafficMode mode) {
+void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
   task_handle_ = nullptr;
   sock_ = -1;
   target_addr_ = 0U;
@@ -396,13 +396,13 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
     ESPECTRE_LOGE(TAG, "Previous traffic generator task is still stopping");
     return false;
   }
-  if (target_pps_ == 0U || (mode_ != RuntimeTrafficMode::WIFI_RAW && target_addr == 0U)) {
+  if (target_pps_ == 0U || (mode_ != TrafficGeneratorMode::WIFI_RAW && target_addr == 0U)) {
     ESPECTRE_LOGE(TAG, "Traffic rate or target IP is unavailable");
     return false;
   }
   target_addr_ = target_addr;
 
-  if (mode_ == RuntimeTrafficMode::WIFI_RAW) {
+  if (mode_ == TrafficGeneratorMode::WIFI_RAW) {
     wifi_ap_record_t ap{};
     uint8_t station_mac[6]{};
     if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK ||

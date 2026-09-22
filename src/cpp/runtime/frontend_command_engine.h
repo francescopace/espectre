@@ -38,8 +38,8 @@ using FrontendDeviceLabelCallback = std::function<bool(const std::string &device
 using FrontendThresholdCallback = std::function<bool(float threshold, std::string *message)>;
 using FrontendMotionHitsCallback =
     std::function<bool(uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message)>;
-using FrontendCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, std::string *message)>;
-using FrontendTrafficGeneratorModeCallback = std::function<bool(RuntimeTrafficMode mode, std::string *message)>;
+using FrontendCsiTrafficModeCallback = std::function<bool(CsiTrafficSource mode, std::string *message)>;
+using FrontendTrafficGeneratorModeCallback = std::function<bool(TrafficGeneratorMode mode, std::string *message)>;
 using FrontendDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 using FrontendRecalibrateCallback = std::function<bool(std::string *message)>;
 using FrontendWifiBssidCallback =

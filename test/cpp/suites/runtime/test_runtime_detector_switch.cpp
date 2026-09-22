@@ -194,12 +194,12 @@ void test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeo
 }
 
 void test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh(void) {
-  for (const auto mode : {CsiTrafficMode::INTERNAL, CsiTrafficMode::EXTERNAL}) {
+  for (const auto mode : {CsiTrafficSource::INTERNAL, CsiTrafficSource::EXTERNAL}) {
     esp_timer_mock::reset(0, 0);
     esp_event_mock_reset();
     esp_wifi_mock_reset();
     RuntimeConfig config;
-    config.csi_traffic_mode = mode;
+    config.csi_traffic_source = mode;
     FakeCsiTrafficGenerator generator;
     FakeCsiTrafficIngress ingress;
     EspIdfRuntime runtime(config, generator, ingress);
@@ -313,11 +313,11 @@ void test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fai
   runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_pipeline_.enabled_ = true;
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
-  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.75f));
+  TEST_ASSERT_TRUE(runtime.set_threshold(0.75f));
   const int threshold_changes = listener.threshold_changes;
 
   reject_calibrator_allocation = true;
-  const bool changed = runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT);
+  const bool changed = runtime.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT);
   reject_calibrator_allocation = false;
   TEST_ASSERT_FALSE(changed);
   TEST_ASSERT_EQUAL_STRING("high_accuracy", runtime.get_snapshot().detector_name);
@@ -332,7 +332,7 @@ void test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fai
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&stored, &has_stored));
   TEST_ASSERT_TRUE(has_stored);
   TEST_ASSERT_TRUE(stored == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT));
   TEST_ASSERT_TRUE(runtime.is_calibrating());
 }
 
@@ -405,7 +405,7 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get());
 
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL_STRING("high_accuracy", runtime.get_snapshot().detector_name);
   TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_FALSE(runtime.is_calibrating());
@@ -413,18 +413,18 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
 
   runtime.csi_pipeline_.enabled_ = true;
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT));
   TEST_ASSERT_EQUAL_STRING("lightweight", runtime.get_snapshot().detector_name);
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_starts);
 
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_FALSE(runtime.is_calibrating());
   TEST_ASSERT_EQUAL(1, listener.calibration_finishes);
   TEST_ASSERT_FALSE(listener.last_calibration_success);
 
-  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.75f));
+  TEST_ASSERT_TRUE(runtime.set_threshold(0.75f));
   TEST_ASSERT_EQUAL_FLOAT(0.75f, runtime.get_snapshot().threshold);
   TEST_ASSERT_TRUE(runtime.trigger_recalibration());
   TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, runtime.get_snapshot().threshold);
@@ -488,13 +488,13 @@ void test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality
 void test_runtime_detector_configuration_preserves_the_requested_threshold(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-  config.segmentation_threshold = 0.73f;
+  config.threshold = 0.73f;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
 
   TEST_ASSERT_TRUE(runtime.setup());
-  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.config_.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.config_.threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.detector_->get_threshold());
 
@@ -506,7 +506,7 @@ void test_runtime_detector_configuration_preserves_the_requested_threshold(void)
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.detector_->get_threshold());
 
-  TEST_ASSERT_TRUE(runtime.set_threshold_runtime(0.68f));
+  TEST_ASSERT_TRUE(runtime.set_threshold(0.68f));
   runtime.on_wifi_disconnected_();
   runtime.on_wifi_connected_(ip_info);
   wifi_event_sta_scan_done_t scan_done{};
@@ -576,8 +576,8 @@ void test_runtime_rejects_invalid_detector_geometry_before_starting_services(voi
   for (int field = 0; field < 3; ++field) {
     RuntimeConfig config;
     if (field == 0) config.csi_target_pps = RUNTIME_CSI_TARGET_PPS_MIN - 1U;
-    if (field == 1) config.segmentation_window_size_ms = RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX + 1U;
-    if (field == 2) config.segmentation_threshold = -1.0f;
+    if (field == 1) config.window_size_ms = RUNTIME_WINDOW_SIZE_MS_MAX + 1U;
+    if (field == 2) config.threshold = -1.0f;
     FakeCsiTrafficGenerator generator;
     FakeCsiTrafficIngress ingress;
     EspIdfRuntime runtime(config, generator, ingress);
@@ -598,16 +598,16 @@ void test_runtime_rejects_invalid_or_unpersisted_controls_without_changing_confi
   FakeCsiTrafficIngress ingress;
   EspIdfRuntime runtime(config, generator, ingress);
   TEST_ASSERT_TRUE(runtime.setup());
-  TEST_ASSERT_FALSE(runtime.set_motion_hits_runtime(RUNTIME_MOTION_HITS_MIN - 1U, config.motion_off_hits));
-  TEST_ASSERT_FALSE(runtime.set_motion_hits_runtime(config.motion_on_hits, RUNTIME_MOTION_HITS_MAX + 1U));
-  TEST_ASSERT_FALSE(runtime.set_csi_traffic_mode_runtime(static_cast<CsiTrafficMode>(255)));
-  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(static_cast<RuntimeTrafficMode>(255)));
-  TEST_ASSERT_FALSE(runtime.set_detection_algorithm_runtime(static_cast<DetectionAlgorithm>(255)));
-  TEST_ASSERT_FALSE(runtime.set_threshold_runtime(-1.0f));
+  TEST_ASSERT_FALSE(runtime.set_motion_hits(RUNTIME_MOTION_HITS_MIN - 1U, config.motion_off_hits));
+  TEST_ASSERT_FALSE(runtime.set_motion_hits(config.motion_on_hits, RUNTIME_MOTION_HITS_MAX + 1U));
+  TEST_ASSERT_FALSE(runtime.set_csi_traffic_source(static_cast<CsiTrafficSource>(255)));
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode(static_cast<TrafficGeneratorMode>(255)));
+  TEST_ASSERT_FALSE(runtime.set_detection_algorithm(static_cast<DetectionAlgorithm>(255)));
+  TEST_ASSERT_FALSE(runtime.set_threshold(-1.0f));
   nvs_mock_set_open_result(ESP_FAIL);
-  TEST_ASSERT_FALSE(runtime.set_motion_hits_runtime(7U, 5U));
-  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
-  TEST_ASSERT_FALSE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_FALSE(runtime.set_motion_hits(7U, 5U));
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
+  TEST_ASSERT_FALSE(runtime.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_TRUE(runtime.effective_config().traffic_generator_mode == config.traffic_generator_mode);
   TEST_ASSERT_TRUE(runtime.effective_config().detection_algorithm == config.detection_algorithm);
   TEST_ASSERT_EQUAL(config.motion_on_hits, runtime.effective_config().motion_on_hits);
@@ -628,13 +628,13 @@ void test_runtime_restores_internal_traffic_when_external_source_cannot_start(vo
   ip_info.ip.addr = ip_info.gw.addr = 0x0101A8C0U;
   runtime.on_wifi_connected_(ip_info);
   ingress.start_result = false;
-  TEST_ASSERT_FALSE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_TRUE(runtime.effective_config().csi_traffic_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_FALSE(runtime.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_TRUE(runtime.effective_config().csi_traffic_source == CsiTrafficSource::INTERNAL);
   TEST_ASSERT_TRUE(generator.is_running());
   TEST_ASSERT_FALSE(ingress.is_running());
   TEST_ASSERT_EQUAL(1, listener.faults);
   generator.start_result = false;
-  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
   TEST_ASSERT_TRUE(runtime.effective_config().traffic_generator_mode == config.traffic_generator_mode);
   TEST_ASSERT_FALSE(generator.is_running());
   TEST_ASSERT_TRUE(listener.faults > 1);
@@ -643,19 +643,19 @@ void test_runtime_restores_internal_traffic_when_external_source_cannot_start(vo
 
 void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {
   RuntimeConfig config;
-  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::INTERNAL;
   EspIdfRuntime runtime(config);
   nvs_mock_set_open_result(ESP_FAIL);
 
-  TEST_ASSERT_FALSE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_TRUE(runtime.config_.csi_traffic_mode == CsiTrafficMode::INTERNAL);
-  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS_TCP));
-  TEST_ASSERT_TRUE(runtime.config_.traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_FALSE(runtime.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_TRUE(runtime.config_.csi_traffic_source == CsiTrafficSource::INTERNAL);
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::DNS_TCP));
+  TEST_ASSERT_TRUE(runtime.config_.traffic_generator_mode == TrafficGeneratorMode::PING);
 }
 
 void test_runtime_detector_adaptation_emits_threshold_changed_without_live_telemetry(void) {
   RuntimeConfig config;
-  config.segmentation_threshold = 0.80f;
+  config.threshold = 0.80f;
   EspIdfRuntime runtime(config);
   DetectorListener listener;
   runtime.set_listener(&listener);
@@ -667,7 +667,7 @@ void test_runtime_detector_adaptation_emits_threshold_changed_without_live_telem
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
   TEST_ASSERT_EQUAL_FLOAT(0.42f, listener.last_threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.get_snapshot().threshold);
-  TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.config_.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.config_.threshold);
 
   runtime.loop();
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
@@ -680,7 +680,7 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get());
 
-  TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(8U, 6U));
+  TEST_ASSERT_TRUE(runtime.set_motion_hits(8U, 6U));
   TEST_ASSERT_EQUAL_UINT8(8U, runtime.csi_pipeline_.motion_on_hits_);
   TEST_ASSERT_EQUAL_UINT8(6U, runtime.csi_pipeline_.motion_off_hits_);
 
@@ -697,16 +697,16 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
 void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(8U, 6U));
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
 
   RuntimeConfig config;
   config.runtime_detector_selection_enabled = true;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   config.motion_on_hits = 4U;
   config.motion_off_hits = 3U;
-  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
-  config.traffic_generator_mode = RuntimeTrafficMode::PING;
+  config.csi_traffic_source = CsiTrafficSource::INTERNAL;
+  config.traffic_generator_mode = TrafficGeneratorMode::PING;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -714,21 +714,21 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   TEST_ASSERT_TRUE(runtime.setup());
   const RuntimeConfig &effective = runtime.effective_config();
   TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, effective.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, effective.threshold);
   TEST_ASSERT_EQUAL_UINT8(8U, effective.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, effective.motion_off_hits);
-  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_TRUE(runtime.csi_traffic_service_.mode() == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(traffic_generator.mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(effective.csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == TrafficGeneratorMode::DNS);
+  TEST_ASSERT_TRUE(runtime.csi_traffic_service_.mode() == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(traffic_generator.mode == TrafficGeneratorMode::DNS);
   runtime.shutdown();
 
   // A persisted detector matching the configured one keeps the configured threshold.
   config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-  config.segmentation_threshold = 0.73f;
+  config.threshold = 0.73f;
   EspIdfRuntime same_detector_runtime(config, traffic_generator, traffic_ingress);
   TEST_ASSERT_TRUE(same_detector_runtime.setup());
-  TEST_ASSERT_EQUAL_FLOAT(0.73f, same_detector_runtime.effective_config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, same_detector_runtime.effective_config().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.73f, same_detector_runtime.detector_->get_threshold());
   same_detector_runtime.shutdown();
 }
@@ -736,8 +736,8 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
 void test_runtime_without_persistence_ignores_and_never_writes_saved_controls(void) {
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(8U, 6U));
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
 
   RuntimeConfig config;
   config.persist_runtime_overrides = false;
@@ -745,8 +745,8 @@ void test_runtime_without_persistence_ignores_and_never_writes_saved_controls(vo
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   config.motion_on_hits = 4U;
   config.motion_off_hits = 3U;
-  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
-  config.traffic_generator_mode = RuntimeTrafficMode::PING;
+  config.csi_traffic_source = CsiTrafficSource::INTERNAL;
+  config.traffic_generator_mode = TrafficGeneratorMode::PING;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -756,18 +756,18 @@ void test_runtime_without_persistence_ignores_and_never_writes_saved_controls(vo
   TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_EQUAL_UINT8(4U, effective.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(3U, effective.motion_off_hits);
-  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::INTERNAL);
-  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(effective.csi_traffic_source == CsiTrafficSource::INTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == TrafficGeneratorMode::PING);
 
   // Controls must not touch storage: they succeed even when NVS cannot open.
   nvs_mock_set_open_result(ESP_FAIL);
-  TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(9U, 7U));
-  TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
-  TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
-  TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(runtime.set_motion_hits(9U, 7U));
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
+  TEST_ASSERT_TRUE(runtime.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL_UINT8(9U, effective.motion_on_hits);
-  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(effective.csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == TrafficGeneratorMode::DNS);
   TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   runtime.shutdown();
 
@@ -815,7 +815,7 @@ void test_runtime_diagnostics_cache_current_wifi_association(void) {
 void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -873,7 +873,7 @@ void test_runtime_sensing_reasserts_promiscuous_disabled_before_capture(void) {
 
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -935,7 +935,7 @@ void test_runtime_disconnect_or_disarm_cancels_refresh_and_discards_queued_compl
 void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -955,18 +955,18 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
 
   TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, runtime.operation_state());
-  TEST_ASSERT_EQUAL(CsiTrafficMode::EXTERNAL, runtime.csi_traffic_service_.mode());
+  TEST_ASSERT_EQUAL(CsiTrafficSource::EXTERNAL, runtime.csi_traffic_service_.mode());
   TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_FALSE(runtime.snapshot_.calibrating);
   TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
-  TEST_ASSERT_FALSE(runtime.set_threshold_runtime(0.5f));
+  TEST_ASSERT_FALSE(runtime.set_threshold(0.5f));
 
   runtime.set_services_armed(false);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, runtime.operation_state());
   TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, runtime.operation_state());
-  TEST_ASSERT_EQUAL(CsiTrafficMode::EXTERNAL, runtime.csi_traffic_service_.mode());
+  TEST_ASSERT_EQUAL(CsiTrafficSource::EXTERNAL, runtime.csi_traffic_service_.mode());
   TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
 
@@ -999,7 +999,7 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
 
 void test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change(void) {
   RuntimeConfig config;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -1028,7 +1028,7 @@ void test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change(void
 void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
   FakeCsiTrafficGenerator traffic_generator;
   FakeCsiTrafficIngress traffic_ingress;
   EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -1062,8 +1062,8 @@ void test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change(vo
     g_esp_netif_mock.ip_addr = 0U;
     RuntimeConfig config;
     config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
-    config.segmentation_threshold = 0.73f;
-    config.traffic_generator_mode = kSupportsWifiRaw ? RuntimeTrafficMode::WIFI_RAW : RuntimeTrafficMode::PING;
+    config.threshold = 0.73f;
+    config.traffic_generator_mode = kSupportsWifiRaw ? TrafficGeneratorMode::WIFI_RAW : TrafficGeneratorMode::PING;
     FakeCsiTrafficGenerator traffic_generator;
     FakeCsiTrafficIngress traffic_ingress;
     EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
@@ -1109,7 +1109,7 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     nvs_mock_reset();
     RuntimeConfig config;
     config.detection_algorithm = algorithm;
-    config.segmentation_threshold = 0.73f;
+    config.threshold = 0.73f;
     FakeCsiTrafficGenerator generator;
     FakeCsiTrafficIngress ingress;
     EspIdfRuntime runtime(config, generator, ingress);
@@ -1125,20 +1125,20 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
     const int calibration_finishes = listener.calibration_finishes;
     const uint32_t configure_calls = runtime.csi_pipeline_.capture_service_.enable_attempts();
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
-    TEST_ASSERT_EQUAL(kSupportsWifiRaw, runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::WIFI_RAW));
+    TEST_ASSERT_EQUAL(kSupportsWifiRaw, runtime.set_traffic_generator_mode(TrafficGeneratorMode::WIFI_RAW));
     if (!kSupportsWifiRaw) {
-      TEST_ASSERT_EQUAL(RuntimeTrafficMode::PING, generator.mode);
+      TEST_ASSERT_EQUAL(TrafficGeneratorMode::PING, generator.mode);
       TEST_ASSERT_EQUAL(configure_calls, runtime.csi_pipeline_.capture_service_.enable_attempts());
       TEST_ASSERT_EQUAL(calibration_starts, listener.calibration_starts);
       TEST_ASSERT_EQUAL(calibration_finishes, listener.calibration_finishes);
-      RuntimeTrafficMode saved{};
+      TrafficGeneratorMode saved{};
       bool has_saved = false;
       TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&saved, &has_saved));
       TEST_ASSERT_FALSE(has_saved);
       runtime.shutdown();
       continue;
     }
-    TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, generator.mode);
+    TEST_ASSERT_EQUAL(TrafficGeneratorMode::WIFI_RAW, generator.mode);
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
     // AUTO starts on HT20; wifi_raw switches to LLTF20 and rearms CSI.
     TEST_ASSERT_EQUAL(configure_calls + 1U, runtime.csi_pipeline_.capture_service_.enable_attempts());
@@ -1147,13 +1147,13 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
                       listener.calibration_starts);
     TEST_ASSERT_EQUAL(calibration_finishes, listener.calibration_finishes);
     TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
-    RuntimeTrafficMode saved{};
+    TrafficGeneratorMode saved{};
     bool has_saved = false;
     TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&saved, &has_saved));
     TEST_ASSERT_TRUE(has_saved);
-    TEST_ASSERT_EQUAL(RuntimeTrafficMode::WIFI_RAW, saved);
-    TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
-    TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
+    TEST_ASSERT_EQUAL(TrafficGeneratorMode::WIFI_RAW, saved);
+    TEST_ASSERT_TRUE(runtime.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
+    TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::PING));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
     runtime.shutdown();
   }
@@ -1172,18 +1172,18 @@ void test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_
     esp_netif_ip_info_t ip_info{};
     ip_info.ip.addr = 0x1101A8C0U;
     ip_info.gw.addr = 0x0101A8C0U;
-    for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS, RuntimeTrafficMode::DNS_TCP}) {
+    for (const auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP}) {
       runtime.stop_sensing_services_();
       ip_info.gw.addr += 0x01000000U;
       runtime.on_wifi_connected_(ip_info);
-      TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode_runtime(mode));
+      TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(mode));
       const uint32_t expected = target[0] == '\0' ? ip_info.gw.addr : 0x3501A8C0U;
       TEST_ASSERT_TRUE(generator.is_running());
       TEST_ASSERT_EQUAL(expected, generator.gateway_addr);
       TEST_ASSERT_EQUAL(expected, runtime.csi_pipeline_.traffic_filter_.internal_target_ip_addr);
-      TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
+      TEST_ASSERT_TRUE(runtime.set_csi_traffic_source(CsiTrafficSource::EXTERNAL));
       TEST_ASSERT_FALSE(generator.is_running());
-      TEST_ASSERT_TRUE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
+      TEST_ASSERT_TRUE(runtime.set_csi_traffic_source(CsiTrafficSource::INTERNAL));
       TEST_ASSERT_EQUAL(expected, generator.gateway_addr);
       TEST_ASSERT_EQUAL(expected, runtime.csi_pipeline_.traffic_filter_.internal_target_ip_addr);
     }
@@ -1192,19 +1192,19 @@ void test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_
 }
 
 void test_traffic_source_target_support_applies_to_config_controls_persistence_and_discovery(void) {
-  TEST_ASSERT_FALSE(runtime_traffic_mode_supported(static_cast<RuntimeTrafficMode>(0xff)));
-  for (const auto mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
-                          RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
+  TEST_ASSERT_FALSE(runtime_traffic_generator_mode_supported(static_cast<TrafficGeneratorMode>(0xff)));
+  for (const auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                          TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
     nvs_mock_reset();
     esp_event_mock_reset();
-    const bool supported = mode != RuntimeTrafficMode::WIFI_RAW || kSupportsWifiRaw;
-    TEST_ASSERT_EQUAL(supported, runtime_traffic_mode_supported(mode));
+    const bool supported = mode != TrafficGeneratorMode::WIFI_RAW || kSupportsWifiRaw;
+    TEST_ASSERT_EQUAL(supported, runtime_traffic_generator_mode_supported(mode));
     RuntimeConfig config;
     config.traffic_generator_mode = mode;
     TEST_ASSERT_EQUAL(supported ? RuntimeConfigError::NONE : RuntimeConfigError::TRAFFIC_GENERATOR_MODE,
                       validate_runtime_config(config));
     RuntimeFrontendController controller;
-    TEST_ASSERT_EQUAL(supported, controller.set_traffic_generator_mode_runtime(mode));
+    TEST_ASSERT_EQUAL(supported, controller.set_traffic_generator_mode(mode));
     TEST_ASSERT_EQUAL(supported ? mode : RuntimeConfig{}.traffic_generator_mode,
                       controller.config().traffic_generator_mode);
     FakeCsiTrafficGenerator generator;
@@ -1217,7 +1217,7 @@ void test_traffic_source_target_support_applies_to_config_controls_persistence_a
     // Seed a value saved by older firmware, including a now-unsupported mode.
     TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(mode));
     esp_event_mock_reset();
-    config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+    config.traffic_generator_mode = TrafficGeneratorMode::DNS;
     EspIdfRuntime restored(config, generator, ingress);
     TEST_ASSERT_TRUE(restored.setup());
     TEST_ASSERT_EQUAL(supported ? mode : config.traffic_generator_mode,

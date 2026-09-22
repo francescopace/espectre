@@ -69,41 +69,41 @@ void test_runtime_motion_hits_store_round_trips_and_validates_values(void) {
 }
 
 void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
-  CsiTrafficMode csi_mode = CsiTrafficMode::INTERNAL;
-  RuntimeTrafficMode generator_mode = RuntimeTrafficMode::PING;
+  CsiTrafficSource csi_mode = CsiTrafficSource::INTERNAL;
+  TrafficGeneratorMode generator_mode = TrafficGeneratorMode::PING;
   bool has_saved_value = true;
 
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
   TEST_ASSERT_FALSE(has_saved_value);
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_csi_traffic_mode(nullptr, &has_saved_value));
-  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_csi_traffic_mode(static_cast<CsiTrafficMode>(99)));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_csi_traffic_mode(static_cast<CsiTrafficSource>(99)));
 
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficSource::EXTERNAL));
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficSource::EXTERNAL);
 
   nvs_mock_put_str("csi_traffic", "pacing");
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
-  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficSource::INTERNAL);
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
-  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficSource::INTERNAL);
 
   has_saved_value = true;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
   TEST_ASSERT_FALSE(has_saved_value);
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_traffic_generator_mode(nullptr, &has_saved_value));
-  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_traffic_generator_mode(static_cast<RuntimeTrafficMode>(99)));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_traffic_generator_mode(static_cast<TrafficGeneratorMode>(99)));
 
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::DNS);
 
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS_TCP));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS_TCP));
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::DNS_TCP);
 
   nvs_mock_put_str("csi_traffic", "bogus");
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));

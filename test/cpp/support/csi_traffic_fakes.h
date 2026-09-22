@@ -25,7 +25,7 @@ namespace espectre::test {
 
 class FakeCsiTrafficGenerator : public ICsiTrafficGenerator {
  public:
-  void init(uint32_t target_pps, RuntimeTrafficMode traffic_mode) override {
+  void init(uint32_t target_pps, TrafficGeneratorMode traffic_mode) override {
     rate_pps = target_pps;
     mode = traffic_mode;
     running = false;
@@ -48,7 +48,7 @@ class FakeCsiTrafficGenerator : public ICsiTrafficGenerator {
   uint16_t icmp_identifier() const override { return identifier; }
 
   uint32_t rate_pps{0U};
-  RuntimeTrafficMode mode{RuntimeTrafficMode::PING};
+  TrafficGeneratorMode mode{TrafficGeneratorMode::PING};
   uint32_t gateway_addr{0U};
   uint32_t send_successes{0U};
   uint16_t identifier{0x1234U};

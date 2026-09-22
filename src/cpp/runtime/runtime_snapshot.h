@@ -158,7 +158,7 @@ struct RuntimeSnapshot {
    */
   float movement_metric{0.0f};
   /** Threshold `movement_metric` is compared against, on the same scale. */
-  float threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
+  float threshold{RUNTIME_THRESHOLD_DEFAULT};
   // Link quality of the packets that produced `movement_metric`, carried here
   // so the shared status logger stays a formatter instead of querying the radio
   // itself at print time.

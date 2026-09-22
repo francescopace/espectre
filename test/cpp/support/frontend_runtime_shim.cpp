@@ -37,8 +37,8 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   capabilities_ = frontend_runtime_shim::state.capabilities;
   frontend_runtime_shim::state.last_instance = this;
   capabilities_.supports_runtime_detector_selection = config.runtime_detector_selection_enabled;
-  if (frontend_runtime_shim::state.snapshot.threshold == RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT) {
-    snapshot_.threshold = config.segmentation_threshold;
+  if (frontend_runtime_shim::state.snapshot.threshold == RUNTIME_THRESHOLD_DEFAULT) {
+    snapshot_.threshold = config.threshold;
   }
 }
 
@@ -84,7 +84,7 @@ void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
   frontend_runtime_shim::state.set_live_telemetry_enabled_calls++;
 }
 
-bool EspIdfRuntime::set_threshold_runtime(float threshold) {
+bool EspIdfRuntime::set_threshold(float threshold) {
   frontend_runtime_shim::state.set_threshold_calls++;
   frontend_runtime_shim::state.last_threshold = threshold;
   snapshot_.threshold = threshold;
@@ -92,26 +92,26 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   return true;
 }
 
-bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+bool EspIdfRuntime::set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) {
   frontend_runtime_shim::state.set_motion_hits_calls++;
   frontend_runtime_shim::state.last_motion_on_hits = motion_on_hits;
   frontend_runtime_shim::state.last_motion_off_hits = motion_off_hits;
   return true;
 }
 
-bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+bool EspIdfRuntime::set_csi_traffic_source(CsiTrafficSource mode) {
   frontend_runtime_shim::state.set_csi_traffic_mode_calls++;
   frontend_runtime_shim::state.last_csi_traffic_mode = mode;
   return true;
 }
 
-bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   frontend_runtime_shim::state.set_traffic_generator_mode_calls++;
   frontend_runtime_shim::state.last_traffic_generator_mode = mode;
   return true;
 }
 
-bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+bool EspIdfRuntime::set_detection_algorithm(DetectionAlgorithm algorithm) {
   frontend_runtime_shim::state.set_detector_calls++;
   frontend_runtime_shim::state.last_detector = algorithm;
   snapshot_.detector_name = detection_algorithm_name(algorithm);

@@ -41,9 +41,9 @@ bool validate_runtime_threshold(float threshold);
 /** Whether a threshold is finite and inside the range of one detector. */
 bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorithm algorithm);
 /** Whether this build target supports the internal traffic source; host builds accept every valid mode. */
-bool runtime_traffic_mode_supported(RuntimeTrafficMode mode);
+bool runtime_traffic_generator_mode_supported(TrafficGeneratorMode mode);
 /** Whether a configured CSI profile can be combined with the internal source. */
-bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeTrafficMode mode);
+bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, TrafficGeneratorMode mode);
 
 /** Validate the complete configuration before creating runtime state. */
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);
@@ -63,16 +63,16 @@ uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gatew
 /** Name of a Wi-Fi band policy: `2g`, `5g`, or `auto`. */
 const char *wifi_band_policy_name(WifiBandPolicy policy);
 /** Name of an internal traffic generator packet, such as `ping` or `dns`. */
-const char *traffic_mode_name(RuntimeTrafficMode mode);
+const char *traffic_generator_mode_name(TrafficGeneratorMode mode);
 /** Name of a CSI traffic source: `internal` or `external`. */
-const char *csi_traffic_mode_name(CsiTrafficMode mode);
+const char *csi_traffic_source_name(CsiTrafficSource mode);
 /** Name of a detector: `lightweight` or `high_accuracy`. */
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
 
-/** Parse a traffic generator packet name. Defaults to `RuntimeTrafficMode::PING`. */
-RuntimeTrafficMode parse_traffic_mode(const char *mode);
-/** Parse a CSI traffic source name. Defaults to `CsiTrafficMode::INTERNAL`. */
-CsiTrafficMode parse_csi_traffic_mode(const char *mode);
+/** Parse a traffic generator packet name. Defaults to `TrafficGeneratorMode::PING`. */
+TrafficGeneratorMode parse_traffic_generator_mode(const char *mode);
+/** Parse a CSI traffic source name. Defaults to `CsiTrafficSource::INTERNAL`. */
+CsiTrafficSource parse_csi_traffic_source(const char *mode);
 /** Parse a detector name. Defaults to `DetectionAlgorithm::LIGHTWEIGHT`. */
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
 /** Parse a Wi-Fi band policy name. Defaults to `WifiBandPolicy::BAND_2G`. */

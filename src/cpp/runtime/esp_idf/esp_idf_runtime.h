@@ -49,11 +49,11 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void set_services_armed(bool armed) override;
   void set_live_telemetry_enabled(bool enabled) override;
 
-  bool set_threshold_runtime(float threshold) override;
-  bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) override;
-  bool set_csi_traffic_mode_runtime(CsiTrafficMode mode) override;
-  bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) override;
-  bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
+  bool set_threshold(float threshold) override;
+  bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) override;
+  bool set_csi_traffic_source(CsiTrafficSource mode) override;
+  bool set_traffic_generator_mode(TrafficGeneratorMode mode) override;
+  bool set_detection_algorithm(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
   bool start_raw_collection(raw_csi_packet_callback_t callback, void *context) override;

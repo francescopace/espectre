@@ -587,9 +587,9 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_csi_target_pps(94);
   component.set_csi_traffic_mode("external");
   component.set_traffic_generator_mode("dns_tcp");
-  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
   component.set_traffic_generator_mode("ping");
-  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::PING);
+  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::PING);
   component.set_detection_algorithm("high_accuracy");
 
   TEST_ASSERT_FALSE(component.direct_api_enabled_);
@@ -614,12 +614,12 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_traffic_generator_mode("dns");
   component.set_detection_algorithm("high_accuracy");
 
-  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
-                          component.runtime_.config().segmentation_threshold);
-  TEST_ASSERT_EQUAL(1500U, component.runtime_.config().segmentation_window_size_ms);
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_DEFAULT,
+                          component.runtime_.config().threshold);
+  TEST_ASSERT_EQUAL(1500U, component.runtime_.config().window_size_ms);
   TEST_ASSERT_EQUAL(94, component.runtime_.config().csi_target_pps);
-  TEST_ASSERT_TRUE(component.runtime_.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(component.runtime_.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
+  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
@@ -798,7 +798,7 @@ void test_detector_select_switches_and_republishes_runtime_state(void) {
 
   RuntimeSnapshot snapshot = component.runtime_.snapshot();
   snapshot.detector_name = "lightweight";
-  snapshot.threshold = RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT;
+  snapshot.threshold = RUNTIME_THRESHOLD_DEFAULT;
   frontend_runtime_shim::state.last_listener->on_detector_changed(snapshot);
   TEST_ASSERT_EQUAL_STRING("lightweight", detector_select.get_state().c_str());
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_MAX_THRESHOLD, threshold_number.traits.get_max_value());
@@ -820,11 +820,11 @@ void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
 
   csi_mode_select.control("external");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::EXTERNAL);
 
   generator_mode_select.control("dns_tcp");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
 
   csi_mode_select.republish_state();
   generator_mode_select.republish_state();
@@ -889,7 +889,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
   threshold_snapshot.threshold = 6.75f;
   frontend_runtime_shim::state.last_listener->on_threshold_changed(threshold_snapshot);
-  TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().threshold);
   TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
   component.loop();
   TEST_ASSERT_EQUAL_FLOAT(6.75f, threshold_number.get_state());

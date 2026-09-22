@@ -213,9 +213,9 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   (void) runtime_events_.post_motion_state(snapshot);
 }
 
-void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) {
   (void) snapshot;
-  (void) packets_received;
+  (void) csi_accepted;
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {

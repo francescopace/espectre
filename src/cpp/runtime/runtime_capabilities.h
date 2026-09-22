@@ -21,12 +21,12 @@ namespace espectre {
  * it drives the live-telemetry callback at all.
  */
 struct RuntimeCapabilities {
-  /** `set_threshold_runtime()` is honored. */
+  /** `set_threshold()` is honored. */
   bool supports_runtime_threshold_updates{false};
-  /** `set_motion_hits_runtime()` is honored; otherwise the controller refuses it. */
+  /** `set_motion_hits()` is honored; otherwise the controller refuses it. */
   bool supports_runtime_motion_hits_updates{false};
   /**
-   * `set_detection_algorithm_runtime()` is honored.
+   * `set_detection_algorithm()` is honored.
    *
    * Driven by `RuntimeConfig::runtime_detector_selection_enabled`, since
    * switching detectors also means persisting and restoring the choice.

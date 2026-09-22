@@ -242,12 +242,12 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
         return std::string{};
       },
       config_.device_label_setter,
-      [this](float value, std::string *) { return runtime_->set_threshold_runtime(value); },
-      [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits_runtime(on, off); },
-      [this](CsiTrafficMode mode, std::string *) { return runtime_->set_csi_traffic_mode_runtime(mode); },
-      [this](RuntimeTrafficMode mode, std::string *) { return runtime_->set_traffic_generator_mode_runtime(mode); },
+      [this](float value, std::string *) { return runtime_->set_threshold(value); },
+      [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits(on, off); },
+      [this](CsiTrafficSource mode, std::string *) { return runtime_->set_csi_traffic_source(mode); },
+      [this](TrafficGeneratorMode mode, std::string *) { return runtime_->set_traffic_generator_mode(mode); },
       [this](DetectionAlgorithm algorithm, std::string *) {
-        return runtime_->set_detection_algorithm_runtime(algorithm);
+        return runtime_->set_detection_algorithm(algorithm);
       },
       [this](std::string *) { return runtime_->trigger_recalibration(); },
       [this](const EspectreCommand &wifi, std::string *message) {
@@ -686,8 +686,8 @@ std::string RuntimeDirectHttpBridge::sensing_payload_() const {
   append_float(&out, "threshold", snapshot.threshold);
   append_uint(&out, "motion_on_hits", config.motion_on_hits);
   append_uint(&out, "motion_off_hits", config.motion_off_hits);
-  append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
-  append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
+  append_json_pair(&out, "csi_traffic_mode", csi_traffic_source_name(config.csi_traffic_source));
+  append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
   append_uint(&out, "csi_target_pps", config.csi_target_pps);
   append_uint(&out, "csi_traffic_udp_port", config.csi_traffic_udp_port);
   append_json_pair(&out, "csi_traffic_multicast_group", config.csi_traffic_multicast_group.c_str());

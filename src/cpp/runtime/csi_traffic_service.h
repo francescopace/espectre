@@ -22,9 +22,9 @@ namespace espectre {
 using csi_traffic_packet_callback_t = void (*)(void *, const UdpDatagramPeer &, uint64_t);
 
 struct CsiTrafficServiceConfig {
-  CsiTrafficMode mode{CsiTrafficMode::INTERNAL};
+  CsiTrafficSource mode{CsiTrafficSource::INTERNAL};
   uint32_t rate_pps{100U};
-  RuntimeTrafficMode traffic_mode{RuntimeTrafficMode::PING};
+  TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint16_t udp_port{5555U};
   std::string multicast_group;
 };
@@ -33,7 +33,7 @@ class ICsiTrafficGenerator {
  public:
   virtual ~ICsiTrafficGenerator() = default;
 
-  virtual void init(uint32_t target_pps, RuntimeTrafficMode mode) = 0;
+  virtual void init(uint32_t target_pps, TrafficGeneratorMode mode) = 0;
   virtual bool start(uint32_t target_addr) = 0;
   virtual void stop() = 0;
   virtual void loop() = 0;
@@ -81,10 +81,10 @@ class CsiTrafficService {
   /** Successful internal generator sends; zero in external mode. */
   uint32_t get_generator_packets_total() const;
   uint16_t internal_icmp_identifier() const;
-  CsiTrafficMode mode() const { return mode_; }
+  CsiTrafficSource mode() const { return mode_; }
 
  private:
-  CsiTrafficMode mode_{CsiTrafficMode::INTERNAL};
+  CsiTrafficSource mode_{CsiTrafficSource::INTERNAL};
   ICsiTrafficGenerator &traffic_generator_;
   ICsiTrafficIngress &traffic_ingress_;
 };

@@ -83,15 +83,15 @@ void test_internal_generators_preserve_station_rate_through_start_pause_and_stop
     g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
     TrafficGeneratorManager manager;
     for (const bool fixed_rate : {false, true}) {
-        for (const RuntimeTrafficMode mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
-                                             RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
+        for (const TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                                             TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
             g_esp_wifi_fixed_rate_mock = {};
             g_esp_wifi_fixed_rate_mock.enabled = fixed_rate;
             g_freertos_task_mock.create_calls = 0U;
             manager.init(100U, mode);
             TEST_ASSERT_TRUE(manager.start(0x0101A8C0U));
             TEST_ASSERT_EQUAL(fixed_rate, g_esp_wifi_fixed_rate_mock.enabled);
-            if (mode == RuntimeTrafficMode::WIFI_RAW) {
+            if (mode == TrafficGeneratorMode::WIFI_RAW) {
                 TEST_ASSERT_EQUAL(EXPECTED_TX_RATE, g_esp_wifi_mock.raw_rate_config.rate);
             }
             TEST_ASSERT_EQUAL(100U, manager.current_rate_pps());
@@ -106,7 +106,7 @@ void test_internal_generators_preserve_station_rate_through_start_pause_and_stop
             manager.stop();
             TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
             TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-            if (mode != RuntimeTrafficMode::WIFI_RAW) {
+            if (mode != TrafficGeneratorMode::WIFI_RAW) {
                 TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
             }
         }
@@ -118,7 +118,7 @@ void test_ping_socket_failure_preserves_station_rate_and_does_not_create_task(vo
     fail_socket_creation = true;
     g_esp_wifi_fixed_rate_mock.enabled = true;
     TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::PING);
+    manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
     TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
     TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
@@ -133,8 +133,8 @@ void test_task_failure_preserves_station_rate_and_closes_socket(void) {
     g_freertos_task_mock.create_result = pdFAIL;
     g_esp_wifi_fixed_rate_mock.enabled = true;
     TrafficGeneratorManager manager;
-    for (const RuntimeTrafficMode mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS,
-                                         RuntimeTrafficMode::DNS_TCP, RuntimeTrafficMode::WIFI_RAW}) {
+    for (const TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                                         TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
         g_freertos_task_mock.create_calls = 0U;
         manager.init(100U, mode);
         TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
@@ -144,7 +144,7 @@ void test_task_failure_preserves_station_rate_and_closes_socket(void) {
         TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
         TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
         TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
-        if (mode != RuntimeTrafficMode::WIFI_RAW) {
+        if (mode != TrafficGeneratorMode::WIFI_RAW) {
             TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
         }
     }
@@ -157,8 +157,8 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
     espectre::test::FakeCsiTrafficIngress ingress;
     CsiTrafficService service(generator, ingress);
     CsiTrafficServiceConfig config;
-    config.mode = CsiTrafficMode::INTERNAL;
-    config.traffic_mode = RuntimeTrafficMode::PING;
+    config.mode = CsiTrafficSource::INTERNAL;
+    config.traffic_mode = TrafficGeneratorMode::PING;
     config.rate_pps = 100U;
     service.init(config);
     TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
@@ -166,7 +166,7 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
     TEST_ASSERT_FALSE(generator.is_running());
     TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
 
-    config.mode = CsiTrafficMode::EXTERNAL;
+    config.mode = CsiTrafficSource::EXTERNAL;
     service.init(config);
     TEST_ASSERT_TRUE(service.start());
     TEST_ASSERT_FALSE(generator.is_running());
@@ -190,7 +190,7 @@ void test_wifi_raw_targets_current_bssid_without_gateway_and_counts_sends(void) 
     for (const esp_err_t result : {ESP_OK, ESP_ERR_NO_MEM, ESP_FAIL}) {
         g_esp_wifi_mock.raw_tx_call_count = 0;
         g_esp_wifi_mock.raw_tx_result = result;
-        manager.init(100U, RuntimeTrafficMode::WIFI_RAW);
+        manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
         TEST_ASSERT_TRUE(manager.start(0U));
         TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_mock.raw_tx_interface);
         TEST_ASSERT_TRUE(g_esp_wifi_mock.raw_tx_sys_seq);
@@ -228,7 +228,7 @@ void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failur
     for (uint8_t channel : channels) {
         g_esp_wifi_mock.current_ap_info.primary = channel;
         g_esp_wifi_mock.raw_tx_call_count = 0;
-        manager.init(100U, RuntimeTrafficMode::WIFI_RAW);
+        manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
         TEST_ASSERT_TRUE(manager.start(0U));
         TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_mock.raw_rate_interface);
         TEST_ASSERT_EQUAL(EXPECTED_TX_RATE, g_esp_wifi_mock.raw_rate_config.rate);
@@ -244,7 +244,7 @@ void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failur
     }
     g_esp_wifi_mock.raw_tx_call_count = 0;
     g_esp_wifi_mock.raw_rate_result = ESP_FAIL;
-    manager.init(100U, RuntimeTrafficMode::WIFI_RAW);
+    manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
     TEST_ASSERT_FALSE(manager.start(0U));
     TEST_ASSERT_FALSE(manager.is_running());
     TEST_ASSERT_EQUAL(0U, g_esp_wifi_mock.raw_tx_call_count);
@@ -254,7 +254,7 @@ void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failur
 
 void test_wifi_raw_requires_association_and_valid_station_identity(void) {
     TrafficGeneratorManager manager;
-    manager.init(100U, RuntimeTrafficMode::WIFI_RAW);
+    manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
     g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
     TEST_ASSERT_FALSE(manager.start(0U));
     g_esp_wifi_mock.get_ap_info_result = ESP_OK;
@@ -448,7 +448,7 @@ void test_dns_tcp_query_frame_rejects_small_buffer(void) {
 
 void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(void) {
     TrafficGeneratorManager manager;
-    for (RuntimeTrafficMode mode : {RuntimeTrafficMode::PING, RuntimeTrafficMode::DNS, RuntimeTrafficMode::DNS_TCP}) {
+    for (TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP}) {
         manager.init(0U, mode);
         TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
         manager.init(100U, mode);

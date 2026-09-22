@@ -85,42 +85,42 @@ uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gatew
   return address;
 }
 
-bool runtime_traffic_mode_supported(RuntimeTrafficMode mode) {
+bool runtime_traffic_generator_mode_supported(TrafficGeneratorMode mode) {
 #if defined(CONFIG_IDF_TARGET_ESP32C6) && CONFIG_IDF_TARGET_ESP32C6
-  if (mode == RuntimeTrafficMode::WIFI_RAW) return false;
+  if (mode == TrafficGeneratorMode::WIFI_RAW) return false;
 #endif
-  return runtime_traffic_mode_valid(mode);
+  return runtime_traffic_generator_mode_valid(mode);
 }
 
-bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeTrafficMode mode) {
-  return mode != RuntimeTrafficMode::WIFI_RAW || profile == CsiCapturePolicy::AUTO ||
+bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, TrafficGeneratorMode mode) {
+  return mode != TrafficGeneratorMode::WIFI_RAW || profile == CsiCapturePolicy::AUTO ||
          profile == CsiCapturePolicy::LLTF;
 }
 
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!wifi_band_policy_valid(config.wifi_band_policy)) return RuntimeConfigError::WIFI_BAND_POLICY;
-  if (config.csi_capture_profile != CsiCapturePolicy::AUTO &&
-      config.csi_capture_profile != CsiCapturePolicy::LLTF &&
-      config.csi_capture_profile != CsiCapturePolicy::HT_VHT) {
+  if (config.csi_capture_policy != CsiCapturePolicy::AUTO &&
+      config.csi_capture_policy != CsiCapturePolicy::LLTF &&
+      config.csi_capture_policy != CsiCapturePolicy::HT_VHT) {
     return RuntimeConfigError::CSI_CAPTURE_PROFILE;
   }
   if (!validate_runtime_uint32(config.csi_target_pps, RUNTIME_CSI_TARGET_PPS_MIN,
                                RUNTIME_CSI_TARGET_PPS_MAX)) {
     return RuntimeConfigError::CSI_TARGET_PPS;
   }
-  if (!runtime_traffic_mode_supported(config.traffic_generator_mode)) {
+  if (!runtime_traffic_generator_mode_supported(config.traffic_generator_mode)) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_MODE;
   }
-  if (!runtime_capture_profile_supports_traffic(config.csi_capture_profile, config.traffic_generator_mode)) {
+  if (!runtime_capture_profile_supports_traffic(config.csi_capture_policy, config.traffic_generator_mode)) {
     return RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC;
   }
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
   }
-  if (!runtime_csi_traffic_mode_valid(config.csi_traffic_mode)) {
+  if (!runtime_csi_traffic_source_valid(config.csi_traffic_source)) {
     return RuntimeConfigError::CSI_TRAFFIC_MODE;
   }
-  if (config.csi_traffic_mode == CsiTrafficMode::EXTERNAL) {
+  if (config.csi_traffic_source == CsiTrafficSource::EXTERNAL) {
     if (config.csi_traffic_udp_port < RUNTIME_NETWORK_PORT_MIN) {
       return RuntimeConfigError::CSI_TRAFFIC_UDP_PORT;
     }
@@ -133,13 +133,13 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
     if (!runtime_detection_algorithm_valid(config.detection_algorithm)) {
       return RuntimeConfigError::DETECTION_ALGORITHM;
     }
-    if (!validate_runtime_threshold_for_algorithm(config.segmentation_threshold,
+    if (!validate_runtime_threshold_for_algorithm(config.threshold,
                                                   config.detection_algorithm)) {
       return RuntimeConfigError::SEGMENTATION_THRESHOLD;
     }
-    if (!validate_runtime_uint32(config.segmentation_window_size_ms,
-                                 RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
-                                 RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX)) {
+    if (!validate_runtime_uint32(config.window_size_ms,
+                                 RUNTIME_WINDOW_SIZE_MS_MIN,
+                                 RUNTIME_WINDOW_SIZE_MS_MAX)) {
       return RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS;
     }
     if (!validate_runtime_uint32(config.evaluation_interval_ms,
@@ -208,26 +208,26 @@ const char *wifi_band_policy_name(WifiBandPolicy policy) {
   }
 }
 
-const char *traffic_mode_name(RuntimeTrafficMode mode) {
+const char *traffic_generator_mode_name(TrafficGeneratorMode mode) {
   switch (mode) {
-    case RuntimeTrafficMode::PING:
+    case TrafficGeneratorMode::PING:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
-    case RuntimeTrafficMode::DNS:
+    case TrafficGeneratorMode::DNS:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
-    case RuntimeTrafficMode::DNS_TCP:
+    case TrafficGeneratorMode::DNS_TCP:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME;
-    case RuntimeTrafficMode::WIFI_RAW:
+    case TrafficGeneratorMode::WIFI_RAW:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME;
     default:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
   }
 }
 
-const char *csi_traffic_mode_name(CsiTrafficMode mode) {
+const char *csi_traffic_source_name(CsiTrafficSource mode) {
   switch (mode) {
-    case CsiTrafficMode::EXTERNAL:
+    case CsiTrafficSource::EXTERNAL:
       return RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME;
-    case CsiTrafficMode::INTERNAL:
+    case CsiTrafficSource::INTERNAL:
     default:
       return RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME;
   }
@@ -243,24 +243,24 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   }
 }
 
-RuntimeTrafficMode parse_traffic_mode(const char *mode) {
+TrafficGeneratorMode parse_traffic_generator_mode(const char *mode) {
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME) == 0) {
-    return RuntimeTrafficMode::WIFI_RAW;
+    return TrafficGeneratorMode::WIFI_RAW;
   }
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) == 0) {
-    return RuntimeTrafficMode::DNS;
+    return TrafficGeneratorMode::DNS;
   }
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME) == 0) {
-    return RuntimeTrafficMode::DNS_TCP;
+    return TrafficGeneratorMode::DNS_TCP;
   }
-  return RuntimeTrafficMode::PING;
+  return TrafficGeneratorMode::PING;
 }
 
-CsiTrafficMode parse_csi_traffic_mode(const char *mode) {
+CsiTrafficSource parse_csi_traffic_source(const char *mode) {
   if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME) == 0) {
-    return CsiTrafficMode::EXTERNAL;
+    return CsiTrafficSource::EXTERNAL;
   }
-  return CsiTrafficMode::INTERNAL;
+  return CsiTrafficSource::INTERNAL;
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {
