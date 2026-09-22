@@ -63,7 +63,11 @@ namespace espectre {
  */
 class RuntimeFrontendController : private IRuntimeListener {
  public:
-  /** Shut the runtime down on scope exit. Explicit `shutdown()` remains recommended. */
+  /**
+   * Shut the runtime down on scope exit without listener callbacks.
+   *
+   * Call `shutdown()` explicitly to receive the final readiness edge.
+   */
   ~RuntimeFrontendController() override;
   /**
    * Stage the configuration used by the next `setup()`.
@@ -253,6 +257,7 @@ class RuntimeFrontendController : private IRuntimeListener {
   void begin_callback_();
   void end_callback_();
   void apply_deferred_shutdown_();
+  void shutdown_(bool notify_listener);
 
   RuntimeConfig config_{};
   RuntimeConfig active_config_{};

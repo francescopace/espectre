@@ -23,7 +23,8 @@ static const char *const TAG = "espectre.runtime";
 
 }  // namespace
 
-RuntimeFrontendController::~RuntimeFrontendController() { shutdown(); }
+// The listener may already be partly destroyed, so scope exit sends no callback.
+RuntimeFrontendController::~RuntimeFrontendController() { shutdown_(false); }
 
 void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
   if (runtime_) {
@@ -96,7 +97,9 @@ void RuntimeFrontendController::loop() {
   apply_deferred_shutdown_();
 }
 
-void RuntimeFrontendController::shutdown() {
+void RuntimeFrontendController::shutdown() { shutdown_(true); }
+
+void RuntimeFrontendController::shutdown_(bool notify_listener) {
   if (callback_depth_ > 0U) {
     shutdown_requested_ = true;
     return;
@@ -105,13 +108,21 @@ void RuntimeFrontendController::shutdown() {
     runtime_->shutdown();
     runtime_.reset();
   }
-  listener_ = nullptr;
+  const bool was_ready = last_sensing_ready_;
   setup_complete_ = false;
-  shutdown_requested_ = false;
   capabilities_ = {};
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.calibrating = false;
   snapshot_.ready_to_publish = false;
+  last_sensing_ready_ = false;
+  // Close the availability edge the listener saw; shutdown is already underway.
+  if (notify_listener && was_ready && listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_sensing_readiness_changed(snapshot_);
+    end_callback_();
+  }
+  listener_ = nullptr;
+  shutdown_requested_ = false;
 }
 
 void RuntimeFrontendController::set_services_armed(bool armed) {
