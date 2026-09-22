@@ -9,6 +9,7 @@
   <div class="note"><strong>Direct HTTP uses the shared device protocol.</strong> MQTT uses the same resources, operations, validation rules, and result codes. Framing and delivery differ. Read the capability catalog to learn what the connected firmware supports.</div>
 
   <h2 data-toc-label="Connect">Connect to a device</h2>
+  <p>ESPectre implements IPv4 Zeroconf service discovery using mDNS and DNS-SD. Browse <code>_espectre._tcp.local.</code> to find device endpoints.</p>
   <p>Direct HTTP listens on TCP port <code>62587</code> and uses the versioned base path <code>/espectre/v1</code>. The stable mDNS hostname is <code>espectre-&lt;device-id&gt;.local</code>. Clients can also connect to the device's private IP address.</p>
   <p>Every request, including requests from command-line clients, must include an allowed <code>Origin</code> header. Published firmware accepts <code>https://espectre.dev</code>.</p>
   <pre class="code"><code>curl -H 'Origin: https://espectre.dev' \

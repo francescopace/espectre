@@ -48,6 +48,8 @@ The quickest path uses the browser and requires no local build environment. Use 
 4. Optionally, open [Device settings](https://espectre.dev/tools/device-settings/) to pin a preferred access point or set up MQTT.
 5. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
 
+ESPectre implements IPv4 Zeroconf service discovery using mDNS and DNS-SD. Use **Find devices** in the browser tools or `./espectre devices` in the CLI to locate devices on your local network. See [DISCOVERY.md](docs/DISCOVERY.md) for requirements and limits.
+
 ![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
 
 > **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.

@@ -209,7 +209,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [API.md](API.md), [DISCOVERY.md](DISCOVERY.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **September 16, 2026**
+Last update: **September 22, 2026**
 
 For discussion and proposed changes:
 

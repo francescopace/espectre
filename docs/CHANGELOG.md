@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
 - Resolve external MQTT only when the MQTT backend is enabled on IDF 6, and resolve mDNS only when Direct is enabled. Remove unconditional MQTT and HTTP server requirements from the SDK, and keep the services facade usable without HTTP server headers. Make shared bootstrap select provisioning, and provide Wi-Fi snapshot support independently of Direct.
 - Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
 - Recover missing CSI at startup with one scan on the associated Wi-Fi channel, limiting disruption to discovery and Direct connections.
-- Release standalone Wi-Fi resources on shutdown and setup failure, preserve full-length credentials, and resume exhausted reconnect bursts after 30 seconds. Document service ownership and align the website's CSI profile descriptions with the runtime.
+- Release standalone Wi-Fi resources after shutdown or setup failure, preserve full-length credentials, and resume exhausted reconnect attempts after 30 seconds.
 - Restore sensing and network services after roaming with a retained IPv4 address, including when the address becomes available late. Ignore duplicate IP notifications.
 - Accept ASCII case-insensitive DNS names and TXT keys, honor the first duplicate key, and transmit `txtvers` first on all four frontends. Keep discovery metadata compatible with rc1 and rc2.
 - Extend default CLI discovery to six seconds so retries can find slower devices. Request replies directly to the CLI to avoid competition with Bonjour; shorter explicit timeouts remain available.
