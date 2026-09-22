@@ -17,7 +17,6 @@ namespace espectre {
 /** Machine-readable reason a `RuntimeConfig` cannot be applied. */
 enum class RuntimeConfigError : uint8_t {
   NONE = 0,
-  RUNTIME_PROFILE,
   WIFI_BAND_POLICY,
   DETECTION_ALGORITHM,
   SEGMENTATION_THRESHOLD,
@@ -55,7 +54,6 @@ const char *runtime_config_error_message(RuntimeConfigError error);
 /** Resolve the internal traffic destination in network byte order; empty uses the gateway, and invalid IPv4 returns zero. */
 uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gateway_addr);
 
-const char *runtime_profile_name(RuntimeProfile profile);
 const char *wifi_band_policy_name(WifiBandPolicy policy);
 
 const char *traffic_mode_name(RuntimeTrafficMode mode);

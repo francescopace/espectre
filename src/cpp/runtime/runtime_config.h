@@ -49,8 +49,6 @@ enum class WifiBandPolicy : uint8_t {
  * copy have no effect; use the `set_*_runtime()` control methods instead.
  */
 struct RuntimeConfig {
-  /** Which backend to build: motion sensing, or raw CSI streaming to a collector. */
-  RuntimeProfile runtime_profile{RuntimeProfile::SENSING};
   /**
    * Band available to the station while the runtime keeps the PHY at HT20.
    *

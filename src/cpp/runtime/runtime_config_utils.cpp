@@ -109,7 +109,6 @@ bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, RuntimeT
 }
 
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
-  if (!runtime_profile_valid(config.runtime_profile)) return RuntimeConfigError::RUNTIME_PROFILE;
   if (!wifi_band_policy_valid(config.wifi_band_policy)) return RuntimeConfigError::WIFI_BAND_POLICY;
   if (config.csi_capture_profile != CsiCapturePolicy::AUTO &&
       config.csi_capture_profile != CsiCapturePolicy::LLTF &&
@@ -129,8 +128,7 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
   }
-  if (!runtime_csi_traffic_mode_valid_for_profile(config.runtime_profile,
-                                                  config.csi_traffic_mode)) {
+  if (!runtime_csi_traffic_mode_valid(config.csi_traffic_mode)) {
     return RuntimeConfigError::CSI_TRAFFIC_MODE;
   }
   if (config.csi_traffic_mode == CsiTrafficMode::EXTERNAL) {
@@ -190,7 +188,6 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::CSI_CAPTURE_PROFILE: return "invalid CSI capture profile";
     case RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC: return "wifi_raw requires auto or lltf CSI capture profile";
     case RuntimeConfigError::NONE: return "valid configuration";
-    case RuntimeConfigError::RUNTIME_PROFILE: return "invalid runtime profile";
     case RuntimeConfigError::WIFI_BAND_POLICY: return "invalid Wi-Fi band policy";
     case RuntimeConfigError::DETECTION_ALGORITHM: return "invalid detection algorithm";
     case RuntimeConfigError::SEGMENTATION_THRESHOLD: return "invalid segmentation threshold";
@@ -208,11 +205,6 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::HAMPEL_THRESHOLD: return "invalid Hampel threshold";
   }
   return "unknown configuration error";
-}
-
-const char *runtime_profile_name(RuntimeProfile profile) {
-  (void) profile;
-  return "sensing";
 }
 
 const char *wifi_band_policy_name(WifiBandPolicy policy) {

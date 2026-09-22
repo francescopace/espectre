@@ -242,7 +242,7 @@ void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validat
   frontend_runtime_shim::state.capabilities.supports_runtime_threshold_updates = true;
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
-  controller.config().runtime_profile = static_cast<RuntimeProfile>(0x7f);
+  controller.config().wifi_band_policy = static_cast<WifiBandPolicy>(0x7f);
   TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.55f));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.55f, controller.snapshot().threshold);

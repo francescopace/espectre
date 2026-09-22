@@ -700,9 +700,6 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     RuntimeConfig config;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
 
-    config.runtime_profile = static_cast<RuntimeProfile>(0x7f);
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::RUNTIME_PROFILE);
-    config = RuntimeConfig{};
     config.wifi_band_policy = static_cast<WifiBandPolicy>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::WIFI_BAND_POLICY);
     config = RuntimeConfig{};

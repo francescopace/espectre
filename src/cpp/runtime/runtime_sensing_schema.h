@@ -44,12 +44,6 @@ enum class DetectionAlgorithm {
   HIGH_ACCURACY,
 };
 
-/** Which runtime backend the controller builds. */
-enum class RuntimeProfile {
-  /** Detect motion on-device and report state. The normal profile. */
-  SENSING,
-};
-
 /** Which packet the internal generator sends to solicit CSI from the AP. */
 enum class RuntimeTrafficMode {
   /** ICMP echo. Default. */
@@ -138,10 +132,6 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
          algorithm == DetectionAlgorithm::HIGH_ACCURACY;
 }
 
-constexpr bool runtime_profile_valid(RuntimeProfile profile) {
-  return profile == RuntimeProfile::SENSING;
-}
-
 constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
   return mode == RuntimeTrafficMode::PING || mode == RuntimeTrafficMode::DNS ||
          mode == RuntimeTrafficMode::DNS_TCP || mode == RuntimeTrafficMode::WIFI_RAW;
@@ -149,14 +139,6 @@ constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
 
 constexpr bool runtime_csi_traffic_mode_valid(CsiTrafficMode mode) {
   return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL;
-}
-
-constexpr bool runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile profile,
-                                                          CsiTrafficMode mode) {
-  if (!runtime_profile_valid(profile) || !runtime_csi_traffic_mode_valid(mode)) {
-    return false;
-  }
-  return profile == RuntimeProfile::SENSING;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {

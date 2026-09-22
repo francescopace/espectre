@@ -163,8 +163,7 @@ void RuntimeFrontendController::quiesce() {
 
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
-      !validate_runtime_threshold_for_algorithm(threshold, effective_config.detection_algorithm)) {
+  if (!validate_runtime_threshold_for_algorithm(threshold, effective_config.detection_algorithm)) {
     return false;
   }
   if (runtime_) {
@@ -187,9 +186,7 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
 }
 
 bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
-  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
-      motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
+  if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     return false;
   }
@@ -215,8 +212,7 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
 }
 
 bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
-  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  if (!runtime_csi_traffic_mode_valid_for_profile(effective_config.runtime_profile, mode)) {
+  if (!runtime_csi_traffic_mode_valid(mode)) {
     return false;
   }
   const bool staged_for_next_setup =
@@ -256,9 +252,7 @@ bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTraffi
 }
 
 bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
-  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
-      !runtime_detection_algorithm_valid(algorithm)) {
+  if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;
   }
   if (runtime_) {

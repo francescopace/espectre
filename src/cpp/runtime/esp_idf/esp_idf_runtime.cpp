@@ -425,7 +425,7 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return false;
   }
-  if (!runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile::SENSING, mode)) {
+  if (!runtime_csi_traffic_mode_valid(mode)) {
     ESPECTRE_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
     return false;
   }
