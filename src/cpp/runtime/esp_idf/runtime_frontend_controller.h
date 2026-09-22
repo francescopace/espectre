@@ -153,8 +153,8 @@ class RuntimeFrontendController : private IRuntimeListener {
    * Gate runtime-owned services without tearing the runtime down.
    *
    * Sticky: the value is remembered and reapplied to the backend created by a
-   * later `setup()`. Matter uses it to stay silent until commissioning.
-   * Frontends use it to pause CSI without dropping Wi-Fi. During raw
+   * later `setup()`. Use it to stay silent until commissioning completes, or
+   * to pause CSI without dropping Wi-Fi. During raw
    * collection the requested value is staged and applied when collection
    * stops, because changing sensing services cannot interrupt the capture
    * callback in place.

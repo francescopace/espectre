@@ -91,8 +91,8 @@ class RuntimeDiagnosticsSampler {
   /**
    * Derive rates since the previous read and adopt this one as the baseline.
    *
-   * The caller owns the window. Shipped frontends invoke this from their
-   * existing periodic sensing update, so diagnostics do not add a timer.
+   * The caller owns the window. Call it from an existing periodic sensing
+   * update, so diagnostics do not add a timer.
    *
    * @param snapshot Current cumulative counters.
    * @param now_ms Monotonic frontend clock, in milliseconds.

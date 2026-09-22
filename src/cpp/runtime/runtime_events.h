@@ -71,9 +71,9 @@ class IRuntimeListener {
    * so this is the hook for occupancy, relays, and notifications.
    *
    * It also fires with `MotionState::IDLE` when the Wi-Fi link drops, and that
-   * call carries `ready_to_publish == false`. The shipped frontends gate on
-   * that flag and therefore leave their last published value in place across a
-   * disconnect; if your product would rather fail open, handle the
+   * call carries `ready_to_publish == false`. A frontend that gates on that
+   * flag leaves its last published value in place across a disconnect; if
+   * your product would rather fail open, handle the
    * not-ready edge explicitly instead of returning early.
    *
    * @param snapshot Sensing state at the moment of the change.

@@ -35,8 +35,7 @@
  *
  * The parsers never throw: they validate and report failure through an out
  * parameter. They do not all roll back cleanly on rejection, so parse into a
- * copy of your live configuration and commit it only on success, which is what
- * the shipped frontends do.
+ * copy of your live configuration and commit it only on success.
  */
 
 namespace espectre {

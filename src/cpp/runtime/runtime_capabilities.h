@@ -14,11 +14,8 @@ namespace espectre {
 /**
  * What a runtime actually offers its frontend.
  *
- * Every flag defaults to false on purpose: API.md makes this
- * block the contract clients read, so a capability has to be declared rather
- * than inherited from a permissive default. Previously only the stream runtime
- * declared anything and the sensing runtime shipped whatever the struct
- * happened to default to.
+ * Every flag defaults to false, so a runtime declares each capability
+ * explicitly. Protocol clients read these flags to learn which controls exist.
  *
  * `supports_live_telemetry` describes the runtime side of the surface: whether
  * it drives the live-telemetry callback at all.
@@ -40,8 +37,8 @@ struct RuntimeCapabilities {
   /**
    * The runtime drives `IRuntimeListener::on_live_telemetry()` at all.
    *
-   * Native uses that callback for MQTT sensing telemetry and Home Assistant
-   * Movement Score. Transport adapters decide how to forward live sensing.
+   * Use it for high-rate outputs such as a live movement score. Transport
+   * adapters decide how to forward live sensing.
    */
   bool supports_live_telemetry{false};
   /** The runtime reports the extended fields used by diagnostics payloads. */
