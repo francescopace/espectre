@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <algorithm>
+#include <functional>
 #include <string>
 
 #include "esp_err.h"
@@ -38,6 +40,8 @@ struct esp_http_client_mock_state_t {
   esp_err_t perform_result{ESP_OK};
   int status_code{200};
   std::string response_body;
+  size_t response_chunk_size{1371U};
+  std::function<void()> after_data;
   esp_http_client_config_t last_config{};
   int init_calls{0};
   int cleanup_calls{0};
@@ -66,11 +70,17 @@ inline esp_err_t esp_http_client_perform(esp_http_client_handle_t) {
   }
   const auto& config = g_esp_http_client_mock.last_config;
   if (config.event_handler != nullptr && !g_esp_http_client_mock.response_body.empty()) {
-    esp_http_client_event_t event;
-    event.user_data = config.user_data;
-    event.data = g_esp_http_client_mock.response_body.data();
-    event.data_len = static_cast<int>(g_esp_http_client_mock.response_body.size());
-    return config.event_handler(&event);
+    for (size_t offset = 0; offset < g_esp_http_client_mock.response_body.size();) {
+      esp_http_client_event_t event;
+      event.user_data = config.user_data;
+      event.data = g_esp_http_client_mock.response_body.data() + offset;
+      event.data_len = static_cast<int>(std::min(g_esp_http_client_mock.response_chunk_size,
+                                               g_esp_http_client_mock.response_body.size() - offset));
+      // ESP-IDF ignores the ON_DATA callback's return value and keeps receiving.
+      config.event_handler(&event);
+      if (g_esp_http_client_mock.after_data) g_esp_http_client_mock.after_data();
+      offset += static_cast<size_t>(event.data_len);
+    }
   }
   return ESP_OK;
 }

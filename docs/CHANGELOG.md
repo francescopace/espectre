@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Accept ASCII case-insensitive DNS names and TXT keys, honor the first duplicate key, and transmit `txtvers` first on all four frontends. Keep discovery metadata compatible with rc1 and rc2.
 - Extend default CLI discovery to six seconds so retries can find slower devices. Request replies directly to the CLI to avoid competition with Bonjour; shorter explicit timeouts remain available.
 - Improve IPv4 bootstrap discovery with compressed and ANY queries, Known-Answer Suppression, truncated-query handling, and reply rate limits. See [DISCOVERY.md](DISCOVERY.md#limits) for remaining RFC deviations.
+- Prevent Native reboots during automatic OTA checks in Device settings; failed downloads or insufficient memory report an OTA error.
 - Release HTTP connections after `/devices` responses so repeated browser discovery does not exhaust available sockets. Preserve other API, SSE, and CSI connections.
 - Report the running Matter firmware version in discovery, Direct, and Improv instead of `unknown`.
 

@@ -1104,12 +1104,54 @@ void test_protocol_json_object_parser_decodes_every_value_type(void) {
   TEST_ASSERT_TRUE(find_json_object_field(fields, "array")->type == JsonValueType::ARRAY);
 }
 
+class TestJsonInput : public JsonInput {
+ public:
+  explicit TestJsonInput(const std::string &text) : text_(text) {}
+  size_t size() const override { return text_.size(); }
+  char operator[](size_t offset) const override {
+    TEST_ASSERT_TRUE(offset < text_.size());
+    return text_[offset];
+  }
+ private:
+  const std::string &text_;
+};
+
+void test_protocol_json_views_preserve_ranges_and_decoding(void) {
+  const std::string text = R"(prefix [{"text":"A\uD83D\uDE00","nested":{"ignored":true}},{"text":"second"}] suffix)";
+  TestJsonInput input(text);
+  const size_t offset = text.find('[');
+  const size_t length = text.rfind(']') + 1U - offset;
+  std::vector<std::vector<JsonFieldView>> objects;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_json_array_object_views(input, offset, length, &objects, &error));
+  TEST_ASSERT_EQUAL(2U, objects.size());
+  TEST_ASSERT_EQUAL(2U, objects[0].size());
+  std::string decoded;
+  const auto &field = objects[0][0];
+  TEST_ASSERT_TRUE(parse_json_string_value(input, offset + field.begin, field.length, &decoded, &error));
+  TEST_ASSERT_EQUAL_STRING("A\xF0\x9F\x98\x80", decoded.c_str());
+  const auto &nested = objects[0][1];
+  std::vector<JsonFieldView> fields;
+  TEST_ASSERT_TRUE(parse_json_object_views(input, offset + nested.begin, nested.length, &fields, &error));
+  TEST_ASSERT_EQUAL_STRING("ignored", fields[0].name.c_str());
+  TEST_ASSERT_TRUE(fields[0].type == JsonValueType::BOOLEAN);
+  TEST_ASSERT_FALSE(parse_json_object_views(input, input.size() + 1U, 0U, &fields, &error));
+  TEST_ASSERT_FALSE(parse_json_object_views(input, 0U, input.size() + 1U, &fields, &error));
+  TEST_ASSERT_FALSE(parse_json_object_views(input, 0U, input.size(), nullptr, &error));
+  TEST_ASSERT_FALSE(parse_json_array_object_views(input, offset, length, nullptr, &error));
+  TEST_ASSERT_FALSE(parse_json_string_value(input, offset + field.begin, field.length, nullptr, &error));
+}
+
 void test_protocol_json_object_parser_rejects_invalid_documents(void) {
   std::vector<JsonObjectField> fields;
   std::string error;
   const auto rejects = [&fields, &error](const std::string &payload) {
     error.clear();
-    return !parse_json_object_fields(payload, &fields, &error) && !error.empty();
+    const bool rejected_string = !parse_json_object_fields(payload, &fields, &error) && !error.empty();
+    error.clear();
+    std::vector<JsonFieldView> views;
+    TestJsonInput input(payload);
+    return rejected_string && !parse_json_object_views(input, 0U, input.size(), &views, &error) && !error.empty();
   };
 
   TEST_ASSERT_FALSE(parse_json_object_fields("{}", nullptr, &error));
@@ -1222,6 +1264,7 @@ int process(void) {
   RUN_TEST(test_protocol_json_url_encoding_validates_tokens);
   RUN_TEST(test_protocol_json_object_parser_decodes_every_value_type);
   RUN_TEST(test_protocol_json_object_parser_rejects_invalid_documents);
+  RUN_TEST(test_protocol_json_views_preserve_ranges_and_decoding);
   return UNITY_END();
 }
 

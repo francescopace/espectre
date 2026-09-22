@@ -11,6 +11,7 @@
 #include "ota_service_https.h"
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <utility>
@@ -27,7 +28,6 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.ota";
-constexpr size_t kMaxManifestBytes = 64U * 1024U;
 constexpr uint32_t kHttpTimeoutMs = 30000U;
 constexpr uint32_t kPostSuccessDelayMs = 500U;
 constexpr uint32_t kWorkerStackSize = 8192U;
@@ -46,28 +46,40 @@ void fill_https_client_config(esp_http_client_config_t *config, const char *url)
   config->buffer_size_tx = kHttpTxBufferBytes;
 }
 
-struct ManifestFetchContext {
-  std::string *body{nullptr};
-  std::string *error{nullptr};
-};
+}  // namespace
 
-esp_err_t manifest_http_event(esp_http_client_event_t *event) {
-  auto *context = static_cast<ManifestFetchContext *>(event->user_data);
-  if (context == nullptr || context->body == nullptr || event->event_id != HTTP_EVENT_ON_DATA ||
+esp_err_t HttpsOtaService::manifest_http_event_(esp_http_client_event_t *event) {
+  auto *context = static_cast<ManifestBuffer *>(event->user_data);
+  if (context == nullptr || event->event_id != HTTP_EVENT_ON_DATA ||
       event->data_len <= 0) {
     return ESP_OK;
   }
-  if (context->body->size() + static_cast<size_t>(event->data_len) > kMaxManifestBytes) {
-    if (context->error != nullptr) {
-      *context->error = "manifest too large";
-    }
+  if (context->error != nullptr) return ESP_FAIL;
+  const size_t length = static_cast<size_t>(event->data_len);
+  if (length > ManifestBuffer::kMaxBytes - context->length) {
+    context->error = "manifest too large";
     return ESP_FAIL;
   }
-  context->body->append(static_cast<const char *>(event->data), static_cast<size_t>(event->data_len));
+  // Avoid string growth copying the catalog while TLS still occupies the heap.
+  // Each allocation is small and fallible even when C++ exceptions are disabled.
+  const char *data = static_cast<const char *>(event->data);
+  for (size_t offset = 0U; offset < length;) {
+    auto &chunk = context->chunks[context->length / ManifestBuffer::kChunkBytes];
+    if (chunk == nullptr) {
+      chunk.reset(new (std::nothrow) char[ManifestBuffer::kChunkBytes]);
+      if (chunk == nullptr) {
+        context->error = "insufficient memory for manifest";
+        return ESP_FAIL;
+      }
+    }
+    const size_t position = context->length % ManifestBuffer::kChunkBytes;
+    const size_t count = std::min(length - offset, ManifestBuffer::kChunkBytes - position);
+    std::memcpy(chunk.get() + position, data + offset, count);
+    context->length += count;
+    offset += count;
+  }
   return ESP_OK;
 }
-
-}  // namespace
 
 HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaReleaseChannel channel) {
   lock_ = xSemaphoreCreateMutex();
@@ -243,10 +255,14 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     return;
   }
 
-  std::string body;
   std::string error;
-  if (!fetch_https_text_(manifest_url, &body, &error) ||
-      !parse_manifest_(std::move(body), channel, &manifest, &error)) {
+  bool manifest_loaded = false;
+  {
+    ManifestBuffer body;
+    manifest_loaded = fetch_manifest_(manifest_url, &body, &error) &&
+        parse_manifest_(body, channel, &manifest, &error);
+  }
+  if (!manifest_loaded) {
     set_error_status_(error.empty() ? "manifest fetch failed" : error, current_version, "", manifest_url, "",
                       channel);
     return;
@@ -464,11 +480,12 @@ void HttpsOtaService::set_error_status_(const std::string &message,
   update_status_(status);
 }
 
-bool HttpsOtaService::fetch_https_text_(const std::string &url, std::string *body, std::string *error) const {
+bool HttpsOtaService::fetch_manifest_(const std::string &url, ManifestBuffer *body, std::string *error) const {
   if (body == nullptr) {
     return false;
   }
-  body->clear();
+  *body = ManifestBuffer{};
+  if (error != nullptr) error->clear();
   if (url.empty()) {
     if (error != nullptr) {
       *error = "empty url";
@@ -476,11 +493,10 @@ bool HttpsOtaService::fetch_https_text_(const std::string &url, std::string *bod
     return false;
   }
 
-  ManifestFetchContext context{body, error};
   esp_http_client_config_t config{};
   fill_https_client_config(&config, url.c_str());
-  config.event_handler = manifest_http_event;
-  config.user_data = &context;
+  config.event_handler = manifest_http_event_;
+  config.user_data = body;
 
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (client == nullptr) {
@@ -491,95 +507,96 @@ bool HttpsOtaService::fetch_https_text_(const std::string &url, std::string *bod
   }
 
   const esp_err_t err = esp_http_client_perform(client);
+  const int status_code = esp_http_client_get_status_code(client);
+  esp_http_client_cleanup(client);
+  // ESP-IDF does not propagate ON_DATA errors from the callback.
+  if (body->error != nullptr) {
+    if (error != nullptr) *error = body->error;
+    *body = ManifestBuffer{};
+    return false;
+  }
   if (err != ESP_OK) {
     if (error != nullptr && error->empty()) {
       *error = esp_err_to_name(err);
     }
-    esp_http_client_cleanup(client);
     return false;
   }
 
-  const int status_code = esp_http_client_get_status_code(client);
   if (status_code < 200 || status_code >= 300) {
     if (error != nullptr) {
       *error = "manifest http status " + std::to_string(status_code);
     }
-    esp_http_client_cleanup(client);
     return false;
   }
-  esp_http_client_cleanup(client);
+
   return true;
 }
 
-bool HttpsOtaService::parse_manifest_(std::string body, const std::string &channel,
+bool HttpsOtaService::parse_manifest_(const ManifestBuffer &body, const std::string &channel,
                                      ManifestInfo *manifest, std::string *error) const {
-  if (manifest == nullptr) {
-    return false;
-  }
+  if (manifest == nullptr) return false;
   *manifest = {};
   const auto fail = [error](const char *message) {
-    if (error != nullptr) {
-      *error = message;
-    }
+    if (error != nullptr) *error = message;
     return false;
   };
-  std::vector<JsonObjectField> fields;
-  if (!parse_json_object_fields(body, &fields, error)) {
-    return false;
-  }
-  const auto *schema = find_json_object_field(fields, "schema_version");
-  const auto *published_channel = find_json_object_field(fields, "channel");
-  const auto *version = find_json_object_field(fields, "version");
-  if (schema == nullptr || schema->type != JsonValueType::NUMBER || schema->value != "1" ||
-      published_channel == nullptr || published_channel->type != JsonValueType::STRING ||
-      published_channel->value != channel || version == nullptr ||
-      version->type != JsonValueType::STRING || version->value.empty()) {
+  std::vector<JsonFieldView> fields;
+  size_t offset = 0U;
+  size_t length = body.size();
+  const auto read_object = [&]() {
+    return parse_json_object_views(body, offset, length, &fields, error);
+  };
+  const auto find = [](const std::vector<JsonFieldView> &values, const char *name) -> const JsonFieldView * {
+    for (const auto &field : values) {
+      if (field.name == name) return &field;
+    }
+    return nullptr;
+  };
+  const auto read_string = [&](const JsonFieldView *field, std::string *value) {
+    return field != nullptr && field->type == JsonValueType::STRING &&
+        parse_json_string_value(body, offset + field->begin, field->length, value, error);
+  };
+  if (!read_object()) return false;
+  const auto *schema = find(fields, "schema_version");
+  std::string published_channel;
+  std::string target_version;
+  if (schema == nullptr || schema->type != JsonValueType::NUMBER || schema->length != 1U ||
+      body[schema->begin] != '1' || !read_string(find(fields, "channel"), &published_channel) ||
+      published_channel != channel || !read_string(find(fields, "version"), &target_version) ||
+      target_version.empty()) {
     return fail("invalid manifest metadata");
   }
-  const std::string target_version = version->value;
-  // Retain only the selected subtree at each level, releasing the full catalog.
-  const auto take_field = [&fields, &body](const char *name, JsonValueType type) {
-    for (auto &field : fields) {
-      if (field.name == name && field.type == type) {
-        body = std::move(field.value);
-        fields.clear();
-        return true;
-      }
-    }
-    return false;
+  // Views refer to the received chunks; no contiguous catalog or subtree copies.
+  const auto take_field = [&](const char *name, JsonValueType type) {
+    const auto *field = find(fields, name);
+    if (field == nullptr || field->type != type) return false;
+    offset += field->begin;
+    length = field->length;
+    fields.clear();
+    return true;
   };
-  if (!take_field("frontends", JsonValueType::OBJECT) ||
-      !parse_json_object_fields(body, &fields, error) ||
-      !take_field(frontend_.c_str(), JsonValueType::OBJECT) ||
-      !parse_json_object_fields(body, &fields, error) ||
+  if (!take_field("frontends", JsonValueType::OBJECT) || !read_object() ||
+      !take_field(frontend_.c_str(), JsonValueType::OBJECT) || !read_object() ||
       !take_field("artifacts", JsonValueType::ARRAY)) {
     return fail("missing frontend artifacts");
   }
-  std::vector<std::vector<JsonObjectField>> artifacts;
-  if (!parse_json_array_objects(body, &artifacts, error)) {
-    return false;
-  }
+  std::vector<std::vector<JsonFieldView>> artifacts;
+  if (!parse_json_array_object_views(body, offset, length, &artifacts, error)) return false;
   std::string image_url;
   for (const auto &artifact : artifacts) {
-    const auto *chip = find_json_object_field(artifact, "chip");
-    const auto *build_type = find_json_object_field(artifact, "build_type");
-    if (chip == nullptr || chip->type != JsonValueType::STRING || chip->value != chip_ ||
-        build_type == nullptr || build_type->type != JsonValueType::STRING || build_type->value != "ota") {
-      continue;
-    }
-    const auto *url = find_json_object_field(artifact, "url");
-    if (url == nullptr || url->type != JsonValueType::STRING || url->value.compare(0, 8, "https://") != 0) {
+    std::string chip;
+    std::string build_type;
+    if (!read_string(find(artifact, "chip"), &chip) || chip != chip_ ||
+        !read_string(find(artifact, "build_type"), &build_type) || build_type != "ota") continue;
+    std::string url;
+    if (!read_string(find(artifact, "url"), &url) || url.compare(0, 8, "https://") != 0) {
       return fail("invalid ota image url");
     }
-    if (!image_url.empty()) {
-      return fail("ambiguous ota image");
-    }
-    image_url = url->value;
+    if (!image_url.empty()) return fail("ambiguous ota image");
+    image_url = std::move(url);
   }
-  if (image_url.empty()) {
-    return fail("missing ota image for chip");
-  }
-  manifest->version = target_version;
+  if (image_url.empty()) return fail("missing ota image for chip");
+  manifest->version = std::move(target_version);
   manifest->image_url = std::move(image_url);
   return true;
 }

@@ -8,6 +8,10 @@
 #include "test_harness.h"
 
 #include <atomic>
+#include <array>
+#include <memory>
+#include "esp_http_client.h"
+#include <new>
 #include <string>
 
 // Load shared dependencies before exposing HttpsOtaService internals.
@@ -21,6 +25,14 @@
 #include "esp_https_ota.h"
 
 using namespace espectre;
+
+static bool fail_buffer_allocation = false;
+static size_t largest_buffer_allocation = 0U;
+
+void *operator new[](size_t size, const std::nothrow_t &) noexcept {
+  largest_buffer_allocation = std::max(largest_buffer_allocation, size);
+  return fail_buffer_allocation ? nullptr : ::operator new[](size);
+}
 
 class LegacyOtaService : public IOtaService {
  public:
@@ -55,6 +67,8 @@ void test_legacy_ota_service_rejects_channels_it_cannot_honor(void) {
 }
 
 void setUp(void) {
+  fail_buffer_allocation = false;
+  largest_buffer_allocation = 0U;
   esp_http_client_mock_reset();
   g_esp_https_ota_calls = 0;
   g_esp_https_ota_result = ESP_OK;
@@ -62,6 +76,21 @@ void setUp(void) {
 void tearDown(void) {}
 
 namespace {
+
+std::string buffer_text(const HttpsOtaService::ManifestBuffer &body) {
+  std::string text;
+  for (size_t i = 0U; i < body.size(); ++i) text.push_back(body[i]);
+  return text;
+}
+
+bool parse_manifest_text(HttpsOtaService &service, const std::string &text, const std::string &channel,
+                         HttpsOtaService::ManifestInfo *manifest, std::string *error) {
+  g_esp_http_client_mock.response_body = text;
+  HttpsOtaService::ManifestBuffer body;
+  return service.fetch_manifest_("https://example.invalid/manifest.json", &body, error) &&
+      service.parse_manifest_(body, channel, manifest, error);
+}
+
 
 std::string firmware_catalog(const std::string &artifacts, const char *channel = "develop",
                              const char *version = "3.1.0") {
@@ -88,7 +117,7 @@ void test_https_ota_manifest_parser_selects_frontend_chip_and_ota_image(void) {
        "url":"https://example.invalid/fw.bin"}])");
 
   for (const char *channel : {"release", "preview", "develop"}) {
-    TEST_ASSERT_TRUE(service.parse_manifest_(firmware_catalog(artifacts, channel), channel, &manifest, &error));
+    TEST_ASSERT_TRUE(parse_manifest_text(service, firmware_catalog(artifacts, channel), channel, &manifest, &error));
     TEST_ASSERT_EQUAL_STRING("3.1.0", manifest.version.c_str());
     TEST_ASSERT_EQUAL_STRING("https://example.invalid/fw.bin", manifest.image_url.c_str());
   }
@@ -108,12 +137,12 @@ void test_https_ota_manifest_parser_rejects_missing_or_ambiguous_targets(void) {
       std::string(R"([{"chip":"esp32s2","build_type":"ota","url":42}])"),
       std::string(R"([{"chip":"esp32s2","chip":"esp32s2","build_type":"ota","url":"https://example.invalid/fw.bin"}])"),
       std::string("[null]"), std::string("[{} ,]"), std::string("{}")}) {
-    TEST_ASSERT_FALSE(service.parse_manifest_(firmware_catalog(artifacts), "develop", &manifest, &error));
+    TEST_ASSERT_FALSE(parse_manifest_text(service, firmware_catalog(artifacts), "develop", &manifest, &error));
     TEST_ASSERT_FALSE(error.empty());
     TEST_ASSERT_TRUE(manifest.image_url.empty());
   }
   HttpsOtaService absent_frontend("matter", "esp32s2", OtaReleaseChannel::DEVELOP);
-  TEST_ASSERT_FALSE(absent_frontend.parse_manifest_(firmware_catalog("[]"), "develop", &manifest, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(absent_frontend, firmware_catalog("[]"), "develop", &manifest, &error));
 }
 
 void test_https_ota_manifest_parser_validates_catalog_metadata(void) {
@@ -121,26 +150,26 @@ void test_https_ota_manifest_parser_validates_catalog_metadata(void) {
   HttpsOtaService::ManifestInfo manifest;
   std::string error;
   const std::string valid = firmware_catalog(std::string("[") + kOtaArtifact + "]");
-  TEST_ASSERT_FALSE(service.parse_manifest_(valid, "preview", &manifest, &error));
-  TEST_ASSERT_FALSE(service.parse_manifest_(firmware_catalog("[]", "develop", ""), "develop", &manifest, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(service, valid, "preview", &manifest, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(service, firmware_catalog("[]", "develop", ""), "develop", &manifest, &error));
   for (const char *schema : {"2", "null", "\"1\""}) {
     std::string invalid = valid;
     invalid.replace(invalid.find("\"schema_version\":1"), 18, std::string("\"schema_version\":") + schema);
-    TEST_ASSERT_FALSE(service.parse_manifest_(invalid, "develop", &manifest, &error));
+    TEST_ASSERT_FALSE(parse_manifest_text(service, invalid, "develop", &manifest, &error));
   }
-  TEST_ASSERT_FALSE(service.parse_manifest_("{}", "develop", &manifest, &error));
-  TEST_ASSERT_FALSE(service.parse_manifest_(valid + "garbage", "develop", &manifest, &error));
-  TEST_ASSERT_FALSE(service.parse_manifest_(valid, "develop", nullptr, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(service, "{}", "develop", &manifest, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(service, valid + "garbage", "develop", &manifest, &error));
+  TEST_ASSERT_FALSE(parse_manifest_text(service, valid, "develop", nullptr, &error));
 }
 
 void test_https_ota_fetch_enforces_status_and_manifest_size(void) {
   HttpsOtaService service("native", "esp32", OtaReleaseChannel::RELEASE);
-  std::string body;
+  HttpsOtaService::ManifestBuffer body;
   std::string error;
 
   g_esp_http_client_mock.response_body = "ok";
-  TEST_ASSERT_TRUE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
-  TEST_ASSERT_EQUAL_STRING("ok", body.c_str());
+  TEST_ASSERT_TRUE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_EQUAL_STRING("ok", buffer_text(body).c_str());
   TEST_ASSERT_EQUAL(30000, g_esp_http_client_mock.last_config.timeout_ms);
   TEST_ASSERT_EQUAL(8192, g_esp_http_client_mock.last_config.buffer_size);
   TEST_ASSERT_EQUAL(1024, g_esp_http_client_mock.last_config.buffer_size_tx);
@@ -148,7 +177,7 @@ void test_https_ota_fetch_enforces_status_and_manifest_size(void) {
   esp_http_client_mock_reset();
   g_esp_http_client_mock.response_body = firmware_catalog(std::string("[") + kOtaArtifact + "]");
   g_esp_http_client_mock.response_body.insert(1, "\"notes\":\"" + std::string(40000, 'x') + "\",");
-  TEST_ASSERT_TRUE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_TRUE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
   HttpsOtaService target("native", "esp32s2", OtaReleaseChannel::DEVELOP);
   HttpsOtaService::ManifestInfo manifest;
   TEST_ASSERT_TRUE(target.parse_manifest_(body, "develop", &manifest, &error));
@@ -156,15 +185,54 @@ void test_https_ota_fetch_enforces_status_and_manifest_size(void) {
 
   esp_http_client_mock_reset();
   g_esp_http_client_mock.status_code = 503;
-  TEST_ASSERT_FALSE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
   TEST_ASSERT_TRUE(error.find("503") != std::string::npos);
 
   esp_http_client_mock_reset();
   g_esp_http_client_mock.response_body.assign(64U * 1024U + 1U, 'x');
-  TEST_ASSERT_FALSE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
   TEST_ASSERT_EQUAL_STRING("manifest too large", error.c_str());
-  TEST_ASSERT_FALSE(service.fetch_https_text_("", &body, &error));
-  TEST_ASSERT_FALSE(service.fetch_https_text_("https://example.invalid", nullptr, &error));
+  TEST_ASSERT_FALSE(service.fetch_manifest_("", &body, &error));
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid", nullptr, &error));
+}
+
+void test_https_ota_fetch_preserves_fragmented_manifest_bytes(void) {
+  HttpsOtaService service("native", "esp32", OtaReleaseChannel::RELEASE);
+  for (size_t chunk_size : {1U, 1371U, 8192U, 65536U}) {
+    esp_http_client_mock_reset();
+    HttpsOtaService::ManifestBuffer body;
+    std::string error;
+    g_esp_http_client_mock.response_body.assign(65536U, 'x');
+    const std::string boundary = "across-chunks";
+    g_esp_http_client_mock.response_body.replace(1020U, boundary.size(), boundary);
+    g_esp_http_client_mock.response_chunk_size = chunk_size;
+    TEST_ASSERT_TRUE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
+    TEST_ASSERT_TRUE(largest_buffer_allocation <= HttpsOtaService::ManifestBuffer::kChunkBytes);
+    TEST_ASSERT_EQUAL_STRING(g_esp_http_client_mock.response_body.c_str(), buffer_text(body).c_str());
+    TEST_ASSERT_EQUAL(1, g_esp_http_client_mock.cleanup_calls);
+  }
+}
+
+void test_https_ota_fetch_handles_allocation_failure_and_retries(void) {
+  HttpsOtaService service("native", "esp32", OtaReleaseChannel::RELEASE);
+  HttpsOtaService::ManifestBuffer body;
+  std::string error;
+  g_esp_http_client_mock.response_body.assign(8192U, 'x');
+  int callbacks = 0;
+  g_esp_http_client_mock.after_data = [&]() {
+    ++callbacks;
+    fail_buffer_allocation = true;
+  };
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_TRUE(callbacks > 1);
+  TEST_ASSERT_TRUE(body.size() == 0U);
+  TEST_ASSERT_FALSE(error.empty());
+  TEST_ASSERT_EQUAL(1, g_esp_http_client_mock.cleanup_calls);
+  fail_buffer_allocation = false;
+  g_esp_http_client_mock.after_data = {};
+  TEST_ASSERT_TRUE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_EQUAL_STRING(g_esp_http_client_mock.response_body.c_str(), buffer_text(body).c_str());
+  TEST_ASSERT_TRUE(error.empty());
 }
 
 void test_https_ota_check_updates_status_and_delivers_callback(void) {
@@ -267,16 +335,16 @@ void test_https_ota_check_rejects_unordered_version_and_bad_manifest(void) {
 
 void test_https_ota_fetch_releases_client_after_transport_error(void) {
   HttpsOtaService service("native", "esp32s2", OtaReleaseChannel::DEVELOP);
-  std::string body = "stale";
+  HttpsOtaService::ManifestBuffer body;
   std::string error;
   g_esp_http_client_mock.init_succeeds = false;
-  TEST_ASSERT_FALSE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
-  TEST_ASSERT_TRUE(body.empty());
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_TRUE(body.size() == 0U);
   TEST_ASSERT_FALSE(error.empty());
   TEST_ASSERT_EQUAL(0, g_esp_http_client_mock.cleanup_calls);
   g_esp_http_client_mock.init_succeeds = true;
   g_esp_http_client_mock.perform_result = ESP_FAIL;
-  TEST_ASSERT_FALSE(service.fetch_https_text_("https://example.invalid/manifest.json", &body, &error));
+  TEST_ASSERT_FALSE(service.fetch_manifest_("https://example.invalid/manifest.json", &body, &error));
   TEST_ASSERT_EQUAL(1, g_esp_http_client_mock.cleanup_calls);
 }
 
@@ -287,6 +355,8 @@ int process(void) {
   RUN_TEST(test_https_ota_manifest_parser_rejects_missing_or_ambiguous_targets);
   RUN_TEST(test_https_ota_manifest_parser_validates_catalog_metadata);
   RUN_TEST(test_https_ota_fetch_enforces_status_and_manifest_size);
+  RUN_TEST(test_https_ota_fetch_preserves_fragmented_manifest_bytes);
+  RUN_TEST(test_https_ota_fetch_handles_allocation_failure_and_retries);
   RUN_TEST(test_https_ota_check_updates_status_and_delivers_callback);
   RUN_TEST(test_https_ota_update_applies_newer_image_and_delivers_completion_once);
   RUN_TEST(test_https_ota_update_never_installs_same_older_or_unordered_versions);
