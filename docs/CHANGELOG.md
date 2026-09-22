@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - A saved BSSID pin disables ESPHome's periodic roaming scans, including after restart.
 - Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
 - One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
+- **Breaking:** `RuntimeConfig::wifi_band_policy` and the Kconfig band option default to `AUTO` on every target. `AUTO` uses the bands the radio has, so single-band chips now accept it and stay on 2.4 GHz. A `RuntimeConfig{}` built by hand on ESP32-C5 now selects the band automatically; set `BAND_2G` to keep the old behavior.
 
 ### Fixed
 

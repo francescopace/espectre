@@ -284,17 +284,29 @@ void test_wifi_lifecycle_init_reports_bgn_configuration_failure(void) {
                     g_esp_wifi_mock.last_protocol_bitmap);
 }
 
-void test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets(void) {
+void test_wifi_lifecycle_rejects_5g_on_single_band_targets(void) {
   WiFiLifecycleManager manager;
   TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED,
                     manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
                                               WifiBandPolicy::BAND_5G));
   TEST_ASSERT_EQUAL(0, g_esp_event_mock.register_call_count);
+}
 
-  TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED,
-                    manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
-                                              WifiBandPolicy::AUTO));
-  TEST_ASSERT_EQUAL(0, g_esp_event_mock.register_call_count);
+void test_wifi_lifecycle_auto_band_uses_the_2g_policy_on_single_band_targets(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
+                                                      WifiBandPolicy::AUTO));
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
+                    g_esp_wifi_mock.last_protocol_bitmap);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.last_bandwidth == WIFI_BW_HT20);
 }
 
 // STA_START can fire before the handlers are registered. If no connected
@@ -1860,7 +1872,8 @@ int process(void) {
   RUN_TEST(test_micro_wifi_policy_handles_association_and_preserves_driver_errors);
   RUN_TEST(test_wifi_lifecycle_init_configures_protocol_bandwidth_and_promiscuous);
   RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
-  RUN_TEST(test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets);
+  RUN_TEST(test_wifi_lifecycle_rejects_5g_on_single_band_targets);
+  RUN_TEST(test_wifi_lifecycle_auto_band_uses_the_2g_policy_on_single_band_targets);
   RUN_TEST(test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed);
   RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);

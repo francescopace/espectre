@@ -49,7 +49,7 @@ Frontend-owned defaults in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) are
 | `ESPECTRE_WIFI_CHANNEL` | Optional channel hint (`0` scans normally) |
 | `ESPECTRE_RECOVERY_BUTTON_*` | Physical recovery GPIO and hold policy |
 
-ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other supported Native targets use `2g`. See [capture profiles](../../../../docs/CSI.md#capture-profiles) for capture-profile selection and the limits of 5 GHz sensing.
+Every target defaults to `auto`, which uses the bands the radio has: 2.4 GHz on single-band chips, and automatic selection on ESP32-C5. ESP32-C5 can also be pinned to `2g` or `5g`. See [capture profiles](../../../../docs/CSI.md#capture-profiles) for capture-profile selection and the limits of 5 GHz sensing.
 
 ## Optional MQTT and Home Assistant
 

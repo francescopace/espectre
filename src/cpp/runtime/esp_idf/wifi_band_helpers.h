@@ -30,13 +30,18 @@ namespace espectre {
 constexpr int WIFI_CHANNEL_AUTO = 0;
 constexpr int WIFI_CHANNEL_2G_MAX = 14;
 
-/** Return whether this build can honor the requested band policy. */
+/**
+ * Return whether this build can honor the requested band policy.
+ *
+ * `AUTO` uses the bands the radio has, so it is valid everywhere and means
+ * 2.4 GHz on single-band targets. `BAND_5G` needs dual-band silicon.
+ */
 constexpr bool wifi_band_policy_is_supported(WifiBandPolicy policy) {
 #if ESPECTRE_WIFI_DUAL_BAND
   return policy == WifiBandPolicy::BAND_2G || policy == WifiBandPolicy::BAND_5G ||
          policy == WifiBandPolicy::AUTO;
 #else
-  return policy == WifiBandPolicy::BAND_2G;
+  return policy == WifiBandPolicy::BAND_2G || policy == WifiBandPolicy::AUTO;
 #endif
 }
 

@@ -75,7 +75,7 @@ A capture profile decides which part of the Wi-Fi frame is measured. Set `csi_ca
 - A profile change clears pending samples and detector history. Wi-Fi stays connected.
 - Changing the traffic mode restarts Lightweight calibration. High Accuracy keeps its threshold.
 
-The band is set separately to `2g`, `5g`, or `auto`. `5g` and `auto` are available only on dual-band chips such as ESP32-C5, and published ESP32-C5 firmware uses `auto`. Bandwidth is always 20 MHz. Only 2.4 GHz is validated; 5 GHz detection quality has not been measured yet. The reasons for this design are in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
+The band is set separately to `2g`, `5g`, or `auto`. `auto`, the default, uses the bands the radio has, so it means 2.4 GHz on single-band chips. `5g` needs a dual-band chip such as ESP32-C5. Published ESP32-C5 firmware uses `auto`. Bandwidth is always 20 MHz. Only 2.4 GHz is validated; 5 GHz detection quality has not been measured yet. The reasons for this design are in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
 ## Capture quality
 

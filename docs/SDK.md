@@ -228,7 +228,7 @@ Other notes:
 
 The targets in [Requirements](#requirements) need no extra hardware: sensing uses the built-in single-antenna Wi-Fi radio at 20 MHz with AGC on. ESP32-C5 supports 2.4 and 5 GHz; the others use 2.4 GHz. ESP32-C6 does not support `RuntimeTrafficMode::WIFI_RAW`.
 
-`wifi_band_policy` defaults to `BAND_2G` in `RuntimeConfig`. The Kconfig default is `AUTO` on ESP32-C5. An unsupported band fails setup.
+`wifi_band_policy` defaults to `AUTO` in both `RuntimeConfig` and Kconfig. `AUTO` uses every band the radio has, so it means 2.4 GHz on single-band chips. `BAND_5G` fails setup on chips without 5 GHz.
 
 Set `RuntimeConfig::csi_capture_profile` before setup; it cannot change at runtime. Packets outside the selected profile are dropped and counted. See [capture profiles](CSI.md#capture-profiles) for what each value selects.
 
@@ -244,7 +244,7 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 
 | `RuntimeConfig` field | C++ type / values | Default | Range / notes |
 |-----------------------|-------------------|---------|---------------|
-| `wifi_band_policy` | `WifiBandPolicy`: `BAND_2G`, `BAND_5G`, or `AUTO` | `BAND_2G` | `BAND_5G` and `AUTO` require ESP32-C5 among the supported targets |
+| `wifi_band_policy` | `WifiBandPolicy`: `BAND_2G`, `BAND_5G`, or `AUTO` | `AUTO` | `BAND_5G` requires ESP32-C5 among the supported targets |
 | `detection_algorithm` | `DetectionAlgorithm`: `LIGHTWEIGHT` or `HIGH_ACCURACY` | `LIGHTWEIGHT` | Lightweight uses less detector CPU and working memory; High Accuracy skips quiet-room threshold calibration |
 | `segmentation_threshold` | `float` | `RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT` | `0-1`; Lightweight replaces it during calibration, while High Accuracy keeps the configured value. Use `set_threshold_runtime()` for session changes when supported |
 | `segmentation_window_size_ms` | `uint32_t` | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |

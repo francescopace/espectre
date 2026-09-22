@@ -24,11 +24,14 @@
 namespace espectre {
 
 enum class WifiBandPolicy : uint8_t {
-  /** Restrict association to 2.4 GHz. This is the validated production default. */
+  /** Restrict association to 2.4 GHz. */
   BAND_2G = 0,
   /** Restrict association to 5 GHz. Supported only by dual-band targets. */
   BAND_5G = 1,
-  /** Let a dual-band radio choose between 2.4 GHz and 5 GHz. */
+  /**
+   * Use every band the radio has. A dual-band radio chooses between 2.4 GHz
+   * and 5 GHz; a 2.4 GHz-only radio behaves as `BAND_2G`. The default.
+   */
   AUTO = 2,
 };
 
@@ -55,7 +58,7 @@ struct RuntimeConfig {
    * `BAND_5G` and `AUTO` require dual-band silicon. Keeping `BAND_2G` as the
    * default preserves the band covered by the production detector corpus.
    */
-  WifiBandPolicy wifi_band_policy{WifiBandPolicy::BAND_2G};
+  WifiBandPolicy wifi_band_policy{WifiBandPolicy::AUTO};
   /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
   CsiCapturePolicy csi_capture_profile{CsiCapturePolicy::AUTO};
   /** Detection profile to run. Lightweight self-calibrates; High Accuracy uses trained weights. */

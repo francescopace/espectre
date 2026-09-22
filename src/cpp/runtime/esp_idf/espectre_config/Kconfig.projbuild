@@ -2,12 +2,11 @@ menu "ESPectre Sensing"
 
 choice ESPECTRE_WIFI_BAND_POLICY
     prompt "Wi-Fi band policy"
-    default ESPECTRE_WIFI_BAND_AUTO if SOC_WIFI_SUPPORT_5G
-    default ESPECTRE_WIFI_BAND_2G
+    default ESPECTRE_WIFI_BAND_AUTO
     help
-        Choose which radio band may be used. Dual-band targets default to
-        automatic selection; 5 GHz and automatic selection require dual-band
-        silicon.
+        Choose which radio band may be used. Automatic selection, the default,
+        uses every band the radio has, which is 2.4 GHz on single-band targets.
+        5 GHz only requires dual-band silicon.
 
     config ESPECTRE_WIFI_BAND_2G
         bool "2.4 GHz only"
@@ -17,8 +16,7 @@ choice ESPECTRE_WIFI_BAND_POLICY
         depends on SOC_WIFI_SUPPORT_5G
 
     config ESPECTRE_WIFI_BAND_AUTO
-        bool "Automatic 2.4/5 GHz selection"
-        depends on SOC_WIFI_SUPPORT_5G
+        bool "Automatic band selection"
 endchoice
 
 choice ESPECTRE_DETECTION_ALGORITHM
