@@ -190,6 +190,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   bool apply_esphome_wifi_bssid_pin_(const std::string &bssid, std::string *message);
   bool begin_wifi_bssid_pin_update_(const std::string &bssid, bool force, std::string *message);
   bool persist_wifi_bssid_pin_(const std::string &bssid, std::string *message);
+  void update_wifi_roaming_suppression_(bool suppress);
   bool stage_wifi_bssid_pin_(const std::string &bssid, std::string *message);
   void handle_wifi_bssid_association_(const std::string &associated_bssid);
   void process_wifi_bssid_apply_();
@@ -223,6 +224,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   };
   ESPPreferenceObject wifi_bssid_preference_;
   std::string wifi_bssid_pin_;
+  bool wifi_roaming_suppressed_{false};
   enum class WifiBssidApplyMode : uint8_t {
     NONE = 0U,
     UPDATE,

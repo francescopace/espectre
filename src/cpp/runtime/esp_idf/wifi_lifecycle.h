@@ -70,7 +70,8 @@ class WiFiLifecycleManager {
   esp_err_t process_pending_events();
 
   /**
-   * Attempt an asynchronous scan to recover a silent CSI receive path.
+   * Attempt an asynchronous scan on the associated channel to recover a silent
+   * CSI receive path. Requires a current association with a nonzero channel.
    * Busy drivers and unconsumed scan results return ESP_ERR_INVALID_STATE.
    * Completion, including a 30-second timeout, runs from process_pending_events().
    * Promiscuous mode stays disabled. With manage_scan_results enabled, callers
@@ -108,6 +109,7 @@ class WiFiLifecycleManager {
  private:
   void release_csi_receive_path_refresh_();
   esp_err_t init();
+  esp_err_t handle_connected_(const esp_netif_ip_info_t &ip_info);
   static esp_err_t apply_csi_wifi_policy(WifiBandPolicy band_policy);
   static void log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy);
 
@@ -167,6 +169,7 @@ class WiFiLifecycleManager {
   bool station_tx_rate_attempted_{false};
   bool ready_{false};
   bool roaming_{false};
+  bool retained_ip_pending_{false};
   esp_netif_ip_info_t active_ip_info_{};
 };
 

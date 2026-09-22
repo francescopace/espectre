@@ -85,6 +85,7 @@ class StandaloneWifiService {
     STARTED = 0,
     STOPPED,
     DISCONNECTED,
+    ASSOCIATED,
     GOT_IP,
     SCAN_DONE,
   };
@@ -106,7 +107,9 @@ class StandaloneWifiService {
   void handle_wifi_started_();
   void handle_wifi_stopped_();
   void handle_wifi_disconnected_(uint8_t reason);
-  void handle_lifecycle_connected_();
+  void handle_wifi_associated_();
+  void maybe_restore_retained_ip_();
+  void handle_lifecycle_connected_(const esp_netif_ip_info_t &ip_info);
   void handle_lifecycle_disconnected_();
   void handle_scan_done_(uint8_t status);
   void maybe_run_deferred_connect_fallback_();
@@ -130,6 +133,8 @@ class StandaloneWifiService {
   bool wifi_started_{false};
   bool station_reconfigure_pending_{false};
   bool station_disconnect_pending_{false};
+  bool roaming_{false};
+  bool retained_ip_pending_{false};
   bool scan_pending_{false};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   uint64_t reconnect_deadline_us_{0U};

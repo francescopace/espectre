@@ -14,12 +14,14 @@ All notable changes to this project will be documented in this file.
 - Include a generated `API.md` in registry packages with the C++ reference and integration contracts for the packaged version and commit. Keep the SDK guide focused on installation and integration, and resolve external documentation links against the packaged source revision.
 - Resolve external MQTT only when the MQTT backend is enabled on IDF 6, and resolve mDNS only when Direct is enabled. Remove unconditional MQTT and HTTP server requirements from the SDK, and keep the services facade usable without HTTP server headers. Make shared bootstrap select provisioning, and provide Wi-Fi snapshot support independently of Direct.
 - Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
-- Recover a silent CSI receive path only when startup traffic continues without callbacks. Bound scan requests and completion, release owned scan results, and coordinate recovery with standalone Wi-Fi scans without delaying healthy sensing startup. Leave scan results to autonomous Wi-Fi stacks such as ESPHome so delayed recovery cleanup cannot erase a subsequent scan's results.
+- Recover missing CSI at startup with one scan on the associated Wi-Fi channel, limiting disruption to discovery and Direct connections.
 - Release standalone Wi-Fi resources on shutdown and setup failure, preserve full-length credentials, and resume exhausted reconnect bursts after 30 seconds. Document service ownership and align the website's CSI profile descriptions with the runtime.
+- Restore sensing and network services after roaming with a retained IPv4 address, including when the address becomes available late. Ignore duplicate IP notifications.
 
 ### ESPHome firmware and Home Assistant
 
 - Give official ESPHome images MAC-suffixed hostnames, so one Web Serial image can provision and discover multiple ESPectre devices without custom YAML. Existing installations use the new hostname after their first update.
+- Suppress ESPHome's periodic roaming scans while a BSSID pin is saved, including after restart. Clearing the pin restores the configured roaming policy.
 
 ### Web tools, builds, and publication
 

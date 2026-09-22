@@ -15,7 +15,9 @@ The maintained examples enable Improv Serial, return a Device settings URL after
 
 On ESP32-S2 with the USB CDC logger, the frontend initializes the shared TinyUSB primary console and routes the logger and Improv Serial through it. The frontend owns this USB dependency and console setup; both are outside the SDK package.
 
-For an unstable access-point association, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). ESPectre stores a BSSID pin separately from ESPHome's Wi-Fi credentials and applies it without rewriting YAML or rebooting. A failed update reconnects once with the previous pin. The request contract is in [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection), and the capture lifecycle is in [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle).
+For an unstable access-point association, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). You can pin the device to an access point by BSSID without editing YAML or rebooting. The pin persists across restarts and suppresses periodic roaming scans. Clearing it restores the configured roaming policy. If a new pin fails, the device reconnects once with the previous pin.
+
+ESPectre stores the pin separately from Wi-Fi credentials. See [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture behavior after reconnection.
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 

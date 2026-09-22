@@ -115,6 +115,7 @@ void ESpectreComponent::setup() {
     }
   }
 
+  this->update_wifi_roaming_suppression_(!this->wifi_bssid_pin_.empty());
   this->update_live_telemetry_enabled_();
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
@@ -188,6 +189,7 @@ void ESpectreComponent::setup() {
 }
 
 ESpectreComponent::~ESpectreComponent() {
+  this->update_wifi_roaming_suppression_(false);
   this->mdns_bootstrap_responder_.shutdown();
   this->mdns_discovery_.shutdown();
   this->direct_bridge_.shutdown();
@@ -278,6 +280,20 @@ bool ESpectreComponent::set_device_label_(const std::string &device_label, std::
   return true;
 }
 
+void ESpectreComponent::update_wifi_roaming_suppression_(bool suppress) {
+#ifdef USE_WIFI
+  auto *wifi = wifi::global_wifi_component;
+  if (wifi == nullptr || suppress == this->wifi_roaming_suppressed_) return;
+  // Automatic roaming scans take a pinned station off-channel unnecessarily.
+  if (suppress) {
+    wifi->request_roaming_suppression();
+  } else {
+    wifi->release_roaming_suppression();
+  }
+  this->wifi_roaming_suppressed_ = suppress;
+#endif
+}
+
 bool ESpectreComponent::persist_wifi_bssid_pin_(const std::string &bssid, std::string *message) {
   StoredWifiBssid stored;
   stored.pinned = bssid.empty() ? 0U : 1U;
@@ -293,6 +309,7 @@ bool ESpectreComponent::persist_wifi_bssid_pin_(const std::string &bssid, std::s
     return false;
   }
   this->wifi_bssid_pin_ = bssid;
+  this->update_wifi_roaming_suppression_(!bssid.empty());
   this->wifi_bssid_pending_loaded_ = false;
   this->wifi_bssid_pending_target_.clear();
   if (message != nullptr) {

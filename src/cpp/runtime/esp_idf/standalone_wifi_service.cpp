@@ -188,8 +188,8 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
   }
 
   if (config_.manage_csi_lifecycle) {
-    err = wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &) {
-                                              handle_lifecycle_connected_();
+    err = wifi_lifecycle_.register_handlers([this](const esp_netif_ip_info_t &ip_info) {
+                                              handle_lifecycle_connected_(ip_info);
                                             },
                                             [this]() { handle_lifecycle_disconnected_(); },
                                             config_.band_policy);
@@ -251,9 +251,9 @@ bool StandaloneWifiService::get_info(StandaloneWifiInfo *info) const {
   if (cached_ip_info_.ip.addr != 0U) {
     // esp_wifi_sta_get_ap_info() logs a warning whenever the station is not
     // associated. Improv polls this accessor from the 10 ms runtime loop, so
-    // querying before GOT_IP floods the provisioning console and can starve
-    // its binary protocol. The cached address is cleared on disconnect and is
-    // therefore a quiet, reliable gate for the AP query.
+    // querying before IPv4 is ready floods the provisioning console and can
+    // starve its binary protocol. The cached address is cleared on disconnect
+    // and restored only after GOT_IP or a verified association retaining IPv4.
     wifi_ap_record_t ap_info{};
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
       info->connected = true;
@@ -319,6 +319,8 @@ esp_err_t StandaloneWifiService::start() {
   if (!setup_complete_) {
     return ESP_ERR_INVALID_STATE;
   }
+  roaming_ = false;
+  retained_ip_pending_ = false;
   clear_cached_ip_info_();
   wifi_connect_requested_ = false;
   defer_connect_once_after_start_ = true;
@@ -351,14 +353,14 @@ void StandaloneWifiService::loop() {
           disconnected_cb_();
         }
         break;
+      case PendingWifiEventType::ASSOCIATED:
+        if (!config_.manage_csi_lifecycle) {
+          handle_wifi_associated_();
+        }
+        break;
       case PendingWifiEventType::GOT_IP:
-        cached_ip_info_ = event.ip_info;
-        deferred_connect_fallback_pending_ = false;
-        deferred_connect_fallback_deadline_us_ = 0U;
-        reconnect_deadline_us_ = 0U;
-        wifi_retry_count_ = 0;
-        if (!config_.manage_csi_lifecycle && connected_cb_) {
-          connected_cb_();
+        if (!config_.manage_csi_lifecycle) {
+          handle_lifecycle_connected_(event.ip_info);
         }
         break;
       case PendingWifiEventType::SCAN_DONE:
@@ -366,11 +368,13 @@ void StandaloneWifiService::loop() {
         break;
     }
   }
-  maybe_run_deferred_connect_fallback_();
-  maybe_retry_connect_();
   if (config_.manage_csi_lifecycle) {
     (void)wifi_lifecycle_.process_pending_events();
+  } else {
+    maybe_restore_retained_ip_();
   }
+  maybe_run_deferred_connect_fallback_();
+  maybe_retry_connect_();
 }
 
 esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t callback) {
@@ -433,6 +437,8 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   const bool station_connection_active =
       wifi_connect_requested_ || cached_ip_info_.ip.addr != 0U;
   config_ = config;
+  roaming_ = false;
+  retained_ip_pending_ = false;
   reconnect_deadline_us_ = 0U;
   clear_cached_ip_info_();
   wifi_retry_count_ = 0;
@@ -556,6 +562,8 @@ void StandaloneWifiService::shutdown() {
   setup_complete_ = false;
   station_reconfigure_pending_ = false;
   station_disconnect_pending_ = false;
+  roaming_ = false;
+  retained_ip_pending_ = false;
   scan_pending_ = false;
   scan_callback_ = {};
   pending_events_.clear();
@@ -606,6 +614,8 @@ void StandaloneWifiService::handle_wifi_stopped_() {
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
   reconnect_deadline_us_ = 0U;
+  roaming_ = false;
+  retained_ip_pending_ = false;
   clear_cached_ip_info_();
   if (station_reconfigure_pending_) {
     (void)restart_wifi_driver_();
@@ -617,6 +627,9 @@ void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
            "Wi-Fi disconnected: reason=%u (%s)",
            static_cast<unsigned>(reason),
            wifi_disconnect_reason_to_str(reason));
+  const bool driver_roaming = reason == WIFI_REASON_ROAMING && !station_reconfigure_pending_;
+  roaming_ = driver_roaming && (cached_ip_info_.ip.addr != 0U || roaming_ || retained_ip_pending_);
+  retained_ip_pending_ = false;
   clear_cached_ip_info_();
   wifi_connect_requested_ = false;
   deferred_connect_fallback_pending_ = false;
@@ -626,6 +639,12 @@ void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
       station_disconnect_pending_ = false;
       (void)apply_station_config_and_connect_();
     }
+    return;
+  }
+  if (driver_roaming) {
+    // The driver owns this reassociation and can retain IPv4 without GOT_IP.
+    // A competing connect request can interrupt that transition.
+    reconnect_deadline_us_ = 0U;
     return;
   }
   if (has_text(config_.ssid)) {
@@ -638,14 +657,45 @@ void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
   }
 }
 
-void StandaloneWifiService::handle_lifecycle_connected_() {
+void StandaloneWifiService::handle_wifi_associated_() {
+  retained_ip_pending_ = cached_ip_info_.ip.addr != 0U || roaming_ || retained_ip_pending_;
+  if (cached_ip_info_.ip.addr != 0U) {
+    clear_cached_ip_info_();
+    if (disconnected_cb_) disconnected_cb_();
+  }
+}
+
+void StandaloneWifiService::maybe_restore_retained_ip_() {
+  if (!retained_ip_pending_) return;
+
+  esp_netif_ip_info_t ip_info{};
+  wifi_ap_record_t access_point{};
+  if (station_netif_ == nullptr || esp_netif_get_ip_info(station_netif_, &ip_info) != ESP_OK ||
+      ip_info.ip.addr == 0U || esp_wifi_sta_get_ap_info(&access_point) != ESP_OK) {
+    return;
+  }
+  handle_lifecycle_connected_(ip_info);
+}
+
+void StandaloneWifiService::handle_lifecycle_connected_(const esp_netif_ip_info_t &ip_info) {
+  const bool duplicate = cached_ip_info_.ip.addr != 0U &&
+      cached_ip_info_.ip.addr == ip_info.ip.addr &&
+      cached_ip_info_.netmask.addr == ip_info.netmask.addr &&
+      cached_ip_info_.gw.addr == ip_info.gw.addr;
+  cached_ip_info_ = ip_info;
+  roaming_ = false;
+  retained_ip_pending_ = false;
+  deferred_connect_fallback_pending_ = false;
+  deferred_connect_fallback_deadline_us_ = 0U;
+  reconnect_deadline_us_ = 0U;
   wifi_retry_count_ = 0;
-  if (connected_cb_) {
+  if (!duplicate && connected_cb_) {
     connected_cb_();
   }
 }
 
 void StandaloneWifiService::handle_lifecycle_disconnected_() {
+  clear_cached_ip_info_();
   if (disconnected_cb_) {
     disconnected_cb_();
   }
@@ -759,6 +809,8 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
       pending.type = PendingWifiEventType::DISCONNECTED;
       const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
       pending.disconnect_reason = event != nullptr ? event->reason : 0U;
+    } else if (event_id == WIFI_EVENT_STA_CONNECTED) {
+      pending.type = PendingWifiEventType::ASSOCIATED;
     } else if (event_id == WIFI_EVENT_SCAN_DONE) {
       pending.type = PendingWifiEventType::SCAN_DONE;
       const auto *event = static_cast<const wifi_event_sta_scan_done_t *>(event_data);

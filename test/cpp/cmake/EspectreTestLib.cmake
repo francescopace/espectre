@@ -224,6 +224,8 @@ add_library(espectre_frontend_esphome_testlib STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
 target_compile_definitions(espectre_frontend_esphome_testlib
+    PUBLIC
+        USE_WIFI=1
     PRIVATE
         ESPECTRE_HOST_WIFI_CONTROL_TEST=1
 )

@@ -605,6 +605,7 @@ void WiFiLifecycleManager::unregister_handlers() {
       wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
   ready_ = false;
   roaming_ = false;
+  retained_ip_pending_ = false;
   active_ip_info_ = {};
   ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
 }
@@ -630,7 +631,8 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
       continue;
     }
     if (event.type == PendingWifiEventType::DISCONNECTED) {
-      roaming_ = event.roaming && (ready_ || roaming_);
+      roaming_ = event.roaming && (ready_ || roaming_ || retained_ip_pending_);
+      retained_ip_pending_ = false;
       station_tx_rate_attempted_ = false;
       station_tx_rate_err_ = ESP_OK;
       ready_ = false;
@@ -642,11 +644,12 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     }
 
     if (event.type == PendingWifiEventType::ASSOCIATED) {
-      const bool restore_session = ready_ || roaming_;
+      retained_ip_pending_ = ready_ || roaming_ || retained_ip_pending_;
       if (ready_ && disconnected_callback_) {
         disconnected_callback_();
       }
       ready_ = false;
+      active_ip_info_ = {};
       // Configure the new AP before waiting for IPv4. A rate retained from
       // the previous AP must not prevent DHCP on an 802.11b-only network.
       station_tx_rate_err_ = apply_station_tx_rate();
@@ -654,43 +657,46 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
       if (station_tx_rate_err_ != ESP_OK) return station_tx_rate_err_;
       // Initial association and ordinary reconnects must wait for GOT_IP.
       // Roaming can retain the IP stack and omit that event altogether.
-      if (!restore_session) {
-        continue;
-      }
-      roaming_ = false;
-      active_ip_info_ = {};
-      esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-      wifi_ap_record_t ap{};
-      if (station == nullptr || esp_netif_get_ip_info(station, &event.ip_info) != ESP_OK ||
-          event.ip_info.ip.addr == 0U || esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
-        continue;
-      }
-    }
-
-    const bool duplicate = ready_ &&
-        active_ip_info_.ip.addr == event.ip_info.ip.addr &&
-        active_ip_info_.netmask.addr == event.ip_info.netmask.addr &&
-        active_ip_info_.gw.addr == event.ip_info.gw.addr;
-    if (duplicate) {
       continue;
     }
 
-    ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
-    const esp_err_t err = init();
-    if (err != ESP_OK) {
-      return err;
+    const esp_err_t err = handle_connected_(event.ip_info);
+    if (err != ESP_OK) return err;
+  }
+  // Reassociation can precede readable netif/AP state without a later GOT_IP.
+  // Retry only after ASSOCIATED, and cancel on a subsequent disconnect.
+  if (retained_ip_pending_) {
+    esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip_info{};
+    wifi_ap_record_t ap{};
+    if (station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK &&
+        ip_info.ip.addr != 0U && esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+      const esp_err_t err = handle_connected_(ip_info);
+      if (err != ESP_OK) return err;
     }
-    if (connected_callback_) {
-      connected_callback_(event.ip_info);
-    }
-    active_ip_info_ = event.ip_info;
-    roaming_ = false;
   }
   if (csi_rx_refresh_deadline_us_ != 0U && static_cast<uint64_t>(esp_timer_get_time()) >= csi_rx_refresh_deadline_us_) {
     wifi_csi_rx_refresh_callback_t callback = std::move(csi_rx_refresh_callback_);
     cancel_csi_receive_path_refresh();
     if (callback) callback(ESP_ERR_TIMEOUT);
   }
+  return ESP_OK;
+}
+
+esp_err_t WiFiLifecycleManager::handle_connected_(const esp_netif_ip_info_t &ip_info) {
+  const bool duplicate = ready_ &&
+      active_ip_info_.ip.addr == ip_info.ip.addr &&
+      active_ip_info_.netmask.addr == ip_info.netmask.addr &&
+      active_ip_info_.gw.addr == ip_info.gw.addr;
+  if (duplicate) return ESP_OK;
+
+  ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
+  const esp_err_t err = init();
+  if (err != ESP_OK) return err;
+  active_ip_info_ = ip_info;
+  roaming_ = false;
+  retained_ip_pending_ = false;
+  if (connected_callback_) connected_callback_(ip_info);
   return ESP_OK;
 }
 
@@ -702,6 +708,15 @@ esp_err_t WiFiLifecycleManager::refresh_csi_receive_path(
     wifi_csi_rx_refresh_callback_t callback, bool manage_scan_results) {
   if (!callback) return ESP_ERR_INVALID_ARG;
   if (scan_done_instance_ != nullptr || csi_rx_refresh_callback_) return ESP_ERR_INVALID_STATE;
+
+  wifi_ap_record_t access_point{};
+  const esp_err_t access_point_err = esp_wifi_sta_get_ap_info(&access_point);
+  if (access_point_err != ESP_OK) return access_point_err;
+  if (access_point.primary == 0U) return ESP_ERR_INVALID_STATE;
+  // Recover on the associated channel. A full scan can keep the station away
+  // from multicast traffic for longer than an entire discovery attempt.
+  wifi_scan_config_t refresh_scan{};
+  refresh_scan.channel = access_point.primary;
 
   WiFiLifecycleManager *expected = nullptr;
   if (!csi_refresh_owner.compare_exchange_strong(expected, this, std::memory_order_acq_rel)) {
@@ -735,7 +750,7 @@ esp_err_t WiFiLifecycleManager::refresh_csi_receive_path(
   csi_rx_scan_results_owned_.store(false, std::memory_order_release);
   csi_rx_scan_running_.store(true, std::memory_order_release);
   csi_rx_refresh_deadline_us_ = static_cast<uint64_t>(esp_timer_get_time()) + CSI_RX_REFRESH_TIMEOUT_US;
-  err = esp_wifi_scan_start(nullptr, false);
+  err = esp_wifi_scan_start(&refresh_scan, false);
   if (err != ESP_OK) {
     csi_rx_scan_running_.store(false, std::memory_order_release);
     cancel_csi_receive_path_refresh();

@@ -504,6 +504,7 @@ async def to_code(config):
     add_idf_component(name="espectre", path=str(_COMPONENT_ROOT))
     wifi.request_wifi_ip_state_listener()
     wifi.request_wifi_connect_state_listener()
+    wifi.enable_runtime_roaming_suppression()
 
     if _uses_tinyusb_primary_console():
         # ESP-IDF's ROM CDC can enumerate without providing a reliable
