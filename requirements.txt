@@ -18,11 +18,11 @@ zeroconf==0.151.2       # required by ESPHome 2026.9.0; used for host device dis
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.3    # environment variables support
 PyYAML==6.0.3           # YAML parsing
-idf-component-manager==2.5.0  # SDK registry tooling and ESP-IDF 5.5 firmware builds
+idf-component-manager==3.1.2  # SDK registry tooling and ESP-IDF 5.5 firmware builds
 prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies
-ruff==0.16.7           # Python quality reports (SARIF)
+ruff==0.16.8           # Python quality reports (SARIF)
 cppcheck==1.5.1        # Cppcheck 2.17.1 wheel for C/C++ quality reports (SARIF)
 numpy==2.5.3            # ML environments must update through requirements-ml.txt
 pytest==9.1.1           # test framework
