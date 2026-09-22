@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 
 namespace espectre {
 

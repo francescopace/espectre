@@ -13,7 +13,7 @@
 #include <functional>
 #include <string>
 
-#include "runtime_interface.h"
+#include "runtime_config.h"
 #include "runtime_snapshot.h"
 
 namespace espectre {

@@ -1,7 +1,7 @@
 /*
- * ESPectre - Runtime Interface
+ * ESPectre - Runtime Config
  *
- * Platform-agnostic runtime interface and configuration contract.
+ * Platform-agnostic runtime configuration contract.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -12,28 +12,17 @@
 #include <cstdint>
 #include <string>
 
-#include "runtime_capabilities.h"
-#include "runtime_events.h"
-#include "runtime_snapshot.h"
-#include "runtime_sensing_schema.h"
+#include "csi_capture_profile.h"
 #include "csi_traffic_types.h"
-#include "raw_csi.h"
+#include "runtime_sensing_schema.h"
 
 /**
- * @file runtime_interface.h
- * @brief Runtime configuration and the backend contract behind it.
- *
- * Most integrations do not implement `IEspectreRuntime`; they configure a
- * `RuntimeConfig`, hand it to `RuntimeFrontendController`, and let the
- * controller pick the backend. Implement the interface only when you are
- * replacing the ESP-IDF backend, for example in a simulator or a host harness.
+ * @file runtime_config.h
+ * @brief Runtime configuration handed to `RuntimeFrontendController`.
  */
 
 namespace espectre {
 
-struct RuntimeDiagnosticsSample;
-
-/** Wi-Fi band selection requested by the embedding frontend. */
 enum class WifiBandPolicy : uint8_t {
   /** Restrict association to 2.4 GHz. This is the validated production default. */
   BAND_2G = 0,
@@ -164,156 +153,6 @@ struct RuntimeConfig {
    * of truth, and the runtime neither reads nor writes saved controls.
    */
   bool persist_runtime_overrides{true};
-};
-
-/**
- * The sensing backend behind `RuntimeFrontendController`.
- *
- * Implement this only to replace the shipped ESP-IDF backend. Integrations
- * consume it indirectly: the controller owns the instance, forwards control
- * calls, and gates them on `get_capabilities()`.
- *
- * @par Threading
- * Implementations are not required to be thread-safe and the shipped one is
- * not. Run `setup()`, `loop()`, and `shutdown()` on the task that owns the
- * runtime, and deliver listener callbacks on the caller's task rather than
- * from an interrupt or a driver callback. See `espectre_sdk.h` for the
- * complete contract, including the control-call caveat.
- */
-class IEspectreRuntime {
- public:
-  virtual ~IEspectreRuntime() = default;
-
-  /**
-   * Bring the runtime up: radio hooks, CSI capture, detector, traffic.
-   *
-   * @return false if the runtime cannot sense. The caller must not call
-   *         `loop()` afterwards; the controller drops the instance instead.
-   */
-  virtual bool setup() = 0;
-  /** Stop sensing and release everything `setup()` acquired. Safe to repeat. */
-  virtual void shutdown() = 0;
-  /**
-   * Advance runtime work and drain deferred events.
-   *
-   * Call it continuously from your loop task. This is where listener
-   * callbacks are delivered, so a slow callback delays the next iteration.
-   */
-  virtual void loop() = 0;
-  /**
-   * Gate the runtime-owned services without tearing the runtime down.
-   *
-   * Disarmed, the runtime stays configured but starts no CSI capture or
-   * traffic. The current Wi-Fi association is preserved so arming again can
-   * restart capture without waiting for another IP event. Matter uses this to
-   * stay quiet until commissioning completes; Native uses it to pause sensing
-   * while a frontend intentionally suspends sensing. During raw collection,
-   * the requested state is staged without interrupting the capture callback
-   * and takes effect when collection stops.
-   */
-  virtual void set_services_armed(bool armed) = 0;
-  /** Enable or suppress the high-rate `on_live_telemetry()` stream. */
-  virtual void set_live_telemetry_enabled(bool enabled) = 0;
-
-  /**
-   * Retune the motion threshold while running.
-   *
-   * @return false when the value is out of range for the active detector, or
-   *         when the runtime cannot apply it.
-   */
-  virtual bool set_threshold_runtime(float threshold) = 0;
-  /**
-   * Retune the hit filter while running.
-   *
-   * @return false when either count is outside 1..20, or when the runtime
-   *         cannot apply the change.
-   */
-  virtual bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) = 0;
-  /**
-   * Switch who owns the CSI-bearing traffic while running.
-   *
-   * Defaulted rather than pure so existing out-of-tree backends keep
-   * compiling. A backend that does not implement live traffic retuning should
-   * return false and let the frontend reject the command.
-   */
-  virtual bool set_csi_traffic_mode_runtime(CsiTrafficMode mode) { return false; }
-  /**
-   * Change the internal traffic generator packet type while running.
-   *
-   * Backends that do not own traffic retuning keep the default false.
-   */
-  virtual bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) { return false; }
-  /**
-   * Switch detector while running, rebuilding detector state.
-   *
-   * @return false when the algorithm is unknown or the switch fails.
-   */
-  virtual bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) = 0;
-  /**
-   * Restart startup calibration against the current ambient channel.
-   *
-   * @return false when calibration cannot start, for example with no Wi-Fi
-   *         link yet. Progress arrives through the calibration callbacks.
-   */
-  virtual bool trigger_recalibration() = 0;
-  /** True while startup calibration is running and detection is not yet valid. */
-  virtual bool is_calibrating() const = 0;
-
-  /**
-   * Enter transient raw collection while preserving persisted sensing config.
-   *
-   * Defaulted so existing external runtime implementations remain source
-   * compatible. The callback runs in the CSI capture context and must remain
-   * bounded and allocation-free.
-   */
-  virtual bool start_raw_collection(raw_csi_packet_callback_t callback, void *context) {
-    (void) callback;
-    (void) context;
-    return false;
-  }
-  /** Leave raw collection and restore the previous sensing lifecycle. */
-  virtual bool stop_raw_collection(RawCsiStopReason reason) {
-    (void) reason;
-    return false;
-  }
-  /** Current transient operation state. */
-  virtual RuntimeOperationState operation_state() const {
-    return RuntimeOperationState::SENSING;
-  }
-
-  /** Current sensing state. Cheap enough to poll from your loop. */
-  virtual RuntimeSnapshot get_snapshot() const = 0;
-  /**
-   * Capture, traffic, and link counters for diagnostic frontends.
-   *
-   * The counters are cumulative and monotonic within a session. Feed them to
-   * `RuntimeDiagnosticsSampler` from an existing periodic sensing callback to
-   * get rates without adding a diagnostic timer.
-   *
-   * Defaulted rather than pure so that adding it does not break out-of-tree
-   * backends. A runtime that collects nothing keeps the zeroed snapshot, which
-   * is what a frontend reads as "no counters from this backend".
-   */
-  virtual RuntimeDiagnosticsSnapshot get_diagnostics() const { return {}; }
-  /**
-   * Latest rate sample derived by the runtime on its sensing heartbeat.
-   *
-   * The pointed-to sample remains owned by the runtime. Backends that do not
-   * provide periodic diagnostics may return `nullptr`.
-   */
-  virtual const RuntimeDiagnosticsSample *get_diagnostics_sample() const {
-    return nullptr;
-  }
-  /** What this backend actually supports. Stable after `setup()`. */
-  virtual RuntimeCapabilities get_capabilities() const = 0;
-
-  /**
-   * Install the event sink, or `nullptr` to detach.
-   *
-   * Set it before `setup()` so calibration events are not missed. The runtime
-   * does not take ownership; the listener must outlive the runtime.
-   */
-  virtual void set_listener(IRuntimeListener *listener) = 0;
 };
 
 }  // namespace espectre

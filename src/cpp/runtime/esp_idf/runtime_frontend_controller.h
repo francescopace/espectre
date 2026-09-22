@@ -11,12 +11,16 @@
 
 #include <memory>
 
+#include "runtime/raw_csi.h"
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_events.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 #include "runtime/runtime_snapshot.h"
 
 namespace espectre {
+
+class IEspectreRuntime;
+struct RuntimeDiagnosticsSample;
 
 /**
  * The recommended entry point for firmware embedding ESPectre.
@@ -63,6 +67,7 @@ namespace espectre {
  */
 class RuntimeFrontendController : private IRuntimeListener {
  public:
+  RuntimeFrontendController();
   /**
    * Shut the runtime down on scope exit without listener callbacks.
    *

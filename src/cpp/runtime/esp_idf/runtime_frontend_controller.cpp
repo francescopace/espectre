@@ -23,6 +23,8 @@ static const char *const TAG = "espectre.runtime";
 
 }  // namespace
 
+RuntimeFrontendController::RuntimeFrontendController() = default;
+
 // The listener may already be partly destroyed, so scope exit sends no callback.
 RuntimeFrontendController::~RuntimeFrontendController() { shutdown_(false); }
 

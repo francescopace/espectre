@@ -26,7 +26,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **Breaking:** Official ESPHome images use MAC-suffixed hostnames such as `espectre-a1b2c3.local`, so one image can serve several devices. After the first update, use the new hostname for OTA and add the suffix to dashboard entity IDs (#179).
-- **Breaking:** The SDK exports only its root include directory. Use layer-prefixed includes such as `#include "runtime/runtime_interface.h"`; the facades are unchanged.
+- **Breaking:** The SDK exports only its root include directory. Use layer-prefixed includes such as `#include "runtime/runtime_config.h"`; the facades are unchanged.
+- **Breaking:** `IEspectreRuntime` is now internal. `RuntimeConfig` and `WifiBandPolicy` moved to `runtime/runtime_config.h`, which replaces `runtime/runtime_interface.h`. Drive the runtime through `RuntimeFrontendController`.
 - Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately. Micro-ESPectre needs rebuilt firmware for station rates (#182).
 - The SDK requires MQTT and mDNS only when their service is enabled, and no longer requires the HTTP server.
 - CLI discovery waits six seconds by default and asks devices to reply directly.

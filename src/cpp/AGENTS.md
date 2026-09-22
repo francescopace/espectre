@@ -23,7 +23,7 @@
 - First-party frontends must use public SDK headers and support `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. Keep firmware-only sources, including Improv Serial, in the frontend source lists.
 - Adding a public type requires updating the facade include and the `Doxyfile` INPUT list in the same change. `test/python/contracts/test_sdk_surface_invariants.py` checks the public surface, and SDK reference generation verifies that every supported header appears in the generated XML. Keep `docs/SDK.md` focused on installation and integration; detailed contracts belong in public header comments and `sdk_integration.dox`.
 - Forward declarations are acceptable, but every public definition must still arrive through the facade. A type an integrator can name in a signature but cannot construct is a broken surface.
-- Adding or changing a member of `IEspectreRuntime`, `IRuntimeListener`, or a boundary interface breaks external implementers. Give new members a default implementation, or take the break deliberately and record it in the active changelog section.
+- Adding or changing a member of `IRuntimeListener` or a boundary interface breaks external implementers. Give new members a default implementation, or take the break deliberately and record it in the active changelog section.
 - Document accessors that silently degrade when a build-time option is disabled. Prefer removing a cheap build-time gate over hiding available data.
 - Document a member fully or with a brief alone. `WARN_NO_PARAMDOC` is an error, so do not leave partial `@param` documentation.
 

@@ -6,7 +6,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 
 namespace espectre {
 

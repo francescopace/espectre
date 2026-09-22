@@ -96,8 +96,8 @@
   <p>Final releases follow Semantic Versioning for the C++ source. Patch releases keep documented behavior, minor releases may add to the API, and breaking changes need a major release. Preview and develop bundles can change before the final release.</p>
   <p>The SDK ships as source, with no stable binary interface (ABI): always rebuild it together with your code. Start public structs from their defaults and then set the fields you need. The full rules, including deprecations, are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md" target="_blank" rel="noopener">SDK guide</a>.</p>
 
-  <h2>Replacing the runtime</h2>
-  <p>A platform port implements <a href="/sdk/api/?api=classespectre_1_1_i_espectre_runtime" data-api-reference-ref="classespectre_1_1_i_espectre_runtime"><code>IEspectreRuntime</code></a>. It covers lifecycle, state, controls, diagnostics, capabilities, and listener events. <code>RuntimeFrontendController</code> works only with ESP-IDF and cannot take another runtime.</p>
+  <h2>Other platforms</h2>
+  <p>The runtime behind <code>RuntimeFrontendController</code> is internal and works only with ESP-IDF. A platform port builds its own runtime on <code>espectre_core_sdk.h</code> and can reuse the <code>IRuntimeListener</code> events.</p>
 
   </div>
 </article>

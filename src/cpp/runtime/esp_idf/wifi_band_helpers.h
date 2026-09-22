@@ -11,7 +11,7 @@
 #pragma once
 
 #include "sdkconfig.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 
 // Dual-band parts expose the per-band protocol and bandwidth APIs
 // (esp_wifi_set_protocols, esp_wifi_set_bandwidths), which are the only ones

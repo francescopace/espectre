@@ -18,7 +18,7 @@
 #include <functional>
 
 #include "runtime/pending_queue.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 
 namespace espectre {
 

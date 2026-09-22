@@ -93,7 +93,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
 )
 
 # SDK root, the only include directory. It exposes the facades and
-# layer-prefixed includes such as "runtime/runtime_interface.h". SDK sources
+# layer-prefixed includes such as "runtime/runtime_config.h". SDK sources
 # reach other layers only through this root, so the layer directories stay off
 # the consumer's search path and generic basenames such as `utils.h` cannot
 # collide with the consuming project in either direction.

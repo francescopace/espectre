@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "runtime/espectre_protocol.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 
 namespace espectre {
 

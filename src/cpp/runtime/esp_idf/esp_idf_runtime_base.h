@@ -12,7 +12,7 @@
 #include <string>
 
 #include "core/espectre_log.h"
-#include "runtime/runtime_interface.h"
+#include "runtime_backend.h"
 #include "runtime_performance_diagnostics.h"
 
 namespace espectre {

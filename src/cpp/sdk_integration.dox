@@ -225,7 +225,7 @@ Link the application target to `espectre_core` to inherit the includes and C++ s
 
 The shared component does not require ESP-IDF's `log` component. A product that registers an `esp_log` adapter declares that dependency in its application component.
 
-`ESPECTRE_SHARED_INCLUDE_DIRS` contains only the SDK root. Include the facades by name and any other SDK header by its layer-prefixed path, such as `#include "runtime/runtime_interface.h"`. SDK sources use the same form, so the layer directories stay off your search path: generic SDK basenames such as `utils.h` and `filters.h` cannot collide with headers of your own in either direction.
+`ESPECTRE_SHARED_INCLUDE_DIRS` contains only the SDK root. Include the facades by name and any other SDK header by its layer-prefixed path, such as `#include "runtime/runtime_config.h"`. SDK sources use the same form, so the layer directories stay off your search path: generic SDK basenames such as `utils.h` and `filters.h` cannot collide with headers of your own in either direction.
 
 
 

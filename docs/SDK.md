@@ -161,9 +161,9 @@ Keep the adapter alive while the runtime runs, check the setup result, and make 
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Check `capabilities()` before offering a control.
 
-Your firmware handles boot, provisioning, networking, OTA, and the product itself. ESPectre handles CSI capture, calibration, and detection behind two interfaces:
+Your firmware handles boot, provisioning, networking, OTA, and the product itself. ESPectre handles CSI capture, calibration, and detection. You work with two types:
 
-- `IEspectreRuntime` (`runtime/runtime_interface.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access.
+- `RuntimeFrontendController` (`runtime/esp_idf/runtime_frontend_controller.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access. It owns the sensing backend.
 - `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for sensing readiness, motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. The controller emits `on_sensing_readiness_changed()` once per availability transition from its loop, including detector warm-up and input expiry. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
 After `setup()`, `config()` returns the configuration in use, including saved detector, motion-hit, and traffic settings. Writing to `config()` after setup only affects the next setup; use the runtime setters for live changes.
@@ -353,7 +353,7 @@ target_compile_features(espectre_core PUBLIC cxx_std_17)
 target_include_directories(espectre_core PUBLIC ${ESPECTRE_SHARED_INCLUDE_DIRS})
 ```
 
-Link your application target to `espectre_core` to inherit the includes and C++ standard. If overriding SDK identity, apply all four version macros through `target_compile_definitions(espectre_core PUBLIC ...)`. The SDK root is the only include directory: include other SDK headers by their layer-prefixed path, such as `runtime/runtime_interface.h`.
+Link your application target to `espectre_core` to inherit the includes and C++ standard. If overriding SDK identity, apply all four version macros through `target_compile_definitions(espectre_core PUBLIC ...)`. The SDK root is the only include directory: include other SDK headers by their layer-prefixed path, such as `runtime/runtime_config.h`.
 
 ### Transport and protocol extensions
 

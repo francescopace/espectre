@@ -14,7 +14,7 @@
 #include <string>
 
 #include "csi_traffic_types.h"
-#include "runtime_interface.h"
+#include "runtime_config.h"
 #include "udp_datagram_socket.h"
 
 namespace espectre {

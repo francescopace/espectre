@@ -129,7 +129,7 @@
 #include "runtime/runtime_diagnostics.h"
 #include "runtime/diagnostic_fields.h"
 #include "runtime/runtime_events.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 #include "runtime/raw_csi.h"
 #include "runtime/runtime_sensing_schema.h"
 #include "runtime/runtime_snapshot.h"

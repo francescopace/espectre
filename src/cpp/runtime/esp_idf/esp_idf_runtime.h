@@ -21,7 +21,7 @@
 #include "runtime/pending_event.h"
 #include "runtime/periodic_sensing_status_logger.h"
 #include "runtime/runtime_diagnostics.h"
-#include "runtime/runtime_interface.h"
+#include "runtime/runtime_config.h"
 #include "runtime/csi_traffic_service.h"
 #include "core/threshold.h"
 #include "traffic_generator_manager.h"

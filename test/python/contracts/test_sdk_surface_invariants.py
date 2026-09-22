@@ -70,6 +70,10 @@ CORE_IMPLEMENTATION_HEADERS = {
     "core/utils.h",
 }
 
+# Backend types the controller holds only through a private owning pointer.
+# Integrators cannot name them, so they stay opaque and out of the surface.
+OPAQUE_IMPLEMENTATION_TYPES = {"IEspectreRuntime"}
+
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 FORWARD_DECLARATION_PATTERN = re.compile(r"^\s*(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.MULTILINE)
 DEFINITION_PATTERN = re.compile(
@@ -156,10 +160,21 @@ def test_forward_declarations_are_defined_somewhere_reachable(header: Path) -> N
         defined.update(DEFINITION_PATTERN.findall(reachable.read_text(encoding="utf-8")))
 
     declared = set(FORWARD_DECLARATION_PATTERN.findall(header.read_text(encoding="utf-8")))
-    unresolved = sorted(declared - defined)
+    unresolved = sorted(declared - defined - OPAQUE_IMPLEMENTATION_TYPES)
     assert not unresolved, (
         f"{header.name} forward-declares {unresolved} but no header reachable from "
         f"{FACADE.name} defines them, so the type is incomplete for SDK consumers"
+    )
+
+
+def test_opaque_implementation_types_stay_out_of_the_published_surface() -> None:
+    """The runtime backend is internal: no published facade may define it."""
+    reachable = set(facade_reachable_headers()) | set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE))
+    defined: set[str] = set()
+    for header in reachable:
+        defined.update(DEFINITION_PATTERN.findall(header.read_text(encoding="utf-8")))
+    assert not (defined & OPAQUE_IMPLEMENTATION_TYPES), (
+        f"internal backend types reached the SDK surface: {sorted(defined & OPAQUE_IMPLEMENTATION_TYPES)}"
     )
 
 
@@ -294,7 +309,7 @@ def test_services_facade_is_complete(header: Path) -> None:
             f"{header.name}: SDK forward declarations must be in the espectre namespace"
         )
         return
-    declared = set(FORWARD_DECLARATION_PATTERN.findall(sdk_source))
+    declared = set(FORWARD_DECLARATION_PATTERN.findall(sdk_source)) - OPAQUE_IMPLEMENTATION_TYPES
     assert declared <= definitions, f"{header.name}: incomplete SDK types {sorted(declared - definitions)}"
 
 

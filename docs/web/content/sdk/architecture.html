@@ -83,7 +83,7 @@
       </table></div>
 
       <h2 id="custom-runtime" data-toc-label="Custom runtime">Building a runtime for another platform</h2>
-      <p>A port implements <code>IEspectreRuntime</code>, feeds CSI in the expected format to the shared core, keeps the same timing and readiness behavior, and sends listener events from its own task. <code>RuntimeFrontendController</code> creates ESP-IDF objects directly, so a new platform also needs its own controller.</p>
+      <p>A port builds on the shared core: it feeds CSI in the expected format, keeps the same timing and readiness behavior, and sends <code>IRuntimeListener</code> events from its own task. The runtime behind <code>RuntimeFrontendController</code> is internal to ESP-IDF, so a new platform brings its own runtime and controller.</p>
       <div class="runtime-port-notes">
         <div><strong>Arduino on ESP32</strong><span>Possible as a new adapter on Arduino-ESP32, which gives access to ESP-IDF's CSI, if the build supports C++17. There is no Arduino runtime today.</span></div>
         <div><strong>Raspberry Pi / Linux</strong><span>Needs a Wi-Fi chip, firmware, and driver that provide usable CSI. Ordinary Linux Wi-Fi is not enough.</span></div>

@@ -12,7 +12,7 @@
 #include "runtime_capabilities.h"
 #include "runtime_diagnostics.h"
 #include "runtime_events.h"
-#include "runtime_interface.h"
+#include "runtime_config.h"
 #include "runtime_snapshot.h"
 
 namespace espectre {

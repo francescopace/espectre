@@ -97,7 +97,7 @@ To build a frontend against an extracted SDK, see [building against an SDK bundl
 
 ## Runtime contract
 
-Frontends control the runtime only through `RuntimeFrontendController` and the interfaces in `runtime_interface.h`, `runtime_snapshot.h`, `runtime_events.h`, and `runtime_capabilities.h`. They get back snapshots, motion and calibration events, and faults. They must never reach around it to Wi-Fi or CSI services.
+Frontends control the runtime only through `RuntimeFrontendController` and the types in `runtime_config.h`, `runtime_snapshot.h`, `runtime_events.h`, and `runtime_capabilities.h`. They get back snapshots, motion and calibration events, and faults. They must never reach around it to Wi-Fi or CSI services.
 
 [SDK runtime contract](SDK.md#runtime-contract) documents the public lifecycle, capabilities, errors, and callback rules. Each frontend guide lists which controls it exposes and saves.
 
