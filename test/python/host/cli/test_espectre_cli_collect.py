@@ -250,6 +250,48 @@ def test_discovery_rejects_unusable_service_endpoints(service_type, overrides):
     assert device_discovery._parse_record(service_type, "sensor", discovery_info(**overrides)) is None
 
 
+@pytest.mark.parametrize("firmware", [b"3.0.0-rc1", b"3.0.0-rc2"])
+@pytest.mark.parametrize("key_case", ["lower", "upper", "mixed"])
+def test_discovery_accepts_case_insensitive_txt_and_release_announcements(firmware, key_case):
+    info = discovery_info(properties={b"name": b"Office Sensor", b"firmware": firmware})
+    if key_case == "upper":
+        info.properties = {key.upper(): value for key, value in info.properties.items()}
+    elif key_case == "mixed":
+        info.properties = {key[:1].upper() + key[1:]: value for key, value in info.properties.items()}
+    info.properties[b"UNKNOWN"] = b"ignored"
+    service_type = "_ESpectre._TCP.LOCAL."
+    service_name = "Office Sensor." + service_type
+    record = device_discovery._parse_record(service_type, service_name, info)
+    assert record is not None
+    assert record.name == "Office Sensor"
+    assert record.service_name == service_name
+    assert record.service_type == service_type
+    assert record.firmware == firmware.decode()
+    assert record.endpoint == f"http://192.168.1.23:{ESPECTRE_DIRECT_PORT}/espectre/v1"
+
+
+@pytest.mark.parametrize("first", [None, b"", b"native", b"invalid"])
+def test_discovery_first_txt_key_wins_even_without_value(first):
+    info = discovery_info()
+    info.properties = {b"FrOnTeNd": first, **info.properties}
+    record = device_discovery._parse_record(ESPECTRE_SERVICE_TYPE, "Sensor", info)
+    assert (record is not None) == (first == b"native")
+    assert device_discovery._decode_txt({b"NAME": None, b"name": b"Second"}, "name") is None
+
+
+def test_discovery_compares_dns_names_with_ascii_case_only():
+    info = discovery_info(properties={b"name": b"Office Sensor"})
+    zeroconf = SimpleNamespace(get_service_info=lambda *_args, **_kwargs: info)
+    listener = device_discovery._DeviceListener(zeroconf)
+    listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "Office._espectre._tcp.local.")
+    listener.update_service(zeroconf, ESPECTRE_SERVICE_TYPE.upper(), "OFFICE._ESPECTRE._TCP.LOCAL.")
+    assert len(listener.snapshot()) == 1
+    assert listener.snapshot()[0].name == "Office Sensor"
+    listener.remove_service(zeroconf, ESPECTRE_SERVICE_TYPE, "office._espectre._tcp.local.")
+    assert listener.snapshot() == []
+    assert device_discovery._dns_key("ÄA") == "Äa"
+
+
 def test_discovery_listener_updates_filters_and_removes_records():
     records = {"native": discovery_info(), "micro": discovery_info(properties={b"frontend": b"micro"})}
     zeroconf = SimpleNamespace(get_service_info=lambda _type, name, **_kwargs: records.get(name))
@@ -286,16 +328,51 @@ def test_discovery_wait_uses_deadline_or_quiet_window(monkeypatch, has_record):
     assert waits == [0.25 if has_record else 2.0]
 
 
+@pytest.mark.parametrize("late_arrival_s", [0.9, 1.6, 5.4])
+def test_discovery_default_browse_includes_delayed_devices(monkeypatch, late_arrival_s):
+    clock = [0.0]
+    monkeypatch.setattr(device_discovery.time, "monotonic", lambda: clock[0])
+    zeroconf = SimpleNamespace(get_service_info=lambda *_args, **_kwargs: discovery_info())
+    listener = device_discovery._DeviceListener(zeroconf)
+    listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "first")
+    pending = [late_arrival_s]
+
+    def wait(duration):
+        if pending and clock[0] + duration >= pending[0]:
+            clock[0] = pending.pop()
+            listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "later")
+        else:
+            clock[0] += duration
+
+    monkeypatch.setattr(listener._records_changed, "wait", wait)
+    listener.wait_for_quiet(device_discovery.DISCOVERY_TIMEOUT_S,
+                            device_discovery.DISCOVERY_QUIET_WINDOW_S)
+    assert len(listener.snapshot()) == 2
+    assert clock[0] == device_discovery.DISCOVERY_TIMEOUT_S
+
+
 @pytest.mark.parametrize("browser_fails", [False, True])
 def test_discovery_closes_resources_after_browse(monkeypatch, browser_fails):
     events = []
-    zeroconf = SimpleNamespace(close=lambda: events.append("close"),
-        get_service_info=lambda *_args, **_kwargs: discovery_info())
-    monkeypatch.setattr(device_discovery, "Zeroconf", lambda **_kwargs: zeroconf)
+
+    def resolve(_type, _name, *, timeout, question_type):
+        assert timeout == 1000
+        assert question_type is device_discovery.DNSQuestionType.QM
+        return discovery_info()
+
+    zeroconf = SimpleNamespace(close=lambda: events.append("close"), get_service_info=resolve)
+
+    def open_discovery(*, unicast, ip_version):
+        assert unicast is True
+        assert ip_version is device_discovery.IPVersion.V4Only
+        return zeroconf
+
+    monkeypatch.setattr(device_discovery, "Zeroconf", open_discovery)
     monkeypatch.setattr(device_discovery._DeviceListener, "wait_for_quiet", lambda *_args: None)
 
-    def browser(_zeroconf, service_type, listener):
+    def browser(_zeroconf, service_type, listener, *, question_type):
         assert service_type == ESPECTRE_SERVICE_TYPE
+        assert question_type is device_discovery.DNSQuestionType.QM
         if browser_fails:
             raise OSError("browse failed")
         listener.add_service(zeroconf, service_type, "sensor")

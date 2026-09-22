@@ -1,6 +1,8 @@
 # ESPectre Discovery
 
-This document owns DNS-SD, mDNS, browser bootstrap discovery, and the `/devices` resource. The device API is specified in [API.md](API.md).
+ESPectre implements IPv4 Zeroconf service discovery using mDNS and DNS-SD.
+
+Use **Find devices** in the portal or `./espectre devices` to find ESPectre devices on your local network. Discovery requires IPv4 and working mDNS between the client and devices. If automatic discovery fails, enter the device IP directly. See [CLI.md](CLI.md#devices) for command options and [API.md](API.md) for the device API.
 
 ## DNS-SD and mDNS
 
@@ -36,6 +38,8 @@ There is no `events` TXT key. Clients derive resource, `/events`, and `/csi` URL
 
 `txtvers` versions the TXT key/value schema. `protovers` is the same application version exposed as `capabilities.protocol_version`; it is not an independent Direct version. Unknown TXT keys may be ignored, but an unknown `txtvers` or `protovers` value is incompatible.
 
+Consumers compare TXT keys and DNS names case-insensitively for ASCII letters. The first occurrence of a TXT key wins, including an empty or valueless occurrence; unknown keys are ignored. Values and displayed names retain their case. Advertisements keep their canonical lowercase keys. `txtvers` is the first transmitted TXT entry on all four frontends.
+
 The CLI accepts a record only when it has an IPv4 address, a non-zero SRV port, a valid `device_id`, a supported `frontend`, the exact version and transport values above, and `path=/espectre/v1`. `name`, `firmware`, `chip`, and `capabilities` enrich the result but do not identify the device.
 
 ### Service lifecycle
@@ -46,7 +50,7 @@ Native uses `espectre-{device_id}.local` and updates the TXT `name` after a save
 
 ## Browser bootstrap
 
-Web pages cannot enumerate DNS-SD services. For each automatic discovery attempt, the portal obtains 96 random bits from Web Crypto, encodes them as 24 lowercase hexadecimal characters, and resolves one fresh host name:
+Web pages cannot enumerate DNS-SD services. For each automatic discovery attempt, the portal obtains 96 random bits from Web Crypto, encodes them as 24 lowercase hexadecimal characters, and starts with a fresh host name:
 
 ```text
 espectre-devices-{nonce}.local
@@ -56,23 +60,23 @@ A fresh name prevents a cached positive or negative answer from satisfying a lat
 
 ### Bootstrap DNS behavior
 
-Native, ESPHome, and Matter answer only valid, uncompressed class-IN A or AAAA questions whose owner matches the nonce form. An A answer:
+Native, ESPHome, and commissioned Matter devices answer bootstrap queries. Micro publishes its DNS-SD service and can appear in a peer's discovery result, but does not answer bootstrap names itself.
 
-- repeats the queried owner name;
-- contains the responder's current station IPv4 address;
-- uses a 10-second TTL;
-- leaves the cache-flush bit clear so more than one responder can contribute an address; and
-- includes an NSEC record whose bitmap declares A but not AAAA.
+A bootstrap answer contains the responder's current IPv4 address with a ten-second TTL. Several devices may answer the same name. The response also includes NSEC to indicate that no IPv6 address is available; see the remaining limitation below.
 
-An AAAA-only question receives the same NSEC assertion and no address. The responder never advertises IPv6. It accepts multicast, QU, and legacy-unicast queries. Multicast replies occupy at most four pending slots, delayed by 25, 50, 75, and 100 ms, and the responder sends at most eight answers per second. Pending replies are discarded after an IPv4 change, Wi-Fi disconnect, or reconfiguration.
+The responder accepts compressed names, multiple questions, ANY queries, multicast, QU, and legacy-unicast requests. It suppresses records already known by the requester, waits for Known Answer continuations in truncated queries, and limits repeated multicast replies. Malformed queries are ignored. Pending responses are cleared after a disconnect or address change.
 
-The nonce responder is stateless. It does not register, retain, announce, or send a goodbye for the queried name.
+The responder keeps at most four pending responses and sends at most eight datagrams per second. Its bounded queues can drop queries under contention or overload. These limits and network packet loss can require another discovery attempt.
 
 ### `/devices` scan
 
 After resolving one bootstrap responder, the portal requests `GET /espectre/v1/devices` with the same Origin policy as any Direct request and a 10-second client timeout. Native, ESPHome, and Matter implement this resource.
 
+If the first request is still pending after four seconds, the browser tries one more fresh nonce. A transport failure starts that retry immediately. Both requests share the original ten-second deadline; the first valid result wins, and the other request is cancelled. An HTTP `409` from an overlapping scan leaves the other request active. Invalid responses, denied permissions, and other HTTP errors end discovery. Requests to an explicit device address stay on that address.
+
 The request takes no parameters. It starts one asynchronous PTR browse for `_espectre._tcp.local.` with a fixed 3,000 ms query window. A concurrent scan returns HTTP `409` with code `conflict`; a scan that cannot start returns code `unavailable`. Closing the requesting connection prevents later delivery and creates no waiter or persistent peer inventory.
+
+The server closes each `/devices` connection after sending the response so repeated searches do not exhaust the device's socket limit. Other API requests, SSE, and CSI keep their existing connection policy.
 
 The result schema is:
 
@@ -134,7 +138,7 @@ Each device object uses this schema:
 | `capabilities` | 1 to 8 unique tokens, each at most 32 characters |
 | `addresses` | 1 to 2 validated on-link IPv4 address strings |
 
-The result includes the responding device even when the underlying Espressif query API omits its own advertisement. Devices are deduplicated by `device_id` and sorted lexicographically. Records for one identity and endpoint merge their addresses; records that give one identity conflicting hostnames, frontends, ports, or paths reject that identity. Addresses sort numerically.
+The result includes the responding device even when the underlying Espressif query API omits its own advertisement. Devices are deduplicated by `device_id` and sorted lexicographically. Records for one identity and endpoint merge their addresses; hostname comparison ignores ASCII case while preserving the first spelling. Records that give one identity conflicting hostnames, frontends, ports, or paths reject that identity. Addresses sort numerically.
 
 Accepted addresses must be IPv4 unicast addresses on the responder's station subnet. Unspecified, network, broadcast, loopback, multicast, and off-link addresses are rejected. The response contains no credentials, configuration secrets, motion events, CSI, or broker details.
 
@@ -147,3 +151,10 @@ The comma-separated TXT capability value may contain at most 128 characters. Cap
 The portal validates the complete result before rendering a device or constructing an endpoint. It remembers only the selected unique address, never the shared bootstrap name or peer list. After selection, the client requests `GET /device` and `GET /capabilities`; the `device_id`, frontend, protocol version, and base path must agree with discovery.
 
 If no eligible responder is reachable, connect with a private device IP, the unique `espectre-{device_id}.local` host name, a remembered endpoint, or Improv Serial. Routed networks, multicast filtering, client isolation, and browser local-network permissions can block discovery without blocking Direct connectivity.
+
+## Limits
+
+- Multicast filtering, client isolation, and packet loss can hide a device that remains reachable by IP. Intermittent omissions were observed on a mesh network. Retries improve recovery but cannot guarantee discovery; use the device IP when needed. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#mesh-wi-fi-instability).
+- Discovery uses IPv4. An IPv6-only advertisement is excluded.
+- The shared bootstrap name retains an NSEC assertion despite having multiple responders, a known deviation from [RFC 6762, section 6.1](https://www.rfc-editor.org/rfc/rfc6762.html#section-6.1). Removing NSEC has not completed validation across the supported frontends and remains experimental.
+- Espressif's canonical-host responder has known deviations involving invalid RCODE queries, class ANY, negative AAAA answers, and legacy-unicast TTLs. These are outside the ESPectre bootstrap corrections.

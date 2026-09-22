@@ -170,6 +170,7 @@ typedef struct {
   int private_announce_count;
   int private_goodbye_count;
   int real_write_call_count;
+  bool fail_write;
   int receive_real_call_count;
   int last_netif_action;
   bool async_new_succeeds;

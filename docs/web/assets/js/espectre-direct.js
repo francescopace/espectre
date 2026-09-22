@@ -255,6 +255,7 @@
             );
         }
         try {
+            options.signal?.throwIfAborted();
             return await globalThis.fetch(url, {
                 ...options,
                 cache: 'no-store',
@@ -546,8 +547,10 @@
 
         async #sendRequest(method, resource, data = {}, {
             timeoutMs = DEFAULT_TIMEOUT_MS,
-            allowBeforeHandshake = false
-        } = {}) {
+            allowBeforeHandshake = false,
+            signal,
+            retryTransportErrors = true
+        } = {}, endpoint = this.#endpoint) {
             const httpMethod = String(method).toUpperCase();
             if (!['GET', 'PATCH', 'POST', 'PUT', 'DELETE'].includes(httpMethod)) {
                 throw new ESPectreDirectError('Direct HTTP method is invalid.', 'invalid_method');
@@ -577,13 +580,16 @@
             if (payload !== null) headers['Content-Type'] = 'application/json';
             let response;
             let text;
-            const attempts = httpMethod === 'GET' ? 2 : 1;
+            const attempts = httpMethod === 'GET' && retryTransportErrors ? 2 : 1;
             for (let attempt = 0; attempt < attempts; attempt += 1) {
                 const controller = new AbortController();
+                const abort = () => controller.abort(signal.reason);
+                if (signal?.aborted) abort();
+                else signal?.addEventListener('abort', abort, { once: true });
                 this.#requestControllers.add(controller);
                 const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
                 try {
-                    response = await localFetch(endpointWithPath(this.#endpoint, `${REQUEST_PATH}/${resource.replace(/^\/+/, '')}`) + query, {
+                    response = await localFetch(endpointWithPath(endpoint, `${REQUEST_PATH}/${resource.replace(/^\/+/, '')}`) + query, {
                         method: httpMethod,
                         headers,
                         body: payload,
@@ -603,6 +609,7 @@
                     );
                 } finally {
                     clearTimeout(timer);
+                    signal?.removeEventListener('abort', abort);
                     this.#requestControllers.delete(controller);
                 }
             }
@@ -624,11 +631,82 @@
         }
 
         async discoverPeersBootstrap(options = {}) {
-            return validatePeerDiscoveryResult(await this.#sendRequest('get', 'devices', {}, {
+            const requestOptions = {
                 timeoutMs: PEER_DISCOVERY_TIMEOUT_MS,
                 allowBeforeHandshake: true,
                 ...options
-            }));
+            };
+            const hostname = new URL(this.#endpoint).hostname;
+            const nonce = hostname.match(new RegExp(`^${DISCOVERY_HOST_PREFIX}([0-9a-f]+)\\.local$`));
+            if (!nonce || nonce[1].length !== DISCOVERY_NONCE_BYTES * 2) {
+                return validatePeerDiscoveryResult(await this.#sendRequest('get', 'devices', {}, requestOptions));
+            }
+            if (this.#closing) throw new ESPectreDirectError('Direct session ended.', 'not_connected');
+
+            // A failed .local lookup can outlive the browser's first DNS retries.
+            // Give a slow lookup one independent nonce within the same deadline.
+            const controller = new AbortController();
+            this.#requestControllers.add(controller);
+            const deadline = performance.now() + requestOptions.timeoutMs;
+            const retryable = (error) => ['connection_failed', 'timeout'].includes(error?.code);
+            let rejectFatal;
+            const fatal = new Promise((_, reject) => { rejectFatal = reject; });
+            const abort = () => rejectFatal(new ESPectreDirectError(
+                controller.signal.reason === 'request timeout'
+                    ? 'Direct peer discovery timed out.' : 'Direct session ended.',
+                controller.signal.reason === 'request timeout' ? 'timeout' : 'not_connected'
+            ));
+            controller.signal.addEventListener('abort', abort, { once: true });
+            const attempt = async (endpoint) => {
+                try {
+                    return validatePeerDiscoveryResult(await this.#sendRequest('get', 'devices', {}, {
+                        ...requestOptions,
+                        timeoutMs: Math.max(1, deadline - performance.now()),
+                        signal: controller.signal,
+                        retryTransportErrors: false
+                    }, endpoint));
+                } catch (error) {
+                    // Both hostnames can reach the same device while its first
+                    // discovery is still active. Keep that response eligible.
+                    if ((!retryable(error) && error?.code !== 'http_409') || controller.signal.aborted) rejectFatal(error);
+                    throw error;
+                }
+            };
+            let fallbackTimer;
+            let startFallback;
+            let fallbackStarted = false;
+            const fallback = new Promise((resolve, reject) => {
+                startFallback = () => {
+                    if (fallbackStarted || controller.signal.aborted) return;
+                    fallbackStarted = true;
+                    clearTimeout(fallbackTimer);
+                    try {
+                        const endpoint = new URL(this.#endpoint);
+                        endpoint.hostname = new URL(createDiscoveryEndpoint()).hostname;
+                        attempt(endpoint.href).then(resolve, reject);
+                    } catch (error) {
+                        reject(error);
+                        rejectFatal(error);
+                    }
+                };
+            });
+            const timeout = setTimeout(() => controller.abort('request timeout'), requestOptions.timeoutMs);
+            fallbackTimer = setTimeout(startFallback, Math.min(4000, requestOptions.timeoutMs / 2));
+            const first = attempt(this.#endpoint).catch((error) => {
+                if (retryable(error) && !controller.signal.aborted) startFallback();
+                throw error;
+            });
+            try {
+                return await Promise.race([Promise.any([first, fallback]), fatal]);
+            } catch (error) {
+                throw error instanceof AggregateError ? error.errors.at(-1) : error;
+            } finally {
+                clearTimeout(timeout);
+                clearTimeout(fallbackTimer);
+                this.#requestControllers.delete(controller);
+                controller.signal.removeEventListener('abort', abort);
+                controller.abort('bootstrap complete');
+            }
         }
 
         close() {

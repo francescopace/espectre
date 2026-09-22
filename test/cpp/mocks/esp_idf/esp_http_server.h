@@ -84,6 +84,7 @@ typedef struct {
   esp_err_t register_result;
   esp_err_t receive_result;
   esp_err_t send_result;
+  bool send_to_socket;
   int start_calls;
   int stop_calls;
   int register_calls;
@@ -105,6 +106,7 @@ typedef struct {
   const char *pending_allow_origin;
   char allow_private_network[16];
   char cache_control[64];
+  char connection[32];
   uint8_t incoming_payload[8192];
   size_t incoming_length;
   uint8_t sent_payloads[64][8192];

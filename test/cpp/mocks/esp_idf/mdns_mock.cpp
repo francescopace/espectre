@@ -311,7 +311,7 @@ size_t __real_mdns_priv_if_write(mdns_if_t tcpip_if,
   if (data != nullptr && g_mdns_mock.last_write_len > 0U) {
     memcpy(g_mdns_mock.last_write_packet, data, g_mdns_mock.last_write_len);
   }
-  return len;
+  return g_mdns_mock.fail_write ? 0U : len;
 }
 
 size_t mdns_priv_if_write(mdns_if_t tcpip_if,

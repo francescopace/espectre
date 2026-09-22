@@ -699,6 +699,50 @@ void test_deferred_post_completes_only_once() {
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
 }
 
+void test_discovery_releases_its_socket_and_other_resources_keep_alive() {
+  for (bool discovery : {false, true}) {
+    for (esp_err_t send_result : {ESP_OK, ESP_FAIL}) {
+      httpd_mock_reset();
+      EspIdfDirectHttpService service;
+      TEST_ASSERT_TRUE(service.setup(
+          config(), [](const DirectRequest &request) { return command_result(request); }, {}));
+      int sockets[2];
+      TEST_ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+      prepare_json("{}");
+      httpd_req_t request = request_for_route(
+          HTTP_GET, discovery ? "/espectre/v1/devices" : "/espectre/v1/health", sockets[0]);
+      TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
+      char byte;
+      TEST_ASSERT_EQUAL(-1, recv(sockets[1], &byte, 1U, MSG_DONTWAIT));
+      // Leave input unread while the server completes its response.
+      const char pending_input[] = "unread request bytes";
+      TEST_ASSERT_EQUAL(sizeof(pending_input), send(sockets[1], pending_input, sizeof(pending_input), 0));
+      g_httpd_mock.send_to_socket = true;
+      g_httpd_mock.send_result = send_result;
+      service.loop();
+      TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+      TEST_ASSERT_EQUAL_STRING(discovery ? "close" : "", g_httpd_mock.connection);
+      if (send_result == ESP_OK) {
+        char body[8192];
+        const int size = recv(sockets[1], body, sizeof(body), MSG_DONTWAIT);
+        TEST_ASSERT_EQUAL(g_httpd_mock.sent_lengths[0], size);
+        TEST_ASSERT_TRUE(size > 0);
+        TEST_ASSERT_EQUAL(0, std::memcmp(body, g_httpd_mock.sent_payloads[0], size));
+      }
+      const int received = recv(sockets[1], &byte, 1U, MSG_DONTWAIT);
+      TEST_ASSERT_EQUAL(discovery ? 0 : -1, received);
+      // The server can release discovery sockets without waiting for peer FIN.
+      char input[sizeof(pending_input)];
+      const int input_size = recv(sockets[0], input, sizeof(input), MSG_DONTWAIT);
+      TEST_ASSERT_TRUE(input_size >= 0);
+      TEST_ASSERT_EQUAL(discovery ? 0 : -1, recv(sockets[0], &byte, 1U, MSG_DONTWAIT));
+      TEST_ASSERT_EQUAL(send_result == ESP_OK ? 0U : 1U, service.diagnostics().send_failures);
+      close(sockets[0]);
+      close(sockets[1]);
+    }
+  }
+}
+
 void test_response_completion_runs_after_send_and_reports_delivery(void) {
   httpd_mock_reset();
   EspIdfDirectHttpService service;
@@ -1077,6 +1121,7 @@ int main() {
   RUN_TEST(test_raw_open_rejection_releases_request_and_permits_retry);
   RUN_TEST(test_sse_retries_backpressure_before_disconnect);
   RUN_TEST(test_deferred_post_completes_only_once);
+  RUN_TEST(test_discovery_releases_its_socket_and_other_resources_keep_alive);
   RUN_TEST(test_response_completion_runs_after_send_and_reports_delivery);
   RUN_TEST(test_raw_get_opens_automatic_session_and_emits_v2_frame);
   RUN_TEST(test_raw_loopback_origin_survives_until_first_packet);

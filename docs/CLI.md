@@ -240,7 +240,7 @@ Reset on open:
 |------|---------|
 | `--frontend native\|esphome\|matter\|micro` | Limit discovery to one frontend; omit it to browse every supported service |
 | `--chip esp32\|c3\|s2\|s3\|c5\|c6` | Limit normalized records to one chip family |
-| `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
+| `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 6 seconds |
 | `--json` | Emit machine-readable normalized records for scripts and tooling |
 
 Examples:
@@ -255,7 +255,9 @@ Examples:
 ./espectre devices --json
 ```
 
-The command uses the repository `zeroconf` dependency and requires the host and device to share an mDNS-visible network. Each invocation starts a new PTR browse; there is no discovery cache. The timeout is an upper bound rather than an unconditional delay: after the first complete record, discovery returns when no record has been added, changed, or removed for 350 ms. If no device responds, it waits for the full timeout. VLAN boundaries, client isolation, and multicast filtering may hide otherwise reachable devices; explicit IP addresses, Native `.local` names, remembered endpoints, and Improv Serial remain the deterministic fallbacks.
+Each invocation starts a fresh search. The default search waits six seconds, even if one device responds earlier, to allow retries and replies from other devices. A shorter `--timeout` returns sooner but may miss devices. With a longer timeout, the search can finish after six seconds without a changed result; if no device responds, it waits for the full timeout.
+
+The host and devices must share an mDNS-visible network. VLAN boundaries, client isolation, and multicast filtering can hide otherwise reachable devices. If discovery fails, use a device IP, its unique `.local` name, or Improv Serial. See [DISCOVERY.md](DISCOVERY.md#client-validation-and-fallback) for connection alternatives and limitations.
 
 ### `provision`
 
@@ -328,7 +330,7 @@ When `--target` is omitted, `collect` performs one fresh browse for `_espectre._
 - `1` device: auto-select it
 - `N` devices: prompt for an interactive choice
 
-The collector uses the same event-driven completion as `devices`: once a complete record arrives, 350 ms without a changed record completes discovery. If no record arrives, the 2.5-second default timeout is consumed in full.
+The collector uses the same discovery window as `devices`: the default browse consumes its full six-second budget, including when a first device responds earlier.
 
 `--target` remains the deterministic bypass. The collector resolves an IP, hostname, full Direct endpoint, or full device ID through the same Direct resolver. Native, Matter, and ESPHome use port `62587`; a full manually entered endpoint may specify another explicit port, but the resolver does not probe legacy ports.
 

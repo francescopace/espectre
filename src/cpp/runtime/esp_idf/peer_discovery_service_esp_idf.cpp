@@ -24,6 +24,15 @@ namespace {
 constexpr const char *kStaNetifKey = "WIFI_STA_DEF";
 constexpr size_t kMaxRawResults = ESPECTRE_PEER_DISCOVERY_MAX_DEVICES * 2U;
 
+bool equal_dns_text(const char *left, const char *right) {
+  if (left == nullptr || right == nullptr) return false;
+  const auto fold = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+  while (*left != '\0' && *right != '\0') {
+    if (fold(*left++) != fold(*right++)) return false;
+  }
+  return *left == *right;
+}
+
 std::string text(const char *value, size_t maximum) {
   if (value == nullptr) {
     return {};
@@ -37,13 +46,15 @@ std::string txt_value(const mdns_result_t *result, const char *key, size_t maxim
     return {};
   }
   for (size_t index = 0U; index < result->txt_count; ++index) {
-    if (result->txt[index].key == nullptr || std::strcmp(result->txt[index].key, key) != 0) {
+    if (!equal_dns_text(result->txt[index].key, key)) {
       continue;
     }
+    // A valueless first occurrence still masks later duplicates.
+    if (result->txt[index].value == nullptr) return {};
     const size_t length = result->txt_value_len != nullptr
                               ? static_cast<size_t>(result->txt_value_len[index])
                               : strnlen(result->txt[index].value, maximum + 1U);
-    if (result->txt[index].value == nullptr || length > maximum) {
+    if (length > maximum) {
       return {};
     }
     return std::string(result->txt[index].value, length);
@@ -55,8 +66,7 @@ std::vector<PeerDiscoveryCandidate> copy_candidates(mdns_result_t *results) {
   std::vector<PeerDiscoveryCandidate> candidates;
   candidates.reserve(ESPECTRE_PEER_DISCOVERY_MAX_DEVICES);
   for (mdns_result_t *result = results; result != nullptr; result = result->next) {
-    if (result->service_type == nullptr || result->proto == nullptr ||
-        std::strcmp(result->service_type, "_espectre") != 0 || std::strcmp(result->proto, "_tcp") != 0) {
+    if (!equal_dns_text(result->service_type, "_espectre") || !equal_dns_text(result->proto, "_tcp")) {
       continue;
     }
     PeerDiscoveryCandidate candidate;

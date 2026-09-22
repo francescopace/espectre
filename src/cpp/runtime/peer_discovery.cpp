@@ -177,7 +177,13 @@ PeerDiscoverySnapshot validate_peer_discovery_candidates(
       continue;
     }
     PeerDiscoveryCandidate &current = existing->second;
-    const bool same_endpoint = current.hostname == candidate.hostname && current.frontend == candidate.frontend &&
+    const bool same_hostname = std::equal(
+        current.hostname.begin(), current.hostname.end(), candidate.hostname.begin(), candidate.hostname.end(),
+        [](unsigned char left, unsigned char right) {
+          const auto fold = [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; };
+          return fold(left) == fold(right);
+        });
+    const bool same_endpoint = same_hostname && current.frontend == candidate.frontend &&
                                current.port == candidate.port && current.path == candidate.path;
     if (!same_endpoint) {
       conflicted.insert(candidate.device_id);

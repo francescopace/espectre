@@ -27,6 +27,7 @@ idf_component_register(
         mdns
         esp_http_server
     PRIV_REQUIRES
+        esp_app_format
         espectre_config
 )
 

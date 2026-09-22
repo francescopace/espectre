@@ -17,6 +17,11 @@ All notable changes to this project will be documented in this file.
 - Recover missing CSI at startup with one scan on the associated Wi-Fi channel, limiting disruption to discovery and Direct connections.
 - Release standalone Wi-Fi resources on shutdown and setup failure, preserve full-length credentials, and resume exhausted reconnect bursts after 30 seconds. Document service ownership and align the website's CSI profile descriptions with the runtime.
 - Restore sensing and network services after roaming with a retained IPv4 address, including when the address becomes available late. Ignore duplicate IP notifications.
+- Accept ASCII case-insensitive DNS names and TXT keys, honor the first duplicate key, and transmit `txtvers` first on all four frontends. Keep discovery metadata compatible with rc1 and rc2.
+- Extend default CLI discovery to six seconds so retries can find slower devices. Request replies directly to the CLI to avoid competition with Bonjour; shorter explicit timeouts remain available.
+- Improve IPv4 bootstrap discovery with compressed and ANY queries, Known-Answer Suppression, truncated-query handling, and reply rate limits. See [DISCOVERY.md](DISCOVERY.md#limits) for remaining RFC deviations.
+- Release HTTP connections after `/devices` responses so repeated browser discovery does not exhaust available sockets. Preserve other API, SSE, and CSI connections.
+- Report the running Matter firmware version in discovery, Direct, and Improv instead of `unknown`.
 
 ### ESPHome firmware and Home Assistant
 
@@ -25,6 +30,7 @@ All notable changes to this project will be documented in this file.
 
 ### Web tools, builds, and publication
 
+- Retry slow or failed browser discovery once within the existing ten-second timeout. Keep the first request active if an overlapping scan returns HTTP `409`; see [DISCOVERY.md](DISCOVERY.md#browser-bootstrap).
 - Add the ESPectre Traffic Generator add-on for 64-bit Home Assistant OS, using the shared external UDP generator with configurable unicast or multicast targets, packet rate, source interface, multicast TTL, and DSCP. Its minimal Ingress panel controls traffic ownership, streams Home Assistant entity changes, and requests diagnostics every second while visible through existing ESPHome or Native MQTT entities, with individual and bulk actions and an optional sidebar shortcut. Include translated configuration help and an installation guide in [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md).
 - Show the published Release firmware on the home and roadmap badges, using its release tag when available. Preview snapshots no longer replace the home release badge.
 - Generate the website's SDK API reference with each build, display its version and source commit, and verify that its files match the current page inventory.

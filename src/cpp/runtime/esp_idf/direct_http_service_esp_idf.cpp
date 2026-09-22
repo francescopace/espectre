@@ -1113,7 +1113,20 @@ bool EspIdfDirectHttpService::finish_request_(PendingRequest request, const std:
     (void) httpd_resp_set_status(request.request, "202 Accepted");
   }
   (void) httpd_resp_set_hdr(request.request, "Cache-Control", "no-store");
+  // Each bootstrap nonce creates a separate browser connection. Release it
+  // after discovery instead of retaining idle sockets until lwIP runs out.
+  const bool close_connection = request.direct.command == "devices";
+  if (close_connection) (void) httpd_resp_set_hdr(request.request, "Connection", "close");
   const esp_err_t result = httpd_resp_send(request.request, response.data(), response.size());
+  if (close_connection) {
+    const int fd = httpd_req_to_sockfd(request.request);
+    // Queue FIN after the response before closing receive. In lwIP, closing
+    // both sides of an established connection with unread input can send RST.
+    // Then wake httpd's receiver so idle nonce sockets are released even if
+    // the peer does not close. Retain async ownership through both steps.
+    (void) ::shutdown(fd, SHUT_WR);
+    (void) ::shutdown(fd, SHUT_RD);
+  }
   (void) httpd_req_async_handler_complete(request.request);
   if (result != ESP_OK && lock_()) {
     diagnostics_.send_failures += 1U;

@@ -7,13 +7,17 @@
  */
 #include "test_harness.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
 
 #include "esp_netif.h"
+#include "esp_random.h"
 #include "esp_timer.h"
+#include "freertos/semphr.h"
 #include "direct_http_protocol.h"
 #include "espectre_protocol.h"
 #include "mdns.h"
@@ -47,6 +51,8 @@ MdnsDiscoveryServiceConfig direct_config() {
 void reset_mocks() {
   mdns_mock_reset();
   esp_netif_mock_reset();
+  esp_random_mock::value = 0U;
+  g_freertos_fail_next_take = false;
 }
 
 uint32_t ipv4(uint8_t first, uint8_t second, uint8_t third, uint8_t fourth);
@@ -290,7 +296,7 @@ void test_bootstrap_answers_multicast_a_after_bounded_delay() {
   responder.ingest_query(query.data(), query.size(), 1U, ipv4(192U, 168U, 1U, 9U), 5353U);
   responder.loop();
   TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
-  esp_timer_mock::advance(24999);
+  esp_timer_mock::advance(19999);
   responder.loop();
   TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
   esp_timer_mock::advance(1);
@@ -386,7 +392,7 @@ void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
   query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x8000U);
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
-  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0003U);
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
   query = bootstrap_query();
   query[12] = 0xc0U;
@@ -420,37 +426,469 @@ void test_bootstrap_requires_ipv4_and_cancels_pending_responses() {
   TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
 }
 
+void append_u16(std::vector<uint8_t> *packet, uint16_t value) {
+  packet->push_back(static_cast<uint8_t>(value >> 8U));
+  packet->push_back(static_cast<uint8_t>(value));
+}
+
+void add_known_answer(std::vector<uint8_t> *packet, const char *host, uint32_t address,
+                      uint32_t ttl, uint16_t type = MDNS_TYPE_A, uint16_t clas = 1U,
+                      bool compressed = true) {
+  ++(*packet)[7];
+  if (compressed) packet->insert(packet->end(), {0xc0U, 0x0cU});
+  else append_dns_name(packet, host);
+  append_u16(packet, type);
+  append_u16(packet, clas);
+  append_u16(packet, static_cast<uint16_t>(ttl >> 16U));
+  append_u16(packet, static_cast<uint16_t>(ttl));
+  if (type == DNS_TYPE_NSEC) {
+    append_u16(packet, 5U);
+    packet->insert(packet->end(), {0xc0U, 0x0cU, 0U, 1U, 0x40U});
+  } else {
+    append_u16(packet, 4U);
+    const auto *bytes = reinterpret_cast<const uint8_t *>(&address);
+    packet->insert(packet->end(), bytes, bytes + 4U);
+  }
+}
+
+std::string nonce_host(size_t index) {
+  char host[64]{};
+  std::snprintf(host, sizeof(host), "espectre-devices-%024zx", index);
+  return host;
+}
+
 void test_bootstrap_bounds_pending_pool_and_global_rate() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
   MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
-  const std::vector<uint8_t> query = bootstrap_query();
   for (size_t index = 0U; index < 5U; ++index) {
+    const auto query = bootstrap_query(nonce_host(index).c_str());
     responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
   }
-  for (int expected = 1; expected <= 4; ++expected) {
-    esp_timer_mock::advance(25000);
-    responder.loop();
-    TEST_ASSERT_EQUAL(expected, g_mdns_mock.real_write_call_count);
-  }
+  esp_timer_mock::advance(20000);
+  responder.loop();
   TEST_ASSERT_EQUAL(4, g_mdns_mock.real_write_call_count);
-  for (size_t index = 0U; index < 4U; ++index) {
+  for (size_t index = 5U; index < 9U; ++index) {
+    const auto query = bootstrap_query(nonce_host(index).c_str());
     responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
-    esp_timer_mock::advance(25000);
-    responder.loop();
   }
-  TEST_ASSERT_EQUAL(8, g_mdns_mock.real_write_call_count);
-  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
-  esp_timer_mock::advance(25000);
+  esp_timer_mock::advance(20000);
   responder.loop();
   TEST_ASSERT_EQUAL(8, g_mdns_mock.real_write_call_count);
-  esp_timer_mock::advance(775000);
+  const auto query = bootstrap_query(nonce_host(9U).c_str());
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
-  esp_timer_mock::advance(25000);
+  esp_timer_mock::advance(979999);
+  responder.loop();
+  TEST_ASSERT_EQUAL(8, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(1);
   responder.loop();
   TEST_ASSERT_EQUAL(9, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_compression_any_and_multiple_questions() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  // The only matching question uses compression; the first has an unrelated type.
+  auto query = bootstrap_query(BOOTSTRAP_HOST, 16U, 1U);
+  query[5] = 2U;
+  query.insert(query.end(), {0xc0U, 0x0cU, 0U, 1U, 0x80U, 1U});
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  assert_bootstrap_answer(BOOTSTRAP_HOST, 42U, false, 0U);
+  // ANY is accepted for both fields, and a legacy question is echoed exactly.
+  query = bootstrap_query(BOOTSTRAP_HOST, 255U, 255U, 0x1234U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 9999U);
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(0x1234U, packet_u16(g_mdns_mock.last_write_packet));
+  TEST_ASSERT_EQUAL(2U, packet_u16(g_mdns_mock.last_write_packet + 6U));
+  size_t fields = skip_dns_name(g_mdns_mock.last_write_packet, g_mdns_mock.last_write_len, 12U);
+  TEST_ASSERT_EQUAL(255U, packet_u16(g_mdns_mock.last_write_packet + fields));
+  TEST_ASSERT_EQUAL(255U, packet_u16(g_mdns_mock.last_write_packet + fields + 2U));
+  // Distinct names in a single query all receive answers within the four slots.
+  query = bootstrap_query(nonce_host(1U).c_str());
+  query[5] = 3U;
+  for (size_t index = 2U; index <= 3U; ++index) {
+    append_dns_name(&query, nonce_host(index).c_str());
+    query.insert(query.end(), {0U, 1U, 0U, 1U});
+  }
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(5, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_rejects_malformed_compression_and_record_tails() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  std::vector<std::vector<uint8_t>> queries;
+  for (uint16_t flags : {0x0001U, 0x000fU, 0x0800U, 0x7800U}) {
+    queries.push_back(bootstrap_query(BOOTSTRAP_HOST, 1U, 0x8001U, 0U, flags));
+  }
+  for (const auto &name : std::vector<std::vector<uint8_t>>{
+           {0xc0U, 0x0cU}, {0xffU, 0xffU}, {0xc0U}, {0x40U, 0U},
+           {1U, 'a', 0xc0U, 0x0cU}, {0xc0U, 0U}}) {
+    auto query = std::vector<uint8_t>(12U, 0U);
+    query[5] = 1U;
+    query.insert(query.end(), name.begin(), name.end());
+    query.insert(query.end(), {0U, 1U, 0x80U, 1U});
+    queries.push_back(query);
+  }
+  auto query = bootstrap_query(BOOTSTRAP_HOST, 1U, 0x8001U);
+  add_known_answer(&query, BOOTSTRAP_HOST, 42U, 10U);
+  query.pop_back();
+  queries.push_back(query);
+  query = bootstrap_query(BOOTSTRAP_HOST, 1U, 0x8001U);
+  add_known_answer(&query, BOOTSTRAP_HOST, 42U, 10U, DNS_TYPE_NSEC);
+  query[query.size() - 5U] = 0xffU;
+  queries.push_back(query);
+  // An overlong expanded name and a huge count with no records are bounded.
+  query.assign(12U, 0U);
+  query[5] = 1U;
+  for (size_t index = 0U; index < 4U; ++index) {
+    query.push_back(63U);
+    query.insert(query.end(), 63U, 'a');
+  }
+  query.insert(query.end(), {0U, 0U, 1U, 0x80U, 1U});
+  queries.push_back(query);
+  query = bootstrap_query(BOOTSTRAP_HOST, 1U, 0x8001U);
+  query[6] = query[7] = 255U;
+  queries.push_back(query);
+  for (const auto &invalid : queries) responder.ingest_query(invalid.data(), invalid.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(500000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_known_answers_match_content_class_name_and_ttl() {
+  for (uint32_t ttl : {4U, 5U, 6U}) {
+    for (uint16_t type : {static_cast<uint16_t>(MDNS_TYPE_A), DNS_TYPE_NSEC}) {
+      reset_mocks();
+      esp_timer_mock::reset(100000, 0);
+      MdnsBootstrapResponder responder;
+      TEST_ASSERT_TRUE(responder.setup());
+      TEST_ASSERT_TRUE(responder.update(42U));
+      auto query = bootstrap_query(BOOTSTRAP_HOST, type == MDNS_TYPE_A ? MDNS_TYPE_A : MDNS_TYPE_AAAA, 0x8001U);
+      add_known_answer(&query, BOOTSTRAP_HOST, 42U, ttl, type);
+      responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+      TEST_ASSERT_EQUAL(ttl < 5U ? 1 : 0, g_mdns_mock.real_write_call_count);
+    }
+  }
+  for (size_t mismatch = 0U; mismatch < 5U; ++mismatch) {
+    reset_mocks();
+    esp_timer_mock::reset(100000, 0);
+    MdnsBootstrapResponder responder;
+    TEST_ASSERT_TRUE(responder.setup());
+    TEST_ASSERT_TRUE(responder.update(42U));
+    auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 0x8001U);
+    add_known_answer(&query, mismatch == 0U ? nonce_host(1U).c_str() : BOOTSTRAP_HOST,
+                     mismatch == 1U ? 43U : 42U, 10U,
+                     mismatch == 2U ? 16U : MDNS_TYPE_A, mismatch == 3U ? 3U : 1U, false);
+    // An identical RR in the additional section is not a Known Answer.
+    if (mismatch == 4U) { query[7] = 0U; query[11] = 1U; }
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  }
+}
+
+void test_bootstrap_tc_continuations_and_independent_requesters() {
+  for (bool contended : {false, true}) {
+    for (bool same_source : {false, true}) {
+      reset_mocks();
+      esp_timer_mock::reset(100000, 0);
+      MdnsBootstrapResponder responder;
+      TEST_ASSERT_TRUE(responder.setup());
+      TEST_ASSERT_TRUE(responder.update(42U));
+      auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+      responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+      esp_timer_mock::advance(100000);
+      query.assign(12U, 0U);
+      add_known_answer(&query, BOOTSTRAP_HOST, 42U, 5U, MDNS_TYPE_A, 1U, false);
+      g_freertos_fail_next_take = contended;
+      responder.ingest_query(query.data(), query.size(), 0U, same_source ? 1U : 2U, 5353U);
+      esp_timer_mock::advance(299999);
+      responder.loop();
+      TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+      esp_timer_mock::advance(1);
+      responder.loop();
+      TEST_ASSERT_EQUAL(same_source ? 0 : 1, g_mdns_mock.real_write_call_count);
+    }
+  }
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  auto fresh = bootstrap_query();
+  responder.ingest_query(fresh.data(), fresh.size(), 0U, 2U, 5353U);
+  query.assign(12U, 0U);
+  add_known_answer(&query, BOOTSTRAP_HOST, 42U, 10U, MDNS_TYPE_A, 1U, false);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_deferred_continuations_preserve_ttl_and_delay() {
+  for (uint32_t ttl : {4U, 5U, 6U}) {
+    reset_mocks();
+    esp_timer_mock::reset(100000, 0);
+    MdnsBootstrapResponder responder;
+    TEST_ASSERT_TRUE(responder.setup());
+    TEST_ASSERT_TRUE(responder.update(42U));
+    auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    esp_timer_mock::advance(100000);
+    query.assign(12U, 0U);
+    query[2] = 2U;
+    add_known_answer(&query, BOOTSTRAP_HOST, 42U, ttl, MDNS_TYPE_A, 1U, false);
+    g_freertos_fail_next_take = true;
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    responder.loop();
+    esp_timer_mock::advance(399999);
+    responder.loop();
+    TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+    esp_timer_mock::advance(1);
+    responder.loop();
+    TEST_ASSERT_EQUAL(ttl < 5U ? 1 : 0, g_mdns_mock.real_write_call_count);
+  }
+}
+
+void test_bootstrap_deferred_continuations_do_not_survive_invalidation() {
+  for (bool reconnect : {false, true}) {
+    reset_mocks();
+    esp_timer_mock::reset(100000, 0);
+    MdnsBootstrapResponder responder;
+    TEST_ASSERT_TRUE(responder.setup());
+    TEST_ASSERT_TRUE(responder.update(42U));
+    auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    std::vector<uint8_t> continuation(12U, 0U);
+    add_known_answer(&continuation, BOOTSTRAP_HOST, 42U, 5U, MDNS_TYPE_A, 1U, false);
+    g_freertos_fail_next_take = true;
+    responder.ingest_query(continuation.data(), continuation.size(), 0U, 1U, 5353U);
+    if (reconnect) {
+      responder.shutdown();
+      TEST_ASSERT_TRUE(responder.setup());
+    } else {
+      TEST_ASSERT_TRUE(responder.update(84U));
+    }
+    TEST_ASSERT_TRUE(responder.update(42U));
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    esp_timer_mock::advance(400000);
+    responder.loop();
+    TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  }
+}
+
+void test_bootstrap_deferred_continuations_recover_after_saturation() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  std::vector<uint8_t> continuation(12U, 0U);
+  continuation[2] = 2U;
+  for (size_t index = 0U; index < 16U; ++index) {
+    g_freertos_fail_next_take = true;
+    responder.ingest_query(continuation.data(), continuation.size(), 0U, 2U, 5353U);
+  }
+  esp_timer_mock::advance(400000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+
+  const std::string host = nonce_host(1U);
+  query = bootstrap_query(host.c_str(), MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  continuation.assign(12U, 0U);
+  add_known_answer(&continuation, host.c_str(), 42U, 5U, MDNS_TYPE_A, 1U, false);
+  g_freertos_fail_next_take = true;
+  responder.ingest_query(continuation.data(), continuation.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(400000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_deferred_known_answers_coalesce_and_reject_malformed_tails() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  std::vector<uint8_t> continuation(12U, 0U);
+  for (size_t index = 0U; index < 4U; ++index) {
+    const std::string host = nonce_host(index);
+    const auto query = bootstrap_query(host.c_str(), MDNS_TYPE_A, 1U, 0U, 0x0200U);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    for (size_t duplicate = 0U; duplicate < 10U; ++duplicate) {
+      add_known_answer(&continuation, host.c_str(), 42U, 5U, MDNS_TYPE_A, 1U, false);
+    }
+  }
+  g_freertos_fail_next_take = true;
+  responder.ingest_query(continuation.data(), continuation.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(400000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+
+  const std::string host = nonce_host(4U);
+  const auto query = bootstrap_query(host.c_str(), MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  continuation.assign(12U, 0U);
+  add_known_answer(&continuation, host.c_str(), 42U, 5U, MDNS_TYPE_A, 1U, false);
+  continuation.push_back(0xffU);
+  g_freertos_fail_next_take = true;
+  responder.ingest_query(continuation.data(), continuation.size(), 0U, 1U, 5353U);
+  g_freertos_fail_next_take = false;
+  esp_timer_mock::advance(400000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_random_delay_and_tc_extension_are_bounded() {
+  for (bool truncated : {false, true}) {
+    reset_mocks();
+    esp_random_mock::value = UINT32_MAX;
+    esp_timer_mock::reset(100000, 0);
+    MdnsBootstrapResponder responder;
+    TEST_ASSERT_TRUE(responder.setup());
+    TEST_ASSERT_TRUE(responder.update(42U));
+    auto query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, truncated ? 0x0200U : 0U);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    if (truncated) {
+      esp_timer_mock::advance(100000);
+      query.assign(12U, 0U);
+      query[2] = 2U;
+      responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    }
+    esp_timer_mock::advance(truncated ? 499999 : 119999);
+    responder.loop();
+    TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+    esp_timer_mock::advance(1);
+    responder.loop();
+    TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  }
+}
+
+void test_bootstrap_coalesces_multicast_and_tracks_each_record_and_interface() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  const auto query = bootstrap_query();
+  for (uint32_t source : {1U, 2U, 1U, 2U}) responder.ingest_query(query.data(), query.size(), 0U, source, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  responder.ingest_query(query.data(), query.size(), 1U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(1U, g_mdns_mock.last_write_interface);
+  esp_timer_mock::advance(979999);
+  responder.loop();
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(1);
+  responder.loop();
+  TEST_ASSERT_EQUAL(3, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(0U, g_mdns_mock.last_write_interface);
+  // A previous NSEC does not delay the A record, nor get retransmitted with it.
+  responder.update(43U);
+  auto aaaa = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_AAAA);
+  responder.ingest_query(aaaa.data(), aaaa.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(5, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(0U, packet_u16(g_mdns_mock.last_write_packet + 10U));
+}
+
+void test_bootstrap_failed_sends_do_not_consume_history_and_reconnect_resets_it() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  auto query = bootstrap_query();
+  g_mdns_mock.fail_write = true;
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(20000);
+  g_mdns_mock.fail_write = false;
+  responder.loop();
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  responder.update(0U);
+  responder.update(42U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(3, g_mdns_mock.real_write_call_count);
+  // Failed unicast sends also leave all eight successful-send budget slots free.
+  responder.update(43U);
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 0x8001U);
+  g_mdns_mock.fail_write = true;
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  g_mdns_mock.fail_write = false;
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  for (size_t index = 0U; index < 7U; ++index) responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  TEST_ASSERT_EQUAL(12, g_mdns_mock.real_write_call_count);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  TEST_ASSERT_EQUAL(12, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_multicast_does_not_cancel_legacy_and_tc_cannot_hold_slots_forever() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  MdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(42U));
+  auto legacy = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0x1234U, 0x0200U);
+  responder.ingest_query(legacy.data(), legacy.size(), 0U, 1U, 9999U);
+  const auto multicast = bootstrap_query();
+  responder.ingest_query(multicast.data(), multicast.size(), 0U, 2U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(380000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  assert_bootstrap_answer(BOOTSTRAP_HOST, 42U, true, 0x1234U);
+  TEST_ASSERT_EQUAL(9999U, g_mdns_mock.last_write_destination_port);
+  responder.update(43U);
+  for (size_t index = 0U; index < 4U; ++index) {
+    const auto query = bootstrap_query(nonce_host(index).c_str(), MDNS_TYPE_A, 1U, 0U, 0x0200U);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  }
+  std::vector<uint8_t> continuation(12U, 0U);
+  continuation[2] = 2U;
+  for (size_t iteration = 0U; iteration < 10U; ++iteration) {
+    esp_timer_mock::advance(300000);
+    responder.ingest_query(continuation.data(), continuation.size(), 0U, 1U, 5353U);
+  }
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  responder.ingest_query(multicast.data(), multicast.size(), 0U, 2U, 5353U);
+  esp_timer_mock::advance(20000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(3, g_mdns_mock.real_write_call_count);
 }
 
 void test_bootstrap_wrapper_always_forwards_to_espressif() {
@@ -541,6 +979,73 @@ struct PeerMdnsFixture {
     result.addr = &address;
   }
 };
+
+void test_txtvers_is_passed_last_for_espressif_wire_order() {
+  reset_mocks();
+  MdnsDiscoveryService service;
+  auto config = direct_config();
+  config.txt_records.insert(config.txt_records.begin() + 1U, {"txtvers", "1"});
+  TEST_ASSERT_TRUE(service.setup(config));
+  TEST_ASSERT_EQUAL_STRING("txtvers", g_mdns_mock.txt_keys[4]);
+  TEST_ASSERT_EQUAL_STRING("1", g_mdns_mock.txt_values[4]);
+  std::reverse(config.txt_records.begin(), config.txt_records.end());
+  TEST_ASSERT_TRUE(service.update_txt(config.txt_records));
+  TEST_ASSERT_EQUAL_STRING("txtvers", g_mdns_mock.txt_keys[4]);
+}
+
+void test_peer_txt_case_duplicates_and_release_announcements() {
+  for (const char *firmware : {"3.0.0-rc1", "3.0.0-rc2"}) {
+    for (size_t variant = 0U; variant < 4U; ++variant) {
+      reset_mocks();
+      PeerMdnsFixture fixture;
+      fixture.txt[7].value = firmware;
+      std::vector<std::string> keys;
+      keys.reserve(10U);
+      for (auto &item : fixture.txt) {
+        keys.emplace_back(item.key);
+        if (variant != 0U) {
+          for (size_t index = 0U; index < keys.back().size(); ++index) {
+            if (variant == 1U || index % 2U == 0U) keys.back()[index] = std::toupper(keys.back()[index]);
+          }
+        }
+        item.key = keys.back().c_str();
+      }
+      std::vector<mdns_txt_item_t> txt(fixture.txt, fixture.txt + 10U);
+      txt.push_back({"DEVICE_ID", "ffffffffffffffff"});
+      txt.push_back({"unknown", nullptr});
+      if (variant == 3U) txt.insert(txt.begin(), {"DEVICE_ID", nullptr});
+      fixture.result.txt = txt.data();
+      fixture.result.txt_count = txt.size();
+      fixture.result.service_type = const_cast<char *>("_ESpectre");
+      fixture.result.proto = const_cast<char *>("_TCP");
+      fixture.result.hostname = const_cast<char *>("ESpectre-2222222222222222");
+      fixture.result.port = ESPECTRE_DIRECT_HTTP_PORT;
+      g_mdns_mock.async_results = &fixture.result;
+      g_mdns_mock.async_get_results_finished = true;
+      EspIdfPeerDiscoveryService service;
+      service.set_wifi_ready(true);
+      PeerDiscoverySnapshot delivered;
+      TEST_ASSERT_TRUE(service.start([&](PeerDiscoverySnapshot result) { delivered = std::move(result); }));
+      service.loop();
+      TEST_ASSERT_EQUAL(variant == 3U ? 0U : 1U, delivered.devices.size());
+      if (variant != 3U) {
+        TEST_ASSERT_EQUAL_STRING("2222222222222222", delivered.devices[0].device_id.c_str());
+        TEST_ASSERT_EQUAL_STRING("Office sensor", delivered.devices[0].name.c_str());
+        TEST_ASSERT_EQUAL_STRING("ESpectre-2222222222222222", delivered.devices[0].hostname.c_str());
+        TEST_ASSERT_EQUAL_STRING(firmware, delivered.devices[0].firmware.c_str());
+      }
+    }
+  }
+  const uint32_t station = ipv4(192U, 168U, 1U, 100U);
+  auto first = peer("1111111111111111", "ESPectre-One", ipv4(192U, 168U, 1U, 42U));
+  auto second = first;
+  second.hostname = "espectre-one";
+  second.ipv4_addresses = {ipv4(192U, 168U, 1U, 43U)};
+  const auto result = validate_peer_discovery_candidates({first, second}, station, ipv4(255U, 255U, 255U, 0U), 1U, false);
+  TEST_ASSERT_EQUAL(1U, result.devices.size());
+  TEST_ASSERT_EQUAL(2U, result.devices[0].ipv4_addresses.size());
+  TEST_ASSERT_EQUAL_STRING("ESPectre-One", result.devices[0].hostname.c_str());
+}
 
 void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   const uint32_t station = ipv4(192U, 168U, 1U, 100U);
@@ -735,6 +1240,8 @@ void test_peer_query_repeated_cancellation_releases_each_operation_once() {
 int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_registers_identity_service_and_txt);
+  RUN_TEST(test_txtvers_is_passed_last_for_espressif_wire_order);
+  RUN_TEST(test_peer_txt_case_duplicates_and_release_announcements);
   RUN_TEST(test_follows_wifi_lifecycle_and_updates_txt_atomically);
   RUN_TEST(test_does_not_free_mdns_owned_by_another_component);
   RUN_TEST(test_attaches_without_mutating_existing_responder_identity);
@@ -746,6 +1253,18 @@ int main() {
   RUN_TEST(test_bootstrap_rejects_static_invalid_and_unsupported_queries);
   RUN_TEST(test_bootstrap_requires_ipv4_and_cancels_pending_responses);
   RUN_TEST(test_bootstrap_bounds_pending_pool_and_global_rate);
+  RUN_TEST(test_bootstrap_compression_any_and_multiple_questions);
+  RUN_TEST(test_bootstrap_rejects_malformed_compression_and_record_tails);
+  RUN_TEST(test_bootstrap_known_answers_match_content_class_name_and_ttl);
+  RUN_TEST(test_bootstrap_tc_continuations_and_independent_requesters);
+  RUN_TEST(test_bootstrap_deferred_continuations_preserve_ttl_and_delay);
+  RUN_TEST(test_bootstrap_deferred_continuations_do_not_survive_invalidation);
+  RUN_TEST(test_bootstrap_deferred_continuations_recover_after_saturation);
+  RUN_TEST(test_bootstrap_deferred_known_answers_coalesce_and_reject_malformed_tails);
+  RUN_TEST(test_bootstrap_random_delay_and_tc_extension_are_bounded);
+  RUN_TEST(test_bootstrap_coalesces_multicast_and_tracks_each_record_and_interface);
+  RUN_TEST(test_bootstrap_failed_sends_do_not_consume_history_and_reconnect_resets_it);
+  RUN_TEST(test_bootstrap_multicast_does_not_cancel_legacy_and_tc_cannot_hold_slots_forever);
   RUN_TEST(test_bootstrap_wrapper_always_forwards_to_espressif);
   RUN_TEST(test_peer_results_are_bounded_validated_sorted_and_serializable);
   RUN_TEST(test_peer_results_reject_every_malformed_and_nonlocal_boundary);

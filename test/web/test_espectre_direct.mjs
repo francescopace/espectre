@@ -208,6 +208,174 @@ describe('Peer discovery schema v2', () => {
         client.close();
     });
 
+    it('recovers a stalled bootstrap lookup with one fresh nonce and cancels the loser', async () => {
+        const calls = [];
+        globalThis.fetch = async (url, options) => {
+            calls.push({ url: new URL(url), signal: options.signal });
+            if (calls.length === 1) return new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+            });
+            return { ok: true, text: async () => JSON.stringify(peerDiscoveryScenarios.multiFrontend) };
+        };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        const result = await client.discoverPeersBootstrap({ timeoutMs: 100 });
+        assert.equal(result.devices.length, 3);
+        assert.equal(calls.length, 2);
+        assert.notEqual(calls[0].url.hostname, calls[1].url.hostname);
+        for (const call of calls) {
+            assert.equal(call.url.port, String(DIRECT_PORT));
+            assert.equal(call.url.pathname, '/espectre/v1/devices');
+        }
+        assert.equal(calls[0].signal.aborted, true);
+        // Let the losing fetch reject, including any unhandled-rejection event.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        client.close();
+    });
+
+    it('retries a failed lookup immediately with a fresh nonce and preserves the endpoint settings', async () => {
+        const calls = [];
+        globalThis.fetch = async (url) => {
+            calls.push(new URL(url));
+            if (calls.length === 1) throw new TypeError('Failed to fetch');
+            return { ok: true, text: async () => JSON.stringify(peerDiscoveryScenarios.multiFrontend) };
+        };
+        const endpoint = new URL(Client.createDiscoveryEndpoint());
+        endpoint.protocol = 'https:';
+        endpoint.port = '61443';
+        const client = new Client(endpoint.href);
+        await client.discoverPeersBootstrap();
+        assert.equal(calls.length, 2);
+        assert.notEqual(calls[0].hostname, calls[1].hostname);
+        assert.equal(calls[1].protocol, endpoint.protocol);
+        assert.equal(calls[1].port, endpoint.port);
+        client.close();
+    });
+
+    it('keeps the first response eligible after the fallback starts', async () => {
+        let finishFirst;
+        const calls = [];
+        globalThis.fetch = async (_url, options) => {
+            calls.push(options.signal);
+            if (calls.length === 1) return new Promise((resolve) => { finishFirst = resolve; });
+            finishFirst({ ok: true, text: async () => JSON.stringify(peerDiscoveryScenarios.multiFrontend) });
+            return new Promise((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+            });
+        };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        assert.equal((await client.discoverPeersBootstrap({ timeoutMs: 100 })).devices.length, 3);
+        assert.equal(calls.length, 2);
+        assert.equal(calls[1].aborted, true);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        client.close();
+    });
+
+    it('waits for the active discovery when the fallback reaches the same busy device', async () => {
+        let finishFirst;
+        let calls = 0;
+        globalThis.fetch = async () => {
+            calls += 1;
+            if (calls === 1) return new Promise((resolve) => { finishFirst = resolve; });
+            setTimeout(() => finishFirst({ ok: true, text: async () => JSON.stringify(peerDiscoveryScenarios.multiFrontend) }), 5);
+            return { ok: false, status: 409, text: async () => 'a peer discovery request is already active' };
+        };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        assert.equal((await client.discoverPeersBootstrap({ timeoutMs: 100 })).devices.length, 3);
+        assert.equal(calls, 2);
+        client.close();
+    });
+
+    it('does not send a cancelled request after a delayed permission check completes', async () => {
+        let resolvePermission;
+        window.ESPectreBrowserSupport = {
+            localNetworkAccessState: () => new Promise((resolve) => { resolvePermission = resolve; })
+        };
+        let calls = 0;
+        globalThis.fetch = async () => { calls += 1; };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        const pending = client.discoverPeersBootstrap();
+        client.close();
+        await assert.rejects(pending, (error) => error.code === 'not_connected');
+        resolvePermission('granted');
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(calls, 0);
+    });
+
+    it('bounds two stalled requests, including response bodies, by one deadline', async () => {
+        const signals = [];
+        globalThis.fetch = async (_url, options) => {
+            signals.push(options.signal);
+            return { ok: true, text: () => new Promise(() => {}) };
+        };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        await assert.rejects(client.discoverPeersBootstrap({ timeoutMs: 60 }), (error) => error.code === 'timeout');
+        assert.equal(signals.length, 2);
+        assert.ok(signals.every((signal) => signal.aborted));
+        client.close();
+    });
+
+    it('cancels bootstrap requests without starting a delayed retry', async () => {
+        for (const closeAfter of [1, 2]) {
+            const signals = [];
+            const client = new Client(Client.createDiscoveryEndpoint());
+            globalThis.fetch = async (_url, options) => {
+                signals.push(options.signal);
+                if (signals.length === closeAfter) queueMicrotask(() => client.close());
+                return new Promise(() => {});
+            };
+            await assert.rejects(client.discoverPeersBootstrap({ timeoutMs: 60 }), (error) => error.code === 'not_connected');
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            assert.equal(signals.length, closeAfter);
+            assert.ok(signals.every((signal) => signal.aborted));
+        }
+    });
+
+    it('returns a transport error after at most two distinct bootstrap attempts', async () => {
+        const urls = [];
+        globalThis.fetch = async (url) => { urls.push(url); throw new TypeError('Failed to fetch'); };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        await assert.rejects(client.discoverPeersBootstrap(), (error) => error.code === 'connection_failed');
+        assert.equal(urls.length, 2);
+        assert.equal(new Set(urls).size, 2);
+        client.close();
+    });
+
+    it('does not retry invalid discovery responses or denied local-network permission', async () => {
+        let calls = 0;
+        globalThis.fetch = async () => {
+            calls += 1;
+            return { ok: true, text: async () => JSON.stringify(peerDiscoveryScenarios.malformed) };
+        };
+        const client = new Client(Client.createDiscoveryEndpoint());
+        await assert.rejects(client.discoverPeersBootstrap(), (error) => error.code === 'invalid_peer_result');
+        assert.equal(calls, 1);
+        window.ESPectreBrowserSupport = { localNetworkAccessState: async () => 'denied' };
+        await assert.rejects(client.discoverPeersBootstrap(), (error) => error.code === 'local_network_denied');
+        assert.equal(calls, 1);
+        client.close();
+    });
+
+    it('reports entropy failures from the delayed fallback without leaving a request pending', async (context) => {
+        const client = new Client(Client.createDiscoveryEndpoint());
+        let signal;
+        globalThis.fetch = async (_url, options) => { signal = options.signal; return new Promise(() => {}); };
+        context.mock.method(globalThis.crypto, 'getRandomValues', () => { throw new Error('entropy unavailable'); });
+        await assert.rejects(client.discoverPeersBootstrap({ timeoutMs: 60 }), /entropy unavailable/);
+        assert.equal(signal.aborted, true);
+        client.close();
+    });
+
+    it('keeps requests to an explicit device on that same endpoint', async () => {
+        const urls = [];
+        globalThis.fetch = async (url) => { urls.push(url); throw new TypeError('Failed to fetch'); };
+        const client = new Client('192.168.1.42');
+        await assert.rejects(client.discoverPeersBootstrap(), (error) => error.code === 'connection_failed');
+        assert.equal(urls.length, 2);
+        assert.equal(new Set(urls).size, 1);
+        assert.equal(new URL(urls[0]).hostname, '192.168.1.42');
+        client.close();
+    });
+
     it('accepts HTTP peers and constructs request endpoints', () => {
         const result = Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.multiFrontend);
         assert.equal(result.devices.length, 3);

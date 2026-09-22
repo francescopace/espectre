@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <sys/socket.h>
 
 httpd_mock_state_t g_httpd_mock{};
 
@@ -45,6 +46,8 @@ esp_err_t capture_payload(httpd_req_t *request, const char *payload, size_t leng
                 g_httpd_mock.pending_allow_origin);
   }
   if (g_httpd_mock.send_result != ESP_OK) return g_httpd_mock.send_result;
+  if (g_httpd_mock.send_to_socket && request != nullptr && length > 0U &&
+      ::send(request->fd, payload, length, 0) != static_cast<ssize_t>(length)) return ESP_FAIL;
   // Response headers are consumed by the first successful send.
   g_httpd_mock.pending_allow_origin = nullptr;
   if (chunk) g_httpd_mock.chunk_calls++;
@@ -163,6 +166,8 @@ esp_err_t httpd_resp_set_hdr(httpd_req_t *request, const char *name, const char 
                 sizeof(g_httpd_mock.allow_private_network), value);
   } else if (std::strcmp(name, "Cache-Control") == 0) {
     copy_string(g_httpd_mock.cache_control, sizeof(g_httpd_mock.cache_control), value);
+  } else if (std::strcmp(name, "Connection") == 0) {
+    copy_string(g_httpd_mock.connection, sizeof(g_httpd_mock.connection), value);
   }
   return ESP_OK;
 }

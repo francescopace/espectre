@@ -1279,7 +1279,6 @@ static esp_err_t direct_add_mdns_service(
     return result;
   }
   mdns_txt_item_t txt[] = {
-      {"txtvers", direct_state.dns_sd_schema_version},
       {"protovers", direct_state.protocol_version},
       {"device_id", device_id},
       {"name", instance},
@@ -1289,6 +1288,8 @@ static esp_err_t direct_add_mdns_service(
       {"firmware", firmware_version},
       {"chip", chip},
       {"capabilities", "monitor"},
+      // Espressif prepends TXT items; txtvers must be first on the wire.
+      {"txtvers", direct_state.dns_sd_schema_version},
   };
   result = mdns_service_add(instance, "_espectre", "_tcp", port, txt, MP_ARRAY_SIZE(txt));
   if (result != ESP_OK) {

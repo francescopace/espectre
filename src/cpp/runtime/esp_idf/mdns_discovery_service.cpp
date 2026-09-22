@@ -131,6 +131,13 @@ bool MdnsDiscoveryService::set_service_txt_() {
   std::vector<mdns_txt_item_t> records;
   records.reserve(config_.txt_records.size());
   for (const auto &record : config_.txt_records) {
+    if (record.first == "txtvers") continue;
+    records.push_back(mdns_txt_item_t{record.first.c_str(), record.second.c_str()});
+  }
+  // Espressif prepends TXT items to its list. Pass txtvers last so it is
+  // transmitted first, including when updating an existing service.
+  for (const auto &record : config_.txt_records) {
+    if (record.first != "txtvers") continue;
     records.push_back(mdns_txt_item_t{record.first.c_str(), record.second.c_str()});
   }
   const esp_err_t err = mdns_service_txt_set(config_.service_type.c_str(),

@@ -14,8 +14,9 @@ from .common import Fore, Style
 from micro_espectre.protocol import DNS_SD_TXT_SCHEMA_VERSION, PROTOCOL_VERSION
 
 try:
-    from zeroconf import IPVersion, ServiceBrowser, ServiceListener, Zeroconf
+    from zeroconf import DNSQuestionType, IPVersion, ServiceBrowser, ServiceListener, Zeroconf
 except ImportError:  # pragma: no cover - exercised via CLI integration tests
+    DNSQuestionType = None
     IPVersion = None
     ServiceBrowser = None
     ServiceListener = object
@@ -26,8 +27,11 @@ ESPECTRE_SERVICE_TYPE = "_espectre._tcp.local."
 # Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
 ESPECTRE_DIRECT_PORT = 62587
 SUPPORTED_DISCOVERY_FRONTENDS = ("native", "esphome", "matter", "micro")
-DISCOVERY_TIMEOUT_S = 2.5
-DISCOVERY_QUIET_WINDOW_S = 0.35
+DISCOVERY_TIMEOUT_S = 6.0
+# Allow both startup retries, including the third PTR query around five seconds.
+# A quiet first responder does not mean the browse is complete, so retain the
+# full default budget for replies from devices missed by the earlier queries.
+DISCOVERY_QUIET_WINDOW_S = DISCOVERY_TIMEOUT_S
 # Collect uses the same fresh PTR browse as the generic devices command.
 COLLECT_DISCOVERY_QUIET_WINDOW_S = DISCOVERY_QUIET_WINDOW_S
 
@@ -74,12 +78,22 @@ class DeviceDiscoveryError(RuntimeError):
 
 
 def _decode_txt(properties, key: str) -> str | None:
-    raw_value = properties.get(key.encode("utf-8"))
-    if raw_value is None:
-        return None
-    if isinstance(raw_value, bytes):
-        return raw_value.decode("utf-8", errors="replace").strip()
-    return str(raw_value).strip()
+    # DNS-SD keys are ASCII case-insensitive; the first occurrence wins,
+    # including a key without a value (RFC 6763, section 6.4).
+    expected = key.encode("ascii")
+    for raw_key, raw_value in properties.items():
+        if raw_key.lower() != expected:
+            continue
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, bytes):
+            return raw_value.decode("utf-8", errors="replace").strip()
+        return str(raw_value).strip()
+    return None
+
+
+def _dns_key(name: str) -> str:
+    return name.translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
 
 
 def _parse_device_id(value: str | None) -> tuple[int, str] | None:
@@ -123,7 +137,7 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
     protovers = _decode_txt(info.properties, "protovers")
     port = int(info.port)
     if (
-        service_type != ESPECTRE_SERVICE_TYPE
+        _dns_key(service_type) != ESPECTRE_SERVICE_TYPE
         or not addresses
         or parsed_device_id is None
         or frontend not in SUPPORTED_DISCOVERY_FRONTENDS
@@ -168,14 +182,16 @@ class _DeviceListener(ServiceListener):
         self._last_change_monotonic = 0.0
 
     def _resolve_record(self, service_type: str, name: str) -> DiscoveredDevice | None:
-        info = self._zeroconf.get_service_info(service_type, name, timeout=1000)
+        info = self._zeroconf.get_service_info(
+            service_type, name, timeout=1000, question_type=DNSQuestionType.QM,
+        )
         return None if info is None else _parse_record(service_type, name, info)
 
     def add_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
         del zeroconf
         record = self._resolve_record(service_type, name)
         if record is not None:
-            key = (service_type, name)
+            key = (_dns_key(service_type), _dns_key(name))
             with self._records_changed:
                 if self._records.get(key) != record:
                     self._records[key] = record
@@ -188,7 +204,7 @@ class _DeviceListener(ServiceListener):
     def remove_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
         del zeroconf
         with self._records_changed:
-            if self._records.pop((service_type, name), None) is not None:
+            if self._records.pop((_dns_key(service_type), _dns_key(name)), None) is not None:
                 self._last_change_monotonic = time.monotonic()
                 self._records_changed.notify_all()
 
@@ -245,7 +261,10 @@ def discover_devices(
         raise ValueError("discovery quiet window must be a finite value greater than zero")
     _ensure_zeroconf_available()
     try:
-        zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
+        # An ephemeral source port requests replies directly to this one-shot
+        # client, without depending on multicast reception or sharing Bonjour's
+        # unicast replies on UDP port 5353.
+        zeroconf = Zeroconf(unicast=True, ip_version=IPVersion.V4Only)
     except OSError as exc:
         raise DeviceDiscoveryError(
             f"mDNS discovery could not open local network interfaces ({exc}). Use an explicit device address."
@@ -254,7 +273,11 @@ def discover_devices(
     listener = _DeviceListener(zeroconf)
     browser = None
     try:
-        browser = ServiceBrowser(zeroconf, ESPECTRE_SERVICE_TYPE, listener=listener)
+        # The source port requests legacy-unicast replies. Keep the ordinary
+        # IN question class (QM) for browsing and follow-up resolution.
+        browser = ServiceBrowser(
+            zeroconf, ESPECTRE_SERVICE_TYPE, listener=listener, question_type=DNSQuestionType.QM,
+        )
         listener.wait_for_quiet(float(timeout_s), float(quiet_window_s))
     finally:
         if browser is not None:
