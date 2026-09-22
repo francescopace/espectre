@@ -766,7 +766,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
         if (read.command == "read_diagnostics") {
           RuntimeDiagnosticsSnapshot diagnostics;
           bool loaded = false;
-          return diagnostic_response(read.diagnostic_fields, 2U, [&](const char *key) -> std::string {
+          return diagnostic_response(read.diagnostic_fields, ESPECTRE_DIAGNOSTIC_PROFILE_BRIDGE, [&](const char *key) -> std::string {
             if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(millis());
             if (std::strcmp(key, "uptime") == 0) return std::to_string(millis() / 1000U);
             return runtime_diagnostic_value(key, this->runtime_.diagnostics_sample(), [&]() -> const RuntimeDiagnosticsSnapshot & {

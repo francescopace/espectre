@@ -18,7 +18,7 @@
 #include "runtime/espectre_protocol.h"
 #include "runtime/protocol_json.h"
 #include "runtime/runtime_config_utils.h"
-#include "runtime/runtime_diagnostics.h"
+#include "runtime/runtime_diagnostics_protocol.h"
 #include "runtime/runtime_time.h"
 #include "wifi_lifecycle.h"
 
@@ -214,7 +214,7 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
     return espectre_command_result_payload(
         device, command, false, frontend_command_parse_error_code(parse_error), parse_error.c_str());
   }
-  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, 2U)) {
+  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, ESPECTRE_DIAGNOSTIC_PROFILE_BRIDGE)) {
     return espectre_command_result_payload(device, command, false, "invalid_params",
                                            "diagnostic field is not available on this frontend");
   }
@@ -726,7 +726,7 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_(const std::vector<std:
   };
   const uint32_t now = monotonic_now_ms();
   const RuntimeDiagnosticsSample *sample = config_.diagnostics_sample_getter ? config_.diagnostics_sample_getter() : nullptr;
-  return diagnostic_response(fields, 2U, [&](const char *key) -> std::string {
+  return diagnostic_response(fields, ESPECTRE_DIAGNOSTIC_PROFILE_BRIDGE, [&](const char *key) -> std::string {
     if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(now);
     if (std::strcmp(key, "uptime") == 0) return std::to_string(now / 1000U);
     if (std::strcmp(key, "loop_time_ms") == 0) return config_.loop_time_ms_getter ? std::to_string(config_.loop_time_ms_getter()) : "null";

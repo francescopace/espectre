@@ -17,6 +17,7 @@
 #include "runtime_config_utils.h"
 #include "mqtt_payload_assembler.h"
 #include "runtime_diagnostics.h"
+#include "runtime_diagnostics_protocol.h"
 #include "runtime_performance_diagnostics.h"
 #include "runtime_time.h"
 #include "sta_socket_helpers.h"

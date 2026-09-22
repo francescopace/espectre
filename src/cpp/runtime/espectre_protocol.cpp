@@ -23,7 +23,7 @@
 #include "core/base_detector.h"
 #include "protocol_json.h"
 #include "raw_csi.h"
-#include "runtime_diagnostics.h"
+#include "runtime_diagnostics_protocol.h"
 #include "runtime_sensing_schema.h"
 #include "runtime_config_utils.h"
 

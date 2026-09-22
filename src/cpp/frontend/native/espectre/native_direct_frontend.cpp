@@ -423,7 +423,7 @@ std::string NativeDirectFrontend::diagnostics_payload(const std::vector<std::str
   };
   const uint32_t now = owner_.now_ms_();
   const RuntimeDiagnosticsSample *sample = owner_.runtime_.diagnostics_sample();
-  return diagnostic_response(fields, 1U, [&](const char *key) -> std::string {
+  return diagnostic_response(fields, ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE, [&](const char *key) -> std::string {
     if (std::strcmp(key, "timestamp_ms") == 0) return std::to_string(now);
     if (std::strcmp(key, "uptime") == 0) return std::to_string(now / 1000U);
     if (std::strcmp(key, "free_memory_kb") == 0) return std::to_string(current_free_memory_kb());

@@ -177,15 +177,13 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_CSI_TARGET_PPS_DEFAULT),
                         static_cast<int>(config.csi_target_pps));
 
-  // Zero means "derive from the Wi-Fi MAC", which is what makes the default
-  // config usable without the integrator supplying an identity.
-  TEST_ASSERT_TRUE(config.device_id == ESPECTRE_DEFAULT_DEVICE_ID);
+  // Zero is the unresolved sentinel; integrators assign derive_runtime_device_id().
+  TEST_ASSERT_TRUE(config.device_id == 0U);
 }
 
 void test_runtime_device_identity_is_reachable_from_the_facade(void) {
-  TEST_ASSERT_TRUE(derive_runtime_device_id() != ESPECTRE_DEFAULT_DEVICE_ID);
-  TEST_ASSERT_EQUAL_STRING(format_espectre_device_id(derive_runtime_device_id()).c_str(),
-                           derive_runtime_device_id_string().c_str());
+  TEST_ASSERT_TRUE(derive_runtime_device_id() != 0U);
+  TEST_ASSERT_FALSE(derive_runtime_device_id_string().empty());
 }
 
 void test_kconfig_runtime_config_is_valid_and_ready_for_setup(void) {

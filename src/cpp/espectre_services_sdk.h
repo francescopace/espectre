@@ -18,7 +18,7 @@
  * Firmware retains ownership of networking, service lifetime, and task policy.
  * Concrete service objects retain their existing caller-owned allocation model.
  */
-#include "espectre_sdk.h"
+#include "espectre_protocol_sdk.h"
 
 #include "runtime/esp_idf/device_config_store.h"
 #include "runtime/esp_idf/direct_http_service_esp_idf.h"

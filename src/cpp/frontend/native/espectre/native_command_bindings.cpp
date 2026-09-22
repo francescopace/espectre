@@ -29,7 +29,7 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
     busy.message = "mutation is unavailable during raw CSI collection";
     return busy;
   }
-  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, 1U)) {
+  if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE)) {
     FrontendCommandResult rejected;
     rejected.handled = true;
     rejected.command = command;

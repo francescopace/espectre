@@ -21,6 +21,7 @@
  * [SDK README](https://github.com/francescopace/espectre/blob/main/docs/SDK.md)
  * for installation and a minimal application. Use espectre_sdk.h for the
  * sensing runtime, espectre_core_sdk.h for custom capture pipelines,
+ * espectre_protocol_sdk.h for the ESPectre Protocol and its transports,
  * espectre_services_sdk.h for optional services, and espectre_mqtt_sdk.h
  * for the ESP-IDF MQTT implementation.
  *
@@ -105,8 +106,9 @@
  *
  * Everything reachable from this header is the stable runtime surface and
  * follows the SDK version contract. The opt-in `espectre_core_sdk.h` facade is
- * the lower-level detector extension. The optional services and MQTT facades
- * expose supported ESP-IDF integration contracts. Headers included only as
+ * the lower-level detector extension. The opt-in `espectre_protocol_sdk.h`
+ * facade adds the protocol and transport contracts. The optional services and
+ * MQTT facades expose supported ESP-IDF integration contracts. Headers included only as
  * implementation dependencies can change in any release. See
  * @ref integration_versioning for the exact guarantees.
  *
@@ -127,18 +129,11 @@
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_diagnostics.h"
-#include "runtime/diagnostic_fields.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_config.h"
 #include "runtime/raw_csi.h"
 #include "runtime/runtime_sensing_schema.h"
 #include "runtime/runtime_snapshot.h"
-
-// Boundary interfaces you implement to reach your own transports.
-#include "runtime/espectre_protocol.h"
-#include "runtime/protocol_json.h"
-#include "runtime/direct_http_service.h"
-#include "runtime/mqtt_transport.h"
 
 // Recommended entry point. The declaration is portable; linking it requires
 // the ESP-IDF runtime sources.

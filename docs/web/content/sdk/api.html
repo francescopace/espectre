@@ -72,11 +72,15 @@
   <div class="api-map">
     <a href="/sdk/api/?api=espectre__sdk_8h" data-api-reference-ref="espectre__sdk_8h">
       <code>espectre_sdk.h</code>
-      <span>The main header for ESP-IDF products: runtime, configuration, events, diagnostics, and interfaces. This is the stable full-runtime API.</span>
+      <span>The main header for ESP-IDF products: runtime, configuration, events, and diagnostics. This is the stable full-runtime API.</span>
+    </a>
+    <a href="/sdk/api/?api=espectre__protocol__sdk_8h" data-api-reference-ref="espectre__protocol__sdk_8h">
+      <code>espectre_protocol_sdk.h</code>
+      <span>Everything in <code>espectre_sdk.h</code>, plus the ESPectre Protocol: messages, JSON, diagnostic fields, and the transport interfaces you implement.</span>
     </a>
     <a href="/sdk/api/?api=espectre__services__sdk_8h" data-api-reference-ref="espectre__services__sdk_8h">
       <code>espectre_services_sdk.h</code>
-      <span>Everything in <code>espectre_sdk.h</code>, plus commands, Direct HTTP, discovery, provisioning, and startup helpers. Needs the ESP-IDF headers they depend on.</span>
+      <span>Everything in <code>espectre_protocol_sdk.h</code>, plus commands, Direct HTTP, discovery, provisioning, and startup helpers. Needs the ESP-IDF headers they depend on.</span>
     </a>
     <a href="/sdk/api/?api=espectre__mqtt__sdk_8h" data-api-reference-ref="espectre__mqtt__sdk_8h">
       <code>espectre_mqtt_sdk.h</code>
@@ -90,7 +94,7 @@
 
   <p>Including a header does not compile its code. Enable the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional capability groups</a> you use and add their dependencies. Your firmware creates the service objects and manages their lifecycle.</p>
 
-  <div class="note"><strong>What is stable.</strong> Everything reachable from <code>espectre_sdk.h</code>, and the public methods and configuration types of the services and MQTT headers, follow the compatibility rules below. The core header covers the detector classes and their documented methods. Private members, feature trackers, generated weights, and headers included only internally are not part of the API.</div>
+  <div class="note"><strong>What is stable.</strong> Everything reachable from <code>espectre_sdk.h</code>, the protocol header, and the public methods and configuration types of the services and MQTT headers follow the compatibility rules below. The core header covers the detector classes and their documented methods. Private members, feature trackers, generated weights, and headers included only internally are not part of the API.</div>
 
   <h2>Compatibility</h2>
   <p>Final releases follow Semantic Versioning for the C++ source. Patch releases keep documented behavior, minor releases may add to the API, and breaking changes need a major release. Preview and develop bundles can change before the final release.</p>

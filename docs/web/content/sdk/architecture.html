@@ -62,7 +62,7 @@
     <div><strong>Product event</strong><span>frontend</span></div>
   </div>
 
-  <div class="note"><strong>Optional services have their own headers.</strong> Include <code>espectre_services_sdk.h</code> for commands, Direct HTTP, discovery, provisioning, and startup helpers, and <code>espectre_mqtt_sdk.h</code> for MQTT. Enable the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">source groups</a> your firmware needs, or plug in your own services through the same interfaces.</div>
+  <div class="note"><strong>Optional services have their own headers.</strong> Include <code>espectre_protocol_sdk.h</code> to speak the ESPectre Protocol over your own transport, <code>espectre_services_sdk.h</code> for commands, Direct HTTP, discovery, provisioning, and startup helpers, and <code>espectre_mqtt_sdk.h</code> for MQTT. Enable the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">source groups</a> your firmware needs, or plug in your own services through the same interfaces.</div>
 
   <p>The SDK's provisioning service stores Wi-Fi credentials; your firmware chooses how the user enters them. The Improv Serial and update code used by the reference firmware is not part of the SDK.</p>
 

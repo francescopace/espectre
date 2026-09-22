@@ -92,6 +92,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_time.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"

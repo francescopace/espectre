@@ -53,6 +53,7 @@
       "sources": [
         "src/cpp/runtime/runtime_config_utils.cpp",
         "src/cpp/runtime/runtime_diagnostics.cpp",
+        "src/cpp/runtime/runtime_diagnostics_protocol.cpp",
         "src/cpp/runtime/runtime_time.cpp"
       ]
     },

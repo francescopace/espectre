@@ -16,5 +16,5 @@
  * transport object and drives its lifecycle. Other services do not require
  * this facade or the MQTT stack.
  */
-#include "espectre_sdk.h"
+#include "espectre_protocol_sdk.h"
 #include "runtime/esp_idf/mqtt_transport_esp_idf.h"

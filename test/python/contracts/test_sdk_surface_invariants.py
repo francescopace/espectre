@@ -27,6 +27,7 @@ REPO_ROOT = repo_root()
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 FACADE = CPP_ROOT / "espectre_sdk.h"
 CORE_FACADE = CPP_ROOT / "espectre_core_sdk.h"
+PROTOCOL_FACADE = CPP_ROOT / "espectre_protocol_sdk.h"
 SERVICES_FACADE = CPP_ROOT / "espectre_services_sdk.h"
 MQTT_FACADE = CPP_ROOT / "espectre_mqtt_sdk.h"
 DOXYFILE = CPP_ROOT / "Doxyfile"
@@ -292,7 +293,7 @@ def test_core_facade_is_complete_documented_and_mapped() -> None:
 def test_sdk_readme_links_the_public_facades_to_the_reference() -> None:
     """The README exposes the supported entry points and generated reference."""
     guide = SDK_GUIDE.read_text(encoding="utf-8")
-    for facade in (FACADE, CORE_FACADE, SERVICES_FACADE, MQTT_FACADE):
+    for facade in (FACADE, CORE_FACADE, PROTOCOL_FACADE, SERVICES_FACADE, MQTT_FACADE):
         assert f"`{facade.name}`" in guide
 
 
@@ -311,6 +312,20 @@ def test_services_facade_is_complete(header: Path) -> None:
         return
     declared = set(FORWARD_DECLARATION_PATTERN.findall(sdk_source)) - OPAQUE_IMPLEMENTATION_TYPES
     assert declared <= definitions, f"{header.name}: incomplete SDK types {sorted(declared - definitions)}"
+
+
+def test_sensing_facade_leaves_the_protocol_to_its_own_facade() -> None:
+    """Sensing-only firmware does not compile the protocol, JSON, or transport contracts."""
+    protocol_headers = {
+        header
+        for header in FACADE_INCLUDE_PATTERN.findall(PROTOCOL_FACADE.read_text(encoding="utf-8"))
+        if header != FACADE.name
+    }
+    assert protocol_headers, f"{PROTOCOL_FACADE.name} should include the protocol surface"
+    leaked = sorted(protocol_headers & facade_reachable_header_names())
+    assert not leaked, f"{FACADE.name} reaches protocol headers: {leaked}"
+    for facade in (SERVICES_FACADE, MQTT_FACADE):
+        assert PROTOCOL_FACADE in include_closure(facade), f"{facade.name} must include {PROTOCOL_FACADE.name}"
 
 
 def test_services_facade_is_documented_without_exposing_detector_internals() -> None:

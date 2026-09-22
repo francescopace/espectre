@@ -167,7 +167,7 @@ ESPectre uses Semantic Versioning for the published C++ source API:
 
 The SDK is distributed and consumed as source. It does not promise a stable binary ABI: rebuild the SDK and integration together with the same C++ standard library and ESP-IDF toolchain. Construct public configuration and snapshot structs with their defaults, then assign named fields as shown in this guide; positional aggregate initialization is outside the compatibility contract so new fields can be appended safely.
 
-Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface. The public methods and configuration types exposed by `espectre_services_sdk.h` and `espectre_mqtt_sdk.h` follow the same source-compatibility rules for optional ESP-IDF services. `espectre_core_sdk.h` is a separate opt-in for custom capture pipelines. Its detector classes and documented public methods follow the same rules. Feature trackers, generated weights, and headers included only as implementation dependencies are not independent extension points.
+Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface. The protocol contracts in `espectre_protocol_sdk.h` follow the same source-compatibility rules, and so do the public methods and configuration types that `espectre_services_sdk.h` and `espectre_mqtt_sdk.h` expose for optional ESP-IDF services. `espectre_core_sdk.h` is a separate opt-in for custom capture pipelines. Its detector classes and documented public methods follow the same rules. Feature trackers, generated weights, and headers included only as implementation dependencies are not independent extension points.
 
 The SDK reads its identity only from `runtime/espectre_sdk_version.h` and explicit compiler definitions. It does not inspect Git, source refs, environment variables, or the application version. Published SDK bundles stamp the release identity into that header and `idf_component.yml`; the CI packaging tools determine the identity before producing the bundle.
 
@@ -248,6 +248,7 @@ Each GitHub/web SDK bundle includes:
 - `src/cpp/espectre_core_sdk.h`
 - `src/cpp/espectre_services_sdk.h`
 - `src/cpp/espectre_mqtt_sdk.h`
+- `src/cpp/espectre_protocol_sdk.h`
 - `src/cpp/core/`
 - `src/cpp/runtime/`
 - `src/cpp/runtime/esp_idf/espectre_config/`

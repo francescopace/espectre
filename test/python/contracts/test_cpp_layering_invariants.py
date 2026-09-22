@@ -134,7 +134,7 @@ def layer(path: Path) -> int:
     parts = path.relative_to(CPP_ROOT).parts
     if parts[0] == "core":
         return 0
-    if parts[0] == "runtime" or parts in {("espectre_sdk.h",), ("espectre_services_sdk.h",), ("espectre_mqtt_sdk.h",), ("espectre_core_sdk.h",)}:
+    if parts[0] == "runtime" or parts in {("espectre_sdk.h",), ("espectre_services_sdk.h",), ("espectre_mqtt_sdk.h",), ("espectre_protocol_sdk.h",), ("espectre_core_sdk.h",)}:
         return 1
     if parts[0] == "frontend":
         # Shared frontend helpers sit below concrete frontend implementations.

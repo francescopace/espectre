@@ -116,7 +116,8 @@ Include the header for the integration you need. Optional services also need the
 |--------|------------|
 | `espectre_sdk.h` | Sensing runtime, configuration, snapshots, and listener callbacks |
 | `espectre_core_sdk.h` | Detectors and temporal sampling when your application owns CSI capture |
-| `espectre_services_sdk.h` | Optional Direct HTTP, discovery, provisioning, and application services |
+| `espectre_protocol_sdk.h` | The ESPectre Protocol: messages, JSON, diagnostic fields, and the Direct HTTP and MQTT transport contracts |
+| `espectre_services_sdk.h` | Optional Direct HTTP, discovery, provisioning, and application services. Includes the protocol header |
 | `espectre_mqtt_sdk.h` | The ESP-IDF MQTT implementation |
 
 The main types are `RuntimeConfig` (startup settings), `RuntimeFrontendController` (lifecycle and controls), `RuntimeSnapshot` (sensing state), `RuntimeCapabilities` (optional controls), and `IRuntimeListener` (events). Only what these headers expose is public; other headers in the package are internal.

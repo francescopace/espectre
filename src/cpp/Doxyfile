@@ -54,6 +54,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/runtime_sensing_schema.h \
                          src/cpp/runtime/runtime_config_utils.h \
                          src/cpp/runtime/runtime_diagnostics.h \
+                         src/cpp/runtime/runtime_diagnostics_protocol.h \
                          src/cpp/runtime/esp_idf/network_traffic.h \
                          src/cpp/runtime/diagnostic_fields.h \
                          src/cpp/runtime/csi_traffic_types.h \
@@ -77,6 +78,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/detector_limits.h \
                          src/cpp/espectre_services_sdk.h \
                          src/cpp/espectre_mqtt_sdk.h \
+                         src/cpp/espectre_protocol_sdk.h \
                          src/cpp/runtime/esp_idf/device_config_store.h \
                          src/cpp/runtime/esp_idf/direct_http_service_esp_idf.h \
                          src/cpp/runtime/esp_idf/direct_wifi_snapshot_esp_idf.h \
