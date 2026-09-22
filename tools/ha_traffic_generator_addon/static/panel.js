@@ -68,7 +68,8 @@ function deviceElement(id) {
     checkCell.append(check);
     const nameCell = node("td"), ip = node("div", "", "device-ip");
     nameCell.append(name, ip);
-    const traffic = node("td"), accepted = node("td"), occupancy = node("td"), rssi = node("td");
+    const generator = node("td"), traffic = node("td"), trafficRx = node("td");
+    const accepted = node("td"), occupancy = node("td"), rssi = node("td");
     const actions = node("td"), buttons = node("div", undefined, "row-actions");
     const modes = {};
     for (const [action, label] of [["external", "External"], ["internal", "Internal"]]) {
@@ -79,8 +80,8 @@ function deviceElement(id) {
       modes[action] = button;
     }
     actions.append(buttons);
-    tr.append(checkCell, nameCell, traffic, accepted, occupancy, rssi, actions);
-    deviceElements.set(id, {tr, check, name, ip, traffic, accepted, occupancy, rssi, modes});
+    tr.append(checkCell, nameCell, generator, traffic, trafficRx, accepted, occupancy, rssi, actions);
+    deviceElements.set(id, {tr, check, name, ip, generator, traffic, trafficRx, accepted, occupancy, rssi, modes});
   }
   return deviceElements.get(id);
 }
@@ -107,7 +108,9 @@ function render() {
         (action === "external" && generatorRunning !== true);
       button.setAttribute("aria-label", `${button.textContent}: ${row.name}`);
     }
+    sample(element.generator, row.fields.generator);
     sample(element.traffic, row.fields.traffic);
+    sample(element.trafficRx, row.fields.traffic_rx);
     sample(element.accepted, row.fields.accepted);
     sample(element.occupancy, row.fields.occupancy, "%");
     sample(element.rssi, row.fields.rssi, " dBm");

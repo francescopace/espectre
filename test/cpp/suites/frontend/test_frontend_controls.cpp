@@ -457,6 +457,8 @@ void test_wifi_bssid_pin_rollback_restarts_current_config_when_update_fails(void
 
 void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   ESpectreComponentProbe component;
+  esphome::sensor::Sensor generator_rate;
+  esphome::sensor::Sensor traffic_rx_rate;
   esphome::sensor::Sensor traffic_rate;
   esphome::sensor::Sensor callback_rate;
   esphome::sensor::Sensor accepted_rate;
@@ -469,6 +471,8 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   esphome::sensor::Sensor occupancy;
   esphome::sensor::Sensor channel;
   esphome::sensor::Sensor rssi;
+  component.set_generator_rate_sensor(&generator_rate);
+  component.set_traffic_rx_rate_sensor(&traffic_rx_rate);
   component.set_traffic_rate_sensor(&traffic_rate);
   component.set_csi_callback_rate_sensor(&callback_rate);
   component.set_csi_accepted_rate_sensor(&accepted_rate);
@@ -483,7 +487,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   component.set_wifi_rssi_sensor(&rssi);
   frontend_runtime_shim::state.diagnostics.wifi_channel = 8U;
   frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -60;
-  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
+  frontend_runtime_shim::state.diagnostics.generator_packets_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
   frontend_runtime_shim::state.diagnostics.csi_admitted_total = 80U;
@@ -505,7 +509,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
 
   frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
   frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -55;
-  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 600U;
+  frontend_runtime_shim::state.diagnostics.generator_packets_total = 600U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
   frontend_runtime_shim::state.diagnostics.csi_admitted_total = 480U;
@@ -517,6 +521,8 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.csi_out_of_order_total = 3U;
   frontend_runtime_shim::state.diagnostics.csi_occupancy_slots = 85U;
   RuntimeDiagnosticsSample &sample = frontend_runtime_shim::state.diagnostics_sample;
+  sample.generator_pps = 0.0f;
+  sample.traffic_rx_pps = 120.0f;
   sample.traffic_tx_pps = 100.0f;
   sample.csi_callback_pps = 96.0f;
   sample.csi_accepted_pps = 90.0f;
@@ -551,6 +557,8 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   diagnostics_button.press_action();
 
   TEST_ASSERT_EQUAL_FLOAT(100.0f, traffic_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, generator_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(120.0f, traffic_rx_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(96.0f, callback_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(90.0f, accepted_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(80.0f, admitted_rate.get_state());

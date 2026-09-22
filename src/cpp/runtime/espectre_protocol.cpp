@@ -1045,7 +1045,9 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
   append_json_float_field(&out, "free_memory_kb", free_memory_kb);
   append_json_float_field(&out, "loop_time_ms", loop_time_ms);
   if (diagnostics != nullptr) {
+    append_json_float_field(&out, "generator_pps", diagnostics->generator_pps);
     append_json_float_field(&out, "traffic_tx_pps", diagnostics->traffic_tx_pps);
+    append_json_float_field(&out, "traffic_rx_pps", diagnostics->traffic_rx_pps);
     append_json_float_field(&out, "csi_callback_pps", diagnostics->csi_callback_pps);
     append_json_float_field(&out, "csi_accepted_pps", diagnostics->csi_accepted_pps);
     append_json_float_field(&out, "csi_admitted_pps", diagnostics->csi_admitted_pps);

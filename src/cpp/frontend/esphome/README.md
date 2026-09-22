@@ -92,7 +92,9 @@ See [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#detection-profile) 
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Read-only authoritative calibration state |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
-| `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
+| `generator_rate_sensor` | sensor | `Generator Rate` | Successful internal generator sends; zero in external mode |
+| `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Station network packets accepted by the driver |
+| `traffic_rx_rate_sensor` | sensor | `Traffic RX Rate` | Station network packets delivered by the driver |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
 | `csi_accepted_rate_sensor` | sensor | `CSI Accepted Rate` | Raw identity-accepted capture rate before temporal admission; diagnostic-only |
 | `csi_admitted_rate_sensor` | sensor | `CSI Admitted Rate` | Rate admitted to the detector's temporal grid; diagnostic-only |

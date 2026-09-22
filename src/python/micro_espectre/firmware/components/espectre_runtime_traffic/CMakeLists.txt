@@ -29,3 +29,5 @@ idf_component_register(
         freertos
         lwip
 )
+
+target_link_options(${COMPONENT_LIB} INTERFACE ${ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS})

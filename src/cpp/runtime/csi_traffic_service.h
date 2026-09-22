@@ -78,7 +78,8 @@ class CsiTrafficService {
   bool is_running() const;
   bool get_last_sender(UdpDatagramPeer *out_peer) const;
   uint64_t get_packets_received() const;
-  uint64_t get_traffic_packets_total() const;
+  /** Successful internal generator sends; zero in external mode. */
+  uint32_t get_generator_packets_total() const;
   uint16_t internal_icmp_identifier() const;
   CsiTrafficMode mode() const { return mode_; }
 

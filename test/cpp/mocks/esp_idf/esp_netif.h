@@ -14,6 +14,7 @@
 #include "lwip/ip_addr.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,14 @@ typedef struct {
   bool station_created;
   int create_station_call_count;
   int destroy_station_call_count;
+  esp_err_t receive_result;
+  esp_err_t transmit_result;
+  int receive_call_count;
+  int transmit_call_count;
+  esp_netif_t *last_netif;
+  void *last_buffer;
+  void *last_extra;
+  size_t last_len;
 } esp_netif_mock_state_t;
 
 extern esp_netif_mock_state_t g_esp_netif_mock;
@@ -67,15 +76,9 @@ static inline void esp_netif_destroy_default_wifi(void *netif) {
   g_esp_netif_mock.station_created = false;
 }
 
-static inline esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey) {
-  (void)ifkey;
-  g_esp_netif_mock.get_handle_call_count++;
-  if (!g_esp_netif_mock.handle_available) {
-    return nullptr;
-  }
-  static esp_netif_t dummy_netif = (esp_netif_t)0x1;
-  return &dummy_netif;
-}
+esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey);
+esp_err_t __wrap_esp_netif_receive(esp_netif_t *netif, void *buffer, size_t len, void *eb);
+esp_err_t __wrap_esp_netif_transmit_wrap(esp_netif_t *netif, void *buffer, size_t len, void *netstack_buffer);
 
 static inline esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *ip_info) {
   (void)netif;

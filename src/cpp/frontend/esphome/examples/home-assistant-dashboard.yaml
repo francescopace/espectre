@@ -93,8 +93,14 @@ views:
               - entity: button.espectre_refresh_diagnostics
                 name:
                   type: entity
+              - entity: sensor.espectre_generator_rate
+                name:
+                  type: entity
               - entity: sensor.espectre_traffic_tx_rate
                 secondary_info: none
+                name:
+                  type: entity
+              - entity: sensor.espectre_traffic_rx_rate
                 name:
                   type: entity
               - entity: sensor.espectre_csi_admitted_rate

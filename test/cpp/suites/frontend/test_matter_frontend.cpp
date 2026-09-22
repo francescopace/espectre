@@ -317,7 +317,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
 
   const std::string diagnostics = direct.emit_request(
       DirectRequest{"", "read_diagnostics", R"({"fields":["*"]})", "/espectre/v1/diagnostics", "GET"});
-  TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"generator_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_tx_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"csi_callback_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":4") != std::string::npos);
@@ -328,7 +328,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   TEST_ASSERT_TRUE(diagnostics.find("\"direct_dropped_telemetry_events\"") == std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"direct_http\":{") != std::string::npos);
 
-  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 10U;
+  frontend_runtime_shim::state.diagnostics.generator_packets_total = 10U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 8U;
   frontend_runtime_shim::state.diagnostics_sample.traffic_tx_pps = 10.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 8.0f;

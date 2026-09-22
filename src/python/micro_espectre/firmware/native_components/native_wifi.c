@@ -22,10 +22,19 @@ static mp_obj_t native_wifi_apply_tx_rate(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(native_wifi_apply_tx_rate_obj, native_wifi_apply_tx_rate);
 
+static mp_obj_t native_wifi_traffic_totals(void) {
+  uint32_t tx, rx;
+  espectre_native_wifi_traffic_totals(&tx, &rx);
+  const mp_obj_t values[] = {mp_obj_new_int_from_uint(tx), mp_obj_new_int_from_uint(rx)};
+  return mp_obj_new_tuple(2, values);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(native_wifi_traffic_totals_obj, native_wifi_traffic_totals);
+
 static const mp_rom_map_elem_t native_wifi_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_espectre_native_wifi)},
     {MP_ROM_QSTR(MP_QSTR_prepare_tx_rate), MP_ROM_PTR(&native_wifi_prepare_tx_rate_obj)},
     {MP_ROM_QSTR(MP_QSTR_apply_tx_rate), MP_ROM_PTR(&native_wifi_apply_tx_rate_obj)},
+    {MP_ROM_QSTR(MP_QSTR_traffic_totals), MP_ROM_PTR(&native_wifi_traffic_totals_obj)},
 };
 static MP_DEFINE_CONST_DICT(native_wifi_module_globals, native_wifi_module_globals_table);
 

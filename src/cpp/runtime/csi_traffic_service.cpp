@@ -85,10 +85,10 @@ uint64_t CsiTrafficService::get_packets_received() const {
   return traffic_ingress_.get_packets_received();
 }
 
-uint64_t CsiTrafficService::get_traffic_packets_total() const {
+uint32_t CsiTrafficService::get_generator_packets_total() const {
   return mode_ == CsiTrafficMode::INTERNAL
-             ? static_cast<uint64_t>(traffic_generator_.send_success_count())
-             : traffic_ingress_.get_packets_received();
+             ? traffic_generator_.send_success_count()
+             : 0U;
 }
 
 uint16_t CsiTrafficService::internal_icmp_identifier() const {

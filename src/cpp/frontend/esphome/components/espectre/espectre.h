@@ -113,7 +113,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { this->sensor_publisher_.set_motion_binary_sensor(sensor); }
   void set_calibration_active_sensor(binary_sensor::BinarySensor *sensor) { this->calibration_active_sensor_ = sensor; }
+  void set_generator_rate_sensor(sensor::Sensor *sensor) { this->generator_rate_sensor_ = sensor; }
   void set_traffic_rate_sensor(sensor::Sensor *sensor) { this->traffic_rate_sensor_ = sensor; }
+  void set_traffic_rx_rate_sensor(sensor::Sensor *sensor) { this->traffic_rx_rate_sensor_ = sensor; }
   void set_csi_callback_rate_sensor(sensor::Sensor *sensor) { this->csi_callback_rate_sensor_ = sensor; }
   void set_csi_accepted_rate_sensor(sensor::Sensor *sensor) { this->csi_accepted_rate_sensor_ = sensor; }
   void set_csi_admitted_rate_sensor(sensor::Sensor *sensor) { this->csi_admitted_rate_sensor_ = sensor; }
@@ -254,7 +256,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
   select::Select *csi_traffic_mode_select_{nullptr};
   select::Select *traffic_generator_mode_select_{nullptr};
 
+  sensor::Sensor *generator_rate_sensor_{nullptr};
   sensor::Sensor *traffic_rate_sensor_{nullptr};
+  sensor::Sensor *traffic_rx_rate_sensor_{nullptr};
   sensor::Sensor *csi_callback_rate_sensor_{nullptr};
   sensor::Sensor *csi_accepted_rate_sensor_{nullptr};
   sensor::Sensor *csi_admitted_rate_sensor_{nullptr};

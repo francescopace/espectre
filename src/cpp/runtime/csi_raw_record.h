@@ -1,8 +1,7 @@
 /*
  * ESPectre - Raw CSI Record Format
  *
- * Transport-neutral raw CSI record definitions. V7 remains readable for
- * historical captures, while current raw HTTP sessions emit V8.
+ * Transport-neutral raw CSI V8 record definitions.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -63,39 +62,10 @@ enum class RawCsiChannelWidth : uint8_t {
 };
 
 static constexpr uint16_t RAW_CSI_RECORD_MAGIC = 0x4353U;
-static constexpr uint8_t RAW_CSI_RECORD_VERSION_V7 = 7U;
 static constexpr uint8_t RAW_CSI_RECORD_VERSION_V8 = 8U;
 static constexpr uint8_t RAW_CSI_RECORD_VERSION = RAW_CSI_RECORD_VERSION_V8;
 
 #pragma pack(push, 1)
-struct RawCsiRecordHeaderV7 {
-  uint16_t magic;
-  uint8_t version;
-  uint8_t header_len;
-
-  uint8_t chip;
-  uint8_t flags;
-  uint32_t seq_num;
-  uint16_t num_subcarriers;
-  uint16_t csi_len_bytes;
-
-  uint64_t device_id;
-  uint64_t device_ticks_us;
-  uint32_t wifi_rx_ts_us;
-  uint64_t wifi_rx_start_ts_ns;
-
-  uint8_t channel;
-  int8_t rssi_dbm;
-  int8_t noise_floor_dbm;
-  uint64_t transport_backpressure_total;
-  uint32_t fresh_record_total;
-  uint32_t traffic_packets_total;
-
-  uint8_t phy_mode;
-  uint8_t ltf_type;
-  uint8_t channel_width;
-};
-
 /** Transport-neutral raw CSI record emitted by Direct raw collection. */
 struct RawCsiRecordHeaderV8 {
   uint16_t magic;
@@ -127,7 +97,6 @@ struct RawCsiRecordHeaderV8 {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(RawCsiRecordHeaderV7) == 64U, "CSI V7 raw record header size must remain stable");
 static_assert(sizeof(RawCsiRecordHeaderV8) == 64U, "CSI V8 raw record header size must remain stable");
 
 static constexpr size_t RAW_CSI_MAX_PAYLOAD_BYTES = 512U;

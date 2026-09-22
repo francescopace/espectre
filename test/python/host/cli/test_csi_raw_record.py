@@ -33,7 +33,6 @@ from tools.lib.csi_io import (
     RAW_CSI_FLAG_WIFI_RX_TS_VALID,
     RAW_CSI_RECORD_MAGIC,
     RAW_CSI_RECORD_VERSION,
-    RAW_CSI_RECORD_VERSION_V7,
     RAW_CSI_RECORD_VERSION_V8,
     RAW_CSI_HTTP_FRAME_STRUCT,
     RAW_CSI_PROTOCOL_VERSION,
@@ -42,7 +41,6 @@ from tools.lib.csi_io import (
     load_npz_as_packets,
     load_npz_packet_view,
     normalize_stored_csi_bin_layout,
-    parse_csi_record,
 )
 
 from device_utils import (
@@ -216,17 +214,6 @@ def test_parse_packet_preserves_legacy_lltf_metadata_and_iq():
     assert packet.phy_mode == 'legacy'
     assert packet.ltf_type == 'lltf'
     assert packet.iq_raw.tolist() == payload
-
-
-def test_parse_csi_record_reads_historical_v7_offline():
-    record = build_packet(version=RAW_CSI_RECORD_VERSION_V7, seq_num=17)
-
-    packet, next_offset = parse_csi_record(record, derive_complex=False)
-
-    assert packet is not None
-    assert packet.record_version == RAW_CSI_RECORD_VERSION_V7
-    assert packet.seq_num == 17
-    assert next_offset == len(record)
 
 
 def test_parse_packet_accepts_v8_transport_neutral_counters_byte_for_byte():
@@ -534,10 +521,10 @@ def test_parse_packet_reads_phy_metadata():
     assert packet.channel_width == '40'
 
 
-def test_parse_packet_rejects_unknown_record_version():
+@pytest.mark.parametrize("version", [RAW_CSI_RECORD_VERSION - 1, RAW_CSI_RECORD_VERSION + 1])
+def test_parse_packet_rejects_unsupported_record_version(version):
     receiver = CSIReceiver(bind_host='127.0.0.1')
-    packet_data = bytearray(build_packet())
-    packet_data[2] = RAW_CSI_RECORD_VERSION_V7 - 1
+    packet_data = build_packet(version=version)
 
     assert receiver._parse_packet(packet_data) is None
 
@@ -716,7 +703,8 @@ def _ha_panel_inventory(platform="esphome", version=3):
                 "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
     entities, states = [], []
     values = {"ownership": "internal", "source": "ping", "refresh": "unknown",
-              "traffic": "100", "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
+              "generator": "0", "traffic": "5", "traffic_rx": "100",
+              "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
     for role, (domain, suffix) in ha_client.ENTITY_ROLES.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
@@ -741,6 +729,9 @@ def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, versio
     assert row["name"] == row["area"] == "Kitchen"
     assert row["can_control"] and row["can_refresh"]
     assert row["fields"]["ownership"]["value"] == "internal"
+    assert row["fields"]["generator"]["value"] == 0
+    assert row["fields"]["traffic"]["value"] == 5
+    assert row["fields"]["traffic_rx"]["value"] == 100
     assert row["fields"]["accepted"]["value"] == 99.5
     assert row["fields"]["occupancy"]["value"] == 98
 
@@ -844,11 +835,13 @@ def test_ha_panel_does_not_infer_entities_from_mutable_display_names():
 
 
 @pytest.mark.parametrize("value", ["unavailable", "unknown", "nan", "inf", "bad"])
-def test_ha_panel_missing_diagnostics_are_not_zero(value):
+@pytest.mark.parametrize("role", ["generator", "traffic", "traffic_rx", "accepted"])
+def test_ha_panel_missing_diagnostics_are_not_zero(value, role):
     inventory = _ha_panel_inventory()
-    inventory[2][4]["state"] = value
+    state = next(state for state in inventory[2] if state["entity_id"] == "sensor.renamed_" + role)
+    state["state"] = value
     row, = ha_client.build_inventory(*inventory)
-    assert row["fields"]["accepted"]["value"] is None
+    assert row["fields"][role]["value"] is None
 
 
 class _PanelHomeAssistantServer:
@@ -900,7 +893,7 @@ class _PanelHomeAssistantServer:
                 if self.confirm and command["domain"] == "select":
                     self.inventory[2][0]["state"] = command["service_data"]["option"]
                 if self.emit_diagnostics and command["domain"] == "button":
-                    state = self.inventory[2][4]
+                    state = next(state for state in self.inventory[2] if state["entity_id"] == "sensor.renamed_accepted")
                     state["state"] = str(float(state["state"]) + 1)
                     await self.emit("state_changed", {"entity_id": state["entity_id"], "new_state": state})
                 result = {"context": {"id": "test"}}
@@ -1410,12 +1403,6 @@ def test_parse_packet_rejects_multi_record_datagram():
     datagram = build_packet(seq_num=1) + build_packet(seq_num=2)
 
     assert receiver._parse_packet(datagram) is None
-
-
-def test_parse_packet_rejects_legacy_python_header():
-    receiver = CSIReceiver(bind_host='127.0.0.1')
-    legacy = bytes([0x53, 0x43, 0x04, 0x01, 0x07, 0x40, 0x00]) + bytes(128)
-    assert receiver._parse_packet(legacy) is None
 
 
 def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, monkeypatch):

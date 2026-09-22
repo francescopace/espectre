@@ -42,12 +42,13 @@ void test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics(v
   TEST_ASSERT_EQUAL(0U, generator.start_calls);
   TEST_ASSERT_EQUAL(1U, ingress.start_calls);
 
+  generator.send_successes = 99U;
   ingress.packets_received = 3U;
   ingress.last_sender = {0x0100007FU, 1234U};
   service.loop();
   TEST_ASSERT_EQUAL(1U, ingress.loop_calls);
   TEST_ASSERT_EQUAL(3U, service.get_packets_received());
-  TEST_ASSERT_EQUAL(3U, service.get_traffic_packets_total());
+  TEST_ASSERT_EQUAL(0U, service.get_generator_packets_total());
 
   UdpDatagramPeer sender{};
   TEST_ASSERT_TRUE(service.get_last_sender(&sender));
@@ -77,7 +78,7 @@ void test_csi_traffic_service_selects_internal_generator(void) {
   TEST_ASSERT_EQUAL(0U, ingress.start_calls);
 
   generator.send_successes = 7U;
-  TEST_ASSERT_EQUAL(7U, service.get_traffic_packets_total());
+  TEST_ASSERT_EQUAL(7U, service.get_generator_packets_total());
   TEST_ASSERT_EQUAL(0x1234U, service.internal_icmp_identifier());
 }
 

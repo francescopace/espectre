@@ -32,7 +32,13 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_sysinfo_helpers.cpp"
 )
 
+set(ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS
+    "LINKER:--wrap=esp_netif_receive"
+    "LINKER:--wrap=esp_netif_transmit_wrap"
+)
+
 set(ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/network_traffic.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
 )

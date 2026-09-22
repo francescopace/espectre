@@ -140,11 +140,10 @@
     }
 
     function monitorStats(data) {
-        const errorTotal = data.csi_hw_error_total;
         monitorSetStat('.js-mon-traffic', data.traffic_tx_pps, 1, ' pps');
+        monitorSetStat('.js-mon-traffic-rx', data.traffic_rx_pps, 1, ' pps');
         monitorSetStat('.js-mon-callbacks', data.csi_callback_pps, 1, ' pps');
         monitorSetStat('.js-mon-accepted', data.csi_accepted_pps, 1, ' pps');
-        monitorSetStat('.js-mon-errors', errorTotal, 0, ' total');
         monitorSetStat('.js-mon-occupancy', data.csi_occupancy == null ? null : data.csi_occupancy * 100, 1, '%');
         monitorSetStat('.js-mon-rssi', data.wifi_rssi_dbm, 0, ' dBm');
         monitorSetStat('.js-mon-heap', data.free_memory_kb, 1, ' KiB');
@@ -344,12 +343,13 @@
             return;
         }
         if (conn.mode === 'demo') {
+            const targetPps = csiTargetPps();
             monitorStats({
-                traffic_tx_pps: csiTargetPps(),
-                csi_callback_pps: Math.max(1, csiTargetPps() - 4),
-                csi_accepted_pps: Math.max(1, csiTargetPps() - 10),
-                csi_hw_error_total: 6,
-                csi_occupancy: Math.max(1, csiTargetPps() - 16) / csiTargetPps(),
+                traffic_tx_pps: targetPps + 5,
+                traffic_rx_pps: targetPps + 3,
+                csi_callback_pps: Math.max(1, targetPps - 4),
+                csi_accepted_pps: Math.max(1, targetPps - 10),
+                csi_occupancy: Math.max(1, targetPps - 16) / targetPps,
                 wifi_rssi_dbm: -55,
                 free_memory_kb: 161.4,
                 loop_time_ms: 0.31
@@ -362,7 +362,7 @@
         try {
             if (direct) monitor.diagRequestPending = true;
             const response = await monitorPublishCommand({ command: 'read_diagnostics', fields: [
-                'traffic_tx_pps', 'csi_callback_pps', 'csi_accepted_pps', 'csi_hw_error_total',
+                'traffic_tx_pps', 'traffic_rx_pps', 'csi_callback_pps', 'csi_accepted_pps',
                 'csi_occupancy', 'wifi_rssi_dbm', 'free_memory_kb', 'loop_time_ms'
             ] }, {
                 pendingMessage: '',

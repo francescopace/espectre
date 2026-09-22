@@ -95,10 +95,8 @@ except ImportError:
     )
 
 RAW_CSI_RECORD_MAGIC = 0x4353
-RAW_CSI_RECORD_VERSION_V7 = 7
 RAW_CSI_RECORD_VERSION_V8 = 8
 RAW_CSI_RECORD_VERSION = RAW_CSI_RECORD_VERSION_V8
-SUPPORTED_RAW_CSI_RECORD_VERSIONS = frozenset((RAW_CSI_RECORD_VERSION_V7, RAW_CSI_RECORD_VERSION_V8))
 DEFAULT_PORT = 5001
 RAW_CSI_FLAG_FIRST_WORD_INVALID = 1 << 0
 RAW_CSI_FLAG_WIFI_RX_TS_VALID = 1 << 1
@@ -374,7 +372,7 @@ def parse_csi_record(
     derive_complex: bool = True,
     timestamp: Optional[float] = None,
 ) -> Tuple[Optional[CSIPacket], int]:
-    """Parse one V7 or V8 CSI record without coupling it to a transport."""
+    """Parse one V8 CSI record without coupling it to a transport."""
     if offset < 0 or len(data) - offset < CSI_HEADER_STRUCT.size:
         return None, offset
 
@@ -402,7 +400,7 @@ def parse_csi_record(
         channel_width_code,
     ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
-    if magic != RAW_CSI_RECORD_MAGIC or version not in SUPPORTED_RAW_CSI_RECORD_VERSIONS:
+    if magic != RAW_CSI_RECORD_MAGIC or version != RAW_CSI_RECORD_VERSION:
         return None, offset
     if header_len < CSI_HEADER_STRUCT.size:
         return None, offset

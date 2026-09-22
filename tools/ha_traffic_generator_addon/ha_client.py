@@ -21,7 +21,9 @@ ENTITY_ROLES = {
     "ownership": ("select", "csi_traffic_ownership"),
     "source": ("select", "csi_traffic_source"),
     "refresh": ("button", "refresh_diagnostics"),
+    "generator": ("sensor", "generator_rate"),
     "traffic": ("sensor", "traffic_tx_rate"),
+    "traffic_rx": ("sensor", "traffic_rx_rate"),
     "accepted": ("sensor", "csi_accepted_rate"),
     "occupancy": ("sensor", "csi_temporal_occupancy"),
     "rssi": ("sensor", "wifi_rssi"),
@@ -135,7 +137,7 @@ def build_inventory(devices, entities, state_list, areas):
             continue
         roles = {key: values[0] for key, values in candidates.items() if len(values) == 1}
         fields = {key: entity_value(roles.get(key), states, numeric=key in
-                  {"traffic", "accepted", "occupancy", "rssi"}) for key in ENTITY_ROLES}
+                  {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"}) for key in ENTITY_ROLES}
         ownership = roles.get("ownership", {})
         options = states.get(ownership.get("entity_id"), {}).get("attributes", {}).get("options", [])
         reason = None

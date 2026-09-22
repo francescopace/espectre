@@ -80,7 +80,7 @@
     <ul class="checklist">
       <li>Move in the room and confirm that Motion changes state and Movement Score updates.</li>
       <li>Confirm that the Threshold line appears in the history graph after the device has published its current value.</li>
-      <li>Select <em>Refresh Diagnostics</em> to populate Traffic TX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
+      <li>Select <em>Refresh Diagnostics</em> to populate Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
       <li>Press Recalibrate only when the room can remain still, and use Calibration Active to confirm when Lightweight calibration finishes.</li>
     </ul>
 
@@ -113,7 +113,7 @@
     <ol class="steps-list">
       <li><h3>Find your devices</h3><p>Open <em>ESPectre Traffic</em>. The panel lists devices already added to Home Assistant through ESPHome or Native MQTT Discovery. If a device or its controls are missing, check the integration and enable its traffic entities under <em>Settings → Devices &amp; services → Entities</em>.</p></li>
       <li><h3>Select External</h3><p>Use <em>External</em> on a device row, or select several devices and use the button above the table. Confirm the change. External mode persists across device restarts; <em>Internal</em> restores the device's configured internal generator.</p></li>
-      <li><h3>Verify reception and sensing</h3><p>Check <em>Traffic / s</em>, <em>CSI / s</em>, and <em>Occupancy</em>. The panel refreshes diagnostics automatically while visible. In external mode, <em>Traffic / s</em> shows the received packet rate. Occupancy here means valid CSI coverage. Check calibration and sensing readiness in the device's entities or <a href="/tools/monitor/">Monitor</a>, then walk through the room and confirm that Motion Detected changes state.</p></li>
+      <li><h3>Verify reception and sensing</h3><p>Check <em>RX / s</em>, <em>CSI / s</em>, and <em>Occupancy</em>. The panel refreshes diagnostics automatically while visible. <em>Generator / s</em> is zero in external mode; <em>TX / s</em> and <em>RX / s</em> show station network traffic in both directions. Occupancy here means valid CSI coverage. Check calibration and sensing readiness in the device's entities or <a href="/tools/monitor/">Monitor</a>, then walk through the room and confirm that Motion Detected changes state.</p></li>
     </ol>
     <!-- Screenshot source: https://github.com/user-attachments/assets/3701bf3b-38fd-484a-b821-47755c2cc61e -->
     <figure>
@@ -126,7 +126,7 @@
     <div class="mini-cards">
       <article><h3>Cards show “Entity not available”</h3><ul><li>Compare each entity ID with <em>Settings → Devices &amp; services → Entities</em>.</li><li>Replace the stable prefix, including its final underscore, then update any numeric-suffixed IDs individually.</li><li>Remove rows for capabilities that the installed firmware does not expose.</li></ul></article>
       <article><h3>The graph is empty</h3><ul><li>Wait for Movement Score and Threshold to publish.</li><li>Confirm that Home Assistant's recorder is enabled for both entities.</li><li>The template intentionally shows only the most recent 30 minutes.</li></ul></article>
-      <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities are intentionally on demand.</li><li>Wait a moment for the latest cached sample to appear.</li><li>Use Traffic TX Rate, CSI Admitted Rate, and RSSI together when checking placement.</li></ul></article>
+      <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities are intentionally on demand.</li><li>Wait a moment for the latest cached sample to appear.</li><li>Use Generator Rate, Traffic RX Rate, CSI Admitted Rate, and RSSI together when checking placement.</li></ul></article>
     </div>
     <div class="note">Movement Score normally updates every detector evaluation, which is four times per second with the published defaults. If database growth matters more than the history card, exclude that entity from Home Assistant's recorder.</div>
 

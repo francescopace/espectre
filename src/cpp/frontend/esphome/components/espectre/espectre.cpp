@@ -644,6 +644,12 @@ void ESpectreComponent::publish_cached_diagnostics_() {
   }
   const RuntimeDiagnosticsSample &sample = *latest;
 
+  if (this->generator_rate_sensor_ != nullptr) {
+    this->generator_rate_sensor_->publish_state(sample.generator_pps);
+  }
+  if (this->traffic_rx_rate_sensor_ != nullptr) {
+    this->traffic_rx_rate_sensor_->publish_state(sample.traffic_rx_pps);
+  }
   if (this->traffic_rate_sensor_ != nullptr) {
     this->traffic_rate_sensor_->publish_state(sample.traffic_tx_pps);
   }
@@ -683,7 +689,7 @@ void ESpectreComponent::publish_cached_diagnostics_() {
 }
 
 void ESpectreComponent::publish_diagnostics_on_demand() {
-  const FrontendCommandResult result = this->execute_entity_command_("read_diagnostics", R"({"fields":["traffic_tx_pps","csi_callback_pps","csi_accepted_pps","csi_admitted_pps","csi_filtered_pps","csi_missing_slots_pps","csi_excess_pps","csi_stale_pps","csi_out_of_order_pps","csi_occupancy","wifi_channel","wifi_rssi_dbm"]})");
+  const FrontendCommandResult result = this->execute_entity_command_("read_diagnostics", R"({"fields":["generator_pps","traffic_tx_pps","traffic_rx_pps","csi_callback_pps","csi_accepted_pps","csi_admitted_pps","csi_filtered_pps","csi_missing_slots_pps","csi_excess_pps","csi_stale_pps","csi_out_of_order_pps","csi_occupancy","wifi_channel","wifi_rssi_dbm"]})");
   if (result.accepted) this->publish_cached_diagnostics_();
 }
 

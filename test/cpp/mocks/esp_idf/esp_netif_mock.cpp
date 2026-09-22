@@ -11,6 +11,30 @@
 
 esp_netif_mock_state_t g_esp_netif_mock{};
 
+esp_netif_t *esp_netif_get_handle_from_ifkey(const char *) {
+  g_esp_netif_mock.get_handle_call_count++;
+  static esp_netif_t station = nullptr;
+  return g_esp_netif_mock.handle_available ? &station : nullptr;
+}
+
+extern "C" esp_err_t __real_esp_netif_receive(esp_netif_t *netif, void *buffer, size_t len, void *eb) {
+  g_esp_netif_mock.receive_call_count++;
+  g_esp_netif_mock.last_netif = netif;
+  g_esp_netif_mock.last_buffer = buffer;
+  g_esp_netif_mock.last_len = len;
+  g_esp_netif_mock.last_extra = eb;
+  return g_esp_netif_mock.receive_result;
+}
+
+extern "C" esp_err_t __real_esp_netif_transmit_wrap(esp_netif_t *netif, void *buffer, size_t len, void *extra) {
+  g_esp_netif_mock.transmit_call_count++;
+  g_esp_netif_mock.last_netif = netif;
+  g_esp_netif_mock.last_buffer = buffer;
+  g_esp_netif_mock.last_len = len;
+  g_esp_netif_mock.last_extra = extra;
+  return g_esp_netif_mock.transmit_result;
+}
+
 void esp_netif_mock_reset(void) {
   g_esp_netif_mock = {};
   g_esp_netif_mock.get_ip_info_result = ESP_OK;

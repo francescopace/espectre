@@ -4,6 +4,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "native_frontend_test_support.h"
+#include "esp_timer.h"
 
 void test_native_frontend_mqtt_connect_enables_live_telemetry(void) {
   MockMqttTransport mqtt;
@@ -333,25 +334,31 @@ void test_native_frontend_mqtt_rejects_direct_local_commands_with_forbidden(void
 
 void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads(void) {
   MockMqttTransport mqtt;
+  MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
   config.mqtt_port = 1883U;
-  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
+  frontend_runtime_shim::state.diagnostics.generator_packets_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
 
-  NativeFrontend frontend(&mqtt);
+  NativeFrontend frontend(&mqtt, nullptr, &direct);
   frontend.set_device_config(config);
+  EspectreDeviceInfo info;
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
-  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 600U;
+  frontend_runtime_shim::state.diagnostics.generator_packets_total = 600U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
   frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
   frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -55;
+  frontend_runtime_shim::state.diagnostics_sample.generator_pps = 0.0f;
+  frontend_runtime_shim::state.diagnostics_sample.traffic_rx_pps = 120.0f;
   frontend_runtime_shim::state.diagnostics_sample.traffic_tx_pps = 100.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 96.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_accepted_pps = 90.0f;
@@ -365,6 +372,8 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   frontend.on_motion_state_changed(snapshot);
   frontend.loop();
   mqtt_transport_mock::state.publishes.clear();
+  const int64_t clock_step = esp_timer_mock::step_us;
+  esp_timer_mock::step_us = 0;
   mqtt.emit_command("{\"command_id\":\"cmd-diagnostics\",\"command\":\"read_diagnostics\",\"fields\":[\"*\"]}");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
@@ -388,6 +397,18 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"wifi_rssi_dbm\":-55") !=
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"movement\":") == std::string::npos);
+  const std::string http_diagnostics = direct.emit_request(
+      DirectRequest{"", "read_diagnostics", R"({"fields":["*"]})", "/espectre/v1/diagnostics", "GET"});
+  std::vector<JsonObjectField> result_fields;
+  TEST_ASSERT_TRUE(parse_json_object_fields(mqtt_transport_mock::state.publishes[0].payload, &result_fields));
+  const auto data = std::find_if(result_fields.begin(), result_fields.end(), [](const JsonObjectField &field) {
+    return field.name == "data";
+  });
+  TEST_ASSERT_TRUE(data != result_fields.end());
+  esp_timer_mock::step_us = clock_step;
+  TEST_ASSERT_EQUAL_STRING(http_diagnostics.c_str(), data->value.c_str());
+  TEST_ASSERT_TRUE(http_diagnostics.find("\"generator_pps\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(http_diagnostics.find("\"traffic_rx_pps\":120") != std::string::npos);
 }
 
 void test_native_frontend_serializes_telemetry_once_for_active_transports(void) {

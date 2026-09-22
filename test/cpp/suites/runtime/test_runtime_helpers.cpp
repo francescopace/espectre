@@ -28,6 +28,7 @@
 
 #include "esp_timer.h"
 #include "esp_netif.h"
+#include "network_traffic.h"
 
 #include <net/if.h>
 #include <sys/socket.h>
@@ -821,9 +822,76 @@ void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     }));
 }
 
+void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
+    esp_netif_mock_reset();
+    const NetworkTrafficSnapshot baseline = read_network_traffic();
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_t other = nullptr;
+    uint8_t buffer[] = {1U, 2U, 3U};
+    int extra = 42;
+    const int lookups = g_esp_netif_mock.get_handle_call_count;
+
+    TEST_ASSERT_EQUAL(ESP_OK, __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), &extra));
+    TEST_ASSERT_TRUE(sta == g_esp_netif_mock.last_netif);
+    TEST_ASSERT_TRUE(buffer == g_esp_netif_mock.last_buffer);
+    TEST_ASSERT_TRUE(&extra == g_esp_netif_mock.last_extra);
+    TEST_ASSERT_EQUAL(sizeof(buffer), g_esp_netif_mock.last_len);
+    g_esp_netif_mock.receive_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL(ESP_FAIL, __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), &extra));
+    __wrap_esp_netif_receive(&other, buffer, sizeof(buffer), nullptr);
+    __wrap_esp_netif_receive(nullptr, buffer, sizeof(buffer), nullptr);
+
+    TEST_ASSERT_EQUAL(ESP_OK, __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), &extra));
+    TEST_ASSERT_TRUE(sta == g_esp_netif_mock.last_netif);
+    TEST_ASSERT_TRUE(buffer == g_esp_netif_mock.last_buffer);
+    TEST_ASSERT_TRUE(&extra == g_esp_netif_mock.last_extra);
+    TEST_ASSERT_EQUAL(sizeof(buffer), g_esp_netif_mock.last_len);
+    __wrap_esp_netif_transmit_wrap(&other, buffer, sizeof(buffer), nullptr);
+    __wrap_esp_netif_transmit_wrap(nullptr, buffer, sizeof(buffer), nullptr);
+    g_esp_netif_mock.transmit_result = ESP_FAIL;
+    TEST_ASSERT_EQUAL(ESP_FAIL, __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), &extra));
+    TEST_ASSERT_EQUAL(lookups, g_esp_netif_mock.get_handle_call_count);
+    TEST_ASSERT_EQUAL(4, g_esp_netif_mock.receive_call_count);
+    TEST_ASSERT_EQUAL(4, g_esp_netif_mock.transmit_call_count);
+    const NetworkTrafficSnapshot after = read_network_traffic();
+    TEST_ASSERT_EQUAL(2U, after.rx_packets - baseline.rx_packets);
+    TEST_ASSERT_EQUAL(1U, after.tx_packets - baseline.tx_packets);
+
+    g_esp_netif_mock.handle_available = false;
+    read_network_traffic();
+    __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), nullptr);
+    g_esp_netif_mock.transmit_result = ESP_OK;
+    __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), nullptr);
+    const NetworkTrafficSnapshot unavailable = read_network_traffic();
+    TEST_ASSERT_EQUAL(after.rx_packets, unavailable.rx_packets);
+    TEST_ASSERT_EQUAL(after.tx_packets, unavailable.tx_packets);
+    esp_netif_mock_reset();
+}
+
+void test_network_rates_wrap_independently_of_generator_resets(void) {
+    RuntimeDiagnosticsSnapshot counters;
+    counters.generator_packets_total = 100U;
+    counters.traffic_tx_packets_total = UINT32_MAX - 2U;
+    counters.traffic_rx_packets_total = UINT32_MAX - 3U;
+    RuntimeDiagnosticsSampler sampler;
+    sampler.reset(counters, UINT32_MAX - 499U);
+    counters.generator_packets_total = 0U;
+    counters.traffic_tx_packets_total = 7U;
+    counters.traffic_rx_packets_total = 16U;
+    const RuntimeDiagnosticsSample sample = sampler.sample(counters, 500U);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sample.generator_pps);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, sample.traffic_tx_pps);
+    TEST_ASSERT_EQUAL_FLOAT(20.0f, sample.traffic_rx_pps);
+    const RuntimeDiagnosticsSample idle = sampler.sample(counters, 1500U);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, idle.traffic_tx_pps);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, idle.traffic_rx_pps);
+}
+
 void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     RuntimeDiagnosticsSnapshot baseline;
-    baseline.traffic_packets_total = 100U;
+    baseline.generator_packets_total = 100U;
+    baseline.traffic_tx_packets_total = 100U;
+    baseline.traffic_rx_packets_total = 200U;
     baseline.csi_callbacks_total = 100U;
     baseline.csi_accepted_total = 90U;
     baseline.csi_admitted_total = 80U;
@@ -833,7 +901,9 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     sampler.reset(baseline, 1000U);
 
     RuntimeDiagnosticsSnapshot current = baseline;
-    current.traffic_packets_total = 600U;
+    current.generator_packets_total = 600U;
+    current.traffic_tx_packets_total = 700U;
+    current.traffic_rx_packets_total = 750U;
     current.csi_callbacks_total = 580U;
     current.csi_accepted_total = 540U;
     current.csi_admitted_total = 505U;
@@ -853,7 +923,9 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     current.wifi_rssi_dbm = -55;
 
     const RuntimeDiagnosticsSample sample = sampler.sample(current, 6000U);
-    TEST_ASSERT_EQUAL_FLOAT(100.0f, sample.traffic_tx_pps);
+    TEST_ASSERT_EQUAL_FLOAT(100.0f, sample.generator_pps);
+    TEST_ASSERT_EQUAL_FLOAT(120.0f, sample.traffic_tx_pps);
+    TEST_ASSERT_EQUAL_FLOAT(110.0f, sample.traffic_rx_pps);
     TEST_ASSERT_EQUAL_FLOAT(96.0f, sample.csi_callback_pps);
     TEST_ASSERT_EQUAL_FLOAT(90.0f, sample.csi_accepted_pps);
     TEST_ASSERT_EQUAL_FLOAT(85.0f, sample.csi_admitted_pps);
@@ -1006,6 +1078,8 @@ int process(void) {
     RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
+    RUN_TEST(test_station_network_traffic_counts_delivery_and_successful_sends);
+    RUN_TEST(test_network_rates_wrap_independently_of_generator_resets);
     RUN_TEST(test_runtime_hardware_error_rate_handles_counter_epochs_and_clock_wrap);
     RUN_TEST(test_runtime_performance_diagnostics_publish_complete_windows);
     RUN_TEST(test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values);

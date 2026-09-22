@@ -38,7 +38,8 @@ class Element {
 function device(id = 'sensor-a') {
     const field = value => ({ value, status: 'available', entity_id: 'sensor.sample' });
     return { id, name: id, can_control: true, can_refresh: true,
-        fields: { ownership: field('internal'), traffic: field(100), accepted: field(99), occupancy: field(98), rssi: field(-54) } };
+        fields: { ownership: field('internal'), generator: field(0), traffic: field(5), traffic_rx: field(100),
+            accepted: field(99), occupancy: field(98), rssi: field(-54) } };
 }
 
 function fixture(count = 1) {
@@ -116,7 +117,7 @@ function fixture(count = 1) {
 }
 
 const writes = fixture => fixture.calls.filter(call => call.body);
-const modeButton = fixture => fixture.get('devices').children[0].children[6].children[0].children[0];
+const modeButton = fixture => fixture.get('devices').children[0].children[8].children[0].children[0];
 
 it('applies pushed diagnostics without HTTP polling, replacing controls, or changing modes', async () => {
     const f = fixture();
@@ -129,7 +130,10 @@ it('applies pushed diagnostics without HTTP polling, replacing controls, or chan
     assert.equal(f.get('devices').children[0], row);
     assert.equal(row.children[0].children[0], checkbox);
     assert.equal(checkbox.checked, true);
-    assert.equal(row.children[3].textContent, '100');
+    assert.equal(row.children[2].textContent, '0');
+    assert.equal(row.children[3].textContent, '5');
+    assert.equal(row.children[4].textContent, '100');
+    assert.equal(row.children[5].textContent, '100');
     await f.tick(2000);
     assert.equal(writes(f).length, 0);
     assert.equal(f.calls.length, 1);
@@ -221,7 +225,7 @@ it('replaces the IP with availability status and restores it on recovery', async
 it('updates RSSI in dBm and clears unavailable measurements', async () => {
     const f = fixture();
     await f.tick();
-    const cell = f.get('devices').children[0].children[5];
+    const cell = f.get('devices').children[0].children[7];
     assert.equal(cell.textContent, '-54 dBm');
     f.devices[0].fields.rssi.value = -61;
     f.sockets[0].push();
@@ -301,7 +305,7 @@ it('waits for status before a mode action and never retries a failed write', asy
     await f.flush();
     assert.equal(writes(f).filter(call => call.body.action === 'external').length, 1);
     // Fail the write itself, not the preceding status request.
-    const internal = f.get('devices').children[0].children[6].children[0].children[1];
+    const internal = f.get('devices').children[0].children[8].children[0].children[1];
     internal.dispatch('click');
     f.failNext('internal');
     f.get('confirm').close('apply');
@@ -341,7 +345,7 @@ it('starts and stops only UDP while diagnostics and the panel remain available',
     await f.tick(2000);
     f.devices[0].fields.accepted.value = 101;
     f.sockets.at(-1).push();
-    assert.equal(f.get('devices').children[0].children[3].textContent, '101');
+    assert.equal(f.get('devices').children[0].children[5].textContent, '101');
     assert.equal(f.devices[0].fields.ownership.value, 'internal');
     f.get('generator-toggle').dispatch('click');
     await f.flush();

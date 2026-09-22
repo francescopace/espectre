@@ -107,7 +107,8 @@
       "owners": ["test_wifi_lifecycle", "test_runtime_helpers"],
       "sources": [
         "src/cpp/runtime/esp_idf/standalone_wifi_service.cpp",
-        "src/cpp/runtime/esp_idf/sta_socket_helpers.cpp"
+        "src/cpp/runtime/esp_idf/sta_socket_helpers.cpp",
+        "src/cpp/runtime/esp_idf/network_traffic.cpp"
       ]
     },
     {

@@ -39,8 +39,12 @@ struct RuntimeDiagnosticsSnapshot {
   int8_t wifi_rssi_dbm{INT8_MIN};
   /** Primary channel of the current Wi-Fi association. Zero when unavailable. */
   uint8_t wifi_channel{0U};
-  /** Traffic packets sent or observed by the active traffic source. */
-  uint64_t traffic_packets_total{0U};
+  /** Successful internal generator sends; zero with external traffic ownership. */
+  uint32_t generator_packets_total{0U};
+  /** Station packets accepted by the network driver; wraps modulo 2^32. */
+  uint32_t traffic_tx_packets_total{0U};
+  /** Station packets delivered by the network driver; wraps modulo 2^32. */
+  uint32_t traffic_rx_packets_total{0U};
   /** Raw invocations of the ESP-IDF CSI callback. */
   uint64_t csi_callbacks_total{0U};
   /** CSI callbacks rejected because their packet provenance did not match. */

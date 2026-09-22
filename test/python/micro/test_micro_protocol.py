@@ -22,7 +22,8 @@ from src.python.micro_espectre.runtime_diagnostics import (
 from tools.lib.repo_paths import repo_root
 
 
-def test_runtime_diagnostic_rates_reuse_output_and_handle_counter_reset():
+def test_runtime_diagnostic_rates_reuse_output_and_handle_counter_reset(monkeypatch):
+    monkeypatch.setattr(diagnostics, "_network_traffic_totals", None)
     sampler = diagnostics.RuntimeDiagnosticsSampler()
     output = {}
 
@@ -37,7 +38,7 @@ def test_runtime_diagnostic_rates_reuse_output_and_handle_counter_reset():
         )
 
     assert sampler.sample(snapshot(10), 1000, out=output) is output
-    rates = [key for key in diagnostics.STATS_DIAGNOSTIC_KEYS if key.endswith("_pps")]
+    rates = [key for key in diagnostics.STATS_DIAGNOSTIC_KEYS if key.endswith("_pps") and not key.startswith("traffic_")]
     assert all(output[key] == 0 for key in rates)
     assert output["wifi_channel"] == 6
     assert output["wifi_rssi_dbm"] == -57
@@ -52,6 +53,27 @@ def test_runtime_diagnostic_rates_reuse_output_and_handle_counter_reset():
     assert output["csi_occupancy"] == 0
 
 
+def test_network_rates_wrap_and_remain_independent_of_generator(monkeypatch):
+    totals = [0xfffffffD, 0xfffffffC]
+    monkeypatch.setattr(diagnostics, "_network_traffic_totals", lambda: totals)
+    sampler = diagnostics.RuntimeDiagnosticsSampler()
+    sampler.reset(diagnostics.collect_runtime_diagnostics_snapshot(), 1000)
+    totals[:] = [7, 16]
+    sample = sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(), 2000)
+    assert sample["generator_pps"] == 0
+    assert sample["traffic_tx_pps"] == 10
+    assert sample["traffic_rx_pps"] == 20
+
+    monkeypatch.setattr(diagnostics, "_network_traffic_totals", None)
+    sample = sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(), 3000)
+    assert sample["traffic_tx_pps"] is None
+    assert sample["traffic_rx_pps"] is None
+    monkeypatch.setattr(diagnostics, "_network_traffic_totals", lambda: [123, 456])
+    sample = sampler.sample(diagnostics.collect_runtime_diagnostics_snapshot(), 4000)
+    assert sample["traffic_tx_pps"] == 0
+    assert sample["traffic_rx_pps"] == 0
+
+
 @pytest.mark.parametrize("generator", [
     None, SimpleNamespace(), SimpleNamespace(get_packet_count=lambda: "invalid"),
 ])
@@ -59,7 +81,7 @@ def test_runtime_diagnostic_snapshot_handles_missing_traffic_counter(generator):
     output = {}
     result = diagnostics.collect_runtime_diagnostics_snapshot(traffic_generator=generator, out=output)
     assert result is output
-    assert result["traffic_packets_total"] == 0
+    assert result["generator_packets_total"] == 0
 
 
 @pytest.mark.parametrize("reader,method,unavailable", [
@@ -207,7 +229,7 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
 
     assert line == (
         "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
-        "tx:101.0 cb:102.0 accepted:100.0 hwerr:-- occ:80% | ch:6 rssi:-50"
+        "gen:-- tx:101.0 rx:-- cb:102.0 accepted:100.0 hwerr:-- occ:80% | ch:6 rssi:-50"
     )
 
 
@@ -217,7 +239,7 @@ def test_status_preserves_fractional_hardware_error_rates_when_available():
         motion_metric=0.0, threshold=0.5, effective_state=0,
     )
     assert "hwerr:0.4" in line
-    assert "tx:-- cb:-- accepted:--" in line
+    assert "gen:-- tx:-- rx:-- cb:-- accepted:--" in line
     assert "ch:-- rssi:--" in line
 
 

@@ -287,7 +287,13 @@ def test_services_facade_is_complete(header: Path) -> None:
     reachable = include_closure(SERVICES_FACADE) + include_closure(MQTT_FACADE)
     definitions = set().union(*(set(DEFINITION_PATTERN.findall(p.read_text())) for p in reachable))
     # Opaque platform types declared outside our namespace are not SDK types.
-    sdk_source = header.read_text().partition("namespace espectre {")[2]
+    source = header.read_text()
+    _, separator, sdk_source = source.partition("namespace espectre {")
+    if not separator:
+        assert not FORWARD_DECLARATION_PATTERN.findall(source), (
+            f"{header.name}: SDK forward declarations must be in the espectre namespace"
+        )
+        return
     declared = set(FORWARD_DECLARATION_PATTERN.findall(sdk_source))
     assert declared <= definitions, f"{header.name}: incomplete SDK types {sorted(declared - definitions)}"
 

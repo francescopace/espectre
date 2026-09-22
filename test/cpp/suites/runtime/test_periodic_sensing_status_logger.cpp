@@ -77,6 +77,8 @@ void test_diagnostics_snapshot_formats_all_rates_and_link_state(void) {
   diagnostics.wifi_channel = 11U;
   diagnostics.wifi_rssi_dbm = -55;
   diagnostics.csi_accepted_pps = 101.2f;
+  diagnostics.generator_pps = 99.0f;
+  diagnostics.traffic_rx_pps = 120.0f;
   diagnostics.traffic_tx_pps = 100.9f;
   diagnostics.csi_missing_slots_pps = 1.1f;
   diagnostics.csi_excess_pps = 2.1f;
@@ -88,7 +90,7 @@ void test_diagnostics_snapshot_formats_all_rates_and_link_state(void) {
 
   TEST_ASSERT_EQUAL(1, capture.writes);
   TEST_ASSERT_TRUE(capture.message.find("MOTION") != std::string::npos);
-  TEST_ASSERT_TRUE(capture.message.find("tx:100.9 cb:120.2 accepted:101.2 hwerr:0.4 occ:81%") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("gen:99.0 tx:100.9 rx:120.0 cb:120.2 accepted:101.2 hwerr:0.4 occ:81%") != std::string::npos);
   TEST_ASSERT_TRUE(capture.message.find("ch:11 rssi:-55") != std::string::npos);
 }
 
@@ -99,12 +101,12 @@ void test_missing_diagnostics_do_not_mislabel_admitted_packets(void) {
   logger.log_status("runtime", snapshot(), 50U);
   esp_timer_mock::advance(500000);
   logger.log_status("runtime", snapshot(), 50U);
-  TEST_ASSERT_TRUE(capture.message.find("tx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("gen:-- tx:-- rx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
 
   logger.reset();
   esp_timer_mock::advance(500000);
   logger.log_status("runtime", snapshot(), 50U);
-  TEST_ASSERT_TRUE(capture.message.find("tx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
+  TEST_ASSERT_TRUE(capture.message.find("gen:-- tx:-- rx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
 }
 
 void test_calibration_progress_is_clamped(void) {

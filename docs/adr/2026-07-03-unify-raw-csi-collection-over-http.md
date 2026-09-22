@@ -3,7 +3,7 @@
 - Status: Superseded in part
 - Date: 2026-07-03
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-08-29
+- Updated: 2026-09-22
 
 The binary framing, ordering, provenance, and fixed-ring behavior remain accepted. Explicit command-created sessions and bearer binding are superseded by automatic `GET /csi` lifetime ownership in [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md).
 
@@ -25,7 +25,7 @@ Raw collection does not change the configured traffic source, pace output, selec
 
 Raw HTTP prefixes every CSI V8 record with a 60-byte transport record. The V8 header preserves `phy_mode`, `ltf_type`, `channel_width`, receive timing, device sequence, chip, RSSI, channel, and CSI payload length. The HTTP prefix adds the session and stream sequence used to expose transport loss. The collector stores the normalized PHY fields in every generated `.npz` dataset. Historical datasets without these fields retain their documented HT, HT-LTF, and 20 MHz interpretation when their layout proves the earlier HT20 contract.
 
-The published raw HTTP framing uses protocol version `1`. Host tooling retains read support for historical V7 records, but no maintained workflow emits Streamer UDP records.
+The published raw HTTP framing uses protocol version `1`. Firmware and host tooling support only CSI V8 binary records. Historical captures are read from decoded NPZ arrays, which do not depend on a binary record parser.
 
 ## Decision History
 
@@ -36,6 +36,7 @@ The published raw HTTP framing uses protocol version `1`. Host tooling retains r
 | 2026-08-25 | Remove Streamer and collect through raw HTTP across supported ESPectre frontends | Accepted |
 | 2026-08-25 | Pace or replace samples inside the HTTP data plane | Rejected because transport feedback would decide which records enter the dataset |
 | 2026-08-29 | Publish the current raw HTTP framing as protocol version `1` instead of `2` | Accepted; CSI record version remains `8` |
+| 2026-09-22 | Retain only the latest CSI binary record version | Accepted; CSI V8 remains unchanged, and existing NPZ datasets remain readable |
 
 ## Alternatives Considered
 

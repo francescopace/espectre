@@ -36,12 +36,12 @@
         <table>
           <thead><tr>
             <th><input id="select-all" type="checkbox" aria-label="Select all supported devices"></th>
-            <th>Device</th><th>Traffic / s</th><th>CSI / s</th>
+            <th>Device</th><th>Generator / s</th><th>TX / s</th><th>RX / s</th><th>CSI / s</th>
             <th>Occupancy</th><th>Wi-Fi RSSI</th><th>Traffic Generator</th>
           </tr></thead>
           <tbody id="devices"></tbody>
           <tfoot id="bulk-actions" hidden><tr>
-            <td colspan="6"><span id="selection" aria-live="polite"></span></td>
+            <td colspan="8"><span id="selection" aria-live="polite"></span></td>
             <td><div class="row-actions" role="group" aria-label="Selected devices">
               <button id="external" type="button" disabled>External</button>
               <button id="internal" type="button" disabled>Internal</button>

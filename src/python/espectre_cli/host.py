@@ -558,7 +558,9 @@ def _run_live_collect(args) -> None:
     def build_device_diagnostics_snapshot(device_state):
         sampler = device_state["temporal_controller"].sampler
         return {
-            "traffic_packets_total": int(device_state.get("fresh_record_total", 0) or 0),
+            "generator_packets_total": None,
+            "traffic_tx_packets_total": None,
+            "traffic_rx_packets_total": None,
             "csi_callbacks_total": int(device_state.get("packet_count", 0) or 0),
             "csi_accepted_total": int(device_state.get("packet_count", 0) or 0),
             "csi_admitted_total": int(getattr(sampler, "accepted_packets", 0) or 0),

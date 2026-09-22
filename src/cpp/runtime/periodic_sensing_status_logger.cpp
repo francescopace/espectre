@@ -84,8 +84,10 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   char link[40];
   if (diagnostics != nullptr) {
     std::snprintf(rates, sizeof(rates),
-                  "tx:%.1f cb:%.1f accepted:%.1f hwerr:%.1f occ:%u%%",
+                  "gen:%.1f tx:%.1f rx:%.1f cb:%.1f accepted:%.1f hwerr:%.1f occ:%u%%",
+                  static_cast<double>(diagnostics->generator_pps),
                   static_cast<double>(diagnostics->traffic_tx_pps),
+                  static_cast<double>(diagnostics->traffic_rx_pps),
                   static_cast<double>(diagnostics->csi_callback_pps),
                   static_cast<double>(diagnostics->csi_accepted_pps),
                   static_cast<double>(diagnostics->csi_hw_error_pps),
@@ -100,7 +102,7 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
     }
     std::snprintf(link, sizeof(link), "ch:%s rssi:%s", channel, rssi);
   } else {
-    std::snprintf(rates, sizeof(rates), "tx:-- cb:-- accepted:-- hwerr:-- occ:--%%");
+    std::snprintf(rates, sizeof(rates), "gen:-- tx:-- rx:-- cb:-- accepted:-- hwerr:-- occ:--%%");
     std::snprintf(link, sizeof(link), "ch:-- rssi:--");
   }
   constexpr int kBarWidth = 20;

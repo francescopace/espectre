@@ -5,6 +5,7 @@
 
 #include "native_wifi.h"
 #include "native_log_sink.h"
+#include "runtime/esp_idf/network_traffic.h"
 #include "runtime/esp_idf/wifi_tx_rate.h"
 #include "esp_event.h"
 
@@ -34,6 +35,12 @@ extern "C" esp_err_t espectre_native_wifi_apply_tx_rate(void) {
   const esp_err_t result = association_rate_result.load();
   if (result != ESP_OK) return result;
   return espectre::apply_station_tx_rate();
+}
+
+extern "C" void espectre_native_wifi_traffic_totals(uint32_t *tx, uint32_t *rx) {
+  const espectre::NetworkTrafficSnapshot traffic = espectre::read_network_traffic();
+  *tx = traffic.tx_packets;
+  *rx = traffic.rx_packets;
 }
 
 #endif

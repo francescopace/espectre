@@ -33,7 +33,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes and migration
 
+- Separate successful internal traffic generation (`generator_pps`, zero in external mode) from station network traffic (`traffic_tx_pps` and `traffic_rx_pps`). Keep CSI callback and accepted rates unchanged. Remove the mixed `traffic_packets_total` diagnostic and SDK accessor; use `get_generator_packets_total()` for generation or `get_packets_received()` for validated external UDP ingress. Add Generator Rate and Traffic RX Rate to Home Assistant. The Monitor displays and requests network TX/RX, CSI callbacks and accepted packets, occupancy, RSSI, free heap, and loop time. Micro network rates require rebuilt firmware; NPZ replay reports unavailable traffic rates as `null`.
 - Move primary console setup and TinyUSB to shared frontend code. SDK integrations must provide their own console setup; `initialize_primary_console()` is no longer part of the SDK API.
+- Support only CSI V8 binary records, and remove the historical V7 SDK header and parser support. Existing NPZ datasets remain readable; V8 framing and payloads are unchanged.
 
 ---
 

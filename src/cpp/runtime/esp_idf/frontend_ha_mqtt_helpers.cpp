@@ -114,6 +114,8 @@ struct DiagnosticSensorDef {
 };
 
 constexpr DiagnosticSensorDef kDiagnosticSensors[] = {
+    {"Generator Rate", "generator_rate", "generator_rate", "pkt/s", "mdi:send", nullptr, true},
+    {"Traffic RX Rate", "traffic_rx_rate", "traffic_rx_rate", "pkt/s", "mdi:download-network", nullptr, true},
     {"Traffic TX Rate", "traffic_tx_rate", "traffic_tx_rate", "pkt/s", "mdi:upload-network", nullptr, true},
     {"CSI Callback Rate", "csi_callback_rate", "csi_callback_rate", "pkt/s", "mdi:access-point", nullptr, true},
     {"CSI Accepted Rate", "csi_accepted_rate", "csi_accepted_rate", "pkt/s", "mdi:check-network", nullptr, true},

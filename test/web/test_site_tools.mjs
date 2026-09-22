@@ -148,18 +148,21 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
 }
 
 describe('device HTTP request budgets', () => {
-    it('renders selected frontend loop timing and preserves unavailable values', async () => {
+    it('renders selected diagnostics and every demo indicator, preserving unavailable values', async () => {
         const runtime = loadDeviceHttpRuntime({ renderDiagnostics: true });
-        const loopStat = { textContent: '' };
+        const stats = new Map(Array.from(toolContent.monitor.matchAll(/class="stat-value (js-mon-[\w-]+)"/g),
+            ([, name]) => ['.' + name, { textContent: '' }]));
+        const loopStat = stats.get('.js-mon-loop');
         const select = runtime.context.$;
-        runtime.context.$ = (selector) => selector === '.js-mon-loop' ? loopStat : select(selector);
+        runtime.context.$ = (selector) => stats.get(selector) || select(selector);
         let loopTimeMs;
         runtime.setClient({ connected: true, request: async (method, resource, params) => {
             assert.equal(method, 'get');
             assert.equal(resource, 'diagnostics');
             const diagnostics = {
-                traffic_tx_pps: 100, csi_callback_pps: 98, csi_accepted_pps: 95,
-                csi_hw_error_total: 0, csi_occupancy: 0.9, wifi_rssi_dbm: -55,
+                traffic_tx_pps: 100, traffic_rx_pps: 120,
+                csi_callback_pps: 98, csi_accepted_pps: 95,
+                csi_occupancy: 0.9, wifi_rssi_dbm: -55,
                 free_memory_kb: 120, loop_time_ms: loopTimeMs,
             };
             assert.deepEqual(Array.from(params.fields).sort(), Object.keys(diagnostics).sort());
@@ -171,9 +174,25 @@ describe('device HTTP request budgets', () => {
             await runtime.context.monitorRequestStats();
             assert.equal(loopStat.textContent, expected);
         }
-        runtime.run("conn.mode = 'demo'");
-        await runtime.context.monitorRequestStats();
-        assert.equal(loopStat.textContent, '0.31 ms');
+        runtime.setClient({ connected: true, request: async () => assert.fail('Demo must not request hardware diagnostics') });
+        runtime.run("route = 'tool-monitor'; conn.mode = 'demo'");
+        for (const targetPps of [1, 98, 250]) {
+            runtime.run(`conn.csiTargetPps = ${targetPps}`);
+            for (const stat of stats.values()) stat.textContent = '';
+            await runtime.context.monitorRequestStats();
+            for (const [selector, stat] of stats) {
+                assert.ok(Number.isFinite(parseFloat(stat.textContent)), `${selector} needs demo data`);
+            }
+            const value = (selector) => parseFloat(stats.get(selector).textContent);
+            assert.ok(value('.js-mon-traffic') >= value('.js-mon-callbacks'));
+            assert.ok(value('.js-mon-traffic-rx') >= value('.js-mon-callbacks'));
+            assert.ok(value('.js-mon-callbacks') >= value('.js-mon-accepted'));
+            assert.ok(value('.js-mon-accepted') > 0);
+            assert.ok(value('.js-mon-occupancy') > 0 && value('.js-mon-occupancy') <= 100);
+            assert.ok(value('.js-mon-rssi') < 0);
+            assert.ok(value('.js-mon-heap') > 0);
+            assert.equal(loopStat.textContent, '0.31 ms');
+        }
     });
 
     for (const [resource, field, value] of [

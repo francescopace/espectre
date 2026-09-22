@@ -9,6 +9,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "esp_idf_runtime.h"
+#include "network_traffic.h"
 
 #include "csi_format.h"
 #include "csi_platform_config.h"
@@ -269,7 +270,10 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   RuntimeDiagnosticsSnapshot diagnostics = EspIdfRuntimeBase::get_diagnostics();
   diagnostics.wifi_rssi_dbm = wifi_rssi_dbm_;
   diagnostics.wifi_channel = wifi_channel_;
-  diagnostics.traffic_packets_total = csi_traffic_service_.get_traffic_packets_total();
+  diagnostics.generator_packets_total = csi_traffic_service_.get_generator_packets_total();
+  const NetworkTrafficSnapshot traffic = read_network_traffic();
+  diagnostics.traffic_tx_packets_total = traffic.tx_packets;
+  diagnostics.traffic_rx_packets_total = traffic.rx_packets;
   diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
   diagnostics.csi_provenance_rejected_total = csi_pipeline_.traffic_rejected_packets_total();
   diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
@@ -770,7 +774,9 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
   csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
   csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.is_running();
-  csi_receive_path_traffic_total_ = csi_traffic_service_.get_traffic_packets_total();
+  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() == CsiTrafficMode::INTERNAL
+                               ? csi_traffic_service_.get_generator_packets_total()
+                               : csi_traffic_service_.get_packets_received());
   csi_receive_path_traffic_seen_ = false;
 }
 
@@ -786,7 +792,9 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
 
-  const uint64_t traffic = csi_traffic_service_.get_traffic_packets_total();
+  const uint64_t traffic = (csi_traffic_service_.mode() == CsiTrafficMode::INTERNAL
+                               ? csi_traffic_service_.get_generator_packets_total()
+                               : csi_traffic_service_.get_packets_received());
   const uint32_t now = monotonic_now_ms();
   if (traffic < csi_receive_path_traffic_total_) {
     csi_receive_path_traffic_total_ = traffic;

@@ -76,6 +76,8 @@ Micro requests automatic band selection when the MicroPython station API support
 
 MicroPython includes native hardware-quality rejections in `csi_filtered_total` and `csi_filtered_pps`, and counts those callbacks in `csi_callbacks_total`. The dedicated native `csi_hw_errors()` counter counts only hardware-quality rejections, including faults accompanied by malformed buffers, once per callback. Buffer-only failures remain in the overall filtered count, and native ring overflow stays separate. MicroPython appends `first_word_invalid` at index 22 of its native CSI frame list and normalizes the original source bytes before calibration or sensing; this requires rebuilding and flashing the Micro firmware as well as deploying the matching application.
 
+`generator_pps` reports successful internal generator sends. `traffic_tx_pps` and `traffic_rx_pps` use the shared native station counters described in [API.md](../../../docs/API.md#diagnostics). Rebuild and flash firmware to enable network counters; older native modules report these two rates as unavailable.
+
 The diagnostics fields `csi_hw_error_total` and `csi_hw_error_pps` use the dedicated native hardware counter. Older firmware without that counter reports these measurements as unavailable and prints `hwerr:--` in the periodic sensing log. Rebuild and flash the firmware to enable them.
 
 When no frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, Micro first rearms CSI. If the stall persists, it stops Direct, reconnects Wi-Fi, creates a fresh capture ring, recalibrates, and republishes discovery. This recovery is implemented in [runtime_main.py](runtime_main.py) and [wifi_bootstrap.py](wifi_bootstrap.py).

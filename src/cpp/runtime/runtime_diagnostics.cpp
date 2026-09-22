@@ -202,7 +202,9 @@ std::string runtime_diagnostic_value(const char *key, const RuntimeDiagnosticsSa
     std::snprintf(buffer, sizeof(buffer), "%.6g", value);
     return std::string(buffer);
   };
+  if (std::strcmp(key, "generator_pps") == 0) return sample ? number(sample->generator_pps) : "null";
   if (std::strcmp(key, "traffic_tx_pps") == 0) return sample ? number(sample->traffic_tx_pps) : "null";
+  if (std::strcmp(key, "traffic_rx_pps") == 0) return sample ? number(sample->traffic_rx_pps) : "null";
   if (std::strcmp(key, "csi_callback_pps") == 0) return sample ? number(sample->csi_callback_pps) : "null";
   if (std::strcmp(key, "csi_accepted_pps") == 0) return sample ? number(sample->csi_accepted_pps) : "null";
   if (std::strcmp(key, "csi_admitted_pps") == 0) return sample ? number(sample->csi_admitted_pps) : "null";
@@ -296,10 +298,6 @@ std::string runtime_diagnostic_value(const char *key, const RuntimeDiagnosticsSa
     const auto &s = snapshot();
     if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
     return std::to_string(s.detection_maximum_us);
-  }
-  if (std::strcmp(key, "traffic_packets_total") == 0) {
-    const auto &s = snapshot();
-    return std::to_string(s.traffic_packets_total);
   }
   if (std::strcmp(key, "csi_callbacks_total") == 0) {
     const auto &s = snapshot();
@@ -400,8 +398,12 @@ RuntimeDiagnosticsSample RuntimeDiagnosticsSampler::sample(const RuntimeDiagnost
   if (elapsed_ms == 0U) {
     return result;
   }
+  result.generator_pps = packets_per_second(
+      counter_delta(snapshot.generator_packets_total, previous_.generator_packets_total), elapsed_ms);
   result.traffic_tx_pps = packets_per_second(
-      counter_delta(snapshot.traffic_packets_total, previous_.traffic_packets_total), elapsed_ms);
+      static_cast<uint32_t>(snapshot.traffic_tx_packets_total - previous_.traffic_tx_packets_total), elapsed_ms);
+  result.traffic_rx_pps = packets_per_second(
+      static_cast<uint32_t>(snapshot.traffic_rx_packets_total - previous_.traffic_rx_packets_total), elapsed_ms);
   result.csi_callback_pps = packets_per_second(
       counter_delta(snapshot.csi_callbacks_total, previous_.csi_callbacks_total), elapsed_ms);
   result.csi_accepted_pps = packets_per_second(

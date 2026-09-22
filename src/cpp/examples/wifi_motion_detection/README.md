@@ -17,7 +17,7 @@ cd wifi_motion_detection
 
 The packaged example's `main/idf_component.yml` pins the SDK version and registry. For an older staging example with only a version, add `registry_url: https://components-staging.espressif.com` under `francescopace/espectre` before building. Preview snapshots come from `main`; Develop snapshots come from `develop`. Both use staging.
 
-Component Manager downloads the example and resolves its SDK dependency when configuring the project. The default example requires neither MQTT nor the HTTP server and resolves no external stack dependencies. Enabling MQTT in menuconfig links bundled MQTT on ESP-IDF 5.5.x or resolves the SDK's pinned `espressif/mqtt` `1.0.0` dependency on ESP-IDF 6.x. Enabling Direct links the HTTP server and adds mDNS. After changing either option in an existing project, run `idf.py update-dependencies` to refresh the lockfile before building. Projects that restrict ESP-IDF's component set must explicitly include the bundled stacks they enable, as described in the [SDK guide](https://espectre.dev/sdk/#optional-capability-groups). The application owns its console configuration; select the appropriate ESP-IDF console for your board, or add and initialize TinyUSB in your application if needed.
+Component Manager downloads the example and resolves its SDK dependency when configuring the project. The default example requires neither MQTT nor the HTTP server. For optional stacks, lockfile updates, and projects with restricted component sets, see the [SDK guide](https://espectre.dev/sdk/#optional-capability-groups). The application owns its console configuration; select the appropriate ESP-IDF console for your board, or add and initialize TinyUSB in your application if needed.
 
 ## Build and run
 

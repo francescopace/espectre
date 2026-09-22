@@ -30,8 +30,12 @@ namespace espectre {
  * it establishes the baseline. The link fields are carried through either way.
  */
 struct RuntimeDiagnosticsSample {
-  /** Traffic packets per second sent or observed by the active traffic source. */
+  /** Successful internal generator sends per second; zero in external mode. */
+  float generator_pps{0.0f};
+  /** Station network packets per second accepted by the driver. */
   float traffic_tx_pps{0.0f};
+  /** Station network packets per second delivered by the driver. */
+  float traffic_rx_pps{0.0f};
   /** Raw CSI callbacks per second, before any capture-level validation. */
   float csi_callback_pps{0.0f};
   /** CSI packets per second accepted by capture validation. */
@@ -64,7 +68,8 @@ struct RuntimeDiagnosticsSample {
  * Converts cumulative diagnostics into rates over the interval between reads.
  *
  * Call `reset()` when the owning runtime starts. Counter resets are treated as
- * a new epoch, so rearming a traffic source cannot underflow a rate.
+ * a new epoch, so rearming a traffic source cannot underflow a rate. Station
+ * network counters wrap modulo 2^32 and are never reset by sensing restarts.
  *
  * @code
  * // once, when the runtime starts sensing:

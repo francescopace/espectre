@@ -105,8 +105,10 @@ def _format_status_fields(diagnostics, *, placeholders=False):
     channel = None if placeholders else _lookup_value(diagnostics, "wifi_channel", None)
     rssi = None if placeholders else _lookup_value(diagnostics, "wifi_rssi_dbm", None)
     occupancy_text = "--" if occupancy is None else str(int(float(occupancy) * 100.0 + 0.5))
-    return "tx:{} cb:{} accepted:{} hwerr:{} occ:{}% | ch:{} rssi:{}".format(
+    return "gen:{} tx:{} rx:{} cb:{} accepted:{} hwerr:{} occ:{}% | ch:{} rssi:{}".format(
+        rate("generator_pps"),
         rate("traffic_tx_pps"),
+        rate("traffic_rx_pps"),
         rate("csi_callback_pps"),
         rate("csi_accepted_pps"),
         # Older firmware does not expose the dedicated hardware counter.

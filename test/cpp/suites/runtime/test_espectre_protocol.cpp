@@ -298,6 +298,8 @@ void test_diagnostics_payload_includes_enabled_runtime_sample(void) {
   EspectreDeviceConfig config;
   RuntimeSnapshot snapshot;
   RuntimeDiagnosticsSample diagnostics;
+  diagnostics.generator_pps = 0.0f;
+  diagnostics.traffic_rx_pps = 120.0f;
   diagnostics.traffic_tx_pps = 100.0f;
   diagnostics.csi_callback_pps = 96.0f;
   diagnostics.csi_accepted_pps = 90.0f;
@@ -315,6 +317,8 @@ void test_diagnostics_payload_includes_enabled_runtime_sample(void) {
       espectre_diagnostics_payload(config, snapshot, 333, 44, 128.5f, 6.25f, &diagnostics);
 
   TEST_ASSERT_TRUE(payload.find("\"traffic_tx_pps\":100") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"generator_pps\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"traffic_rx_pps\":120") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_callback_pps\":96") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_accepted_pps\":90") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_admitted_pps\":84") != std::string::npos);

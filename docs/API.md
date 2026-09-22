@@ -152,7 +152,9 @@ Pass `{"fields":["traffic_tx_pps","csi_hw_error_total","direct_http.send_failure
 
 HTTP accepts the JSON parameter object in the GET body. Browsers use `GET /espectre/v1/diagnostics?fields=%5B%22traffic_tx_pps%22%5D`, where `fields` is a URL-encoded JSON array; a query cannot be combined with a body or additional query parameters. Body limits still apply to decoded query parameters, and the HTTP server also enforces its URI limit. Use a body for long selections. MQTT carries the same `fields` array at the top level of `read_diagnostics` and returns the same object inside `commands/result.data`. Diagnostics are not published through SSE or a retained MQTT topic.
 
-Current clients request their fields directly, without fetching the catalog first. The Monitor requests its eight indicators, Device settings requests the Wi-Fi channel, the firmware benchmark requests its measurement and Direct transport fields, and CSI collection requests `raw_csi`. The generic CLI defaults to `["*"]`; explicitly pass `fields: []` to inspect the catalog. Continuous counters and performance windows retain their existing sampling behavior; selection controls value retrieval and serialization, not detector instrumentation.
+Network traffic rates include UDP, ICMP, TCP data and acknowledgements, ARP, and other station data passed through the stack. They exclude 802.11 control acknowledgements, management frames, radio retries, and raw Wi-Fi injection. TX counts driver acceptance, not over-the-air delivery; RX counts driver delivery even if the stack later drops the packet. Rates share the existing diagnostic sampling interval. Network counters use modulo-32-bit deltas and are independent of generator resets. A zero network rate means no measured traffic; unavailable counters, including NPZ replay and older Micro firmware, produce `null`.
+
+Current clients request their fields directly, without fetching the catalog first. The Monitor requests its displayed indicators, Device settings requests the Wi-Fi channel, the firmware benchmark requests its measurement and Direct transport fields, and CSI collection requests `raw_csi`. The generic CLI defaults to `["*"]`; explicitly pass `fields: []` to inspect the catalog. Continuous counters and performance windows retain their existing sampling behavior; selection controls value retrieval and serialization, not detector instrumentation.
 
 | Field group | Meaning |
 | --- | --- |
@@ -162,9 +164,12 @@ Current clients request their fields directly, without fetching the catalog firs
 | `performance_window_ready`, `performance_window_ms`, `runtime_load_percent` | Availability, duration, and runtime-loop load for the latest complete performance window |
 | `loop_samples`, `loop_avg_us`, `loop_max_us` | Runtime loop timing for that window |
 | `detection_timing_supported`, `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector timing support and aggregates |
-| `traffic_packets_total`, `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative traffic and CSI pipeline counters |
+| `generator_pps` | Successful internal generator sends per second, including `wifi_raw`; zero in external mode |
+| `traffic_tx_pps`, `traffic_rx_pps` | Wi-Fi station network packets per second accepted by the driver for TX or delivered by the driver for RX |
+| `csi_callback_pps`, `csi_accepted_pps` | All CSI callbacks and capture-valid CSI packets per second, respectively |
+| `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative CSI pipeline counters |
 | `csi_rx_error_total`, `csi_rx_end_error_total`, `csi_invalid_estimate_total`, `csi_invalid_first_word_total` | Cumulative capture-quality rejections; one reason per rejected callback |
-| `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device for the web Monitor |
+| `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device |
 | `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates |
 | `csi_sanitized_first_word_total` | Frames whose hardware-invalid source pairs were zeroed; classic DC/+1 or centered guards, with the default turbulence band preserved |
 | `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total` | Cumulative queue and temporal-admission drop counters |
@@ -291,7 +296,7 @@ Capture rejects hardware-invalid estimates before sensing and collection. [CSI.m
 
 The public CSI record format is unchanged. Filtered streams may have fewer usable packets, including no usable packets if the hardware reports invalid estimates for the selected source. This is not a quiet measurement, and the runtime does not silently select another generator. Detailed hardware metadata is not added to collected datasets.
 
-Each CSI V8 record retains the established 60-byte little-endian HTTP prefix. The client adopts the 16-byte session identifier from the first frame and rejects a change within the same connection. The producer preserves order; fixed-ring drops remain observable in the transport counters.
+CSI V8 is the only supported binary record version. Each record retains the established 60-byte little-endian HTTP prefix. The client adopts the 16-byte session identifier from the first frame and rejects a change within the same connection. The producer preserves order; fixed-ring drops remain observable in the transport counters. Existing NPZ datasets store decoded arrays and remain readable independently of the binary record version used during capture.
 
 While CSI is active, sensing reports `csi_collection`, readiness is false, and motion plus all present or future derived events are paused on every transport. Control and resource events remain available. A second `/csi` request and sensing, Wi-Fi, or OTA mutations return `409`. On close, the runtime restores its prior state, recalibrates when required, and resumes derived events only after readiness returns. The raw worker also detects a disconnected client when no CSI records are available; it closes the session without synthesizing records. When external traffic is configured, the host traffic generator must start before opening `/csi`.
 

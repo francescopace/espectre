@@ -88,7 +88,9 @@ CONF_DETECTION_ALGORITHM = "detection_algorithm"
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
 CONF_MOTION_SENSOR = "motion_sensor"
+CONF_GENERATOR_RATE_SENSOR = "generator_rate_sensor"
 CONF_TRAFFIC_RATE_SENSOR = "traffic_rate_sensor"
+CONF_TRAFFIC_RX_RATE_SENSOR = "traffic_rx_rate_sensor"
 CONF_CSI_CALLBACK_RATE_SENSOR = "csi_callback_rate_sensor"
 CONF_CSI_ACCEPTED_RATE_SENSOR = "csi_accepted_rate_sensor"
 CONF_CSI_ADMITTED_RATE_SENSOR = "csi_admitted_rate_sensor"
@@ -269,6 +271,20 @@ CONFIG_SCHEMA = cv.Schema({
     # On-demand diagnostic entities. The component refreshes its internal
     # sample from the existing sensing callback, but publishes these states
     # only when the diagnostics button is pressed.
+    cv.Optional(CONF_GENERATOR_RATE_SENSOR, default={"name": "Generator Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:send",
+    ),
+    cv.Optional(CONF_TRAFFIC_RX_RATE_SENSOR, default={"name": "Traffic RX Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:download-network",
+    ),
     cv.Optional(CONF_TRAFFIC_RATE_SENSOR, default={"name": "Traffic TX Rate"}): sensor.sensor_schema(
         unit_of_measurement="pkt/s",
         accuracy_decimals=1,
@@ -573,7 +589,9 @@ async def to_code(config):
     cg.add(var.set_calibration_active_sensor(calibration_active))
 
     diagnostic_sensors = (
+        (CONF_GENERATOR_RATE_SENSOR, var.set_generator_rate_sensor),
         (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
+        (CONF_TRAFFIC_RX_RATE_SENSOR, var.set_traffic_rx_rate_sensor),
         (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
         (CONF_CSI_ACCEPTED_RATE_SENSOR, var.set_csi_accepted_rate_sensor),
         (CONF_CSI_ADMITTED_RATE_SENSOR, var.set_csi_admitted_rate_sensor),

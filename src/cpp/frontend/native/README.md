@@ -70,7 +70,7 @@ Home Assistant discovery is enabled in published firmware and can be disabled wi
 | CSI Traffic Ownership and Source | Runtime traffic controls |
 | Recalibrate | Configuration button that starts recalibration |
 | Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
-| CSI and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
+| Generator, network, CSI, and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
 
 Standalone MQTT clients use the topics and payloads in [API.md](../../../../docs/API.md#mqtt). Production diagnostics are available through both Direct and MQTT, including transport queues, drops, and failures; see [API.md](../../../../docs/API.md#diagnostics).
 

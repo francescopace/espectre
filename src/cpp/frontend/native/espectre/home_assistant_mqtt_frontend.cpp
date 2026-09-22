@@ -48,7 +48,11 @@ std::string normalize_text_token(const std::string &value) {
 
 std::string diagnostic_state_payload(const std::string &key, const RuntimeDiagnosticsSample &sample) {
   char buffer[24];
-  if (key == "traffic_tx_rate") {
+  if (key == "generator_rate") {
+    std::snprintf(buffer, sizeof(buffer), "%.1f", static_cast<double>(sample.generator_pps));
+  } else if (key == "traffic_rx_rate") {
+    std::snprintf(buffer, sizeof(buffer), "%.1f", static_cast<double>(sample.traffic_rx_pps));
+  } else if (key == "traffic_tx_rate") {
     std::snprintf(buffer, sizeof(buffer), "%.1f", static_cast<double>(sample.traffic_tx_pps));
   } else if (key == "csi_callback_rate") {
     std::snprintf(buffer, sizeof(buffer), "%.1f", static_cast<double>(sample.csi_callback_pps));

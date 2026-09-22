@@ -684,6 +684,8 @@ void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt.emit_connection(true);
   RuntimeDiagnosticsSample &sample = frontend_runtime_shim::state.diagnostics_sample;
+  sample.generator_pps = 0.0f;
+  sample.traffic_rx_pps = 120.0f;
   sample.traffic_tx_pps = 100.0f;
   sample.csi_callback_pps = 96.0f;
   sample.csi_accepted_pps = 90.0f;
@@ -701,6 +703,8 @@ void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
   mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/diagnostics/set", "PRESS");
 
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_tx_rate/state", "100.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/generator_rate/state", "0.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_rx_rate/state", "120.0"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_callback_rate/state", "96.0"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_accepted_rate/state", "90.0"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_admitted_rate/state", "84.0"));

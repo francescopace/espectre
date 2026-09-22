@@ -27,6 +27,7 @@
 #include "runtime/esp_idf/frontend_mqtt_helpers.h"
 #include "runtime/esp_idf/mdns_bootstrap_responder.h"
 #include "runtime/esp_idf/mdns_discovery_service.h"
+#include "runtime/esp_idf/network_traffic.h"
 #include "runtime/esp_idf/nvs_helpers.h"
 #include "runtime/esp_idf/peer_discovery_service_esp_idf.h"
 #include "runtime/esp_idf/raw_csi_session_controller.h"

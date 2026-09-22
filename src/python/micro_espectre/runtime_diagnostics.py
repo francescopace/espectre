@@ -8,8 +8,15 @@ Mirrors the canonical C++ runtime diagnostic window for Direct queries.
 """
 import time
 
+try:
+    from espectre_native_wifi import traffic_totals as _network_traffic_totals
+except ImportError:
+    _network_traffic_totals = None
+
 STATS_DIAGNOSTIC_KEYS = (
+    "generator_pps",
     "traffic_tx_pps",
+    "traffic_rx_pps",
     "csi_callback_pps",
     "csi_accepted_pps",
     "csi_admitted_pps",
@@ -73,7 +80,9 @@ def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None, out=None):
     """Return zero rates, with hardware errors unavailable until firmware is checked."""
     if out is None:
         out = {}
-    out["traffic_tx_pps"] = 0.0
+    out["generator_pps"] = 0.0
+    out["traffic_tx_pps"] = None
+    out["traffic_rx_pps"] = None
     out["csi_callback_pps"] = 0.0
     out["csi_accepted_pps"] = 0.0
     out["csi_admitted_pps"] = 0.0
@@ -150,17 +159,26 @@ def collect_runtime_diagnostics_snapshot(
     wlan=None,
 ):
     """Build the cumulative counter snapshot consumed by the rate sampler."""
-    traffic_packets_total = 0
+    generator_packets_total = 0
     if traffic_generator is not None:
         get_count = getattr(traffic_generator, "get_packet_count", None)
         if callable(get_count):
             try:
-                traffic_packets_total = int(get_count())
+                generator_packets_total = int(get_count())
             except (TypeError, ValueError):
-                traffic_packets_total = 0
+                generator_packets_total = 0
     if out is None:
         out = {}
-    out["traffic_packets_total"] = int(traffic_packets_total)
+    out["generator_packets_total"] = generator_packets_total
+    tx_total, rx_total = None, None
+    if _network_traffic_totals is not None:
+        try:
+            tx_total, rx_total = _network_traffic_totals()
+            tx_total, rx_total = int(tx_total), int(rx_total)
+        except (OSError, TypeError, ValueError):
+            tx_total, rx_total = None, None
+    out["traffic_tx_packets_total"] = tx_total
+    out["traffic_rx_packets_total"] = rx_total
     out["csi_callbacks_total"] = int(callback_total)
     out["csi_accepted_total"] = int(accepted_total)
     out["csi_admitted_total"] = int(admitted_total)
@@ -213,6 +231,10 @@ class RuntimeDiagnosticsSampler:
         result["csi_hw_error_total"] = hardware_total
         if hardware_total is not None:
             result["csi_hw_error_pps"] = 0.0
+        for rate, counter in (("generator_pps", "generator_packets_total"),
+                              ("traffic_tx_pps", "traffic_tx_packets_total"),
+                              ("traffic_rx_pps", "traffic_rx_packets_total")):
+            result[rate] = 0.0 if snapshot.get(counter) is not None else None
         if not self._baseline_ready:
             self.reset(snapshot, now_ms)
             return result
@@ -227,10 +249,19 @@ class RuntimeDiagnosticsSampler:
             result["csi_hw_error_pps"] = _packets_per_second(
                 _counter_delta(hardware_total, previous_hardware_total), elapsed_ms,
             )
-        result["traffic_tx_pps"] = _packets_per_second(
-            _counter_delta(snapshot["traffic_packets_total"], previous["traffic_packets_total"]),
-            elapsed_ms,
-        )
+        generator_total = snapshot.get("generator_packets_total")
+        previous_generator_total = previous.get("generator_packets_total")
+        if generator_total is not None and previous_generator_total is not None:
+            result["generator_pps"] = _packets_per_second(
+                _counter_delta(generator_total, previous_generator_total), elapsed_ms,
+            )
+        for rate, counter in (("traffic_tx_pps", "traffic_tx_packets_total"),
+                              ("traffic_rx_pps", "traffic_rx_packets_total")):
+            current_total, previous_total = snapshot.get(counter), previous.get(counter)
+            if current_total is not None and previous_total is not None:
+                result[rate] = _packets_per_second(
+                    (int(current_total) - int(previous_total)) & 0xffffffff, elapsed_ms,
+                )
         result["csi_callback_pps"] = _packets_per_second(
             _counter_delta(snapshot["csi_callbacks_total"], previous["csi_callbacks_total"]),
             elapsed_ms,
