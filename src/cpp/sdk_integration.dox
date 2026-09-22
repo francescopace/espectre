@@ -110,7 +110,13 @@ Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault
 
 @section integration_diagnostics Diagnostics
 
-The runtime exposes cumulative capture and link counters separately from the sensing snapshot. `RuntimeFrontendController::diagnostics()` reads the totals, and `diagnostics_sample()` returns the runtime's shared one-second sample. For a custom sampling interval, `RuntimeDiagnosticsSampler` turns two reads into rates without requiring a separate timer:
+Read `RuntimeFrontendController::diagnostics_sample()` for diagnostics. It returns the runtime's shared one-second `RuntimeDiagnosticsSample`: traffic and CSI rates plus the current link. Read the same sample across your transport adapters so their observation windows agree. It is `nullptr` before `setup()`.
+
+`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) owns the corresponding wire field names, units, and optionality.
+
+@subsection integration_diagnostics_advanced Advanced: cumulative counters
+
+`RuntimeFrontendController::diagnostics()` returns the cumulative `RuntimeDiagnosticsSnapshot` behind the sample, grouped as `link`, `traffic`, `csi`, `platform`, and `performance`. The `csi` group also carries the callback queue's drop counter, occupancy, and capacity. Use it when you need totals, or a sampling interval other than one second. `RuntimeDiagnosticsSampler` turns two reads into rates without requiring a separate timer:
 
 ```cpp
 // once, at application startup
@@ -120,17 +126,15 @@ sampler_.reset(runtime_.diagnostics(), now_ms);
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. `RuntimeDiagnosticsSnapshot` exposes the cumulative callback-queue drop counter and its current occupancy and capacity; `RuntimeDiagnosticsSample::csi_pending_frame_drop_pps` derives the overflow rate. Occupancy is diagnostic telemetry and does not change the device send rate. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) owns the corresponding wire field names, units, and optionality.
-
 SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#contract-principles) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement.
 
-The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) defines their transport representation; the sampling contract follows below.
+The ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap and CPU frequency in `platform`, loop load and detector timing in `performance`, and CSI provenance rejection in `csi`. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) defines their transport representation; the sampling contract follows below.
 
 @section integration_performance_sampling Performance sampling
 
-C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. The runtime also derives a one-second `RuntimeDiagnosticsSample` from cumulative counters. Read this shared sample across your transport adapters to keep their observation windows consistent. Collection is unconditional and does not emit a periodic debug log.
+The runtime aggregates loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot::performance` holds the latest complete window, and `platform` holds current, minimum, and largest-block heap values and configured CPU frequency. Collection is unconditional and does not emit a periodic debug log.
 
-`runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and listener callback delivery run in the owning loop task. Transport work on private tasks is outside this measurement. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
+`performance.runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and listener callback delivery run in the owning loop task. Transport work on private tasks is outside this measurement. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 @section integration_transport_adapters Transport adapters
 

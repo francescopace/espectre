@@ -303,11 +303,13 @@ Asynchronous faults arrive through `IRuntimeListener::on_runtime_fault()`. `on_c
 
 ### Diagnostics
 
-Use `controller.diagnostics()` for cumulative capture and link counters, and `controller.diagnostics_sample()` for the shared one-second sample. Read the same sample across transport adapters so their observation windows agree. For a custom interval, initialize `RuntimeDiagnosticsSampler` with `reset(totals, now_ms)`, then call `sample(totals, now_ms)` from an existing periodic callback.
+Use `controller.diagnostics_sample()` for diagnostics: the shared one-second sample of traffic and CSI rates plus the current link. Read the same sample across transport adapters so their observation windows agree.
 
-`csi_accepted_pps` measures identity-accepted input; `csi_admitted_pps` measures the input retained for the detector after temporal admission. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates. The cumulative snapshot also exposes the callback queue's occupancy and capacity. These measurements do not change the device's traffic rate.
+For totals or a custom interval, `controller.diagnostics()` returns the cumulative counters, grouped as `link`, `traffic`, `csi`, `platform`, and `performance`. Initialize `RuntimeDiagnosticsSampler` with `reset(totals, now_ms)`, then call `sample(totals, now_ms)` from an existing periodic callback.
 
-The ESP-IDF runtime always collects diagnostics and bounded 10-second performance windows. A snapshot combines the latest complete window with heap measurements and configured CPU frequency. `runtime_load_percent` measures wall time inside the ESPectre runtime loop, including detector processing and listener delivery; it does not measure whole-system CPU utilization or transport work on other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. [API diagnostics](API.md#diagnostics) defines the wire fields, units, and optionality.
+`csi_accepted_pps` measures identity-accepted input; `csi_admitted_pps` measures the input retained for the detector after temporal admission. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates. The `csi` group of the cumulative counters also exposes the callback queue's occupancy and capacity. These measurements do not change the device's traffic rate.
+
+The ESP-IDF runtime always collects diagnostics and bounded 10-second performance windows. A snapshot combines the latest complete window with heap measurements and configured CPU frequency. `performance.runtime_load_percent` measures wall time inside the ESPectre runtime loop, including detector processing and listener delivery; it does not measure whole-system CPU utilization or transport work on other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. [API diagnostics](API.md#diagnostics) defines the wire fields, units, and optionality.
 
 ### Versioning
 

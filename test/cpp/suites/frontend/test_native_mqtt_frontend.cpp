@@ -340,10 +340,10 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   config.mqtt_scheme = "mqtt";
   config.mqtt_host = "localhost";
   config.mqtt_port = 1883U;
-  frontend_runtime_shim::state.diagnostics.generator_packets_total = 100U;
-  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
-  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
-  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
+  frontend_runtime_shim::state.diagnostics.traffic.generator_packets_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi.callbacks_total = 100U;
+  frontend_runtime_shim::state.diagnostics.csi.accepted_total = 90U;
+  frontend_runtime_shim::state.diagnostics.csi.filtered_total = 10U;
 
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   frontend.set_device_config(config);
@@ -351,12 +351,12 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   info.network.ip_address = "192.168.1.42";
   frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
-  frontend_runtime_shim::state.diagnostics.generator_packets_total = 600U;
-  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
-  frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
-  frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
-  frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
-  frontend_runtime_shim::state.diagnostics.wifi_rssi_dbm = -55;
+  frontend_runtime_shim::state.diagnostics.traffic.generator_packets_total = 600U;
+  frontend_runtime_shim::state.diagnostics.csi.callbacks_total = 580U;
+  frontend_runtime_shim::state.diagnostics.csi.accepted_total = 540U;
+  frontend_runtime_shim::state.diagnostics.csi.filtered_total = 40U;
+  frontend_runtime_shim::state.diagnostics.link.channel = 10U;
+  frontend_runtime_shim::state.diagnostics.link.rssi_dbm = -55;
   frontend_runtime_shim::state.diagnostics_sample.generator_pps = 0.0f;
   frontend_runtime_shim::state.diagnostics_sample.traffic_rx_pps = 120.0f;
   frontend_runtime_shim::state.diagnostics_sample.traffic_tx_pps = 100.0f;

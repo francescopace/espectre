@@ -841,14 +841,14 @@ void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
 
 void test_network_rates_wrap_independently_of_generator_resets(void) {
     RuntimeDiagnosticsSnapshot counters;
-    counters.generator_packets_total = 100U;
-    counters.traffic_tx_packets_total = UINT32_MAX - 2U;
-    counters.traffic_rx_packets_total = UINT32_MAX - 3U;
+    counters.traffic.generator_packets_total = 100U;
+    counters.traffic.tx_packets_total = UINT32_MAX - 2U;
+    counters.traffic.rx_packets_total = UINT32_MAX - 3U;
     RuntimeDiagnosticsSampler sampler;
     sampler.reset(counters, UINT32_MAX - 499U);
-    counters.generator_packets_total = 0U;
-    counters.traffic_tx_packets_total = 7U;
-    counters.traffic_rx_packets_total = 16U;
+    counters.traffic.generator_packets_total = 0U;
+    counters.traffic.tx_packets_total = 7U;
+    counters.traffic.rx_packets_total = 16U;
     const RuntimeDiagnosticsSample sample = sampler.sample(counters, 500U);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, sample.generator_pps);
     TEST_ASSERT_EQUAL_FLOAT(10.0f, sample.traffic_tx_pps);
@@ -860,38 +860,38 @@ void test_network_rates_wrap_independently_of_generator_resets(void) {
 
 void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     RuntimeDiagnosticsSnapshot baseline;
-    baseline.generator_packets_total = 100U;
-    baseline.traffic_tx_packets_total = 100U;
-    baseline.traffic_rx_packets_total = 200U;
-    baseline.csi_callbacks_total = 100U;
-    baseline.csi_accepted_total = 90U;
-    baseline.csi_admitted_total = 80U;
-    baseline.csi_filtered_total = 10U;
+    baseline.traffic.generator_packets_total = 100U;
+    baseline.traffic.tx_packets_total = 100U;
+    baseline.traffic.rx_packets_total = 200U;
+    baseline.csi.callbacks_total = 100U;
+    baseline.csi.accepted_total = 90U;
+    baseline.csi.admitted_total = 80U;
+    baseline.csi.filtered_total = 10U;
 
     RuntimeDiagnosticsSampler sampler;
     sampler.reset(baseline, 1000U);
 
     RuntimeDiagnosticsSnapshot current = baseline;
-    current.generator_packets_total = 600U;
-    current.traffic_tx_packets_total = 700U;
-    current.traffic_rx_packets_total = 750U;
-    current.csi_callbacks_total = 580U;
-    current.csi_accepted_total = 540U;
-    current.csi_admitted_total = 505U;
-    current.csi_filtered_total = 40U;
-    current.csi_rx_error_total = 1U;
-    current.csi_rx_end_error_total = 2U;
-    current.csi_invalid_estimate_total = 3U;
-    current.csi_invalid_first_word_total = 4U;
-    current.csi_sanitized_first_word_total = 500U;
-    current.csi_missing_slots_total = 25U;
-    current.csi_excess_total = 15U;
-    current.csi_stale_total = 5U;
-    current.csi_out_of_order_total = 10U;
-    current.csi_occupancy_slots = 82U;
-    current.csi_window_slots = 100U;
-    current.wifi_channel = 10U;
-    current.wifi_rssi_dbm = -55;
+    current.traffic.generator_packets_total = 600U;
+    current.traffic.tx_packets_total = 700U;
+    current.traffic.rx_packets_total = 750U;
+    current.csi.callbacks_total = 580U;
+    current.csi.accepted_total = 540U;
+    current.csi.admitted_total = 505U;
+    current.csi.filtered_total = 40U;
+    current.csi.rx_error_total = 1U;
+    current.csi.rx_end_error_total = 2U;
+    current.csi.invalid_estimate_total = 3U;
+    current.csi.invalid_first_word_total = 4U;
+    current.csi.sanitized_first_word_total = 500U;
+    current.csi.missing_slots_total = 25U;
+    current.csi.excess_total = 15U;
+    current.csi.stale_total = 5U;
+    current.csi.out_of_order_total = 10U;
+    current.csi.occupancy_slots = 82U;
+    current.csi.window_slots = 100U;
+    current.link.channel = 10U;
+    current.link.rssi_dbm = -55;
 
     const RuntimeDiagnosticsSample sample = sampler.sample(current, 6000U);
     TEST_ASSERT_EQUAL_FLOAT(100.0f, sample.generator_pps);
@@ -913,14 +913,14 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
 
 void test_runtime_hardware_error_rate_handles_counter_epochs_and_clock_wrap(void) {
     RuntimeDiagnosticsSnapshot counters;
-    counters.csi_rx_error_total = 100U;
+    counters.csi.rx_error_total = 100U;
     RuntimeDiagnosticsSampler sampler;
     TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 0xffffff00U).csi_hw_error_pps);
-    counters.csi_rx_error_total = 102U;
+    counters.csi.rx_error_total = 102U;
     TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 0xffffff00U).csi_hw_error_pps);
     // 500 ms cross the 32-bit monotonic-clock boundary.
     TEST_ASSERT_EQUAL_FLOAT(4.0f, sampler.sample(counters, 244U).csi_hw_error_pps);
-    counters.csi_rx_error_total = 1U;
+    counters.csi.rx_error_total = 1U;
     TEST_ASSERT_EQUAL_FLOAT(2.0f, sampler.sample(counters, 744U).csi_hw_error_pps);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, sampler.sample(counters, 1244U).csi_hw_error_pps);
 }
@@ -953,10 +953,10 @@ void test_runtime_performance_diagnostics_publish_complete_windows(void) {
 
 void test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values(void) {
     RuntimeDiagnosticsSnapshot diagnostics;
-    diagnostics.free_memory_bytes = 4096U;
-    diagnostics.minimum_free_memory_bytes = 2048U;
-    diagnostics.largest_free_memory_block_bytes = 1024U;
-    diagnostics.cpu_frequency_mhz = 160U;
+    diagnostics.platform.free_memory_bytes = 4096U;
+    diagnostics.platform.minimum_free_memory_bytes = 2048U;
+    diagnostics.platform.largest_free_memory_block_bytes = 1024U;
+    diagnostics.platform.cpu_frequency_mhz = 160U;
 
     std::string json{"{\"existing\":1"};
     append_runtime_performance_diagnostics_json(&json, diagnostics);

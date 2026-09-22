@@ -296,32 +296,32 @@ RuntimeSnapshot EspIdfRuntime::get_snapshot() const {
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   RuntimeDiagnosticsSnapshot diagnostics = EspIdfRuntimeBase::get_diagnostics();
-  diagnostics.wifi_rssi_dbm = wifi_rssi_dbm_;
-  diagnostics.wifi_channel = wifi_channel_;
-  diagnostics.generator_packets_total = csi_traffic_service_.get_generator_packets_total();
+  diagnostics.link.rssi_dbm = wifi_rssi_dbm_;
+  diagnostics.link.channel = wifi_channel_;
+  diagnostics.traffic.generator_packets_total = csi_traffic_service_.get_generator_packets_total();
   const NetworkTrafficSnapshot traffic = read_network_traffic();
-  diagnostics.traffic_tx_packets_total = traffic.tx_packets;
-  diagnostics.traffic_rx_packets_total = traffic.rx_packets;
-  diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
-  diagnostics.csi_provenance_rejected_total = csi_pipeline_.traffic_rejected_packets_total();
-  diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
-  diagnostics.csi_admitted_total = csi_pipeline_.detector_admitted_packets_total();
-  diagnostics.csi_filtered_total = csi_pipeline_.capture_filtered_packets_total();
-  diagnostics.csi_rx_error_total = csi_pipeline_.capture_rx_error_total();
-  diagnostics.csi_rx_end_error_total = csi_pipeline_.capture_rx_end_error_total();
-  diagnostics.csi_invalid_estimate_total = csi_pipeline_.capture_invalid_estimate_total();
-  diagnostics.csi_invalid_first_word_total = csi_pipeline_.capture_invalid_first_word_total();
-  diagnostics.csi_sanitized_first_word_total = csi_pipeline_.capture_sanitized_first_word_total();
+  diagnostics.traffic.tx_packets_total = traffic.tx_packets;
+  diagnostics.traffic.rx_packets_total = traffic.rx_packets;
+  diagnostics.csi.callbacks_total = csi_pipeline_.capture_callback_invocations_total();
+  diagnostics.csi.provenance_rejected_total = csi_pipeline_.traffic_rejected_packets_total();
+  diagnostics.csi.accepted_total = csi_pipeline_.accepted_packets_total();
+  diagnostics.csi.admitted_total = csi_pipeline_.detector_admitted_packets_total();
+  diagnostics.csi.filtered_total = csi_pipeline_.capture_filtered_packets_total();
+  diagnostics.csi.rx_error_total = csi_pipeline_.capture_rx_error_total();
+  diagnostics.csi.rx_end_error_total = csi_pipeline_.capture_rx_end_error_total();
+  diagnostics.csi.invalid_estimate_total = csi_pipeline_.capture_invalid_estimate_total();
+  diagnostics.csi.invalid_first_word_total = csi_pipeline_.capture_invalid_first_word_total();
+  diagnostics.csi.sanitized_first_word_total = csi_pipeline_.capture_sanitized_first_word_total();
 
-  diagnostics.csi_pending_frame_drops_total = csi_pipeline_.pending_frame_drops_total();
-  diagnostics.csi_missing_slots_total = csi_pipeline_.detector_missing_slots_total();
-  diagnostics.csi_excess_total = csi_pipeline_.detector_excess_packets_total();
-  diagnostics.csi_stale_total = csi_pipeline_.detector_stale_packets_total();
-  diagnostics.csi_out_of_order_total = csi_pipeline_.detector_out_of_order_packets_total();
-  diagnostics.csi_occupancy_slots = csi_pipeline_.detector_window_occupancy_slots();
-  diagnostics.csi_window_slots = csi_pipeline_.detector_window_slots();
-  diagnostics.csi_pending_frames = static_cast<uint32_t>(csi_pipeline_.pending_frame_count());
-  diagnostics.csi_pending_frame_capacity =
+  diagnostics.csi.pending_frame_drops_total = csi_pipeline_.pending_frame_drops_total();
+  diagnostics.csi.missing_slots_total = csi_pipeline_.detector_missing_slots_total();
+  diagnostics.csi.excess_total = csi_pipeline_.detector_excess_packets_total();
+  diagnostics.csi.stale_total = csi_pipeline_.detector_stale_packets_total();
+  diagnostics.csi.out_of_order_total = csi_pipeline_.detector_out_of_order_packets_total();
+  diagnostics.csi.occupancy_slots = csi_pipeline_.detector_window_occupancy_slots();
+  diagnostics.csi.window_slots = csi_pipeline_.detector_window_slots();
+  diagnostics.csi.pending_frames = static_cast<uint32_t>(csi_pipeline_.pending_frame_count());
+  diagnostics.csi.pending_frame_capacity =
       static_cast<uint32_t>(csi_pipeline_.pending_frame_capacity());
   return diagnostics;
 }

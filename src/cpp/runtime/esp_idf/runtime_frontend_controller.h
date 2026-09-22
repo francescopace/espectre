@@ -105,15 +105,21 @@ class RuntimeFrontendController : private IRuntimeListener {
    */
   const RuntimeSnapshot &snapshot() const { return snapshot_; }
   /**
-   * Read backend counters without touching the cached sensing snapshot.
+   * Latest one-second diagnostics: traffic and CSI rates plus the current link.
    *
-   * Unlike `snapshot()`, this queries the backend on every call. Invoke it from
-   * an existing periodic sensing callback, not from the hot loop. Returns a
-   * zeroed snapshot before `setup()`.
+   * The recommended way to read diagnostics. The sample is owned by the
+   * runtime and shared by every reader. Returns `nullptr` before `setup()`.
+   */
+  const RuntimeDiagnosticsSample *diagnostics_sample() const;
+  /**
+   * Advanced: cumulative counters behind `diagnostics_sample()`.
+   *
+   * Use it for totals, or with `RuntimeDiagnosticsSampler` for a custom
+   * sampling interval. Unlike `snapshot()`, this queries the backend on every
+   * call, so invoke it from an existing periodic sensing callback, not from
+   * the hot loop. Returns a zeroed snapshot before `setup()`.
    */
   RuntimeDiagnosticsSnapshot diagnostics() const;
-  /** Latest runtime-owned rate sample, or `nullptr` before setup. */
-  const RuntimeDiagnosticsSample *diagnostics_sample() const;
   /**
    * What the active backend supports. Meaningful only after `setup()`.
    *

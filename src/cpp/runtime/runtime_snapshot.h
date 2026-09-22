@@ -29,87 +29,111 @@ namespace espectre {
  * `RuntimeDiagnosticsSampler` to turn them into rates.
  */
 struct RuntimeDiagnosticsSnapshot {
-  /** RSSI of the current Wi-Fi association. `INT8_MIN` when unavailable. */
-  int8_t wifi_rssi_dbm{INT8_MIN};
-  /** Primary channel of the current Wi-Fi association. Zero when unavailable. */
-  uint8_t wifi_channel{0U};
-  /** Successful internal generator sends; zero with external traffic ownership. */
-  uint32_t generator_packets_total{0U};
-  /** Station packets accepted by the network driver; wraps modulo 2^32. */
-  uint32_t traffic_tx_packets_total{0U};
-  /** Station packets delivered by the network driver; wraps modulo 2^32. */
-  uint32_t traffic_rx_packets_total{0U};
-  /** Raw invocations of the ESP-IDF CSI callback. */
-  uint64_t csi_callbacks_total{0U};
-  /** CSI callbacks rejected because their packet provenance did not match. */
-  uint64_t csi_provenance_rejected_total{0U};
-  /** CSI packets accepted by capture validation, before temporal admission. */
-  uint64_t csi_accepted_total{0U};
-  /** CSI packets admitted to the detector's temporal grid. */
-  uint64_t csi_admitted_total{0U};
-  /** CSI packets rejected by capture-level validation. */
-  uint64_t csi_filtered_total{0U};
-  /** Packets rejected because the receiver reported an error. */
-  uint64_t csi_rx_error_total{0U};
-  /** Packets rejected because reception ended with an error (HE-capable chips). */
-  uint64_t csi_rx_end_error_total{0U};
-  /** Packets rejected because the hardware CSI estimate was invalid (HE-capable chips). */
-  uint64_t csi_invalid_estimate_total{0U};
-  /** Packets rejected because hardware-invalid source pairs affect live or unknown tones. */
-  uint64_t csi_invalid_first_word_total{0U};
-  /** Frames whose hardware-invalid guard pairs were zeroed without changing live tones. */
-  uint64_t csi_sanitized_first_word_total{0U};
-
-  /** Valid CSI callbacks dropped because the callback-to-runtime queue was full. */
-  uint64_t csi_pending_frame_drops_total{0U};
-  /** Empty temporal detector slots observed before admitted packets. */
-  uint64_t csi_missing_slots_total{0U};
-  /** Valid packets dropped because their temporal slot was already occupied. */
-  uint64_t csi_excess_total{0U};
-  /** Packets rejected because processing began after the active window. */
-  uint64_t csi_stale_total{0U};
-  /** Packets rejected because their timestamp moved backwards. */
-  uint64_t csi_out_of_order_total{0U};
-  /** Valid slots in the current detector window. */
-  uint32_t csi_occupancy_slots{0U};
-  /** Total slots in the configured detector window. */
-  uint32_t csi_window_slots{0U};
-  /** Frames currently waiting in the callback-to-runtime queue. */
-  uint32_t csi_pending_frames{0U};
-  /** Fixed capacity of the callback-to-runtime queue. */
-  uint32_t csi_pending_frame_capacity{0U};
-  /** Current free heap in bytes. Zero when unavailable. */
-  uint32_t free_memory_bytes{0U};
-  /** Minimum free heap observed since boot, in bytes. Zero when unavailable. */
-  uint32_t minimum_free_memory_bytes{0U};
-  /** Largest currently allocatable heap block, in bytes. Zero when unavailable. */
-  uint32_t largest_free_memory_block_bytes{0U};
-  /** Resolved CPU frequency in MHz. Zero when unavailable. */
-  uint32_t cpu_frequency_mhz{0U};
-  /** True after the first complete performance aggregation window. */
-  bool performance_window_ready{false};
-  /** Duration of the latest complete performance window, in microseconds. */
-  uint32_t performance_window_duration_us{0U};
-  /** Share of the window spent inside the ESPectre runtime loop. */
-  float runtime_load_percent{0.0f};
-  /** Runtime loop iterations measured in the latest complete window. */
-  uint32_t loop_samples{0U};
-  /** Mean runtime loop duration in the latest complete window. */
-  uint32_t loop_average_us{0U};
-  /** Maximum runtime loop duration in the latest complete window. */
-  uint32_t loop_maximum_us{0U};
-  /** Whether this runtime executes a detector and reports its timing. */
-  bool detection_timing_supported{false};
-  /** Detector evaluations measured in the latest complete window. */
-  uint32_t detection_samples{0U};
-  /** Total detector evaluation time in the latest complete window. */
-  uint64_t detection_sum_us{0U};
-  /** Mean detector evaluation time in the latest complete window. */
-  uint32_t detection_average_us{0U};
-  /** Minimum detector evaluation time in the latest complete window. */
-  uint32_t detection_minimum_us{0U};
-  /** Maximum detector evaluation time in the latest complete window. */
-  uint32_t detection_maximum_us{0U};
+  /** Current Wi-Fi association. */
+  struct Link {
+    /** RSSI of the current Wi-Fi association. `INT8_MIN` when unavailable. */
+    int8_t rssi_dbm{INT8_MIN};
+    /** Primary channel of the current Wi-Fi association. Zero when unavailable. */
+    uint8_t channel{0U};
+  };
+  /** Internal generator and station traffic counters. */
+  struct Traffic {
+    /** Successful internal generator sends; zero with external traffic ownership. */
+    uint32_t generator_packets_total{0U};
+    /** Station packets accepted by the network driver; wraps modulo 2^32. */
+    uint32_t tx_packets_total{0U};
+    /** Station packets delivered by the network driver; wraps modulo 2^32. */
+    uint32_t rx_packets_total{0U};
+  };
+  /** CSI capture, validation, and temporal admission counters. */
+  struct Csi {
+    /** Raw invocations of the ESP-IDF CSI callback. */
+    uint64_t callbacks_total{0U};
+    /** CSI callbacks rejected because their packet provenance did not match. */
+    uint64_t provenance_rejected_total{0U};
+    /** CSI packets accepted by capture validation, before temporal admission. */
+    uint64_t accepted_total{0U};
+    /** CSI packets admitted to the detector's temporal grid. */
+    uint64_t admitted_total{0U};
+    /** CSI packets rejected by capture-level validation. */
+    uint64_t filtered_total{0U};
+    /** Packets rejected because the receiver reported an error. */
+    uint64_t rx_error_total{0U};
+    /** Packets rejected because reception ended with an error (HE-capable chips). */
+    uint64_t rx_end_error_total{0U};
+    /** Packets rejected because the hardware CSI estimate was invalid (HE-capable chips). */
+    uint64_t invalid_estimate_total{0U};
+    /** Packets rejected because hardware-invalid source pairs affect live or unknown tones. */
+    uint64_t invalid_first_word_total{0U};
+    /** Frames whose hardware-invalid guard pairs were zeroed without changing live tones. */
+    uint64_t sanitized_first_word_total{0U};
+    /** Valid CSI callbacks dropped because the callback-to-runtime queue was full. */
+    uint64_t pending_frame_drops_total{0U};
+    /** Empty temporal detector slots observed before admitted packets. */
+    uint64_t missing_slots_total{0U};
+    /** Valid packets dropped because their temporal slot was already occupied. */
+    uint64_t excess_total{0U};
+    /** Packets rejected because processing began after the active window. */
+    uint64_t stale_total{0U};
+    /** Packets rejected because their timestamp moved backwards. */
+    uint64_t out_of_order_total{0U};
+    /** Valid slots in the current detector window. */
+    uint32_t occupancy_slots{0U};
+    /** Total slots in the configured detector window. */
+    uint32_t window_slots{0U};
+    /** Frames currently waiting in the callback-to-runtime queue. */
+    uint32_t pending_frames{0U};
+    /** Fixed capacity of the callback-to-runtime queue. */
+    uint32_t pending_frame_capacity{0U};
+  };
+  /** Heap and CPU state. */
+  struct Platform {
+    /** Current free heap in bytes. Zero when unavailable. */
+    uint32_t free_memory_bytes{0U};
+    /** Minimum free heap observed since boot, in bytes. Zero when unavailable. */
+    uint32_t minimum_free_memory_bytes{0U};
+    /** Largest currently allocatable heap block, in bytes. Zero when unavailable. */
+    uint32_t largest_free_memory_block_bytes{0U};
+    /** Resolved CPU frequency in MHz. Zero when unavailable. */
+    uint32_t cpu_frequency_mhz{0U};
+  };
+  /** Runtime loop and detector timing over the latest complete window. */
+  struct Performance {
+    /** True after the first complete performance aggregation window. */
+    bool window_ready{false};
+    /** Duration of the latest complete performance window, in microseconds. */
+    uint32_t window_duration_us{0U};
+    /** Share of the window spent inside the ESPectre runtime loop. */
+    float runtime_load_percent{0.0f};
+    /** Runtime loop iterations measured in the latest complete window. */
+    uint32_t loop_samples{0U};
+    /** Mean runtime loop duration in the latest complete window. */
+    uint32_t loop_average_us{0U};
+    /** Maximum runtime loop duration in the latest complete window. */
+    uint32_t loop_maximum_us{0U};
+    /** Whether this runtime executes a detector and reports its timing. */
+    bool detection_timing_supported{false};
+    /** Detector evaluations measured in the latest complete window. */
+    uint32_t detection_samples{0U};
+    /** Total detector evaluation time in the latest complete window. */
+    uint64_t detection_sum_us{0U};
+    /** Mean detector evaluation time in the latest complete window. */
+    uint32_t detection_average_us{0U};
+    /** Minimum detector evaluation time in the latest complete window. */
+    uint32_t detection_minimum_us{0U};
+    /** Maximum detector evaluation time in the latest complete window. */
+    uint32_t detection_maximum_us{0U};
+  };
+  /** Current Wi-Fi association. */
+  Link link{};
+  /** Internal generator and station traffic counters. */
+  Traffic traffic{};
+  /** CSI capture, validation, and temporal admission counters. */
+  Csi csi{};
+  /** Heap and CPU state. */
+  Platform platform{};
+  /** Runtime loop and detector timing over the latest complete window. */
+  Performance performance{};
 };
 
 /**

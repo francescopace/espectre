@@ -791,8 +791,8 @@ void test_runtime_diagnostics_cache_current_wifi_association(void) {
   runtime.on_wifi_connected_(ip_info);
 
   RuntimeDiagnosticsSnapshot diagnostics = runtime.get_diagnostics();
-  TEST_ASSERT_EQUAL_UINT8(6U, diagnostics.wifi_channel);
-  TEST_ASSERT_EQUAL_INT8(-55, diagnostics.wifi_rssi_dbm);
+  TEST_ASSERT_EQUAL_UINT8(6U, diagnostics.link.channel);
+  TEST_ASSERT_EQUAL_INT8(-55, diagnostics.link.rssi_dbm);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
 
   runtime.csi_pipeline_.last_channel_ = 11U;
@@ -802,14 +802,14 @@ void test_runtime_diagnostics_cache_current_wifi_association(void) {
   runtime.csi_pipeline_.last_rssi_dbm_ = INT8_MIN;
 
   diagnostics = runtime.get_diagnostics();
-  TEST_ASSERT_EQUAL_UINT8(11U, diagnostics.wifi_channel);
-  TEST_ASSERT_EQUAL_INT8(-42, diagnostics.wifi_rssi_dbm);
+  TEST_ASSERT_EQUAL_UINT8(11U, diagnostics.link.channel);
+  TEST_ASSERT_EQUAL_INT8(-42, diagnostics.link.rssi_dbm);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
 
   runtime.on_wifi_disconnected_();
   diagnostics = runtime.get_diagnostics();
-  TEST_ASSERT_EQUAL_UINT8(0U, diagnostics.wifi_channel);
-  TEST_ASSERT_EQUAL_INT8(INT8_MIN, diagnostics.wifi_rssi_dbm);
+  TEST_ASSERT_EQUAL_UINT8(0U, diagnostics.link.channel);
+  TEST_ASSERT_EQUAL_INT8(INT8_MIN, diagnostics.link.rssi_dbm);
 }
 
 void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {

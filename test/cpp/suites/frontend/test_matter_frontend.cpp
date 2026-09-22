@@ -105,8 +105,8 @@ void test_matter_diagnostics_report_latest_frontend_loop_separately_from_runtime
   MockDirectHttpService direct;
   MatterFrontend frontend(&bindings, 2, &direct);
   TEST_ASSERT_TRUE(frontend.setup());
-  frontend_runtime_shim::state.diagnostics.performance_window_ready = true;
-  frontend_runtime_shim::state.diagnostics.loop_average_us = 75;
+  frontend_runtime_shim::state.diagnostics.performance.window_ready = true;
+  frontend_runtime_shim::state.diagnostics.performance.loop_average_us = 75;
   esp_timer_mock::reset(0, 0);
   const auto diagnostics = [&]() {
     return direct.emit_request(DirectRequest{
@@ -288,14 +288,14 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   RuntimeConfig config;
   config.device_id = 0x0123456789abcdefULL;
   config.runtime_detector_selection_enabled = true;
-  frontend_runtime_shim::state.diagnostics.free_memory_bytes = 4096U;
-  frontend_runtime_shim::state.diagnostics.minimum_free_memory_bytes = 2048U;
-  frontend_runtime_shim::state.diagnostics.largest_free_memory_block_bytes = 1024U;
-  frontend_runtime_shim::state.diagnostics.cpu_frequency_mhz = 160U;
-  frontend_runtime_shim::state.diagnostics.performance_window_ready = true;
-  frontend_runtime_shim::state.diagnostics.runtime_load_percent = 12.5f;
-  frontend_runtime_shim::state.diagnostics.detection_timing_supported = true;
-  frontend_runtime_shim::state.diagnostics.detection_samples = 4U;
+  frontend_runtime_shim::state.diagnostics.platform.free_memory_bytes = 4096U;
+  frontend_runtime_shim::state.diagnostics.platform.minimum_free_memory_bytes = 2048U;
+  frontend_runtime_shim::state.diagnostics.platform.largest_free_memory_block_bytes = 1024U;
+  frontend_runtime_shim::state.diagnostics.platform.cpu_frequency_mhz = 160U;
+  frontend_runtime_shim::state.diagnostics.performance.window_ready = true;
+  frontend_runtime_shim::state.diagnostics.performance.runtime_load_percent = 12.5f;
+  frontend_runtime_shim::state.diagnostics.performance.detection_timing_supported = true;
+  frontend_runtime_shim::state.diagnostics.performance.detection_samples = 4U;
 
   MockMatterBindings bindings;
   MockDirectHttpService direct;
@@ -328,8 +328,8 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   TEST_ASSERT_TRUE(diagnostics.find("\"direct_dropped_telemetry_events\"") == std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"direct_http\":{") != std::string::npos);
 
-  frontend_runtime_shim::state.diagnostics.generator_packets_total = 10U;
-  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 8U;
+  frontend_runtime_shim::state.diagnostics.traffic.generator_packets_total = 10U;
+  frontend_runtime_shim::state.diagnostics.csi.callbacks_total = 8U;
   frontend_runtime_shim::state.diagnostics_sample.traffic_tx_pps = 10.0f;
   frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 8.0f;
   frontend.on_periodic_update(make_ready_snapshot(false), 8U);

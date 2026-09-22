@@ -54,11 +54,11 @@ void append_json_null(std::string *out, const char *key) {
 void append_runtime_csi_quality_diagnostics_json(std::string *out,
                                                 const RuntimeDiagnosticsSnapshot &diagnostics) {
   if (out == nullptr) return;
-  append_json_uint(out, "csi_rx_error_total", diagnostics.csi_rx_error_total);
-  append_json_uint(out, "csi_rx_end_error_total", diagnostics.csi_rx_end_error_total);
-  append_json_uint(out, "csi_invalid_estimate_total", diagnostics.csi_invalid_estimate_total);
-  append_json_uint(out, "csi_invalid_first_word_total", diagnostics.csi_invalid_first_word_total);
-  append_json_uint(out, "csi_sanitized_first_word_total", diagnostics.csi_sanitized_first_word_total);
+  append_json_uint(out, "csi_rx_error_total", diagnostics.csi.rx_error_total);
+  append_json_uint(out, "csi_rx_end_error_total", diagnostics.csi.rx_end_error_total);
+  append_json_uint(out, "csi_invalid_estimate_total", diagnostics.csi.invalid_estimate_total);
+  append_json_uint(out, "csi_invalid_first_word_total", diagnostics.csi.invalid_first_word_total);
+  append_json_uint(out, "csi_sanitized_first_word_total", diagnostics.csi.sanitized_first_word_total);
 }
 
 void append_runtime_performance_diagnostics_json(std::string *out,
@@ -68,24 +68,24 @@ void append_runtime_performance_diagnostics_json(std::string *out,
     return;
   }
   if (include_current_memory) {
-    append_json_float(out, "free_memory_kb", static_cast<float>(diagnostics.free_memory_bytes) / 1024.0f);
+    append_json_float(out, "free_memory_kb", static_cast<float>(diagnostics.platform.free_memory_bytes) / 1024.0f);
   }
   append_json_float(out,
                     "minimum_free_memory_kb",
-                    static_cast<float>(diagnostics.minimum_free_memory_bytes) / 1024.0f);
+                    static_cast<float>(diagnostics.platform.minimum_free_memory_bytes) / 1024.0f);
   append_json_float(out,
                     "largest_free_memory_kb",
-                    static_cast<float>(diagnostics.largest_free_memory_block_bytes) / 1024.0f);
-  append_json_uint(out, "cpu_frequency_mhz", diagnostics.cpu_frequency_mhz);
-  append_json_bool(out, "performance_window_ready", diagnostics.performance_window_ready);
-  if (diagnostics.performance_window_ready) {
+                    static_cast<float>(diagnostics.platform.largest_free_memory_block_bytes) / 1024.0f);
+  append_json_uint(out, "cpu_frequency_mhz", diagnostics.platform.cpu_frequency_mhz);
+  append_json_bool(out, "performance_window_ready", diagnostics.performance.window_ready);
+  if (diagnostics.performance.window_ready) {
     append_json_float(out,
                       "performance_window_ms",
-                      static_cast<float>(diagnostics.performance_window_duration_us) / 1000.0f);
-    append_json_float(out, "runtime_load_percent", diagnostics.runtime_load_percent);
-    append_json_uint(out, "loop_samples", diagnostics.loop_samples);
-    append_json_uint(out, "loop_avg_us", diagnostics.loop_average_us);
-    append_json_uint(out, "loop_max_us", diagnostics.loop_maximum_us);
+                      static_cast<float>(diagnostics.performance.window_duration_us) / 1000.0f);
+    append_json_float(out, "runtime_load_percent", diagnostics.performance.runtime_load_percent);
+    append_json_uint(out, "loop_samples", diagnostics.performance.loop_samples);
+    append_json_uint(out, "loop_avg_us", diagnostics.performance.loop_average_us);
+    append_json_uint(out, "loop_max_us", diagnostics.performance.loop_maximum_us);
   } else {
     append_json_null(out, "performance_window_ms");
     append_json_null(out, "runtime_load_percent");
@@ -93,13 +93,13 @@ void append_runtime_performance_diagnostics_json(std::string *out,
     append_json_null(out, "loop_avg_us");
     append_json_null(out, "loop_max_us");
   }
-  append_json_bool(out, "detection_timing_supported", diagnostics.detection_timing_supported);
-  if (diagnostics.performance_window_ready && diagnostics.detection_timing_supported) {
-    append_json_uint(out, "detection_samples", diagnostics.detection_samples);
-    append_json_uint(out, "detection_sum_us", diagnostics.detection_sum_us);
-    append_json_uint(out, "detection_avg_us", diagnostics.detection_average_us);
-    append_json_uint(out, "detection_min_us", diagnostics.detection_minimum_us);
-    append_json_uint(out, "detection_max_us", diagnostics.detection_maximum_us);
+  append_json_bool(out, "detection_timing_supported", diagnostics.performance.detection_timing_supported);
+  if (diagnostics.performance.window_ready && diagnostics.performance.detection_timing_supported) {
+    append_json_uint(out, "detection_samples", diagnostics.performance.detection_samples);
+    append_json_uint(out, "detection_sum_us", diagnostics.performance.detection_sum_us);
+    append_json_uint(out, "detection_avg_us", diagnostics.performance.detection_average_us);
+    append_json_uint(out, "detection_min_us", diagnostics.performance.detection_minimum_us);
+    append_json_uint(out, "detection_max_us", diagnostics.performance.detection_maximum_us);
   } else {
     append_json_null(out, "detection_samples");
     append_json_null(out, "detection_sum_us");
@@ -207,163 +207,163 @@ std::string runtime_diagnostic_value(const char *key, const RuntimeDiagnosticsSa
   if (std::strcmp(key, "csi_pending_frame_drop_pps") == 0) return sample ? number(sample->csi_pending_frame_drop_pps) : "null";
   if (std::strcmp(key, "csi_occupancy") == 0) return sample ? number(sample->csi_occupancy_ratio) : "null";
   if (std::strcmp(key, "wifi_rssi_dbm") == 0) {
-    const int rssi = sample ? sample->wifi_rssi_dbm : snapshot().wifi_rssi_dbm;
+    const int rssi = sample ? sample->wifi_rssi_dbm : snapshot().link.rssi_dbm;
     return rssi == INT8_MIN ? "null" : std::to_string(rssi);
   }
-  if (std::strcmp(key, "wifi_channel") == 0) return std::to_string(sample ? sample->wifi_channel : snapshot().wifi_channel);
+  if (std::strcmp(key, "wifi_channel") == 0) return std::to_string(sample ? sample->wifi_channel : snapshot().link.channel);
   if (std::strcmp(key, "csi_hw_error_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_rx_error_total + s.csi_rx_end_error_total + s.csi_invalid_estimate_total + s.csi_invalid_first_word_total);
+    return std::to_string(s.csi.rx_error_total + s.csi.rx_end_error_total + s.csi.invalid_estimate_total + s.csi.invalid_first_word_total);
   }
   if (std::strcmp(key, "free_memory_kb") == 0) {
     const auto &s = snapshot();
-    return number(s.free_memory_bytes / 1024.0);
+    return number(s.platform.free_memory_bytes / 1024.0);
   }
   if (std::strcmp(key, "minimum_free_memory_kb") == 0) {
     const auto &s = snapshot();
-    return number(s.minimum_free_memory_bytes / 1024.0);
+    return number(s.platform.minimum_free_memory_bytes / 1024.0);
   }
   if (std::strcmp(key, "largest_free_memory_kb") == 0) {
     const auto &s = snapshot();
-    return number(s.largest_free_memory_block_bytes / 1024.0);
+    return number(s.platform.largest_free_memory_block_bytes / 1024.0);
   }
   if (std::strcmp(key, "cpu_frequency_mhz") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.cpu_frequency_mhz);
+    return std::to_string(s.platform.cpu_frequency_mhz);
   }
   if (std::strcmp(key, "performance_window_ready") == 0) {
     const auto &s = snapshot();
-    return s.performance_window_ready ? "true" : "false";
+    return s.performance.window_ready ? "true" : "false";
   }
   if (std::strcmp(key, "detection_timing_supported") == 0) {
     const auto &s = snapshot();
-    return s.detection_timing_supported ? "true" : "false";
+    return s.performance.detection_timing_supported ? "true" : "false";
   }
   if (std::strcmp(key, "performance_window_ms") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready) return "null";
-    return number(s.performance_window_duration_us / 1000.0);
+    if (!s.performance.window_ready) return "null";
+    return number(s.performance.window_duration_us / 1000.0);
   }
   if (std::strcmp(key, "runtime_load_percent") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready) return "null";
-    return number(s.runtime_load_percent);
+    if (!s.performance.window_ready) return "null";
+    return number(s.performance.runtime_load_percent);
   }
   if (std::strcmp(key, "loop_samples") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready) return "null";
-    return std::to_string(s.loop_samples);
+    if (!s.performance.window_ready) return "null";
+    return std::to_string(s.performance.loop_samples);
   }
   if (std::strcmp(key, "detection_samples") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
-    return std::to_string(s.detection_samples);
+    if (!s.performance.window_ready || !s.performance.detection_timing_supported) return "null";
+    return std::to_string(s.performance.detection_samples);
   }
   if (std::strcmp(key, "loop_avg_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready) return "null";
-    return std::to_string(s.loop_average_us);
+    if (!s.performance.window_ready) return "null";
+    return std::to_string(s.performance.loop_average_us);
   }
   if (std::strcmp(key, "loop_max_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready) return "null";
-    return std::to_string(s.loop_maximum_us);
+    if (!s.performance.window_ready) return "null";
+    return std::to_string(s.performance.loop_maximum_us);
   }
   if (std::strcmp(key, "detection_sum_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
-    return std::to_string(s.detection_sum_us);
+    if (!s.performance.window_ready || !s.performance.detection_timing_supported) return "null";
+    return std::to_string(s.performance.detection_sum_us);
   }
   if (std::strcmp(key, "detection_avg_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
-    return std::to_string(s.detection_average_us);
+    if (!s.performance.window_ready || !s.performance.detection_timing_supported) return "null";
+    return std::to_string(s.performance.detection_average_us);
   }
   if (std::strcmp(key, "detection_min_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
-    return std::to_string(s.detection_minimum_us);
+    if (!s.performance.window_ready || !s.performance.detection_timing_supported) return "null";
+    return std::to_string(s.performance.detection_minimum_us);
   }
   if (std::strcmp(key, "detection_max_us") == 0) {
     const auto &s = snapshot();
-    if (!s.performance_window_ready || !s.detection_timing_supported) return "null";
-    return std::to_string(s.detection_maximum_us);
+    if (!s.performance.window_ready || !s.performance.detection_timing_supported) return "null";
+    return std::to_string(s.performance.detection_maximum_us);
   }
   if (std::strcmp(key, "csi_callbacks_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_callbacks_total);
+    return std::to_string(s.csi.callbacks_total);
   }
   if (std::strcmp(key, "csi_accepted_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_accepted_total);
+    return std::to_string(s.csi.accepted_total);
   }
   if (std::strcmp(key, "csi_admitted_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_admitted_total);
+    return std::to_string(s.csi.admitted_total);
   }
   if (std::strcmp(key, "csi_filtered_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_filtered_total);
+    return std::to_string(s.csi.filtered_total);
   }
   if (std::strcmp(key, "csi_missing_slots_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_missing_slots_total);
+    return std::to_string(s.csi.missing_slots_total);
   }
   if (std::strcmp(key, "csi_excess_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_excess_total);
+    return std::to_string(s.csi.excess_total);
   }
   if (std::strcmp(key, "csi_stale_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_stale_total);
+    return std::to_string(s.csi.stale_total);
   }
   if (std::strcmp(key, "csi_out_of_order_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_out_of_order_total);
+    return std::to_string(s.csi.out_of_order_total);
   }
   if (std::strcmp(key, "csi_occupancy_slots") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_occupancy_slots);
+    return std::to_string(s.csi.occupancy_slots);
   }
   if (std::strcmp(key, "csi_window_slots") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_window_slots);
+    return std::to_string(s.csi.window_slots);
   }
   if (std::strcmp(key, "csi_provenance_rejected_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_provenance_rejected_total);
+    return std::to_string(s.csi.provenance_rejected_total);
   }
   if (std::strcmp(key, "csi_pending_frame_drops_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_pending_frame_drops_total);
+    return std::to_string(s.csi.pending_frame_drops_total);
   }
   if (std::strcmp(key, "csi_pending_frames") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_pending_frames);
+    return std::to_string(s.csi.pending_frames);
   }
   if (std::strcmp(key, "csi_pending_frame_capacity") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_pending_frame_capacity);
+    return std::to_string(s.csi.pending_frame_capacity);
   }
   if (std::strcmp(key, "csi_rx_error_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_rx_error_total);
+    return std::to_string(s.csi.rx_error_total);
   }
   if (std::strcmp(key, "csi_rx_end_error_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_rx_end_error_total);
+    return std::to_string(s.csi.rx_end_error_total);
   }
   if (std::strcmp(key, "csi_invalid_estimate_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_invalid_estimate_total);
+    return std::to_string(s.csi.invalid_estimate_total);
   }
   if (std::strcmp(key, "csi_invalid_first_word_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_invalid_first_word_total);
+    return std::to_string(s.csi.invalid_first_word_total);
   }
   if (std::strcmp(key, "csi_sanitized_first_word_total") == 0) {
     const auto &s = snapshot();
-    return std::to_string(s.csi_sanitized_first_word_total);
+    return std::to_string(s.csi.sanitized_first_word_total);
   }
   return "null";
 }

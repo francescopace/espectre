@@ -405,12 +405,12 @@ void test_runtime_frontend_controller_reads_diagnostics_from_backend(void) {
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
-  frontend_runtime_shim::state.diagnostics.wifi_channel = 10U;
-  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 123U;
+  frontend_runtime_shim::state.diagnostics.link.channel = 10U;
+  frontend_runtime_shim::state.diagnostics.csi.callbacks_total = 123U;
   const RuntimeDiagnosticsSnapshot diagnostics = controller.diagnostics();
 
-  TEST_ASSERT_EQUAL(10U, diagnostics.wifi_channel);
-  TEST_ASSERT_EQUAL(123U, diagnostics.csi_callbacks_total);
+  TEST_ASSERT_EQUAL(10U, diagnostics.link.channel);
+  TEST_ASSERT_EQUAL(123U, diagnostics.csi.callbacks_total);
 }
 
 void test_runtime_frontend_controller_exposes_runtime_owned_diagnostics_sample(void) {
