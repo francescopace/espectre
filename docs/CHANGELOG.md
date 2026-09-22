@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### ESPHome firmware and Home Assistant
 
+- Set the WiFi Channel sensor's state class to `measurement` so Home Assistant applies its zero-decimal display precision (#181).
 - Give official ESPHome images MAC-suffixed hostnames, so one Web Serial image can provision and discover multiple ESPectre devices without custom YAML. Existing installations use the new hostname after their first update.
 - Suppress ESPHome's periodic roaming scans while a BSSID pin is saved, including after restart. Clearing the pin restores the configured roaming policy.
 

@@ -357,6 +357,7 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_WIFI_CHANNEL_SENSOR, default={"name": "WiFi Channel"}): sensor.sensor_schema(
         accuracy_decimals=0,
+        state_class=STATE_CLASS_MEASUREMENT,
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         icon="mdi:wifi-marker",
     ),
