@@ -117,6 +117,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_bootstrap_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/frontend_command_engine.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_ha_mqtt_helpers.cpp"
@@ -207,6 +208,7 @@ target_compile_definitions(espectre_runtime_testlib
 # what keeps the ESP32-C5 branch under host test.
 add_library(espectre_runtime_dual_band_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 target_link_libraries(espectre_runtime_dual_band_testlib
     PUBLIC

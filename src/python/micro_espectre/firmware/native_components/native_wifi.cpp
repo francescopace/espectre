@@ -6,7 +6,6 @@
 #include "native_wifi.h"
 #include "native_log_sink.h"
 #include "runtime/esp_idf/network_traffic.h"
-#include "runtime/esp_idf/wifi_tx_rate.h"
 #include "esp_event.h"
 
 #include <atomic>
