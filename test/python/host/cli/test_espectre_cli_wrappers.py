@@ -1997,6 +1997,34 @@ def test_flash_build_uses_one_esptool_session(
     ]
 
 
+@pytest.mark.parametrize(
+    ("chip", "idf_target", "after"),
+    [
+        ("esp32", "esp32", "hard-reset"),
+        ("s3", "esp32s3", "watchdog-reset"),
+        ("c5", "esp32c5", "watchdog-reset"),
+    ],
+)
+def test_application_start_reboots_out_of_the_loader(
+    monkeypatch,
+    chip: str,
+    idf_target: str,
+    after: str,
+) -> None:
+    booted = False
+
+    def run(command, *, cwd=None):
+        nonlocal booted
+        assert command[-1] == "run"
+        # esptool's run command does not itself reboot the flasher stub.
+        booted = command[command.index("--after") + 1] == after
+
+    monkeypatch.setattr(esptool_runner, "run_esptool", run)
+    esptool_runner.run_firmware(chip=chip, idf_target=idf_target, port="/dev/cu.test")
+
+    assert booted
+
+
 def test_factory_flash_and_application_start_use_public_esptool_commands(
     monkeypatch,
     tmp_path: Path,
@@ -2058,7 +2086,7 @@ def test_factory_flash_and_application_start_use_public_esptool_commands(
                 "--before",
                 "default-reset",
                 "--after",
-                "no-reset",
+                "watchdog-reset",
                 "run",
             ],
             common.REPO_ROOT,

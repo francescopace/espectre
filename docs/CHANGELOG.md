@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Improve IPv4 bootstrap discovery with compressed and ANY queries, Known-Answer Suppression, truncated-query handling, and reply rate limits. See [DISCOVERY.md](DISCOVERY.md#limits) for remaining RFC deviations.
 - Prevent Native reboots during automatic OTA checks in Device settings; failed downloads or insufficient memory report an OTA error.
 - Release HTTP connections after `/devices` responses so repeated browser discovery does not exhaust available sockets. Preserve other API, SSE, and CSI connections.
+- Boot the installed application after CLI `matter qr` and `monitor --reset` instead of leaving the device in the firmware loader.
 - Report the running Matter firmware version in discovery, Direct, and Improv instead of `unknown`.
 
 ### ESPHome firmware and Home Assistant

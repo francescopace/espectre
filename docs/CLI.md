@@ -186,7 +186,7 @@ Matter also exposes:
 
 Use `matter qr --json` or `matter flash --json` when another tool must consume onboarding data. The final JSON object contains the selected port, chip, QR payload, and manual code; treat that output as a commissioning secret.
 
-`qr` requires `--chip`, uses the shared serial selection, and asks esptool to start the installed application before reading its onboarding output unless `--no-reset` is supplied.
+`qr` requires `--chip` and uses the shared serial selection. It restarts the installed firmware before reading onboarding output; use `--no-reset` to read from the device without restarting it.
 
 Examples:
 

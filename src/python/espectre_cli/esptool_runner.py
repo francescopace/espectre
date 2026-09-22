@@ -28,6 +28,11 @@ def esptool_before_mode(chip: str, port: str) -> str:
     return "default-reset"
 
 
+def esptool_after_mode(idf_target: str) -> str:
+    """Return the reset mode that boots the installed application."""
+    return "hard-reset" if idf_target == "esp32" else "watchdog-reset"
+
+
 def run_esptool(args: list[str], *, cwd: Path | None = None) -> None:
     """Run the pinned esptool module and stream its output unchanged."""
     display = " ".join(("esptool", *args))
@@ -47,7 +52,7 @@ def esptool_flash_command(*, chip: str, idf_target: str, port: str) -> list[str]
     # sessions at 115200 preserves full-chip erase and post-flash reset support.
     use_safe_baud = idf_target == "esp32" or serial_console_mode(chip, port) == "usb_cdc"
     baud = ESPTOOL_ESP32_FLASH_BAUD if use_safe_baud else ESPTOOL_FLASH_BAUD
-    after = "hard-reset" if idf_target == "esp32" else "watchdog-reset"
+    after = esptool_after_mode(idf_target)
     args = [
         "--chip",
         idf_target,
@@ -133,6 +138,7 @@ def flash_factory_image(
 
 def run_firmware(*, chip: str, idf_target: str, port: str) -> None:
     """Enter the loader and ask esptool to run the installed application."""
+    # `run` alone does not reboot the stub; no-reset leaves it in the ROM loader.
     run_esptool(
         [
             "--chip",
@@ -142,7 +148,7 @@ def run_firmware(*, chip: str, idf_target: str, port: str) -> None:
             "--before",
             esptool_before_mode(chip, port),
             "--after",
-            "no-reset",
+            esptool_after_mode(idf_target),
             "run",
         ],
         cwd=REPO_ROOT,
