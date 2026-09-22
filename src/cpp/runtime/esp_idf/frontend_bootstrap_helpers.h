@@ -14,7 +14,7 @@
 
 #include "device_identity.h"
 #include "esp_err.h"
-#include "espectre_protocol.h"
+#include "runtime/espectre_protocol.h"
 #include "standalone_wifi_service.h"
 #include "wifi_provisioning_service.h"
 

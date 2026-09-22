@@ -8,7 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "wifi_lifecycle.h"
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "esp_wifi.h"
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"

@@ -16,10 +16,10 @@
 #include <string>
 #include <vector>
 
-#include "mqtt_transport.h"
-#include "mqtt_payload_assembler.h"
-#include "pending_event.h"
-#include "pending_queue.h"
+#include "runtime/mqtt_transport.h"
+#include "runtime/mqtt_payload_assembler.h"
+#include "runtime/pending_event.h"
+#include "runtime/pending_queue.h"
 #include "mqtt_client.h"
 
 namespace espectre {

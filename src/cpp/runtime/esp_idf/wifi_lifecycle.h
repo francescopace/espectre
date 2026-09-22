@@ -17,8 +17,8 @@
 #include "esp_wifi.h"
 #include <functional>
 
-#include "pending_queue.h"
-#include "runtime_interface.h"
+#include "runtime/pending_queue.h"
+#include "runtime/runtime_interface.h"
 
 namespace espectre {
 

@@ -12,8 +12,8 @@
 #include <functional>
 #include <string>
 
-#include "direct_http_service.h"
-#include "frontend_command_engine.h"
+#include "runtime/direct_http_service.h"
+#include "runtime/frontend_command_engine.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {

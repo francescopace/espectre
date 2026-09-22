@@ -13,13 +13,13 @@
 #include <functional>
 #include <string>
 
-#include "direct_http_service.h"
+#include "runtime/direct_http_service.h"
 #include "direct_wifi_snapshot_esp_idf.h"
-#include "frontend_command_engine.h"
-#include "peer_discovery.h"
+#include "runtime/frontend_command_engine.h"
+#include "runtime/peer_discovery.h"
 #include "raw_csi_session_controller.h"
-#include "runtime_diagnostics.h"
-#include "runtime_event_mailbox.h"
+#include "runtime/runtime_diagnostics.h"
+#include "runtime/runtime_event_mailbox.h"
 #include "runtime_frontend_controller.h"
 
 #include <atomic>

@@ -12,8 +12,8 @@
 #include <cstdint>
 
 #include "csi_capture_profile.h"
-#include "csi_types.h"
-#include "detector_types.h"
+#include "core/csi_types.h"
+#include "core/detector_types.h"
 #include "runtime_sensing_schema.h"
 
 namespace espectre {

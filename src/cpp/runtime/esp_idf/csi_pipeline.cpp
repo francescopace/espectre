@@ -11,7 +11,7 @@
 #include "csi_pipeline.h"
 #include <algorithm>
 #include <sdkconfig.h>
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "esp_timer.h"
 #include "csi_frame_identity.h"
 #include "csi_phy_filter.h"

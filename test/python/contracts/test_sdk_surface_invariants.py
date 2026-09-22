@@ -304,6 +304,22 @@ def test_services_facade_is_documented_without_exposing_detector_internals() -> 
     assert headers <= doxygen_input_headers()
 
 
+def test_sdk_sources_reach_other_layers_through_the_sdk_root() -> None:
+    """The SDK root is the only include directory, so layer directories never reach consumers."""
+    violations = []
+    sources = (p for root in (CPP_ROOT / "core", CPP_ROOT / "runtime") for p in root.rglob("*") if p.suffix in {".h", ".cpp"})
+    for header in sources:
+        for include in FACADE_INCLUDE_PATTERN.findall(header.read_text(encoding="utf-8")):
+            flat_in_other_layer = any(
+                (layer / include).is_file()
+                for layer in (CPP_ROOT / "core", CPP_ROOT / "runtime", CPP_ROOT / "runtime" / "esp_idf")
+                if layer != header.parent
+            )
+            if "/" not in include and not (header.parent / include).is_file() and flat_in_other_layer:
+                violations.append(f"{header.relative_to(CPP_ROOT)} -> {include}")
+    assert not violations, "Use layer-prefixed includes across SDK layers: " + ", ".join(violations)
+
+
 def test_frontends_use_only_public_sdk_headers() -> None:
     """The first-party applications obey the same SDK boundary as external firmware."""
     public = set(include_closure(FACADE)) | set(include_closure(SERVICES_FACADE)) | set(include_closure(MQTT_FACADE)) | set(include_closure(CORE_FACADE))

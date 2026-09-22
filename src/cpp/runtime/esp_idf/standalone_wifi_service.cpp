@@ -16,12 +16,12 @@
 #include <cstring>
 #include <utility>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "esp_wifi.h"
-#include "runtime_config_utils.h"
-#include "runtime_time.h"
+#include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_time.h"
 #include "wifi_band_helpers.h"
 
 namespace espectre {

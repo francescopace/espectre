@@ -11,7 +11,7 @@
 
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "csi_capture_profile.h"
+#include "runtime/csi_capture_profile.h"
 #include "sdkconfig.h"
 #include "wifi_csi_interface.h"
 

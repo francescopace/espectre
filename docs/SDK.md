@@ -353,7 +353,7 @@ target_compile_features(espectre_core PUBLIC cxx_std_17)
 target_include_directories(espectre_core PUBLIC ${ESPECTRE_SHARED_INCLUDE_DIRS})
 ```
 
-Link your application target to `espectre_core` to inherit the includes and C++ standard. If overriding SDK identity, apply all four version macros through `target_compile_definitions(espectre_core PUBLIC ...)`. Prefer layer-prefixed includes such as `runtime/runtime_interface.h` to avoid collisions with generic header names in your application.
+Link your application target to `espectre_core` to inherit the includes and C++ standard. If overriding SDK identity, apply all four version macros through `target_compile_definitions(espectre_core PUBLIC ...)`. The SDK root is the only include directory: include other SDK headers by their layer-prefixed path, such as `runtime/runtime_interface.h`.
 
 ### Transport and protocol extensions
 

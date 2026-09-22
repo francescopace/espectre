@@ -13,9 +13,9 @@
 #include <algorithm>
 #include <cinttypes>
 
-#include "csi_format.h"
+#include "core/csi_format.h"
 #include "csi_platform_config.h"
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "sdkconfig.h"
 
 namespace espectre {

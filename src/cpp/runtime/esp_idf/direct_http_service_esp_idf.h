@@ -28,9 +28,9 @@ using portMUX_TYPE = int;
 #define portEXIT_CRITICAL(mux) (void)(mux)
 #endif
 
-#include "csi_types.h"
-#include "direct_http_service.h"
-#include "pending_event.h"
+#include "core/csi_types.h"
+#include "runtime/direct_http_service.h"
+#include "runtime/pending_event.h"
 
 // HTTP request details are private to the implementation. Keep the services
 // facade usable without the HTTP server component when Direct is disabled.

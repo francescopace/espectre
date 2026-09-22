@@ -15,11 +15,11 @@
 #include <utility>
 #include <vector>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "direct_wifi_snapshot_esp_idf.h"
-#include "protocol_json.h"
-#include "runtime_config_utils.h"
-#include "runtime_time.h"
+#include "runtime/protocol_json.h"
+#include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_time.h"
 #include "wifi_band_helpers.h"
 
 namespace espectre {

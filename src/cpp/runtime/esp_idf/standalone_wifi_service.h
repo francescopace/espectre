@@ -18,7 +18,7 @@
 
 #include "esp_err.h"
 #include "esp_event.h"
-#include "pending_queue.h"
+#include "runtime/pending_queue.h"
 #include "wifi_lifecycle.h"
 
 namespace espectre {

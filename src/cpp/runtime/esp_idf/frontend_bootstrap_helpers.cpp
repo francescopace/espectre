@@ -11,8 +11,8 @@
 #include "frontend_bootstrap_helpers.h"
 
 #include "device_config_store.h"
-#include "espectre_log.h"
-#include "runtime_config_utils.h"
+#include "core/espectre_log.h"
+#include "runtime/runtime_config_utils.h"
 #include "wifi_band_helpers.h"
 
 namespace espectre {

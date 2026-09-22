@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "espectre_protocol.h"
+#include "runtime/espectre_protocol.h"
 
 namespace espectre {
 

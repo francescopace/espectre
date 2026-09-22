@@ -8,8 +8,8 @@
 #include <cstring>
 
 #include "nvs.h"
-#include "espectre_log.h"
-#include "runtime_config_utils.h"
+#include "core/espectre_log.h"
+#include "runtime/runtime_config_utils.h"
 
 namespace espectre {
 

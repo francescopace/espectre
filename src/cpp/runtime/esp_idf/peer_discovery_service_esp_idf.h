@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include "peer_discovery.h"
+#include "runtime/peer_discovery.h"
 
 // Only private members use mDNS handles; consumers need no mDNS headers.
 typedef struct mdns_result_s mdns_result_t;

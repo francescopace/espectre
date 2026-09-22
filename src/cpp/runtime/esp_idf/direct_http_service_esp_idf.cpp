@@ -18,7 +18,7 @@
 #include <limits>
 #include <utility>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include <esp_http_server.h>
 #include <esp_timer.h>
 #include <lwip/sockets.h>
@@ -28,8 +28,8 @@
 #include <netinet/tcp.h>
 #endif
 
-#include "protocol_json.h"
-#include "espectre_protocol.h"
+#include "runtime/protocol_json.h"
+#include "runtime/espectre_protocol.h"
 #include "sta_socket_helpers.h"
 #include "task_scheduling_config.h"
 

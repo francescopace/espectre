@@ -9,7 +9,7 @@
  */
 #include "device_identity.h"
 
-#include "espectre_protocol.h"
+#include "runtime/espectre_protocol.h"
 
 #include <array>
 #include <cstring>

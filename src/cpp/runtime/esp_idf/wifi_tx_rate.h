@@ -17,7 +17,7 @@
 
 #include "sdkconfig.h"
 #include "esp_wifi.h"
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include <string_view>
 
 #ifndef CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS

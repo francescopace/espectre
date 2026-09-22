@@ -6,7 +6,7 @@
 #include "runtime_motion_hits_store.h"
 
 #include "nvs.h"
-#include "runtime_sensing_schema.h"
+#include "runtime/runtime_sensing_schema.h"
 
 namespace espectre {
 

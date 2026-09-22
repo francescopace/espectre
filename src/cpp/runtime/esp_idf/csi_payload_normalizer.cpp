@@ -12,7 +12,7 @@
 
 #include <cstring>
 
-#include "csi_format.h"
+#include "core/csi_format.h"
 
 namespace espectre {
 

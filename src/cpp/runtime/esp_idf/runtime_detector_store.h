@@ -10,7 +10,7 @@
 #pragma once
 
 #include "esp_err.h"
-#include "runtime_sensing_schema.h"
+#include "runtime/runtime_sensing_schema.h"
 
 namespace espectre {
 

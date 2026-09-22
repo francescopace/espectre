@@ -12,7 +12,7 @@
 
 #include <utility>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 
 namespace espectre {
 

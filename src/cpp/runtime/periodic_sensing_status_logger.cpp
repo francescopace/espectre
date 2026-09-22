@@ -9,7 +9,7 @@
  */
 #include "periodic_sensing_status_logger.h"
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 
 #include <cstdarg>
 #include <cstdio>

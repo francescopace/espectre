@@ -91,25 +91,15 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_bssid_pin_service.cpp"
 )
 
-# SDK root. Exposes the `espectre_sdk.h` facade and lets integrators use
-# layer-prefixed includes such as "runtime/runtime_interface.h" instead of the
-# flat header names, which is what keeps generic basenames like `utils.h` from
-# colliding with the consuming project.
+# SDK root, the only include directory. It exposes the facades and
+# layer-prefixed includes such as "runtime/runtime_interface.h". SDK sources
+# reach other layers only through this root, so the layer directories stay off
+# the consumer's search path and generic basenames such as `utils.h` cannot
+# collide with the consuming project in either direction.
 set(ESPECTRE_SDK_ROOT_INCLUDE_DIRS
     "${ESPECTRE_CPP_ROOT}"
 )
 
-set(ESPECTRE_CORE_INCLUDE_DIRS
-    "${ESPECTRE_CPP_ROOT}/core"
-)
-
-set(ESPECTRE_RUNTIME_INCLUDE_DIRS
-    "${ESPECTRE_CPP_ROOT}/runtime"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"
-)
-
 set(ESPECTRE_SHARED_INCLUDE_DIRS
     ${ESPECTRE_SDK_ROOT_INCLUDE_DIRS}
-    ${ESPECTRE_CORE_INCLUDE_DIRS}
-    ${ESPECTRE_RUNTIME_INCLUDE_DIRS}
 )

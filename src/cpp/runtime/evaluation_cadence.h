@@ -21,7 +21,7 @@
 
 #include <cstdint>
 
-#include "detector_timing.h"
+#include "core/detector_timing.h"
 
 namespace espectre {
 

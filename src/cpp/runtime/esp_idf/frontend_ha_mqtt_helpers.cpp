@@ -13,8 +13,8 @@
 #include <cctype>
 #include <utility>
 
-#include "protocol_json.h"
-#include "runtime_config_utils.h"
+#include "runtime/protocol_json.h"
+#include "runtime/runtime_config_utils.h"
 #include "sdkconfig.h"
 
 #ifndef CONFIG_ESPECTRE_HA_DISCOVERY_PREFIX

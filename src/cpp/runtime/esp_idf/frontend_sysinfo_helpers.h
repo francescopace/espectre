@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "espectre_protocol.h"
-#include "runtime_interface.h"
+#include "runtime/espectre_protocol.h"
+#include "runtime/runtime_interface.h"
 
 namespace espectre {
 

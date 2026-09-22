@@ -17,19 +17,19 @@
 #include <functional>
 #include <mutex>
 
-#include "base_detector.h"
+#include "core/base_detector.h"
 #include "csi_capture_service.h"
 #include "csi_frame_identity.h"
-#include "evaluation_cadence.h"
+#include "runtime/evaluation_cadence.h"
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "csi_format.h"
-#include "pending_event.h"
-#include "pending_queue.h"
-#include "raw_csi.h"
-#include "runtime_sensing_schema.h"
-#include "temporal_csi_sampler.h"
+#include "core/csi_format.h"
+#include "runtime/pending_event.h"
+#include "runtime/pending_queue.h"
+#include "runtime/raw_csi.h"
+#include "runtime/runtime_sensing_schema.h"
+#include "core/temporal_csi_sampler.h"
 #include "wifi_csi_interface.h"
 
 namespace espectre {

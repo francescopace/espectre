@@ -14,7 +14,7 @@
 #include <cstring>
 
 #include "lwip/inet.h"
-#include "mac_address_helpers.h"
+#include "runtime/mac_address_helpers.h"
 
 namespace espectre {
 namespace {

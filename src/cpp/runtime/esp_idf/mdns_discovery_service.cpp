@@ -9,7 +9,7 @@
  */
 #include "mdns_discovery_service.h"
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "esp_err.h"
 #include "esp_netif.h"
 #include "mdns.h"

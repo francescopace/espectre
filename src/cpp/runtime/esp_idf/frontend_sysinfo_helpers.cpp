@@ -11,7 +11,7 @@
 
 #include <cstdio>
 
-#include "runtime_config_utils.h"
+#include "runtime/runtime_config_utils.h"
 
 namespace espectre {
 

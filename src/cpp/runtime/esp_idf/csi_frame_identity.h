@@ -13,10 +13,10 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "csi_capture_profile.h"
-#include "csi_traffic_types.h"
+#include "runtime/csi_capture_profile.h"
+#include "runtime/csi_traffic_types.h"
 #include "esp_wifi.h"
-#include "runtime_sensing_schema.h"
+#include "runtime/runtime_sensing_schema.h"
 
 namespace espectre {
 

@@ -19,8 +19,6 @@ idf_component_register(
         ${ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES}
     INCLUDE_DIRS
         ${ESPECTRE_SDK_ROOT_INCLUDE_DIRS}
-        ${ESPECTRE_CORE_INCLUDE_DIRS}
-        ${ESPECTRE_RUNTIME_INCLUDE_DIRS}
     REQUIRES
         espectre_core
         esp_netif

@@ -14,12 +14,12 @@
 #include <cstdio>
 #include <cstring>
 
-#include "direct_http_protocol.h"
-#include "espectre_protocol.h"
-#include "protocol_json.h"
-#include "runtime_config_utils.h"
-#include "runtime_diagnostics.h"
-#include "runtime_time.h"
+#include "runtime/direct_http_protocol.h"
+#include "runtime/espectre_protocol.h"
+#include "runtime/protocol_json.h"
+#include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_diagnostics.h"
+#include "runtime/runtime_time.h"
 #include "wifi_lifecycle.h"
 
 #if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)

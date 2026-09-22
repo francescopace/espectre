@@ -13,8 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "csi_format.h"
-#include "csi_capture_profile.h"
+#include "core/csi_format.h"
+#include "runtime/csi_capture_profile.h"
 #include "csi_payload_normalizer.h"
 #include "csi_phy_filter.h"
 #include "esp_wifi.h"

@@ -16,7 +16,7 @@
 #include <array>
 #include <cstring>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include <esp_timer.h>
 #include <esp_random.h>
 #include <freertos/FreeRTOS.h>

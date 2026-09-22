@@ -27,7 +27,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "csi_traffic_service.h"
+#include "runtime/csi_traffic_service.h"
 
 namespace espectre {
 

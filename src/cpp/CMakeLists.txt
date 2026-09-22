@@ -61,7 +61,6 @@ idf_component_register(
     SRCS
         ${espectre_sdk_sources}
     INCLUDE_DIRS
-        "."
         ${ESPECTRE_SHARED_INCLUDE_DIRS}
     REQUIRES
         ${espectre_sdk_requires}

@@ -9,9 +9,9 @@
  */
 #include "runtime_frontend_controller.h"
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "esp_idf_runtime.h"
-#include "runtime_config_utils.h"
+#include "runtime/runtime_config_utils.h"
 
 #include <new>
 

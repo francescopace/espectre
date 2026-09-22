@@ -12,8 +12,8 @@
 #include <cerrno>
 #include <cstdlib>
 
-#include "espectre_log.h"
-#include "runtime_config_utils.h"
+#include "core/espectre_log.h"
+#include "runtime/runtime_config_utils.h"
 #include "sdkconfig.h"
 
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT

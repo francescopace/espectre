@@ -12,10 +12,10 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "detector_limits.h"
-#include "detector_types.h"
+#include "core/detector_limits.h"
+#include "core/detector_types.h"
 #include "csi_traffic_types.h"
-#include "filter_config.h"
+#include "core/filter_config.h"
 
 /**
  * @file runtime_sensing_schema.h

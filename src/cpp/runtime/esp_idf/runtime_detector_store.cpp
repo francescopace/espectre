@@ -12,7 +12,7 @@
 #include <cstring>
 
 #include "nvs.h"
-#include "runtime_config_utils.h"
+#include "runtime/runtime_config_utils.h"
 
 namespace espectre {
 

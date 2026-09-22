@@ -20,7 +20,7 @@
 #include <cstdlib>
 #include <utility>
 
-#include "base_detector.h"
+#include "core/base_detector.h"
 #include "protocol_json.h"
 #include "raw_csi.h"
 #include "runtime_diagnostics.h"

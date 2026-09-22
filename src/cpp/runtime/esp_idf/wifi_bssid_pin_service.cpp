@@ -13,9 +13,9 @@
 #include <cctype>
 #include <utility>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "nvs.h"
-#include "runtime_time.h"
+#include "runtime/runtime_time.h"
 
 namespace espectre {
 

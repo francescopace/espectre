@@ -18,9 +18,9 @@
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include "pending_event.h"
-#include "serial_sequence.h"
-#include "utils.h"
+#include "runtime/pending_event.h"
+#include "runtime/serial_sequence.h"
+#include "core/utils.h"
 #include "wifi_csi_interface.h"
 
 namespace espectre {

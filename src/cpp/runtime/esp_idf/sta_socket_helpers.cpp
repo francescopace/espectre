@@ -12,7 +12,7 @@
 #include <net/if.h>
 
 #include "esp_netif.h"
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "lwip/sockets.h"
 
 namespace espectre {

@@ -14,8 +14,8 @@
 #include <functional>
 #include <string>
 
-#include "frontend_command_engine.h"
-#include "mqtt_transport.h"
+#include "runtime/frontend_command_engine.h"
+#include "runtime/mqtt_transport.h"
 
 namespace espectre {
 

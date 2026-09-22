@@ -15,8 +15,8 @@
 #include <cstdint>
 #include <cstring>
 
-#include "csi_traffic_service.h"
-#include "runtime_sensing_schema.h"
+#include "runtime/csi_traffic_service.h"
+#include "runtime/runtime_sensing_schema.h"
 #include "udp_datagram_socket_esp_idf.h"
 
 namespace espectre {

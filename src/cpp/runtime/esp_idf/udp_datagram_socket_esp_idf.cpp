@@ -12,7 +12,7 @@
 #include <cerrno>
 #include <fcntl.h>
 
-#include "espectre_log.h"
+#include "core/espectre_log.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 

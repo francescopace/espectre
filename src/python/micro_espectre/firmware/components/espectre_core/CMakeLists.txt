@@ -18,5 +18,4 @@ idf_component_register(
         ${ESPECTRE_CORE_SOURCES}
     INCLUDE_DIRS
         ${ESPECTRE_SDK_ROOT_INCLUDE_DIRS}
-        ${ESPECTRE_CORE_INCLUDE_DIRS}
 )
