@@ -21,13 +21,6 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
-#if !defined(ESP_PLATFORM) && !defined(portMUX_INITIALIZER_UNLOCKED)
-using portMUX_TYPE = int;
-#define portMUX_INITIALIZER_UNLOCKED 0
-#define portENTER_CRITICAL(mux) (void)(mux)
-#define portEXIT_CRITICAL(mux) (void)(mux)
-#endif
-
 #include "core/csi_types.h"
 #include "runtime/direct_http_service.h"
 #include "runtime/pending_event.h"
