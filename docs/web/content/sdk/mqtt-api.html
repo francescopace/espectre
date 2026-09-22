@@ -4,41 +4,41 @@
 -->
 <article class="article" data-page-toc data-page-path="sdk">
   <h1>MQTT API</h1>
-  <p class="article-lead">Native firmware publishes device state and motion events through an MQTT broker. Clients can also track availability and send the supported commands.</p>
+  <p class="article-lead">Native firmware publishes device state and motion events through an MQTT broker. Clients can also see whether the device is online and send commands.</p>
 
-  <div class="note"><strong>MQTT uses the shared device protocol.</strong> Its resource payloads, operations, validation rules, and result codes match Direct HTTP. MQTT topics and broker delivery replace HTTP paths and responses; sensing semantics stay the same.</div>
+  <div class="note"><strong>One protocol, two transports.</strong> Messages, operations, validation rules, and result codes are the same as in Direct HTTP. Only the delivery changes: topics instead of paths, and a broker instead of HTTP responses.</div>
 
   <h2 data-toc-label="Topic root">Find the device topic</h2>
-  <p>The default device root is <code>espectre/v1/devices/&lt;device-id&gt;</code>. A custom topic prefix changes the first part, while the stable device ID remains the final segment. Subscribe to the retained <code>capabilities</code> topic first; its catalog is authoritative for that device.</p>
+  <p>By default, each device publishes under <code>espectre/v1/devices/&lt;device-id&gt;</code>. A custom topic prefix replaces the first part; the device ID always comes last. Subscribe to the retained <code>capabilities</code> topic first to see what the device supports.</p>
   <pre class="code"><code>mosquitto_sub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/+/capabilities' -v</code></pre>
-  <p>Native firmware includes the MQTT API. SDK products can expose it by integrating the MQTT adapter. ESPHome and Matter use their own transports.</p>
+  <p>Native firmware includes the MQTT API, and SDK products can add it with the MQTT adapter. ESPHome and Matter use their own protocols.</p>
 
   <h2 data-toc-label="State and events">Subscribe to state and events</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Suffix</th><th>Retained</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td><code>health</code></td><td>yes</td><td>Availability, uptime, and Last Will</td></tr>
+      <tr><td><code>health</code></td><td>yes</td><td>Online or offline, and uptime</td></tr>
       <tr><td><code>device</code></td><td>yes</td><td>Device identity and build</td></tr>
-      <tr><td><code>capabilities</code></td><td>yes</td><td>Protocol negotiation and supported surface</td></tr>
+      <tr><td><code>capabilities</code></td><td>yes</td><td>Protocol version and supported features</td></tr>
       <tr><td><code>sensing</code></td><td>yes</td><td>Sensing state, readiness, detector, and controls</td></tr>
-      <tr><td><code>wifi</code></td><td>yes</td><td>Redacted radio state</td></tr>
+      <tr><td><code>wifi</code></td><td>yes</td><td>Radio state, without network names or addresses</td></tr>
       <tr><td><code>ota</code></td><td>yes</td><td>Firmware update state</td></tr>
-      <tr><td><code>motion</code></td><td>no</td><td>Per-evaluation motion event</td></tr>
-      <tr><td><code>fault</code></td><td>no</td><td>Runtime fault event</td></tr>
-      <tr><td><code>commands/result</code></td><td>no</td><td>Correlated command result</td></tr>
+      <tr><td><code>motion</code></td><td>no</td><td>Motion event, one per decision</td></tr>
+      <tr><td><code>fault</code></td><td>no</td><td>Error event</td></tr>
+      <tr><td><code>commands/result</code></td><td>no</td><td>Result of a command</td></tr>
     </tbody>
   </table></div>
-  <p>The retained <code>health</code> message is also the Home Assistant availability topic. After an ungraceful disconnect, the broker publishes the retained offline Last Will. There is no application heartbeat in addition to MQTT keepalive.</p>
+  <p>Home Assistant also uses <code>health</code> to know if the device is online. If the device drops off without saying goodbye, the broker publishes its offline message (MQTT Last Will). There is no separate heartbeat besides MQTT keepalive.</p>
   <pre class="code"><code>mosquitto_sub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/&lt;device-id&gt;/#' -v</code></pre>
 
   <h2 data-toc-label="Commands">Send a command</h2>
-  <p>Publish JSON commands to <code>commands/request</code>. Every request has a unique <code>command_id</code> and a <code>command</code>. Operation parameters remain at the top level.</p>
+  <p>Publish JSON commands to <code>commands/request</code>. Each one needs a unique <code>command_id</code> and a <code>command</code>; parameters go at the top level too.</p>
   <pre class="code"><code>mosquitto_pub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/&lt;device-id&gt;/commands/request' \
   -m '{"command_id":"cmd-42","command":"update_sensing","threshold":0.5}'</code></pre>
-  <p>Subscribe to <code>commands/result</code> before publishing so the client receives the reply. The response repeats <code>command_id</code> and <code>command</code>, then reports whether the device accepted the request:</p>
+  <p>Subscribe to <code>commands/result</code> before publishing, so you don't miss the reply. It repeats <code>command_id</code> and <code>command</code>, and says whether the device accepted the request:</p>
   <pre class="code"><code>{
   "command_id":"cmd-42",
   "command":"update_sensing",
@@ -50,23 +50,23 @@
     <thead><tr><th>Command</th><th>Parameters</th><th>Purpose</th></tr></thead>
     <tbody>
       <tr><td><code>update_device</code></td><td><code>label</code></td><td>Set or clear the device label</td></tr>
-      <tr><td><code>update_sensing</code></td><td>Supported sensing subset</td><td>Update detector and traffic settings</td></tr>
+      <tr><td><code>update_sensing</code></td><td>Sensing settings to change</td><td>Update detector and traffic settings</td></tr>
       <tr><td><code>recalibrate</code></td><td>none</td><td>Start detector recalibration</td></tr>
-      <tr><td><code>read_diagnostics</code></td><td>optional <code>fields</code> array</td><td>Return the field catalog, selected values, or all values with <code>["*"]</code> in <code>data</code></td></tr>
+      <tr><td><code>read_diagnostics</code></td><td>optional <code>fields</code> array</td><td>Return the list of values, the selected values, or all of them with <code>["*"]</code>, in <code>data</code></td></tr>
       <tr><td><code>check_ota</code></td><td>optional <code>channel</code></td><td>Check a firmware channel</td></tr>
       <tr><td><code>start_ota</code></td><td>optional <code>channel</code></td><td>Start an update from a firmware channel</td></tr>
     </tbody>
   </table></div>
-  <p>A command payload is limited to 2,048 bytes. An unsupported command returns <code>accepted: false</code> with code <code>forbidden</code>. Validation and runtime failures use the same result codes as HTTP.</p>
+  <p>A command can be at most 2,048 bytes. An unsupported command returns <code>accepted: false</code> with code <code>forbidden</code>. Other errors use the same codes as HTTP.</p>
 
-  <h2 data-toc-label="Direct-only access">Use HTTP for Direct-only access</h2>
-  <p>MQTT has no topics for broker configuration, discovery results, raw CSI, or retained diagnostics. Configure MQTT through Direct HTTP or the device settings tool. Use <code>read_diagnostics</code> with explicit <code>fields</code> for an on-demand snapshot, and use Direct HTTP for peer discovery and CSI collection.</p>
-  <p>Home Assistant MQTT Discovery publishes entity definitions under <code>homeassistant/</code>. Those topics are separate from the canonical ESPectre device topics.</p>
+  <h2 data-toc-label="HTTP only">What needs Direct HTTP</h2>
+  <p>MQTT cannot change the broker settings, list nearby devices, or stream raw CSI. Use Direct HTTP or Device settings for those. For diagnostics, send <code>read_diagnostics</code> with the <code>fields</code> you want.</p>
+  <p>The Home Assistant discovery messages under <code>homeassistant/</code> are separate from the ESPectre topics above.</p>
 
   <h2 data-toc-label="Privacy and security">Protect the broker</h2>
-  <p>The MQTT <code>wifi</code> resource omits the SSID, BSSID, and IP address. Other messages contain a stable pseudonymous device ID, user-provided labels, movement data, and operational telemetry. Restrict broker access and use per-device credentials.</p>
-  <p>Use <code>mqtt</code> for explicit plaintext TCP on a trusted local broker. Use <code>mqtts</code> for TLS with hostname verification. Native does not support MQTT over WebSockets.</p>
+  <p>The MQTT <code>wifi</code> message leaves out the network name, access point, and IP address. Other messages still include the device ID, your device label, movement data, and diagnostics. Limit who can use the broker, and give each device its own credentials.</p>
+  <p>Use <code>mqtt</code> (unencrypted) only with a trusted local broker, and <code>mqtts</code> for TLS with hostname checking. MQTT over WebSockets is not supported.</p>
 
   <h2 data-toc-label="Protocol reference">Protocol reference</h2>
-  <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md#mqtt-topics" target="_blank" rel="noopener">MQTT contract in <code>API.md</code></a> defines the payload fields, constraints, result codes, and compatibility rules. The <a href="/sdk/http-api/">HTTP API</a> documents the shared resources and Direct-only capabilities.</p>
+  <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md#mqtt-topics" target="_blank" rel="noopener">MQTT section of the API reference</a> defines every field, limit, result code, and compatibility rule. The <a href="/sdk/http-api/">HTTP API</a> describes the shared resources and the HTTP-only features.</p>
 </article>

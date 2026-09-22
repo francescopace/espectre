@@ -7,8 +7,8 @@
 
 <section class="tool-static-entry" aria-labelledby="flash-static-title">
   <h2 id="flash-static-title">Install from your browser</h2>
-  <p>The installer detects a supported ESP32 and its current ESPectre firmware over USB. It can update the installed firmware without removing device data, replace it with another firmware type, or retrieve a Matter device's persisted setup code.</p>
-  <p>Use a Chromium-based browser and a USB data cable. The serial connection stays open only while the installer is active.</p>
+  <p>The installer detects the ESP32 and any ESPectre firmware already on it. It can update the firmware and keep the device's settings, switch to another firmware type, or show a Matter device's pairing code.</p>
+  <p>Use Chrome or Edge and a USB data cable. The installer uses the USB port only while it is open.</p>
   <div class="tool-static-actions">
     <a href="/#tool-flash" class="btn-primary">Open the browser installer</a>
     <a href="/guides/setup/" class="btn-secondary">Read the setup guide</a>
@@ -95,7 +95,7 @@
     <details class="panel flash-console js-flash-console" data-flash-session-panel hidden>
       <summary>Serial console</summary>
       <div class="flash-console-body">
-        <p class="tool-note">During installation, this console shows installer diagnostics. At other times, opening it starts live serial output and takes control of the selected port.</p>
+        <p class="tool-note">During installation, this console shows the installer's log. At other times, opening it shows the device's live serial output and takes over the port.</p>
         <pre class="flash-console-output js-flash-console-output" tabindex="0" aria-label="Serial output"></pre>
         <div class="panel-actions">
           <button type="button" class="btn-ghost btn-sm js-flash-console-reset" title="Restart the connected device without clearing the console output" disabled>Reset device</button>
@@ -131,7 +131,7 @@
       </form>
     </div>
     <div class="js-flash-matter-onboarding" hidden>
-      <p>This device-specific code was read directly from the board over USB. Scan it with your Matter controller, or enter the manual setup code; Wi-Fi commissioning remains in the controller.</p>
+      <p>This device-specific code was read directly from the board over USB. Scan it with your Matter controller, or enter the manual code; the controller then connects the device to Wi-Fi.</p>
       <div class="matter-loading js-matter-loading" role="status">
         <span class="spinner matter-loading-spinner" aria-hidden="true"></span>
         <span>Loading QR code…</span>

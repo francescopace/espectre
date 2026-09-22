@@ -5,10 +5,10 @@
 <article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">DETECTION PROFILES · 4 MIN READ</span>
     <h1>Choose your detection profile</h1>
-    <p class="article-lead">ESPectre includes two built-in production motion detectors: Lightweight Detection and High-Accuracy Detection. Both analyze the same Wi-Fi CSI stream and expose the same motion state. Lightweight is the published default and leaves more CPU and working memory available; High Accuracy uses a compact pretrained model to improve detection quality and generalization on the maintained corpus.</p>
+    <p class="article-lead">ESPectre has two motion detectors: Lightweight Detection and High-Accuracy Detection. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small pretrained model to detect better, and works better in rooms it was not tuned for.</p>
     <figure>
       <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
-      <figcaption>One CSI stream feeds two built-in detectors. Native, ESPHome, and Matter can switch between them at runtime through the controls each firmware exposes.</figcaption>
+      <figcaption>One CSI stream, two detectors. Native, ESPHome, and Matter can switch between them while running.</figcaption>
     </figure>
 
     <details class="page-toc">
@@ -21,58 +21,58 @@
       <article>
         <span class="guide-tag">PUBLISHED DEFAULT</span>
         <h3>Lightweight Detection</h3>
-        <p>Leaves more CPU time and working memory for the rest of the firmware. It adapts its threshold to the installed room during a quiet startup calibration.</p>
+        <p>Leaves more CPU and memory for the rest of the firmware. It adapts its threshold to the room during a short calibration at startup, while the room is quiet.</p>
         <p><code>lightweight</code></p>
       </article>
       <article>
         <span class="guide-tag">DETECTION QUALITY</span>
         <h3>High-Accuracy Detection</h3>
-        <p>Uses additional feature state and a compact neural network for higher measured accuracy and better cross-environment transfer in the maintained corpus. It starts without quiet-room threshold calibration.</p>
+        <p>Uses more signal features and a small neural network. It is more accurate in our tests, including in rooms it has never seen, and needs no calibration.</p>
         <p><code>high_accuracy</code></p>
       </article>
     </div>
 
     <h2 id="detectors-choose">Choose in thirty seconds</h2>
     <ul class="checklist">
-      <li><strong>Choose Lightweight</strong> when sensing shares a smaller chip with displays, connectivity, Matter, OTA, or other application services.</li>
-      <li><strong>Choose High Accuracy</strong> when false-positive control, transfer across rooms, and detection quality are the priority.</li>
-      <li><strong>Keep the Lightweight default when you are unsure</strong>, then compare High Accuracy in the same installed position.</li>
+      <li><strong>Choose Lightweight</strong> when the chip is small or also runs a display, Matter, updates, or other services.</li>
+      <li><strong>Choose High Accuracy</strong> when fewer false alarms and better detection matter most.</li>
+      <li><strong>If unsure, keep Lightweight</strong>, then try High Accuracy in the same spot and compare.</li>
     </ul>
 
     <h2 id="detectors-difference">What changes</h2>
     <div class="profile-comparison">
       <article class="profile-comparison-row">
         <h3>Runtime cost</h3>
-        <div><strong>Lightweight</strong><p>Lower CPU and working-memory use.</p></div>
-        <div><strong>High Accuracy</strong><p>More feature state and neural-inference work.</p></div>
+        <div><strong>Lightweight</strong><p>Less CPU and memory.</p></div>
+        <div><strong>High Accuracy</strong><p>More CPU and memory for the extra features and the neural network.</p></div>
       </article>
       <article class="profile-comparison-row">
         <h3>Detection quality</h3>
-        <div><strong>Lightweight</strong><p>A production baseline with lower measured accuracy and weaker transfer across environments.</p></div>
-        <div><strong>High Accuracy</strong><p>Higher measured accuracy and better cross-environment transfer in the maintained corpus.</p></div>
+        <div><strong>Lightweight</strong><p>Good baseline; lower accuracy, and less consistent from room to room.</p></div>
+        <div><strong>High Accuracy</strong><p>Higher accuracy, and more consistent from room to room in our tests.</p></div>
       </article>
       <article class="profile-comparison-row">
         <h3>Startup</h3>
-        <div><strong>Lightweight</strong><p>Adapts its threshold using about ten seconds of clean, ready quiet-room coverage.</p></div>
-        <div><strong>High Accuracy</strong><p>Skips threshold calibration, then starts after CSI and its feature window are ready.</p></div>
+        <div><strong>Lightweight</strong><p>Calibrates its threshold in about ten seconds with the room still.</p></div>
+        <div><strong>High Accuracy</strong><p>No calibration; it starts as soon as it has collected enough CSI.</p></div>
       </article>
       <article class="profile-comparison-row">
         <h3>Training required from you</h3>
         <div><strong>Lightweight</strong><p>None.</p></div>
-        <div><strong>High Accuracy</strong><p>None; the pretrained model is included in the firmware.</p></div>
+        <div><strong>High Accuracy</strong><p>None; the model is included in the firmware.</p></div>
       </article>
       <article class="profile-comparison-row">
         <h3>Best fit</h3>
-        <div><strong>Lightweight</strong><p>Constrained devices or products reserving resources for other services.</p></div>
-        <div><strong>High Accuracy</strong><p>Products that prioritize detection quality and can afford the additional runtime cost.</p></div>
+        <div><strong>Lightweight</strong><p>Small chips, or products that need resources for other features.</p></div>
+        <div><strong>High Accuracy</strong><p>Products where detection quality comes first and there is room for the extra cost.</p></div>
       </article>
     </div>
 
-    <div class="note"><strong>At startup:</strong> keep the room still while Lightweight calibrates, and recalibrate after moving the sensor substantially. High Accuracy does not calibrate its threshold, but it still needs CSI capture and its feature window to become ready.</div>
-    <p class="article-footnote"><strong>These are detector choices, not power modes.</strong> ESPectre benchmarks detector CPU and memory separately and makes no whole-device energy-saving claim for either profile.</p>
+    <div class="note"><strong>At startup:</strong> keep the room still while Lightweight calibrates, and recalibrate after moving the sensor. High Accuracy needs no calibration, but it still needs a few seconds of CSI before it starts.</div>
+    <p class="article-footnote"><strong>These are detector choices, not power modes.</strong> We measure each detector's CPU and memory use, but make no claim about the device's total power use.</p>
 
     <h2 id="detectors-controls">How to select it</h2>
-    <p>Choose the firmware type or integration you use. ESPectre can apply and save a new profile while running. Matter exposes this specific control through Direct HTTP rather than through its standard occupancy cluster.</p>
+    <p>Pick your firmware type. You can change the profile while the device runs, and the choice is saved. On Matter, this setting is available over Direct HTTP, not through the standard Matter controls.</p>
     <div class="code-tabs" data-code-tabs>
       <div class="code-tabs-list" role="tablist" aria-label="Detection profile interface">
         <button type="button" role="tab" id="detectors-native-tab" aria-controls="detectors-native-panel" aria-selected="true">Native</button>
@@ -82,28 +82,28 @@
       </div>
       <div class="code-tab-panel" id="detectors-native-panel" role="tabpanel" aria-labelledby="detectors-native-tab" data-detector-interface="native">
         <h3 id="detectors-cli" class="subheading">Native MQTT shell</h3>
-        <p>Connect to the broker and select the discovered device. The accepted profile is applied immediately and persists across reboots:</p>
+        <p>Connect to the broker and select the device. The change applies at once and survives reboots:</p>
         <pre class="code"><code>./espectre mqtt --broker 192.168.1.20
 espectre&gt; update_sensing detector=high_accuracy
 espectre&gt; info</code></pre>
         <p>Use <code>update_sensing detector=lightweight</code> to switch back.</p>
       </div>
       <div class="code-tab-panel" id="detectors-esphome-panel" role="tabpanel" aria-labelledby="detectors-esphome-tab" data-detector-interface="esphome" hidden>
-        <p>Home Assistant exposes the persisted runtime detector selector. In YAML, <code>detection_algorithm</code> sets the initial profile when no saved selection exists:</p>
+        <p>Home Assistant shows a detector selector, and the choice is saved. In YAML, <code>detection_algorithm</code> sets the profile to use until you pick one:</p>
         <pre class="code"><code>espectre:
   detection_algorithm: lightweight  # or high_accuracy</code></pre>
       </div>
       <div class="code-tab-panel" id="detectors-matter-panel" role="tabpanel" aria-labelledby="detectors-matter-tab" data-detector-interface="matter" hidden>
-        <p>Published Matter images start with Lightweight. Open <a href="/tools/monitor/">Live motion</a> over Direct HTTP to select High Accuracy or switch back; the accepted profile takes effect immediately and persists across reboots. A local build can also choose the initial profile through the shared ESP-IDF sensing configuration. Standard Matter occupancy controls do not expose this setting.</p>
+        <p>Published Matter images start with Lightweight. Open <a href="/tools/monitor/">Live motion</a> to switch profile; the change applies at once and survives reboots. Your own builds can also set the starting profile in the ESP-IDF configuration.</p>
       </div>
       <div class="code-tab-panel" id="detectors-sdk-panel" role="tabpanel" aria-labelledby="detectors-sdk-tab" data-detector-interface="sdk" hidden>
-        <p>Set the detector in the runtime configuration before starting an embedded integration:</p>
+        <p>Set the detector in the runtime configuration before starting ESPectre:</p>
         <pre class="code"><code>espectre::RuntimeConfig config;
 config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code></pre>
       </div>
     </div>
 
     <h2 id="detectors-evidence">Evidence and deeper reference</h2>
-    <p>The <a href="/sdk/detectors/">SDK detector reference</a> follows CSI through temporal admission, subcarrier processing, feature extraction, and on-device inference. It also covers the performance evidence available for both profiles.</p>
+    <p>The <a href="/sdk/detectors/">SDK detector reference</a> explains how each detector works, step by step, and shows the measured performance of both.</p>
 
   </article>

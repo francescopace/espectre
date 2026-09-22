@@ -113,7 +113,7 @@
     {
       "name": "guides",
       "title": "Guides | ESPectre",
-      "description": "Guides for ESP32 board choice, flashing, detection behavior, and the future of standards-backed Wi-Fi sensing.",
+      "description": "Guides to choosing an ESP32 board, installing ESPectre, placing and tuning the sensor, and the future of Wi-Fi sensing.",
       "staticPath": "/guides/",
       "analyticsName": "overview"
     },
@@ -130,7 +130,7 @@
       "group": "guides",
       "pathLabel": "Hardware",
       "title": "Choose your hardware | ESPectre",
-      "description": "Which ESP32 board to buy for Wi-Fi motion sensing, what actually affects detection quality, and how products can embed ESPectre.",
+      "description": "Which ESP32 board to buy for Wi-Fi motion sensing, and what matters: antenna, power supply, placement, and USB.",
       "staticPath": "/guides/hardware/"
     },
     {
@@ -138,7 +138,7 @@
       "group": "guides",
       "pathLabel": "Setup",
       "title": "Flash and set up your device | ESPectre",
-      "description": "From a blank ESP32 board to a working Wi-Fi motion sensor, entirely from the browser: flashing, provisioning, and calibration.",
+      "description": "From a blank ESP32 board to a working Wi-Fi motion sensor, from the browser: install, connect to Wi-Fi, and calibrate.",
       "staticPath": "/guides/setup/"
     },
     {
@@ -146,7 +146,7 @@
       "group": "guides",
       "pathLabel": "Placement",
       "title": "Place your ESPectre sensor | ESPectre",
-      "description": "Place an ESPectre Wi-Fi motion sensor using practical distance, RSSI, antenna orientation, obstacle, and room-testing guidance.",
+      "description": "Where to place an ESPectre sensor: distance, signal strength, antenna orientation, obstacles, and a short room test.",
       "staticPath": "/guides/placement/"
     },
     {
@@ -154,7 +154,7 @@
       "group": "guides",
       "pathLabel": "Home Assistant",
       "title": "Build your Home Assistant dashboard | ESPectre",
-      "description": "Build the ESPectre Home Assistant dashboard for ESPHome or MQTT Discovery and set up the external traffic generator add-on.",
+      "description": "Build the ESPectre Home Assistant dashboard for ESPHome or MQTT devices, and set up the traffic generator app.",
       "staticPath": "/guides/home-assistant/"
     },
     {
@@ -162,7 +162,7 @@
       "group": "guides",
       "pathLabel": "Detector profiles",
       "title": "Choose your detection profile | ESPectre",
-      "description": "Compare ESPectre Lightweight and High-Accuracy Detection by CPU, memory, startup behavior, detection quality, and product fit.",
+      "description": "Compare ESPectre Lightweight and High-Accuracy Detection: CPU, memory, startup, and detection quality.",
       "staticPath": "/guides/detectors/"
     },
     {
@@ -170,7 +170,7 @@
       "group": "guides",
       "pathLabel": "MicroPython",
       "title": "Run ESPectre on MicroPython | ESPectre",
-      "description": "Use the upstream ESP32 Wi-Fi CSI support contributed by ESPectre to run on-device motion sensing in MicroPython.",
+      "description": "Detect motion on an ESP32 in MicroPython, using the Wi-Fi CSI support ESPectre added to MicroPython.",
       "staticPath": "/guides/micropython/"
     },
     {
@@ -178,7 +178,7 @@
       "group": "guides",
       "pathLabel": "Future Wi-Fi sensing",
       "title": "The future of Wi-Fi sensing | ESPectre",
-      "description": "How IEEE 802.11bf makes sensing an explicit Wi-Fi capability, why it inspired ESPectre, and what standards-backed hardware could enable.",
+      "description": "How IEEE 802.11bf adds sensing to the Wi-Fi standard, what it does not solve, and how ESPectre is ready for it.",
       "staticPath": "/guides/future-wifi-sensing/",
       "analyticsName": "future-wifi-sensing"
     },
@@ -203,7 +203,7 @@
       "group": "sdk",
       "pathLabel": "Detectors",
       "title": "Detectors | ESPectre",
-      "description": "How ESPectre turns timestamped Wi-Fi CSI into on-device motion decisions with temporal admission, selected frequency views, and two detector profiles.",
+      "description": "How ESPectre turns Wi-Fi CSI into motion detection on the device, step by step, with two detector profiles.",
       "staticPath": "/sdk/detectors/"
     },
     {

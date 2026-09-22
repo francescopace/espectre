@@ -10,8 +10,8 @@
       <span data-api-reference-version>loading version…</span>
     </span>
   </div>
-  <p class="article-lead">Search a published C++ type, method, or header. A full-runtime integration starts with four types: controller, config, listener, and snapshot.</p>
-  <div class="note"><strong>Device protocol.</strong> The <a href="/sdk/http-api/">HTTP API</a> and <a href="/sdk/mqtt-api/">MQTT API</a> document client integrations that do not embed the C++ SDK.</div>
+  <p class="article-lead">Search for a C++ type, method, or header. A full-runtime integration needs four types: controller, config, listener, and snapshot.</p>
+  <div class="note"><strong>Device protocol.</strong> The <a href="/sdk/http-api/">HTTP API</a> and <a href="/sdk/mqtt-api/">MQTT API</a> cover clients that talk to a device without embedding the C++ SDK.</div>
 
   <div class="api-reference-controls">
     <div class="api-reference-picker" data-api-reference-picker>
@@ -31,75 +31,73 @@
   <div class="api-map">
     <a href="/sdk/api/?api=classespectre_1_1_runtime_frontend_controller" data-api-reference-ref="classespectre_1_1_runtime_frontend_controller">
       <code>RuntimeFrontendController</code>
-      <span>Owns setup, the work loop, shutdown, cached state, and validated runtime controls.</span>
+      <span>Setup, the work loop, shutdown, current state, and runtime controls.</span>
     </a>
     <a href="/sdk/api/?api=structespectre_1_1_runtime_config" data-api-reference-ref="structespectre_1_1_runtime_config">
       <code>RuntimeConfig</code>
-      <span>Defines detector, traffic, cadence, filtering, and other startup settings.</span>
+      <span>Detector, traffic, timing, filtering, and other startup settings.</span>
     </a>
     <a href="/sdk/api/?api=classespectre_1_1_i_runtime_listener" data-api-reference-ref="classespectre_1_1_i_runtime_listener">
       <code>IRuntimeListener</code>
-      <span>Delivers motion, threshold, status, calibration, telemetry, and fault events.</span>
+      <span>Motion, threshold, status, calibration, telemetry, and error events.</span>
     </a>
     <a href="/sdk/api/?api=structespectre_1_1_runtime_snapshot" data-api-reference-ref="structespectre_1_1_runtime_snapshot">
       <code>RuntimeSnapshot</code>
-      <span>Carries motion state, movement score, threshold, link state, and readiness.</span>
+      <span>Motion state, movement score, threshold, connection state, and readiness.</span>
     </a>
   </div>
 
   <h2>Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
-    <div><strong><code>set_config()</code></strong><span>stage settings</span></div>
+    <div><strong><code>set_config()</code></strong><span>set settings</span></div>
     <div><strong><code>setup(listener)</code></strong><span>start sensing</span></div>
     <div><strong><code>loop()</code></strong><span>deliver events</span></div>
     <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
   </div>
-  <p>On ESP-IDF, build the initial configuration with <code>make_runtime_sensing_config_from_kconfig()</code> unless the product deliberately supplies every sensing setting itself. Call the lifecycle and control methods from one owner task.</p>
+  <p>On ESP-IDF, start from <code>make_runtime_sensing_config_from_kconfig()</code> unless you set every sensing option yourself. Call the lifecycle and control methods from one task.</p>
 
   <h2>Optional logging sink</h2>
-  <p><code>LogSink</code> connects shared SDK messages to a product-owned backend. Register it before runtime setup and leave it unchanged until shutdown. Without a sink, shared logging is silent and filtered message arguments are not evaluated. The sink callbacks must be thread-safe, bounded, non-blocking, and non-reentrant because runtime services can log from more than one task or capture path.</p>
-  <p>Native, Matter, and Micro-ESPectre use ESP-IDF Log v2 and pass each callback's <code>va_list</code> to <code>esp_log_va</code>. ESP-IDF adds the standard level, timestamp, tag, and line ending, so these adapters do not need their own formatting buffer. ESPHome sends messages to its own logger. Each adapter keeps its logging dependency in the frontend. Micro-ESPectre's core-only and focused traffic components can share the core-owned sink without depending on the ESP-IDF <code>log</code> component.</p>
+  <p><code>LogSink</code> sends SDK messages to your own logger. Register it before setup and keep it until shutdown. Without a sink, the SDK logs nothing and skips building the messages. The sink can be called from more than one task, so its callbacks must be thread-safe, quick, non-blocking, and must not log back into the SDK. On ESP-IDF, the simplest sink passes each message to <code>esp_log_va</code>, as the SDK example and the Native and Matter firmware do.</p>
 
   <h2>Errors and optional controls</h2>
-  <p>Control methods return <code>false</code> when a value is outside its published range, the active backend does not advertise the capability, the backend refuses the change, or setup cannot allocate its bounded working storage. A rejected call leaves the runtime unchanged. Allocation failures are reported synchronously to the listener; runtime-owned asynchronous failures arrive through <code>on_runtime_fault()</code>.</p>
-  <p><code>RuntimeCapabilities</code> defaults every flag to false. Read <code>capabilities()</code> after setup and expose only the controls that the active runtime reports.</p>
+  <p>Control methods return <code>false</code> when a value is out of range, the feature is not available, the change is refused, or setup cannot allocate its memory. A rejected call changes nothing. Allocation failures are reported to the listener right away; errors that happen later arrive through <code>on_runtime_fault()</code>.</p>
+  <p>Every <code>RuntimeCapabilities</code> flag starts as false. Read <code>capabilities()</code> after setup, and offer only the controls it reports.</p>
 
-  <div class="note"><strong>Raw CSI callbacks have a stricter threading contract.</strong> Listener events arrive from the owner task, but a callback passed to <code>start_raw_collection()</code> runs synchronously in Wi-Fi capture context. Keep it bounded, non-blocking, and allocation-free, and copy accepted packets into a preallocated queue for later work.</div>
+  <div class="note"><strong>Raw CSI callbacks have stricter rules.</strong> Listener events arrive on your task, but the callback passed to <code>start_raw_collection()</code> runs inside the Wi-Fi driver. Keep it quick, non-blocking, and free of allocations: copy packets into a queue you allocated in advance, and process them later.</div>
 
-  <h2 data-toc-label="Detector budget">Choose the detector as a product budget</h2>
-  <p>Lightweight keeps less feature state and performs less active work. High Accuracy adds feature tracking and neural inference; in the current maintained selection + holdout diagnostic, it produces higher recall and F1 and a lower false-positive rate. That evidence compares the two profiles under the same replay contract, but it is not a sealed blind generalization result. Power has not yet been measured. See the <a href="/sdk/detectors/">profile measurements and validation limits</a>.</p>
-  <p>Lightweight calibrates from up to ten seconds of clean, ready slot coverage and can later lower its threshold after a quiet stretch. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup.</p>
+  <h2 data-toc-label="Detector choice">Choosing the detector</h2>
+  <p>Lightweight uses less CPU and memory. High Accuracy adds more features and a small neural network, and detects better in our tests. Lightweight calibrates for up to ten seconds at startup and can lower its threshold later, after a quiet stretch; High Accuracy needs no calibration but waits for enough CSI. See the <a href="/sdk/detectors/">detector profiles</a> for measurements and limits.</p>
 
   <h2 id="sdk-public-facades" data-toc-label="Public facades">Public SDK headers</h2>
   <div class="api-map">
     <a href="/sdk/api/?api=espectre__sdk_8h" data-api-reference-ref="espectre__sdk_8h">
       <code>espectre_sdk.h</code>
-      <span>The recommended facade for ESP-IDF products. Runtime contracts, configuration, events, diagnostics, and boundary interfaces form the stable full-runtime API.</span>
+      <span>The main header for ESP-IDF products: runtime, configuration, events, diagnostics, and interfaces. This is the stable full-runtime API.</span>
     </a>
     <a href="/sdk/api/?api=espectre__services__sdk_8h" data-api-reference-ref="espectre__services__sdk_8h">
       <code>espectre_services_sdk.h</code>
-      <span>Includes the sensing facade and adds the command engine, Direct HTTP, discovery, provisioning, and bootstrap helpers. Requires ESP-IDF dependency headers.</span>
+      <span>Everything in <code>espectre_sdk.h</code>, plus commands, Direct HTTP, discovery, provisioning, and startup helpers. Needs the ESP-IDF headers they depend on.</span>
     </a>
     <a href="/sdk/api/?api=espectre__mqtt__sdk_8h" data-api-reference-ref="espectre__mqtt__sdk_8h">
       <code>espectre_mqtt_sdk.h</code>
-      <span>Provides EspIdfMqttTransport for firmware using the ESP-IDF MQTT stack. Include it separately from the services facade.</span>
+      <span><code>EspIdfMqttTransport</code>, for firmware that uses the ESP-IDF MQTT client. Include it separately.</span>
     </a>
     <a href="/sdk/api/?api=espectre__core__sdk_8h" data-api-reference-ref="espectre__core__sdk_8h">
       <code>espectre_core_sdk.h</code>
-      <span>The advanced facade for firmware that already captures and normalizes CSI. It exposes detector classes without the ESP-IDF runtime.</span>
+      <span>For firmware that already captures and prepares CSI: the detectors, without the ESP-IDF runtime.</span>
     </a>
   </div>
 
-  <p>Including a facade does not enable its source groups. Select the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional capability groups</a> that your firmware uses and provide their component dependencies. Your firmware owns the service objects and their lifecycle.</p>
+  <p>Including a header does not compile its code. Enable the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional capability groups</a> you use and add their dependencies. Your firmware creates the service objects and manages their lifecycle.</p>
 
-  <div class="note"><strong>The facades define separate support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. Public methods and configuration types exposed by the services and MQTT facades follow the same source-compatibility contract. The core facade covers detector classes and their documented public methods. Private members, feature trackers, generated weights, and headers included only as implementation dependencies are not independent extension points.</div>
+  <div class="note"><strong>What is stable.</strong> Everything reachable from <code>espectre_sdk.h</code>, and the public methods and configuration types of the services and MQTT headers, follow the compatibility rules below. The core header covers the detector classes and their documented methods. Private members, feature trackers, generated weights, and headers included only internally are not part of the API.</div>
 
   <h2>Compatibility</h2>
-  <p>Final numeric releases follow Semantic Versioning for C++ source compatibility. Patch releases preserve documented behavior, minor releases may add compatible declarations, and breaking changes require a major release. Preview and develop bundles may change before the corresponding final release.</p>
-  <p>The SDK ships as source and does not promise a stable binary ABI. Rebuild the SDK and your integration together, and initialize public structs with their defaults before assigning named fields. The complete contract, including detector-output limits and deprecation rules, lives in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md" target="_blank" rel="noopener">SDK guide</a>.</p>
+  <p>Final releases follow Semantic Versioning for the C++ source. Patch releases keep documented behavior, minor releases may add to the API, and breaking changes need a major release. Preview and develop bundles can change before the final release.</p>
+  <p>The SDK ships as source, with no stable binary interface (ABI): always rebuild it together with your code. Start public structs from their defaults and then set the fields you need. The full rules, including deprecations, are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md" target="_blank" rel="noopener">SDK guide</a>.</p>
 
   <h2>Replacing the runtime</h2>
-  <p>A platform port implements <a href="/sdk/api/?api=classespectre_1_1_i_espectre_runtime" data-api-reference-ref="classespectre_1_1_i_espectre_runtime"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
+  <p>A platform port implements <a href="/sdk/api/?api=classespectre_1_1_i_espectre_runtime" data-api-reference-ref="classespectre_1_1_i_espectre_runtime"><code>IEspectreRuntime</code></a>. It covers lifecycle, state, controls, diagnostics, capabilities, and listener events. <code>RuntimeFrontendController</code> works only with ESP-IDF and cannot take another runtime.</p>
 
   </div>
 </article>

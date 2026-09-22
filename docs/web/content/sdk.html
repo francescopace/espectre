@@ -4,13 +4,13 @@
 -->
 <div class="docs-quickstart" data-page-toc data-page-path="sdk">
   <h1 class="page-title">ESPectre C++ SDK</h1>
-  <p class="page-sub">Add on-device Wi-Fi motion sensing to an ESP-IDF product while your firmware keeps control of product behavior.</p>
+  <p class="page-sub">Add Wi-Fi motion sensing to your ESP-IDF product. Your firmware stays in charge of everything else.</p>
 
   <section class="docs-start" aria-labelledby="docs-start-title">
     <div class="docs-start-copy">
       <span class="guide-tag">START HERE</span>
       <h2 id="docs-start-title" data-toc-label="Start here">Embed the full runtime in your product firmware.</h2>
-      <p>ESPectre owns CSI capture, calibration, detection, and runtime events. Integrate it as a source component, drive it from one task, and map ready motion events into your application.</p>
+      <p>ESPectre handles CSI capture, calibration, detection, and events. Add it as a source component, run it from one task, and use its motion events in your application.</p>
     </div>
     <div class="docs-start-actions">
       <a href="#docs-quick-start-title" class="btn-primary">Install with idf.py</a>
@@ -29,15 +29,15 @@
     <div class="docs-section-head">
       <span class="guide-tag">PRODUCT FIT</span>
       <h2 id="sdk-fit-title" data-toc-label="Product fit">Confirm the integration boundary first.</h2>
-      <p>The supported path targets ESP-IDF products that build the SDK sources with their own firmware.</p>
+      <p>The SDK is for ESP-IDF products that compile its sources together with their own firmware.</p>
     </div>
     <dl class="sdk-fit-grid">
-      <div><dt>Toolchain</dt><dd>ESP-IDF <code>&gt;=5.5.3</code> and C++17. Repository firmware currently builds with ESP-IDF 5.5.5.</dd></div>
-      <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi CSI.</dd></div>
-      <div><dt>Validated sensing</dt><dd>Published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. With <code>AUTO</code> capture, the runtime selects <code>lltf20</code> for internal <code>WIFI_RAW</code> traffic, <code>vht20</code> on a supported 5 GHz association, and <code>ht20</code> otherwise. The active read-only profile appears as <code>csi_profile</code> in the <code>device</code> resource. Detection quality at 5 GHz is not yet characterized.</dd></div>
-      <div><dt>Delivery model</dt><dd>A versioned C++ source component installed through ESP-IDF Component Manager. ESPectre is compiled together with your firmware. Source archives are also available for manual vendoring.</dd></div>
-      <div><dt>Compatibility</dt><dd>Final releases follow Semantic Versioning for the documented C++ source API. The SDK does not promise a stable binary ABI.</dd></div>
-      <div><dt>Licensing</dt><dd>GPLv3 for open-source firmware, with separate commercial terms available for eligible proprietary integrations. <a href="/licensing/">Review licensing</a>.</dd></div>
+      <div><dt>Toolchain</dt><dd>ESP-IDF <code>&gt;=5.5.3</code> and C++17. The project's own firmware builds with ESP-IDF 5.5.5.</dd></div>
+      <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi.</dd></div>
+      <div><dt>Validated sensing</dt><dd>Detector results are measured on 2.4 GHz HT20 CSI. By default (<code>AUTO</code>), the runtime picks <code>lltf20</code> for its own raw Wi-Fi traffic, <code>vht20</code> on 5 GHz, and <code>ht20</code> otherwise; the <code>device</code> resource reports it as <code>csi_profile</code>. Detection quality on 5 GHz is not measured yet.</dd></div>
+      <div><dt>Delivery model</dt><dd>A versioned C++ source component, installed with the ESP-IDF Component Manager and compiled with your firmware. Source archives are also available if you prefer to copy it into your project.</dd></div>
+      <div><dt>Compatibility</dt><dd>Final releases follow Semantic Versioning for the documented C++ API. There is no stable binary interface (ABI).</dd></div>
+      <div><dt>Licensing</dt><dd>GPLv3 for open-source firmware. Commercial terms are available for eligible closed-source products. <a href="/licensing/">Review licensing</a>.</dd></div>
     </dl>
   </section>
 
@@ -54,24 +54,24 @@
         <tr><td><a href="https://components-staging.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">Staging</a></td><td>Branch snapshots</td><td>Preview (<code>main</code>) and Develop (<code>develop</code>)</td></tr>
       </tbody>
     </table></div>
-    <p>The website's Release channel can contain a release candidate.</p>
+    <p>The website's Release channel may contain a release candidate.</p>
     <div class="docs-steps">
       <section class="docs-step">
         <div class="docs-step-body">
           <h3>1. Add the SDK</h3>
-          <p>Activate ESP-IDF, open your project directory, and add the latest compatible stable release from production:</p>
+          <p>Activate ESP-IDF, open your project folder, and add the latest stable release:</p>
           <div class="code-block"><pre>idf.py add-dependency <span class="s">"francescopace/espectre"</span></pre></div>
-          <p>For a tagged prerelease or another exact release version, replace <code>VERSION_FROM_REGISTRY</code> with a version from production. For a branch snapshot, use its version and change the URL to <code>https://components-staging.espressif.com</code>:</p>
+          <p>For a prerelease or a specific version, replace <code>VERSION_FROM_REGISTRY</code> with a version from the registry. For a branch snapshot, use its version and the staging URL <code>https://components-staging.espressif.com</code>:</p>
           <div class="code-block"><pre>idf.py add-dependency --registry-url <span class="s">"https://components.espressif.com"</span> <span class="s">"francescopace/espectre=VERSION_FROM_REGISTRY"</span></pre></div>
-          <p>Component Manager records the dependency in <code>main/idf_component.yml</code> and the resolved version in <code>dependencies.lock</code> when configuring the project. Snapshot registry versions end in <code>.main</code> or <code>.develop</code>; select one from the registry instead of copying a website archive label.</p>
-          <p>Enable <code>CONFIG_ESP_WIFI_CSI_ENABLED=y</code> in your project configuration. The sensing runtime is always built; enable optional service groups in menuconfig when needed. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#minimal-configuration" target="_blank" rel="noopener">full SDK guide</a> for configuration and the <a href="/sdk/api/#sdk-public-facades">public headers</a> for your integration.</p>
+          <p>The dependency is saved in <code>main/idf_component.yml</code>, and the exact version in <code>dependencies.lock</code>. Snapshot versions end in <code>.main</code> or <code>.develop</code>; copy them from the registry, not from the website's download labels.</p>
+          <p>Set <code>CONFIG_ESP_WIFI_CSI_ENABLED=y</code> in your project configuration. Sensing is always included; turn on optional services in menuconfig. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#minimal-configuration" target="_blank" rel="noopener">full SDK guide</a> for configuration and the <a href="/sdk/api/#sdk-public-facades">public headers</a> for your integration.</p>
         </div>
       </section>
 
       <section class="docs-step">
         <div class="docs-step-body">
           <h3>2. Drive the runtime</h3>
-          <p>Set it up after the default station and event loop exist, preferably before association. An already connected station is restored from its current IP state. Call <code>loop()</code> continuously, and queue the events your product needs:</p>
+          <p>Call <code>setup()</code> after creating the Wi-Fi station and the default event loop, ideally before connecting to Wi-Fi; an existing connection is also picked up. Then call <code>loop()</code> continuously, and queue the events your product needs:</p>
           <div class="code-block"><pre><span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
 
 <span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
@@ -94,18 +94,18 @@
   <span class="k">void</span> enqueue_motion(<span class="k">bool</span> motion);
   espectre::RuntimeFrontendController runtime_;
 };</pre></div>
-          <p>Shared logging is optional. Register an <code>espectre::LogSink</code> before <code>runtime_.setup()</code> when the product needs SDK messages; otherwise, the shared layers remain silent.</p>
+          <p>Logging is optional. To see SDK messages, register an <code>espectre::LogSink</code> before <code>runtime_.setup()</code>; otherwise the SDK logs nothing.</p>
         </div>
       </section>
 
       <section class="docs-step">
         <div class="docs-step-body">
-          <h3>3. Keep the runtime contracts</h3>
+          <h3>3. Follow the runtime rules</h3>
           <ul class="checklist docs-contracts">
             <li>Publish only when <code>snapshot.ready_to_publish</code> is true.</li>
             <li>Run <code>setup()</code>, <code>loop()</code>, and <code>shutdown()</code> on one task.</li>
-            <li>Keep listener callbacks bounded and non-blocking; queue network and storage work elsewhere.</li>
-            <li>Check <code>capabilities()</code> before exposing optional runtime controls.</li>
+            <li>Keep listener callbacks short and non-blocking; do network and storage work elsewhere.</li>
+            <li>Check <code>capabilities()</code> before offering optional controls.</li>
           </ul>
         </div>
       </section>
@@ -116,25 +116,25 @@
     <div class="docs-section-head">
       <span class="guide-tag">INTEGRATION PATHS</span>
       <h2 id="docs-paths-title" data-toc-label="Choose an API layer">Choose the highest layer that fits.</h2>
-      <p>Lower layers expose more control, but transfer lifecycle, timing, and sensing responsibilities to your firmware.</p>
+      <p>Lower layers give more control, but leave lifecycle, timing, and sensing work to your firmware.</p>
     </div>
     <div class="docs-paths">
       <div class="docs-path docs-path-recommended">
         <span class="docs-path-label">Recommended</span>
         <h3>Full runtime</h3>
-        <p>Your firmware owns boot, Wi-Fi, provisioning, OTA, and product behavior. ESPectre owns CSI capture, calibration, detection, and events.</p>
+        <p>Your firmware handles boot, Wi-Fi, provisioning, updates, and product behavior. ESPectre handles CSI capture, calibration, detection, and events.</p>
         <span class="docs-path-meta">ESP-IDF &ge;5.5.3 · C++17</span>
       </div>
       <div class="docs-path">
         <span class="docs-path-label">Advanced</span>
         <h3>Core only</h3>
-        <p>Use this only when your firmware already captures and normalizes CSI. You also own evaluation cadence, readiness, gap reset, and hit filtering.</p>
+        <p>Only if your firmware already captures and prepares CSI. Your firmware must then also handle timing, readiness, gaps in the data, and filtering of short spikes.</p>
         <span class="docs-path-meta">Portable C++17</span>
       </div>
       <div class="docs-path">
         <span class="docs-path-label">Platform port</span>
         <h3>New runtime</h3>
-        <p>Implement <code>IEspectreRuntime</code> when another platform owns CSI capture and lifecycle while the shared core and event contracts remain useful.</p>
+        <p>Implement <code>IEspectreRuntime</code> to bring ESPectre to another platform that captures CSI its own way, reusing the shared detection code and events.</p>
         <span class="docs-path-meta">Arduino or Linux · not shipped today</span>
       </div>
     </div>
@@ -143,8 +143,8 @@
   <section class="docs-start sdk-alternative" aria-labelledby="docs-micropython-title">
     <div class="docs-start-copy">
       <span class="guide-tag">ALTERNATIVE RUNTIME</span>
-      <h2 id="docs-micropython-title" data-toc-label="MicroPython">Micro-ESPectre supports on-device R&amp;D.</h2>
-      <p>Micro-ESPectre uses the ESP32 CSI support contributed to mainline MicroPython for Lightweight sensing, read-only Direct monitoring, and detector parity work. It remains a maintained R&amp;D runtime, not a stable embeddable SDK.</p>
+      <h2 id="docs-micropython-title" data-toc-label="MicroPython">Micro-ESPectre for research on the device.</h2>
+      <p>Micro-ESPectre uses the CSI support ESPectre added to MicroPython. It runs Lightweight detection, offers read-only monitoring, and is where detector changes are tested against the C++ version. It is a research tool, not a stable SDK.</p>
     </div>
     <div class="docs-start-actions">
       <a href="/guides/micropython/" class="btn-primary">Open MicroPython guide</a>
@@ -155,15 +155,15 @@
   <section class="docs-next" aria-labelledby="docs-next-title">
     <div class="docs-next-heading">
       <span class="guide-tag">TECHNICAL REFERENCES</span>
-      <h2 id="docs-next-title" data-toc-label="Next steps">Continue with the part of the integration you are evaluating.</h2>
+      <h2 id="docs-next-title" data-toc-label="Next steps">Go deeper.</h2>
     </div>
     <div class="doc-links docs-link-grid">
-      <a href="/sdk/architecture/" class="doc-link"><div class="doc-link-title">Architecture →</div><div class="doc-link-sub">Review ownership, runtime lifecycle, task boundaries, and platform ports.</div></a>
-      <a href="/sdk/detectors/" class="doc-link"><div class="doc-link-title">Detector profiles →</div><div class="doc-link-sub">Compare measured results, runtime cost, startup behavior, and validation limits.</div></a>
-      <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">C++ API →</div><div class="doc-link-sub">Browse public SDK types, lifecycle methods, errors, and compatibility rules.</div></a>
-      <a href="/sdk/http-api/" class="doc-link"><div class="doc-link-title">HTTP API →</div><div class="doc-link-sub">Read and configure a local device, follow live events, or collect raw CSI.</div></a>
-      <a href="/sdk/mqtt-api/" class="doc-link"><div class="doc-link-title">MQTT API →</div><div class="doc-link-sub">Subscribe to device state and motion events, then send supported commands through a broker.</div></a>
-      <a href="/sdk/examples/" class="doc-link"><div class="doc-link-title">Integration examples →</div><div class="doc-link-sub">Run the registry's Wi-Fi motion detection project, then adapt it to your firmware.</div></a>
+      <a href="/sdk/architecture/" class="doc-link"><div class="doc-link-title">Architecture →</div><div class="doc-link-sub">Layers, runtime lifecycle, tasks, and ports to other platforms.</div></a>
+      <a href="/sdk/detectors/" class="doc-link"><div class="doc-link-title">Detector profiles →</div><div class="doc-link-sub">Measured results, resource use, startup, and known limits.</div></a>
+      <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">C++ API →</div><div class="doc-link-sub">Public SDK types, lifecycle methods, errors, and compatibility rules.</div></a>
+      <a href="/sdk/http-api/" class="doc-link"><div class="doc-link-title">HTTP API →</div><div class="doc-link-sub">Read and configure a device, follow live events, or collect raw CSI.</div></a>
+      <a href="/sdk/mqtt-api/" class="doc-link"><div class="doc-link-title">MQTT API →</div><div class="doc-link-sub">Follow device state and motion, and send commands through a broker.</div></a>
+      <a href="/sdk/examples/" class="doc-link"><div class="doc-link-title">Integration examples →</div><div class="doc-link-sub">Run the Wi-Fi motion detection example, then adapt it to your firmware.</div></a>
     </div>
   </section>
 
@@ -171,7 +171,7 @@
     <div class="docs-start-copy">
       <span class="guide-tag">PRODUCT TEAMS</span>
       <h2 id="sdk-commercial-title" data-toc-label="Commercial licensing">Evaluating ESPectre for proprietary firmware?</h2>
-      <p>Separate commercial terms are available for eligible core, runtime, Native, and Matter material. Integration support, maintenance, and service commitments are scoped separately.</p>
+      <p>Commercial terms are available for eligible core, runtime, Native, and Matter code. Integration support and maintenance are agreed separately.</p>
     </div>
     <div class="docs-start-actions">
       <a href="/licensing/" class="btn-primary">Review commercial licensing</a>

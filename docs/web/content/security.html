@@ -10,49 +10,49 @@
     <div class="docs-section-head">
       <span class="guide-tag">SECURITY MODEL</span>
       <h2 id="security-model-title" data-toc-label="Security model">Built to sense on a network you control.</h2>
-      <p>ESPectre deliberately keeps the supported sensing path associated with a Wi-Fi network and limits normal operation to derived motion information.</p>
+      <p>ESPectre only senses while connected to a Wi-Fi network, and normally shares only motion information.</p>
     </div>
     <div class="docs-paths">
       <article class="docs-path docs-path-recommended">
         <span class="docs-path-label">ASSOCIATED WI-FI</span>
         <h3>No promiscuous capture</h3>
-        <p>Supported first-party firmware operates as an associated Wi-Fi station and does not enable Wi-Fi promiscuous mode. A deployment must join a network; protected networks require valid credentials.</p>
-        <span class="docs-path-meta">Intentional barrier against casual passive collection</span>
+        <p>Our firmware works as a normal Wi-Fi client and never listens to other people's traffic (promiscuous mode). It must join a network, and protected networks need the password.</p>
+        <span class="docs-path-meta">A deliberate barrier against casual snooping</span>
       </article>
       <article class="docs-path">
         <span class="docs-path-label">ON-DEVICE</span>
         <h3>Derive motion locally</h3>
-        <p>Normal sensing frontends process CSI on the ESP32 and expose derived movement, motion state, and limited diagnostics. Raw CSI export is an explicit local research workflow: ESPectre uses a single connection-bound <code>GET /espectre/v1/csi</code> response carrying CSI V8 records.</p>
-        <span class="docs-path-meta">Local-first sensing boundary</span>
+        <p>The firmware processes CSI on the ESP32 and shares only movement, motion state, and a few diagnostics. Raw CSI is available only on request, for research, over one local connection (<code>GET /espectre/v1/csi</code>).</p>
+        <span class="docs-path-meta">Sensing stays local</span>
       </article>
       <article class="docs-path">
         <span class="docs-path-label">MINIMIZATION</span>
         <h3>Limit what leaves the device</h3>
-        <p>Canonical MQTT sensing messages omit raw CSI, Wi-Fi names, BSSIDs, local IP and MAC addresses, packet captures, and serial logs. The device ID is a stable SHA-256-derived pseudonym instead of the raw MAC, but messages still include that linkable ID, user-provided labels, movement data, and operational diagnostics.</p>
+        <p>MQTT messages contain no raw CSI, Wi-Fi names, access point addresses, IP or MAC addresses, packet captures, or serial logs. The device ID is derived from the MAC with SHA-256, so it hides the MAC but never changes. Messages still include that ID, the labels you set, movement data, and diagnostics.</p>
         <span class="docs-path-meta">Minimized does not mean anonymous</span>
       </article>
     </div>
-    <div class="note"><strong>Important limitation:</strong> association is a deliberate safeguard, not proof of consent or authority. Open networks do not require a password, authorized credentials can be misused, and open-source software can be modified. The operator remains responsible for every deployment.</div>
+    <div class="note"><strong>Important limitation:</strong> needing to join a network is a safeguard, not proof of permission. Open networks have no password, valid passwords can be misused, and open-source software can be modified. Whoever installs ESPectre is responsible for how it is used.</div>
   </section>
 
   <section class="docs-section" aria-labelledby="local-access-title">
     <div class="docs-section-head">
       <span class="guide-tag">LOCAL ACCESS</span>
-      <h2 id="local-access-title" data-toc-label="Local access">Direct HTTP stays inside the trusted LAN.</h2>
-      <p>The hosted portal uses HTTP POST and streaming <code>fetch()</code> to the selected local device with <code>targetAddressSpace: "local"</code>. Chrome prompts before a public site can reach a local address. Allow that permission only when you intend to manage a device on the current network. If Chrome reports that access is denied, enable Local network access in the site's settings; on operating systems with an app-level Local Network privacy control, Chrome must be allowed there too.</p>
+      <h2 id="local-access-title" data-toc-label="Local access">Direct HTTP stays on your local network.</h2>
+      <p>This website talks to your device directly from the browser. Chrome asks for permission before a website can reach a device on your local network: allow it only when you want to manage a device on this network. If Chrome says access is denied, turn on Local network access in the site settings; on systems with their own local network privacy setting (such as macOS), Chrome must be allowed there too.</p>
     </div>
     <div class="security-guidelines">
       <ul>
-        <li><strong>Browser support:</strong> the hosted Direct workflow is validated with Chrome 151 or later on macOS. Chrome 151 or later on Windows and native Linux is the target path, but physical coverage is still pending, and automatic discovery depends on the operating system's mDNS configuration. Compatibility with Firefox, Safari, Edge, mobile Chrome, and WSL browser environments is not guaranteed. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> owns the current compatibility and validation matrix.</li>
-        <li><strong>Origin check:</strong> published Native firmware accepts only the production ESPectre portal origins. An opted-in development build accepts HTTP on any port only for exact <code>localhost</code>, <code>127.0.0.1</code>, or <code>[::1]</code> hosts; host lookalikes remain rejected.</li>
-        <li><strong>Embedding:</strong> the interactive portal stays hidden and does not initialize when another site embeds it in a frame. Standalone documentation remains readable without JavaScript, but device controls require a top-level ESPectre page.</li>
-        <li><strong>Addressing:</strong> the portal accepts a private IP, device name, full device ID, or 6-character ID suffix. It keeps mDNS endpoint syntax out of the connection form and shows every candidate when a name or suffix has multiple matches.</li>
-        <li><strong>Auto-discovery:</strong> Web Crypto generates a fresh 96-bit nonce for each optional attempt and contacts only <code>espectre-devices-&lt;24 hex&gt;.local</code>. Compatible firmware answers without registering or retaining the nonce, performs one bounded DNS-SD browse, and returns validated HTTP endpoints at their advertised ports. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> documents the exchange.</li>
-        <li><strong>Capability checks:</strong> after selection, the portal negotiates the device's exact Direct capabilities and hides unsupported configuration and runtime actions.</li>
-        <li><strong>Discovery data:</strong> the portal does not scan address ranges, keep a peer inventory, or send device IDs, IPs, hostnames, local URLs, nonces, discovery payloads, or raw CSI to analytics.</li>
-        <li><strong>Host discovery:</strong> from a repository checkout, use <code>./espectre devices</code> for deterministic results.</li>
-        <li><strong>Connection failures:</strong> allow Local network access in site settings, confirm the current IP, close other ESPectre tabs if the device's two Direct client slots are occupied, and retry. If mDNS is disabled or filtered, use the private IPv4 address returned by Improv Serial or shown by the router; device IDs and names still require mDNS. A protocol error requires matching portal and firmware releases. If hosted Direct is unsupported, use a supported desktop browser.</li>
-        <li><strong>No Internet exposure:</strong> do not port-forward the Direct endpoint, publish it through UPnP, or treat the local service as remotely authenticated.</li>
+        <li><strong>Browser support:</strong> tested with Chrome 151 or later on macOS. Chrome 151 or later on Windows and Linux should work but is not tested on real hardware yet, and automatic discovery depends on the system's mDNS setup. Firefox, Safari, Edge, mobile Chrome, and WSL may not work. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> has the current compatibility table.</li>
+        <li><strong>Origin check:</strong> published Native firmware accepts requests only from the ESPectre website. A development build can also allow <code>localhost</code>, <code>127.0.0.1</code>, or <code>[::1]</code> on any port, and nothing else.</li>
+        <li><strong>Embedding:</strong> if another site embeds this website in a frame, the tools stay hidden and do not start. The documentation works without JavaScript, but device controls work only on the ESPectre website itself.</li>
+        <li><strong>Addressing:</strong> you can connect with an IP address, device name, full device ID, or the last 6 characters of the ID. If several devices match, the website shows them all.</li>
+        <li><strong>Auto-discovery:</strong> each attempt looks up a new random name, <code>espectre-devices-&lt;24 hex&gt;.local</code>. An ESPectre device answers without storing the name, searches the network once for other ESPectre devices, and sends back their addresses. The <a href="/guides/setup/#setup-native-discovery">setup guide</a> explains how it works.</li>
+        <li><strong>Capability checks:</strong> after you pick a device, the website asks what it supports and hides everything else.</li>
+        <li><strong>Discovery data:</strong> the website does not scan your network, keep a list of devices, or send device IDs, addresses, names, discovery data, or raw CSI to analytics.</li>
+        <li><strong>Host discovery:</strong> from a repository checkout, <code>./espectre devices</code> lists devices from your computer instead of the browser.</li>
+        <li><strong>Connection failures:</strong> allow Local network access in the site settings, check the device's IP, and close other ESPectre tabs (a device accepts two browser connections at a time), then retry. If mDNS does not work on your network, use the IPv4 address from USB setup or your router; names and IDs need mDNS. A protocol error means the website and firmware versions do not match. If nothing works, use a supported desktop browser.</li>
+        <li><strong>No Internet exposure:</strong> never forward the device's port on your router or open it with UPnP. Direct HTTP has no login meant for remote access.</li>
       </ul>
     </div>
     <p class="docs-step-note">Browser policy reference: <a href="https://developer.chrome.com/release-notes/147/" target="_blank" rel="noopener">Chrome 147 Local Network Access</a>.</p>

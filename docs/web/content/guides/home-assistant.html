@@ -3,34 +3,34 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">HOME ASSISTANT · 9 MIN READ</span>
+    <span class="guide-tag">HOME ASSISTANT · 8 MIN READ</span>
     <h1>Build your Home Assistant dashboard</h1>
-    <p class="article-lead">Turn ESPectre's discovered entities into a focused dashboard for motion, movement history, and runtime controls. Add the optional traffic generator to supply external traffic from Home Assistant.</p>
+    <p class="article-lead">Build a dashboard for motion, movement history, and sensor controls. Optionally, add the traffic generator app to send traffic to your sensors from Home Assistant.</p>
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#ha-before">Requirements</a><a href="#ha-prefix">Find entity IDs</a><a href="#ha-create">Create the dashboard</a><a href="#ha-template">Paste the template</a><a href="#ha-result">Verify the result</a><a href="#ha-traffic-generator">External traffic add-on</a><a href="#ha-troubleshooting">Troubleshooting</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#ha-before">Requirements</a><a href="#ha-prefix">Find entity IDs</a><a href="#ha-create">Create the dashboard</a><a href="#ha-template">Paste the template</a><a href="#ha-result">Verify the result</a><a href="#ha-traffic-generator">Traffic generator app</a><a href="#ha-troubleshooting">Troubleshooting</a></nav>
     </details>
 
     <h2 id="ha-before">Before you start</h2>
     <ul class="checklist">
-      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre exposes read-only Direct HTTP and is not part of this Home Assistant workflow.</li>
-      <li>You can see the device under <em>Settings → Devices &amp; services</em>, and its Motion Detected and Movement Score entities have current values.</li>
-      <li>You have administrator access, which Home Assistant requires to create and manage dashboards.</li>
+      <li>Your ESPectre device is in Home Assistant through ESPHome or MQTT (Native firmware). Micro-ESPectre does not work with Home Assistant.</li>
+      <li>The device appears under <em>Settings → Devices &amp; services</em>, and its Motion Detected and Movement Score entities show values.</li>
+      <li>You are a Home Assistant administrator, which is needed to create dashboards.</li>
     </ul>
-    <div class="note">Starting from a blank board? Complete the <a href="/guides/setup/">flash and setup guide</a> first. Native firmware and Home Assistant must use the same MQTT broker; MQTT Discovery is enabled by default in published Native firmware.</div>
+    <div class="note">Starting from a blank board? Follow the <a href="/guides/setup/">setup guide</a> first. With Native firmware, the device and Home Assistant must use the same MQTT broker; Home Assistant discovery is on by default.</div>
 
     <figure>
       <img src="/assets/images/guides/home-assistant-dashboard-card.avif" alt="An ESP32 sending sensing data to a dashboard in Home Assistant" width="1068" height="600" loading="eager">
-      <figcaption>ESPectre publishes motion, control, and diagnostic entities. The maintained template arranges the available entities into one dashboard.</figcaption>
+      <figcaption>ESPectre provides motion, control, and diagnostic entities. The template puts them on one dashboard.</figcaption>
     </figure>
 
     <h2 id="ha-prefix">Step 1 — Find your entity IDs</h2>
-    <p>The maintained dashboard template uses the default ESPHome entity IDs, which start with <code>espectre_</code>. For MQTT Discovery, Home Assistant generates each entity ID when it first registers the entity and preserves later manual changes. Current Home Assistant versions do not derive that ID from the discovery topic's <code>object_id</code>; see <a href="https://www.home-assistant.io/integrations/mqtt/#naming-of-mqtt-entities" target="_blank" rel="noopener">Naming of MQTT entities</a>.</p>
+    <p>The dashboard template uses the default ESPHome entity IDs, which start with <code>espectre_</code>. With MQTT, Home Assistant creates each entity ID the first time it sees the entity, and keeps any later renames; see <a href="https://www.home-assistant.io/integrations/mqtt/#naming-of-mqtt-entities" target="_blank" rel="noopener">Naming of MQTT entities</a>.</p>
     <ol class="steps-list">
       <li><h3>Open the entity list</h3><p>Go to <em>Settings → Devices &amp; services → Entities</em>, then filter for your ESPectre device.</p></li>
-      <li><h3>Identify the active entities</h3><p>Open <em>Movement Score</em>, confirm that it belongs to the intended ESPectre device and has a current value, then copy its complete entity ID.</p></li>
-      <li><h3>Check whether one prefix is enough</h3><p>If the ID ends in <code>movement_score</code>, the part before that suffix is the prefix you can reuse throughout the template. If it ends in a collision suffix such as <code>movement_score_2</code>, you must verify and replace the complete ID of each dashboard entity individually.</p></li>
+      <li><h3>Identify the active entities</h3><p>Open <em>Movement Score</em>, check that it belongs to the right device and shows a value, and copy its full entity ID.</p></li>
+      <li><h3>Check whether one prefix is enough</h3><p>If the ID ends in <code>movement_score</code>, the part before it is the prefix for the whole template. If it ends in something like <code>movement_score_2</code>, you have to check and replace each entity ID on the dashboard one by one.</p></li>
     </ol>
     <div class="table-wrap"><table>
       <caption class="sr-only">How Home Assistant entity IDs affect the dashboard template</caption>
@@ -41,93 +41,93 @@
         <tr><td>Entity-ID collision</td><td><code>sensor.espectre_c3_f61093_movement_score_2</code></td><td>Replace each affected complete entity ID</td></tr>
       </tbody>
     </table></div>
-    <p>These are examples, not values to guess. The chip label, short device ID, custom device name, manual renames, and existing registry entries can all change the final ID. If Home Assistant shows both an unsuffixed entity and an <code>_2</code> variant, it registered two entities that requested the same ID. The suffix is not part of the device prefix and may differ from one entity to another; use the entities attached to the active device rather than mixing both sets.</p>
+    <p>These are only examples: the chip, device ID, device name, renames, and older entities all change the final ID, so always copy it from Home Assistant. If you see both an entity and an <code>_2</code> copy, Home Assistant has two entities that wanted the same ID. The suffix is not part of the prefix and can differ between entities; use only the entities of the device that is online now.</p>
 
     <details class="article-details" id="ha-recreate-ids">
       <summary>Troubleshooting: recreate duplicate MQTT entity IDs</summary>
       <div class="article-details-body">
-    <p>Use this reset only for Native MQTT Discovery when stale registrations keep producing duplicate IDs. Dashboard cards and recorder history refer to entity IDs, so note the current IDs and back up the dashboard before changing them.</p>
+    <p>Use this only with MQTT (Native firmware), when old entities keep causing <code>_2</code> IDs. Dashboards and history use entity IDs, so write down the current IDs and back up the dashboard first.</p>
     <ol class="steps-list">
-      <li><h3>Keep only one publisher</h3><p>Turn off or disconnect every old ESPectre instance that uses the same device identity. Leave the intended device disconnected while cleaning the retained discovery configuration.</p></li>
-      <li><h3>Find this device's discovery topics</h3><p>With an MQTT client such as MQTT Explorer or your broker tooling, inspect retained topics matching <code>homeassistant/&lt;component&gt;/&lt;object-id&gt;/config</code>. Match the payload's device identifier, device name, and <code>unique_id</code> to the ESPectre device you are resetting.</p></li>
-      <li><h3>Remove only the matching configurations</h3><p>Publish an empty retained payload to every matching config topic for that device. Home Assistant treats the empty discovery payload as removal of that component; wait for the old entities to disappear. Do not clear <code>homeassistant/#</code> or another device's discovery topics.</p></li>
-      <li><h3>Publish one clean entity set</h3><p>Reconnect or reboot the intended ESPectre device. It republishes its MQTT Discovery configuration, and Home Assistant creates the entities again. When the unsuffixed IDs are free, the new entities should no longer need <code>_2</code>.</p></li>
-      <li><h3>Verify before editing the dashboard</h3><p>Confirm that every recreated entity belongs to the intended device, has a current value, and shares the expected prefix. Then update the dashboard template with those exact IDs.</p></li>
+      <li><h3>Keep only one publisher</h3><p>Turn off every old ESPectre device with the same identity. Keep the device you want to use off too, until the cleanup is done.</p></li>
+      <li><h3>Find this device's discovery topics</h3><p>With an MQTT client such as MQTT Explorer, look at the retained topics <code>homeassistant/&lt;component&gt;/&lt;object-id&gt;/config</code>. Check the device identifier, device name, and <code>unique_id</code> in each message to find the ones for your device.</p></li>
+      <li><h3>Remove only the matching configurations</h3><p>Publish an empty retained message to each of those topics. Home Assistant then removes the entity; wait for the old entities to disappear. Do not clear <code>homeassistant/#</code> or other devices' topics.</p></li>
+      <li><h3>Publish one clean entity set</h3><p>Turn the device back on. It announces itself again, and Home Assistant recreates the entities, now without <code>_2</code>.</p></li>
+      <li><h3>Verify before editing the dashboard</h3><p>Check that every new entity belongs to the right device, shows a value, and has the expected prefix. Then update the dashboard with those IDs.</p></li>
     </ol>
-    <div class="note">If there is only one active entity set and you merely want cleaner names, open each entity's settings and edit its entity ID instead. ESPectre supplies a <code>unique_id</code>, so Home Assistant stores the rename in its Entity Registry; a Discovery reset is unnecessary.</div>
+    <div class="note">If you only want cleaner names, just rename each entity ID in its settings. Home Assistant keeps the rename, so no reset is needed.</div>
       </div>
     </details>
 
     <h2 id="ha-create">Step 2 — Create an empty dashboard</h2>
     <ol class="steps-list">
       <li><h3>Add the dashboard</h3><p>Go to <em>Settings → Dashboards</em>, select <em>Add dashboard</em>, and choose <em>New dashboard from scratch</em>.</p></li>
-      <li><h3>Name it</h3><p>Use a clear name such as <em>ESPectre</em>, choose whether it appears in the sidebar, then select <em>Create</em>.</p></li>
-      <li><h3>Take control</h3><p>Open the new dashboard, select the edit button, then use the three-dot menu to take control if Home Assistant asks. The template uses the responsive <em>Sections</em> view.</p></li>
+      <li><h3>Name it</h3><p>Use a name such as <em>ESPectre</em>, choose whether to show it in the sidebar, and select <em>Create</em>.</p></li>
+      <li><h3>Take control</h3><p>Open the new dashboard and select the edit button. If Home Assistant asks, use the three-dot menu to take control. The template uses the <em>Sections</em> view.</p></li>
     </ol>
-    <p>Home Assistant documents the same flow in its <a href="https://www.home-assistant.io/dashboards/dashboards/" target="_blank" rel="noopener">dashboard guide</a> and explains the responsive grid in the <a href="https://www.home-assistant.io/dashboards/sections/" target="_blank" rel="noopener">Sections view reference</a>.</p>
+    <p>See also Home Assistant's <a href="https://www.home-assistant.io/dashboards/dashboards/" target="_blank" rel="noopener">dashboard guide</a> and <a href="https://www.home-assistant.io/dashboards/sections/" target="_blank" rel="noopener">Sections view reference</a>.</p>
 
-    <h2 id="ha-template">Step 3 — Paste the maintained template</h2>
+    <h2 id="ha-template">Step 3 — Paste the template</h2>
     <ol class="steps-list">
-      <li><h3>Copy the YAML</h3><p>Open the maintained <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/examples/home-assistant-dashboard.yaml" target="_blank" rel="noopener">ESPectre dashboard template</a>, select <em>Raw</em>, and copy all of it. This file is the source of truth for the example dashboard.</p></li>
-      <li><h3>Open the raw editor</h3><p>In the dashboard editor, open the three-dot menu, select <em>Raw configuration editor</em>, replace the existing content with the copied YAML, and save.</p></li>
-      <li><h3>Replace the stable prefix</h3><p>If Step&nbsp;1 found a consistent prefix other than <code>espectre_</code>, replace every occurrence of <code>espectre_</code> with that exact prefix, then save again.</p></li>
-      <li><h3>Resolve collision suffixes</h3><p>If any active entity ends in <code>_2</code> or another numeric suffix, replace that complete entity ID on its dashboard row. Do not append the suffix to the shared prefix.</p></li>
+      <li><h3>Copy the YAML</h3><p>Open the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/examples/home-assistant-dashboard.yaml" target="_blank" rel="noopener">ESPectre dashboard template</a>, select <em>Raw</em>, and copy all of it.</p></li>
+      <li><h3>Open the raw editor</h3><p>In the dashboard editor, open the three-dot menu, select <em>Raw configuration editor</em>, replace everything with the copied YAML, and save.</p></li>
+      <li><h3>Replace the prefix</h3><p>If your prefix from Step&nbsp;1 is not <code>espectre_</code>, replace every <code>espectre_</code> with it, and save again.</p></li>
+      <li><h3>Fix numbered IDs</h3><p>If an entity ends in <code>_2</code> or another number, replace its full ID on its dashboard row. Do not add the number to the prefix.</p></li>
     </ol>
-    <div class="note">Do not change the entity domains before the dot: Motion Detected and Calibration Active remain <code>binary_sensor</code> entities, Movement Score remains a <code>sensor</code>, Threshold remains a <code>number</code>, Recalibrate remains a <code>button</code>, and the other rows retain their discovered domains.</div>
+    <div class="note">Do not change the part before the dot: Motion Detected and Calibration Active stay <code>binary_sensor</code>, Movement Score stays <code>sensor</code>, Threshold stays <code>number</code>, Recalibrate stays <code>button</code>, and so on.</div>
 
     <h2 id="ha-result">Step 4 — Verify the result</h2>
-    <p>The first column shows motion state, a full-width Movement Score bar, and 30 minutes of movement-versus-threshold history. The second column groups the detection controls and the diagnostics that matter most during installation.</p>
+    <p>The first column shows motion, a Movement Score bar, and the last 30 minutes of movement against the threshold. The second column has the detection controls and the most useful diagnostics for installation.</p>
     <ul class="checklist">
-      <li>Move in the room and confirm that Motion changes state and Movement Score updates.</li>
-      <li>Confirm that the Threshold line appears in the history graph after the device has published its current value.</li>
-      <li>Select <em>Refresh Diagnostics</em> to populate Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
-      <li>Press Recalibrate only when the room can remain still, and use Calibration Active to confirm when Lightweight calibration finishes.</li>
+      <li>Move in the room: Motion should change and Movement Score should update.</li>
+      <li>The Threshold line should appear in the graph once the device has sent its value.</li>
+      <li>Select <em>Refresh Diagnostics</em> to fill in Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. They update only when you ask.</li>
+      <li>Press Recalibrate only when the room can stay still. Calibration Active shows when Lightweight calibration is done.</li>
     </ul>
 
-    <h2 id="ha-traffic-generator">Optional — Run the external traffic add-on</h2>
-    <p>The <strong>ESPectre Traffic Generator</strong> add-on sends UDP traffic from Home Assistant to your sensors. In external mode, several sensors can share one multicast stream instead of generating their own requests to the router. Use the sidebar panel to switch ESPHome and Native MQTT devices between internal and external traffic. You can use the add-on without creating the dashboard above.</p>
-    <p>You need a current 64-bit Home Assistant OS installation (<code>aarch64</code> or <code>amd64</code>), an administrator account, Internet access for installation, and ESPectre 3.0 firmware, including prereleases. Home Assistant must be able to reach the devices on UDP port <code>5555</code>. The add-on does not support Container, standalone Core, Supervised, or 32-bit installations.</p>
+    <h2 id="ha-traffic-generator">Optional — Run the traffic generator app</h2>
+    <p>The <strong>ESPectre Traffic Generator</strong> is a Home Assistant app (formerly called an add-on) that sends a steady stream of packets from Home Assistant to your sensors. In external mode, several sensors share one multicast stream instead of each sending its own requests to the router. Its sidebar panel switches ESPHome and Native MQTT devices between their own (internal) traffic and this external traffic. You don't need the dashboard above to use it.</p>
+    <p>You need 64-bit Home Assistant OS (<code>aarch64</code> or <code>amd64</code>), an administrator account, Internet access for the installation, and ESPectre 3.0 firmware (prereleases included). Home Assistant must reach the devices on UDP port <code>5555</code>. Container, Core, Supervised, and 32-bit installations are not supported.</p>
 
-    <h3>Install and start the add-on</h3>
+    <h3>Install and start the app</h3>
     <ol class="steps-list">
       <li><h3>Add the repository</h3><p>Open <em>Settings → Apps → Install app</em>, then select <em>⋮ → Repositories</em>. Add <code>https://github.com/francescopace/espectre</code> and close the dialog.</p></li>
-      <li><h3>Install ESPectre Traffic Generator</h3><p>Search for the app and select <em>Install</em>. If it is missing, select <em>⋮ → Check for updates</em>. The first installation can take several minutes.</p></li>
-      <li><h3>Start it with the defaults</h3><p>Check <em>Configuration</em> against the settings below. On <em>Info</em>, enable <em>Start on boot</em> and <em>Watchdog</em>, then select <em>Start</em>. Enable <em>Show in sidebar</em> for quick access, or select <em>Open Web UI</em>.</p></li>
+      <li><h3>Install ESPectre Traffic Generator</h3><p>Search for the app and select <em>Install</em>. If it does not appear, select <em>⋮ → Check for updates</em>. The first installation can take a few minutes.</p></li>
+      <li><h3>Start it with the defaults</h3><p>Check <em>Configuration</em> against the settings below. On <em>Info</em>, enable <em>Start on boot</em> and <em>Watchdog</em>, and select <em>Start</em>. Enable <em>Show in sidebar</em>, or select <em>Open Web UI</em>.</p></li>
     </ol>
     <!-- Screenshot source: https://github.com/user-attachments/assets/ad355e81-23cd-42d4-83aa-08133cfd1531 -->
     <figure>
       <a href="/assets/images/guides/traffic-generator-info.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-info.avif" alt="ESPectre Traffic Generator Info tab with Start on boot, Watchdog, Show in sidebar, and Open Web UI controls" width="1068" height="723" loading="lazy"></a>
-      <figcaption>Use the Info tab to start the add-on and show ESPectre Traffic in the sidebar. Select any screenshot to view it at full size.</figcaption>
+      <figcaption>Start the app and add ESPectre Traffic to the sidebar from the Info tab. Select a screenshot to see it at full size.</figcaption>
     </figure>
 
     <h3>Check the traffic settings</h3>
-    <p>For a first test, keep <em>Target addresses</em> at <code>239.255.0.1</code>, the UDP port at <code>5555</code>, and the rate at <code>100</code> packets per second per target. Leave <em>Source IPv4 address</em> empty so Home Assistant chooses the outgoing interface. The group, port, and rate must match the devices' external traffic settings; installing the add-on does not change them.</p>
-    <p>If multicast does not reach your sensors, replace the target with their individual IPv4 addresses and reserve those addresses in your router's DHCP settings. Avoid sending to the same sensor through both multicast and its IP address, or running another generator for it at the same time. Save and restart the add-on after changing options.</p>
+    <p>For a first test, keep <em>Target addresses</em> at <code>239.255.0.1</code>, the UDP port at <code>5555</code>, and the rate at <code>100</code> packets per second per target. Leave <em>Source IPv4 address</em> empty. The address, port, and rate must match the devices' external traffic settings; the app does not change them.</p>
+    <p>If multicast does not reach your sensors, list their IPv4 addresses instead, and reserve those addresses in your router. Never send to a sensor both by multicast and by its IP, or from two generators at once. Save and restart the app after changing options.</p>
     <!-- Screenshot source: https://github.com/user-attachments/assets/f76b0fc0-d770-40d7-8d82-6807fd1de6c7 -->
     <figure>
       <a href="/assets/images/guides/traffic-generator-config.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-config.avif" alt="Traffic generator Configuration tab showing multicast target 239.255.0.1, UDP port 5555, 100 packets per second, and an empty source address" width="1068" height="873" loading="lazy"></a>
-      <figcaption>Default configuration for a multicast stream. Advanced network options are documented in the add-on's Documentation tab.</figcaption>
+      <figcaption>Default settings for a multicast stream. The app's Documentation tab covers the advanced network options.</figcaption>
     </figure>
 
     <h3>Switch devices to external traffic</h3>
     <ol class="steps-list">
-      <li><h3>Find your devices</h3><p>Open <em>ESPectre Traffic</em>. The panel lists devices already added to Home Assistant through ESPHome or Native MQTT Discovery. If a device or its controls are missing, check the integration and enable its traffic entities under <em>Settings → Devices &amp; services → Entities</em>.</p></li>
-      <li><h3>Select External</h3><p>Use <em>External</em> on a device row, or select several devices and use the button above the table. Confirm the change. External mode persists across device restarts; <em>Internal</em> restores the device's configured internal generator.</p></li>
-      <li><h3>Verify reception and sensing</h3><p>Check <em>RX / s</em>, <em>CSI / s</em>, and <em>Occupancy</em>. The panel refreshes diagnostics automatically while visible. <em>Generator / s</em> is zero in external mode; <em>TX / s</em> and <em>RX / s</em> show station network traffic in both directions. Occupancy here means valid CSI coverage. Check calibration and sensing readiness in the device's entities or <a href="/tools/monitor/">Monitor</a>, then walk through the room and confirm that Motion Detected changes state.</p></li>
+      <li><h3>Find your devices</h3><p>Open <em>ESPectre Traffic</em>. The panel lists the devices already in Home Assistant through ESPHome or MQTT. If a device or its controls are missing, check the integration and enable its traffic entities under <em>Settings → Devices &amp; services → Entities</em>.</p></li>
+      <li><h3>Select External</h3><p>Select <em>External</em> on a device, or select several devices and use the button above the table, then confirm. External mode survives restarts; <em>Internal</em> switches the device back to its own traffic.</p></li>
+      <li><h3>Verify reception and sensing</h3><p>Check <em>RX / s</em>, <em>CSI / s</em>, and <em>Occupancy</em>; the panel refreshes them while it is open. <em>Generator / s</em> is zero in external mode, and <em>TX / s</em> and <em>RX / s</em> count all the device's network traffic. Occupancy here means how much valid CSI the detector receives. Wait until calibration is done, in the device's entities or <a href="/tools/monitor/">Live motion</a>, then walk through the room and check Motion Detected.</p></li>
     </ol>
     <!-- Screenshot source: https://github.com/user-attachments/assets/3701bf3b-38fd-484a-b821-47755c2cc61e -->
     <figure>
       <a href="/assets/images/guides/traffic-generator-panel.avif" target="_blank" rel="noopener"><img src="/assets/images/guides/traffic-generator-panel.avif" alt="ESPectre Traffic panel with two devices in external mode, traffic and CSI rates, occupancy, Wi-Fi RSSI, and Internal buttons" width="1068" height="471" loading="lazy"></a>
-      <figcaption>Two devices receiving external traffic. All three screenshots show add-on 0.2.0, shared in <a href="https://github.com/francescopace/espectre/issues/168#issuecomment-5746145460" target="_blank" rel="noopener">the original feature request, issue #168</a>.</figcaption>
+      <figcaption>Two devices receiving external traffic. The screenshots show version 0.2.0, shared in <a href="https://github.com/francescopace/espectre/issues/168#issuecomment-5746145460" target="_blank" rel="noopener">the original feature request, issue #168</a>.</figcaption>
     </figure>
-    <div class="note">The panel's <em>Stop</em> button pauses outgoing traffic without changing device modes. Switch sensors back to <em>Internal</em> if they need to keep sensing without the add-on. Generator counters alone do not prove reception. For missing CSI, VLANs, and other network issues, use the <a href="https://github.com/francescopace/espectre/blob/main/tools/ha_traffic_generator_addon/DOCS.md" target="_blank" rel="noopener">add-on documentation</a>. Matter devices can receive its traffic, but their traffic mode must be configured separately in <a href="/tools/device-settings/">Device settings</a>.</div>
+    <div class="note"><em>Stop</em> pauses the traffic but does not change device modes, so switch sensors back to <em>Internal</em> if they must keep sensing without the app. Sent packets do not prove that devices received them. For missing CSI, VLANs, and other network issues, see the <a href="https://github.com/francescopace/espectre/blob/main/tools/ha_traffic_generator_addon/DOCS.md" target="_blank" rel="noopener">app documentation</a>. Matter devices can receive the traffic, but you set their traffic mode in <a href="/tools/device-settings/">Device settings</a>.</div>
 
     <h2 id="ha-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
-      <article><h3>Cards show “Entity not available”</h3><ul><li>Compare each entity ID with <em>Settings → Devices &amp; services → Entities</em>.</li><li>Replace the stable prefix, including its final underscore, then update any numeric-suffixed IDs individually.</li><li>Remove rows for capabilities that the installed firmware does not expose.</li></ul></article>
-      <article><h3>The graph is empty</h3><ul><li>Wait for Movement Score and Threshold to publish.</li><li>Confirm that Home Assistant's recorder is enabled for both entities.</li><li>The template intentionally shows only the most recent 30 minutes.</li></ul></article>
-      <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities are intentionally on demand.</li><li>Wait a moment for the latest cached sample to appear.</li><li>Use Generator Rate, Traffic RX Rate, CSI Admitted Rate, and RSSI together when checking placement.</li></ul></article>
+      <article><h3>Cards show “Entity not available”</h3><ul><li>Compare each entity ID with <em>Settings → Devices &amp; services → Entities</em>.</li><li>Replace the prefix, including its final underscore, then fix any numbered IDs one by one.</li><li>Remove rows for entities your firmware does not have.</li></ul></article>
+      <article><h3>The graph is empty</h3><ul><li>Wait for Movement Score and Threshold to send values.</li><li>Check that Home Assistant records history for both entities.</li><li>The graph shows only the last 30 minutes.</li></ul></article>
+      <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities update only on request.</li><li>Wait a moment for the new values.</li><li>When checking placement, look at Generator Rate, Traffic RX Rate, CSI Admitted Rate, and RSSI together.</li></ul></article>
     </div>
-    <div class="note">Movement Score normally updates every detector evaluation, which is four times per second with the published defaults. If database growth matters more than the history card, exclude that entity from Home Assistant's recorder.</div>
+    <div class="note">Movement Score updates four times per second by default. If database size matters more than the history graph, exclude it from Home Assistant's recorder.</div>
 
   </article>
