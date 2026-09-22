@@ -18,9 +18,9 @@ When someone moves through a room, they change the way Wi-Fi signals travel thro
 
 ## Applications and integrations
 
-ESPectre can turn on a display or lights when it detects motion, adjust heating and cooling in response to room activity, trigger an alarm or notification when movement occurs in an area that should be empty, and drive other room automations. It connects to Home Assistant through ESPHome or MQTT, exposes a standard Matter occupancy sensor and a local Direct HTTP API, and can be embedded in custom ESP32 firmware through the C++ SDK.
+Use ESPectre to turn on lights or a display when someone walks in, adjust heating when a room is in use, or send an alert when there is movement where nobody should be. It works with Home Assistant (through ESPHome or MQTT), appears as a standard Matter occupancy sensor, offers a local HTTP API, and can be built into your own ESP32 firmware with the C++ SDK.
 
-ESPectre processes CSI on the device and reports a motion state and movement score. Applications can react without sending raw sensing data to a cloud service. One board covers one sensing area; room-level coverage normally requires one board per room.
+Everything runs on the device: it measures the Wi-Fi channel (channel state information, or CSI) and reports motion and a movement score. Nothing needs to go to the cloud. One board covers one area, so plan on one board per room.
 
 ESPectre detects changes in the radio environment. It does not identify people, count them, prove that a room is empty, or replace a safety-certified security, medical, or emergency system.
 
@@ -40,7 +40,7 @@ ESPectre detects changes in the radio environment. It does not identify people, 
 
 ## Quick start
 
-The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Device settings and Monitor is not guaranteed:
+The quickest way needs only a browser. Use desktop Chrome 151 or later; Edge can flash, but Device settings and Monitor may not work in it.
 
 1. Open [Flash](https://espectre.dev/tools/flash/) in desktop Chrome or Edge.
 2. Connect a [supported ESP32](#supported-hardware) over USB, then choose a firmware and release channel.
@@ -48,16 +48,16 @@ The quickest path uses the browser and requires no local build environment. Use 
 4. Optionally, open [Device settings](https://espectre.dev/tools/device-settings/) to pin a preferred access point or set up MQTT.
 5. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
 
-ESPectre implements IPv4 Zeroconf service discovery using mDNS and DNS-SD. Use **Find devices** in the browser tools or `./espectre devices` in the CLI to locate devices on your local network. See [DISCOVERY.md](docs/DISCOVERY.md) for requirements and limits.
+To find your devices on the network, use **Find devices** in the browser tools or `./espectre devices`. See the [discovery reference](docs/DISCOVERY.md) for requirements and limits.
 
 ![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
 
-> **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.
+> **Matter status:** Matter support is still being tested with the different controller ecosystems. A controller that supports occupancy sensors may not have been tested with ESPectre yet.
 > See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
 
 ## Local setup
 
-For local builds, flashing from this repository, and the rest of the operator path, start with [SETUP.md](docs/SETUP.md). The repository wrapper exposes the available workflows through:
+To build and flash from this repository, start with the [setup guide](docs/SETUP.md). To see all available commands, run:
 
 ```bash
 ./espectre --help
@@ -67,12 +67,12 @@ For local builds, flashing from this repository, and the rest of the operator pa
 
 | Topic | What it covers | Guides |
 |---|---|---|
-| **Install and operate** | Device setup, CLI workflows, and troubleshooting | [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
-| **Understand and integrate** | Runtime architecture, CSI acquisition, API, discovery, algorithms, and the C++ SDK | [ARCHITECTURE.md](docs/ARCHITECTURE.md), [CSI.md](docs/CSI.md), [API.md](docs/API.md), [DISCOVERY.md](docs/DISCOVERY.md), [ALGORITHMS.md](docs/ALGORITHMS.md), [SDK.md](docs/SDK.md) |
-| **Collect and train** | CSI collection, model training, feature history, performance, and literature | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), [performance report](docs/performance/README.md), [LITERATURE.md](docs/LITERATURE.md) |
-| **Research and direction** | Roadmap, architecture decisions, and release history | [ROADMAP.md](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [CHANGELOG.md](docs/CHANGELOG.md) |
-| **Frontend reference** | Firmware-path READMEs for ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
-| **Contributing** | Contributions, release procedures, and project discussions | [CONTRIBUTING.md](CONTRIBUTING.md), [RELEASING.md](docs/RELEASING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
+| **Install and operate** | Device setup, CLI workflows, and troubleshooting | [Setup guide](docs/SETUP.md), [CLI reference](docs/CLI.md), [Troubleshooting guide](docs/TROUBLESHOOTING.md) |
+| **Understand and integrate** | Runtime architecture, CSI acquisition, API, discovery, algorithms, and the C++ SDK | [Architecture overview](docs/ARCHITECTURE.md), [CSI guide](docs/CSI.md), [API reference](docs/API.md), [Discovery reference](docs/DISCOVERY.md), [Algorithms reference](docs/ALGORITHMS.md), [SDK guide](docs/SDK.md) |
+| **Collect and train** | CSI collection, model training, feature history, performance, and literature | [Data collection guide](docs/ML_DATA_COLLECTION.md), [ML training guide](docs/ML_TRAINING.md), [Feature ledger](docs/FEATURES.md), [Performance report](docs/performance/README.md), [Literature review](docs/LITERATURE.md) |
+| **Research and direction** | Roadmap, architecture decisions, and release history | [Roadmap](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [Changelog](docs/CHANGELOG.md) |
+| **Frontend reference** | Guides for each firmware: ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
+| **Contributing** | Contributions, release procedures, and project discussions | [Contributing guide](CONTRIBUTING.md), [Release guide](docs/RELEASING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
 
 ## Datasets, models, and validation
 
@@ -80,24 +80,24 @@ ESPectre publishes the research assets and validation evidence behind its detect
 
 | Asset | What it gives you | Start here |
 |---|---|---|
-| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [data/](data/) |
-| **Model weights** | Trained weights in [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), plus the training, export, and validation workflow | [ML_TRAINING.md](docs/ML_TRAINING.md) |
-| **Feature ledger** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [FEATURES.md](docs/FEATURES.md) |
-| **Algorithms and reports** | Detector behavior, the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) | [ALGORITHMS.md](docs/ALGORITHMS.md) |
-| **Literature and direction** | External research, [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) | [LITERATURE.md](docs/LITERATURE.md) |
+| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [Data/](data/) |
+| **Model weights** | Trained weights in [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), plus the training, export, and validation workflow | [ML training guide](docs/ML_TRAINING.md) |
+| **Feature ledger** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [Feature ledger](docs/FEATURES.md) |
+| **Algorithms and reports** | Detector behavior, the generated [performance report](docs/performance/README.md), and [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) | [Algorithms reference](docs/ALGORITHMS.md) |
+| **Literature and direction** | External research, [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) | [Literature review](docs/LITERATURE.md) |
 
 ## Security, privacy, and transparency
 
-A sensor that can reveal presence should not be a black box. Wi-Fi sensing avoids images and audio, but motion and occupancy data can still reveal routines, sleep, or absence from home. ESPectre treats that risk as part of the engineering work:
+A sensor that can reveal presence should not be a black box. Wi-Fi sensing records no images or audio, but motion data can still reveal routines, sleep, or when nobody is home. ESPectre treats that risk as part of the design:
 
 - motion detection is local, and cloud connectivity is not required;
-- raw CSI collection is optional and intended for defined research and debugging needs;
+- raw CSI collection is optional and meant for research and debugging;
 - the [security and responsible-use guide](https://espectre.dev/security/) documents deployment boundaries, consent, data minimization, abuse reporting, and private vulnerability reporting;
 - firmware releases include build-specific SBOMs, notices, and license archives so their contents can be inspected;
-- the public website and every browser tool are part of this repository under [docs/web](docs/web/README.md), including their source, privacy rules, analytics contract, and pinned browser dependencies;
-- protocols, algorithms, performance evidence, limitations, roadmap decisions, and known validation boundaries are documented in public.
+- the website and all browser tools are in this repository under [docs/web](docs/web/README.md), with their privacy rules and analytics policy;
+- protocols, algorithms, test results, limitations, and plans are all public.
 
-Use ESPectre only in spaces and networks where you have the right to deploy it. Inform affected people, obtain consent where required, protect access to the device and its data, and follow applicable privacy laws.
+Use ESPectre only where you have the right to. Tell the people affected, get consent where required, protect access to the device and its data, and follow privacy laws.
 
 ## Acknowledgments
 
@@ -106,9 +106,9 @@ Use ESPectre only in spaces and networks where you have the right to deploy it. 
 
 ## License
 
-ESPectre first-party code is available under **GPLv3**, and eligible parts are also available under a separate commercial agreement:
+ESPectre first-party code is available under **GPLv3**, and eligible parts also under a separate commercial license:
 
-- Choose GPLv3 when your firmware or application can comply with GPLv3, including making the corresponding source available. See [LICENSE](LICENSE).
-- If you want to embed ESPectre in **proprietary or closed-source firmware** without GPLv3 source-disclosure obligations, see [LICENSING.md](LICENSING.md) for commercial licensing. The commercial license covers eligible material and does not replace third-party terms; the ESPHome C++ frontend remains GPLv3-only.
+- **GPLv3** fits if you can publish the source of your firmware or application. See [LICENSE](LICENSE).
+- **Commercial license**, for **closed-source firmware**: see the [licensing terms](LICENSING.md). It covers only eligible material, does not replace third-party licenses, and does not cover the ESPHome frontend, which stays GPLv3-only.
 
-Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Third-party terms and build-specific compliance artifacts are described in the [third-party notices](THIRD_PARTY_NOTICES.md).

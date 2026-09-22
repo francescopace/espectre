@@ -1,12 +1,12 @@
 # Roadmap
 
-## Release Plan
+## Release plan
 
 | Milestone | Status | Starts when | Product outcome |
 | --- | --- | --- | --- |
 | **v3.0.0-rc1** | Released | September 5, 2026 | Publish the first complete candidate of the shared sensing platform |
 | **v3.0.0-rc2** | Released | September 16, 2026 | Validate signed firmware, sensing fixes, and SDK packaging |
-| **v3.0.0-rc3** | Released | In progress | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
+| **v3.0.0-rc3** | In progress | `rc2` is published | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
 | **v3.0.0** | Planned | `rc3` is published | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
 | **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
@@ -18,37 +18,42 @@
 | **v4.2.0** | Demand-gated | Multi-node deployments need managed operations | Add optional fleet, history, update, and alert workflows |
 | **v5.0.0** | Exploratory | Practical sensing hardware exposes suitable measurements | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
-## v3.0.0 - Stable Release
+## v3.0.0 - Stable release
 
-**Product outcome**: publish the supported v3 platform baseline after candidate validation and closure of the remaining security and corpus work.
+**Product outcome**: release the stable v3 platform once the release candidates are validated and the remaining security and dataset work is done.
 
-**Scope**: resolve `rc2` findings, complete the gates below, and freeze the stable application and SDK contracts. New sensing outputs and frontends stay in later milestones.
+**Scope**: fix what `rc2` found, pass the gates below, and freeze the API and SDK. New sensing features and frontends wait for later versions.
 
 **Remaining release gates**:
 
-- [ ] Complete the dataset collection backlog and pass dataset-quality, training, and C++/Python parity gates on the final corpus. See [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) and [ML_TRAINING.md](ML_TRAINING.md).
+- [ ] Complete the dataset collection backlog and pass dataset-quality, training, and C++/Python parity gates on the final corpus. See the [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md).
 
-**Exit criteria**: no release blockers remain, required gates pass on the release commit, and published artifacts match the tagged source and documentation. Release evidence covers first-use setup, sensing readiness after Wi-Fi recovery, detector alarms and misses, and OTA recovery for every supported path. A clean external ESP-IDF project can install the released SDK through Component Manager and build the standalone example on every declared target without access to the ESPectre checkout.
+**Exit criteria**:
 
-## v3.1.0 - Matter Compatibility and Production Readiness
+- No release blockers remain, and all required checks pass on the release commit.
+- Published files match the tagged source and documentation.
+- Tests cover first-time setup, sensing after Wi-Fi drops, false alarms and missed motion, and OTA recovery, for every supported firmware.
+- A new ESP-IDF project, without the ESPectre repository, can install the SDK from the Component Registry and build the example on every supported chip.
 
-**Product outcome**: make Matter commissioning and everyday operation dependable across a broader set of controllers, and define the path from the current integration to manufacturer-ready products.
+## v3.1.0 - Matter compatibility and production readiness
 
-**Current foundation**: the Matter frontend, commissioning flow, occupancy mapping, Direct controls, and target build and release paths exist in the v3 candidate. Controller validation remains limited, Matter OTA is not implemented, and published builds still use development identity and attestation material.
+**Product outcome**: make Matter work reliably with more controllers, and define what a manufacturer would need to ship a certified product.
+
+**Today**: the Matter firmware, pairing, occupancy sensor, and Direct controls are in v3. It has been tested with few controllers, has no OTA, and uses development certificates.
 
 **Scope**:
 
-- Validate commissioning across selected additional controllers, and maintain the verified-controller matrix in the Matter frontend [README.md](../src/cpp/frontend/matter/README.md)
+- Validate commissioning across selected additional controllers, and maintain the verified-controller matrix in the [Matter guide](../src/cpp/frontend/matter/README.md)
 - Define Matter OTA ownership, Requestor and Provider responsibilities, and release-artifact requirements
 - Assess manufacturer certification gaps, including vendor identity, device attestation, factory provisioning, and certification test coverage
 
-**Exit criteria**: the selected controller matrix passes or records explicit limitations, and OTA plus certification work has a documented architecture, ownership model, and specific gap list.
+**Exit criteria**: each selected controller passes or has its limits documented, and OTA and certification have a documented design and a list of what is missing.
 
-## v3.2.0 - Arduino SDK Runtime
+## v3.2.0 - Arduino SDK runtime
 
-**Product outcome**: let Arduino-ESP32 developers embed ESPectre through a supported SDK runtime while keeping control of their sketch, connectivity, and product behavior.
+**Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Activation gate**: start implementation after an external Arduino integration identifies the runtime, lifecycle, packaging, and target support it needs. Until then, maintain the portable C++ core and ESP-IDF runtime as the reusable foundation without claiming Arduino support.
+**Starts when**: a real Arduino project shows what it needs. Until then, Arduino is not supported.
 
 **Scope**:
 
@@ -57,13 +62,13 @@
 - Reassess whether `RuntimeEventMailbox` should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
 
-**Exit criteria**: a clean Arduino project can install, build, and run the SDK on every selected target through Arduino CLI, with sensing startup, events, reset behavior, and Wi-Fi reconnect lifecycle validated against the shared runtime contract.
+**Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK.
 
-## v3.3.0 - Apple Home Frontend
+## v3.3.0 - Apple Home frontend
 
-**Product outcome**: add a dedicated frontend that exposes ESPectre sensing in Apple Home through Espressif's `esp-homekit-sdk` without duplicating the shared runtime or detector stack.
+**Product outcome**: a dedicated Apple Home frontend built on Espressif's `esp-homekit-sdk`, reusing the shared sensing code.
 
-**Activation gate**: first validate the existing Matter frontend with Apple Home under `v3.1.0`. Start a HomeKit-specific frontend only when that work identifies a user or product requirement that the standard Matter path cannot meet, and the dependency and distribution checks below pass.
+**Starts when**: testing Matter with Apple Home (`v3.1.0`) shows a need that Matter cannot meet, and the license checks below pass.
 
 **Scope**:
 
@@ -72,13 +77,13 @@
 - Validate Wi-Fi provisioning, pairing, reconnect, reset, accessory identity, and recovery in Apple Home on the selected device matrix
 - Document the certification, factory provisioning, credential, and OTA responsibilities that apply to commercial products
 
-**Exit criteria**: the dependency and distribution path satisfy the project's dual-license policy, every selected target passes build and runtime validation, Apple Home behavior is recorded in a controller matrix, and the open-source and MFi product boundaries are explicit.
+**Exit criteria**: the dependency fits the project's dual license, every selected chip builds and runs, Apple Home results are documented, and the line between open-source and MFi products is clear.
 
-## v3.4.0 - Stationary Presence Detection
+## v3.4.0 - Stationary presence detection
 
-**Product outcome**: distinguish an occupied quiet room from an empty room as a sensing result separate from motion, without making identity, people-counting, or precise-location claims.
+**Product outcome**: tell a room with someone sitting still apart from an empty room, as a new result separate from motion. No identification, counting, or precise location.
 
-**Research timing**: a bounded HT20 feasibility study may run alongside v3 stabilization. It can reject or justify the longer research track, but it cannot promote a production detector. Production work still requires the capture-profile, rate, window, corpus, privacy, and parity gates in the Research Pipeline.
+**Research timing**: a small feasibility study can run during v3. It can decide whether to continue, but cannot ship a detector: that still needs the gates in the [research pipeline](#research-pipeline).
 
 **Scope**:
 
@@ -86,11 +91,11 @@
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state
 
-**Exit criteria**: the detector passes its declared corpus and performance gates, C++ and Python behavior remain aligned, maintained frontends expose the same presence semantics, and unsupported inferences are explicit in current documentation. If the research gate fails, retain the result in [FEATURES.md](FEATURES.md) and defer the release scope.
+**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature ledger](FEATURES.md) and postpone this release.
 
-## v3.5.0 - Gesture and Micro-Motion Research
+## v3.5.0 - Gesture and micro-motion research
 
-**Product outcome**: release an intentional brief-gesture or non-medical breathing-related micro-motion capability only if research supports it; otherwise record a measured rejection or deferral without adding production behavior.
+**Product outcome**: ship short gestures or non-medical breathing detection only if research supports it; otherwise record the negative result and ship nothing.
 
 **Scope**:
 
@@ -98,15 +103,15 @@
 - Evaluate breathing-related micro-motion only after stationary presence is measurable and paired recordings support longer analysis windows
 - Keep candidates in host-side research until their evidence justifies production runtime work and C++/Python parity
 
-**Exit criteria**: each candidate has a measured promotion, rejection, or deferral decision in [FEATURES.md](FEATURES.md). Release production behavior under `3.5.0` only if at least one candidate passes its declared sensing, resource, privacy, and parity gates.
+**Exit criteria**: each candidate has a measured decision (promote, reject, or defer) in the [feature ledger](FEATURES.md). `3.5.0` ships a feature only if at least one candidate passes its sensing, resource, privacy, and parity gates.
 
-## v4.0.0 - Local Cooperative Sensing
+## v4.0.0 - Local cooperative sensing
 
-**Product outcome**: make nearby ESPectre nodes operate as one local sensing system while each node remains useful on its own.
+**Product outcome**: nearby ESPectre devices work together as one local system, while each still works on its own.
 
-**Product boundary**: local sensing and coordination do not require an account, relay, or Internet connection. Raw CSI and unnecessary radio identifiers stay outside the coordination plane. Nodes exchange only the derived state and health data required by the selected coordination contract.
+**Limits**: no account, relay, or Internet connection needed. Devices share only results and health, never raw CSI or unnecessary radio identifiers.
 
-**Current foundation**: v3 devices advertise a stable identity and can perform bounded peer-assisted discovery for browser bootstrap. That service does not retain peer inventory, assign rooms, establish trust, coordinate traffic, or exchange sensing events.
+**Today**: v3 devices have a stable identity and can find each other to help the browser discover them. They do not share rooms, trust, traffic, or sensing events yet.
 
 **Scope**:
 
@@ -115,11 +120,11 @@
 - Implement the selected discovery and coordination path, including node health and degraded operation when peers disappear
 - Coordinate traffic generation or derived events only when measurements show a benefit without weakening sensing quality, latency, standalone operation, or recovery
 
-**Exit criteria**: the supported local path improves multi-node operation or reduces airtime under its declared tests. A node continues sensing when peers or optional management software disappear, and the protocol documents every shared field and failure state.
+**Exit criteria**: working together measurably improves multi-device setups or reduces airtime. A device keeps sensing when its peers or management software go away, and the protocol documents every shared field and failure.
 
-### Hardware Acceleration Track
+### Hardware acceleration track
 
-Hardware acceleration is an independent, evidence-gated track. It does not block the portable `v4.0.0` release. ESP32-S3 is the first candidate.
+Hardware acceleration is a separate track that starts only with evidence, and does not block `v4.0.0`. ESP32-S3 is the first candidate.
 
 - Profile the pipeline at declared CSI rates, and optimize only measured compute or memory bottlenecks
 - Compare optimized and portable paths with the same captures, detector gates, traffic profiles, and benchmark method
@@ -127,13 +132,13 @@ Hardware acceleration is an independent, evidence-gated track. It does not block
 - Keep accelerated backends within the existing dual-distribution model, without proprietary-only modules or chip-specific protocol variants
 - Claim processing or airtime gains only when end-to-end measurements support them
 
-**Track exit criteria**: the accelerated backend shows a reproducible improvement in processing rate, detector capacity, analysis-window length, or operational headroom while passing the shared sensing, compatibility, and reliability gates. Record a failed gate in the owning ledger and keep the portable path unchanged.
+**Track exit criteria**: the accelerated version is reproducibly faster or leaves more headroom, and passes the same sensing, compatibility, and reliability gates. If it fails, record why and keep the portable version.
 
-## v4.1.0 - Self-Hostable Relay
+## v4.1.0 - Self-hostable relay
 
-**Product outcome**: give operators remote access to their devices through an optional relay they can run themselves.
+**Product outcome**: reach your devices from outside the home through an optional relay you can host yourself.
 
-**Relay boundary**: a device opens an authenticated outbound WSS connection, and the browser opens WSS to the same relay. The relay carries control, status, and derived sensing, but never raw CSI. Local Direct HTTP remains the default and works when the relay is unavailable.
+**How it works**: the device and the browser both connect to the relay over authenticated WebSockets (WSS). The relay carries controls, status, and results, never raw CSI. Local access keeps working without it.
 
 **Scope**:
 
@@ -141,13 +146,13 @@ Hardware acceleration is an independent, evidence-gated track. It does not block
 - Define device pairing, revocable credentials, authorization, origin policy, bounded queues, heartbeat, reconnect and resume behavior, rate limits, and credential recovery
 - Provide a self-hosted deployment with complete operator documentation and no dependency on `relay.espectre.dev`
 
-**Exit criteria**: devices and browsers reconnect safely through authenticated WSS, revoked credentials stop working, queues remain bounded, and relay failure does not interrupt local sensing or Direct HTTP.
+**Exit criteria**: devices and browsers reconnect safely, revoked credentials stop working, queues stay bounded, and a relay failure never stops local sensing.
 
-## v4.2.0 - Managed Deployment Operations
+## v4.2.0 - Managed deployment operations
 
-**Product outcome**: manage multi-node installations through optional hosted workflows for ownership, status, updates, history, and alerts.
+**Product outcome**: an optional hosted service to manage installations with many devices: ownership, status, updates, history, and alerts.
 
-**Activation gate**: begin the managed service after the `v4.1.0` protocol is stable and multi-node deployments show a need for remote fleet operations. `relay.espectre.dev` implements the published relay protocol; it does not define a private device protocol.
+**Starts when**: the `v4.1.0` protocol is stable and real multi-device installations need it. `relay.espectre.dev` uses the public relay protocol, with no private extensions.
 
 **Scope**:
 
@@ -156,20 +161,20 @@ Hardware acceleration is an independent, evidence-gated track. It does not block
 - Add room views, history with retention controls, and email alerts
 - Define tenant isolation, abuse controls, observability, regional and retention policy, backup, recovery, service responsibilities, and a reviewed threat model
 
-**Exit criteria**: an operator can onboard, observe, configure, and update a multi-node deployment without exporting raw CSI. Security, privacy, tenant-isolation, resilience, backup, recovery, and deployment reviews pass before public launch. Local and self-hosted operation remain independent of the managed service.
+**Exit criteria**: you can add, watch, configure, and update many devices without sending raw CSI anywhere. Security, privacy, isolation, backup, and recovery reviews pass before launch. Local and self-hosted use never depend on the service.
 
-### Post-Launch Candidates
+### Post-launch candidates
 
 - Privacy-preserving passive BLE motion or presence cues without pairing, identity binding, or tracking
 - Approximate room-to-room movement views without claims of precise localization
 - A server-side Matter bridge or partner integration above the orchestration backend
 - Additional notification channels after email is stable
 
-## v5.0.0 - Future Hardware and IEEE 802.11bf
+## v5.0.0 - Future hardware and IEEE 802.11bf
 
-**Product outcome**: add a standards-backed sensing backend on practical future hardware while preserving the protocol, frontend, tooling, and device-maker contracts established by v3 and v4.
+**Product outcome**: support the IEEE 802.11bf Wi-Fi sensing standard on future hardware, keeping the protocol, frontends, and tools from v3 and v4.
 
-**Activation trigger**: an embedded Wi-Fi platform exposes practical, documented IEEE 802.11bf or equivalent vendor measurements suitable for the ESPectre runtime. No delivery date is assigned before this trigger exists.
+**Starts when**: an affordable Wi-Fi chip exposes documented 802.11bf (or similar) measurements. There is no date until then.
 
 **Scope**:
 
@@ -178,11 +183,11 @@ Hardware acceleration is an independent, evidence-gated track. It does not block
 - Measure effects on calibration, false-positive control, and multi-node fusion
 - Document migration from ESP32 CSI firmware
 
-**Exit criteria**: supported hardware and APIs are available, the new backend passes its sensing and compatibility gates, and existing product integrations can adopt it without a parallel control plane.
+**Exit criteria**: the hardware and APIs are available, the new backend passes its sensing and compatibility gates, and existing integrations can switch to it without a second control path.
 
-## Research Pipeline
+## Research pipeline
 
-The first presence study uses the current HT20 path to decide whether deeper work is justified. It is a bounded feasibility test, not a production promotion path. The main pipeline then evaluates HE20 and HT40, higher CSI rates, and longer analysis windows before the formal stationary-presence gate. A rejection or deferral is a valid result. Detailed experiments and internal evidence belong in [FEATURES.md](FEATURES.md); external evidence belongs in [LITERATURE.md](LITERATURE.md).
+Research runs in steps. A first small study on today's HT20 capture decides whether presence research is worth pursuing. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the real presence gate. Stopping or postponing is a valid outcome. Experiments are recorded in the [feature ledger](FEATURES.md), published research in the [literature review](LITERATURE.md).
 
 | Order | Track | Product question | Promotion gate |
 | --- | --- | --- | --- |
@@ -194,22 +199,27 @@ The first presence study uses the current HT20 path to decide whether deeper wor
 | R5 | **Breathing-related motion** | Can the selected capture profile detect non-medical breathing-related micro-motion over longer windows? | Stationary presence is measurable, paired recordings cover the required observation period, and host-side evidence justifies runtime work for `v3.5.0` |
 | R6 | **Brief gestures** | Does the higher-rate profile preserve enough short-timescale information for a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
 
-R0 may run during v3 release work and may stop the presence track before the more expensive capture-profile studies. Complete R1 through R3 before promoting stationary presence through R4. Each track may end in promotion, rejection, or deferral; R4 uses the best supported profile. R5 also requires a validated presence baseline and the longer-window path. R6 can proceed once R2 is stable.
+Order:
 
-Prototype each candidate on the host and record its verdict in [FEATURES.md](FEATURES.md). Add production C++ and device-side Python behavior only when the evidence justifies parity work.
+- R0 can run during v3 and may stop the presence track early.
+- R1 to R3 come before R4. R4 uses the best capture profile found.
+- R5 also needs validated presence (R4) and longer windows (R3).
+- R6 can start once R2 is stable.
 
-## Ownership and Updates
+Each step can end in promotion, rejection, or postponement. Candidates are prototyped on the host first; C++ and device code come only when the evidence justifies them.
 
-This file owns product outcomes, release gates, and sequencing. Mutable details remain in their narrowest source of truth:
+## Ownership and updates
 
-- [FEATURES.md](FEATURES.md) for feature experiments and promotion decisions
-- [LITERATURE.md](LITERATURE.md) for external research
-- [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) and [ML_TRAINING.md](ML_TRAINING.md) for corpus and training workflows
-- [performance/](performance/) for current benchmark evidence
-- [API.md](API.md), [DISCOVERY.md](DISCOVERY.md), and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
-- [CHANGELOG.md](CHANGELOG.md) for shipped behavior
+This file covers goals, release gates, and order. Details live elsewhere:
 
-Last update: **September 22, 2026**
+- [feature ledger](FEATURES.md) for feature experiments and promotion decisions
+- [literature review](LITERATURE.md) for external research
+- [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md) for corpus and training workflows
+- [performance report](performance/README.md) for current results
+- [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
+- [changelog](CHANGELOG.md) for shipped behavior
+
+Last update: **September 23, 2026**
 
 For discussion and proposed changes:
 

@@ -1,12 +1,12 @@
-# ESPectre Matter Frontend
+# ESPectre Matter frontend
 
 ESPectre's Matter firmware publishes the standard occupancy sensor device type. A controller that implements that type can consume it without an ESPectre-specific integration.
 
-This guide covers commissioning, the Matter and Direct controls, controller validation, and local builds. Start with [SETUP.md](../../../../docs/SETUP.md) for supported boards, browser installation, placement, and the first sensing check.
+This guide covers commissioning, the Matter and Direct controls, controller validation, and local builds. Start with the [setup guide](../../../../docs/SETUP.md) for supported boards, browser installation, placement, and the first sensing check.
 
-## Getting Started
+## Getting started
 
-### Browser-Flashed Firmware
+### Browser-flashed firmware
 
 The `release`, `preview`, and `develop` channels publish full-flash Matter images. OTA is not supported.
 
@@ -22,9 +22,9 @@ To retrieve the codes later, reconnect to the installer and choose **Matter QR c
 
 The first boot generates per-device onboarding codes in the `matter_factory` partition. Browser and CLI flashes preserve that partition unless you choose a full erase, which creates new codes on the next boot.
 
-### Local ESP-IDF Workflow
+### Local ESP-IDF workflow
 
-Complete the prerequisites in [CLI.md](../../../../docs/CLI.md#local-build-prerequisites), then run:
+Complete the prerequisites in [local build prerequisites](../../../../docs/CLI.md#local-build-prerequisites), then run:
 
 ```bash
 ./espectre matter build --chip c3
@@ -34,41 +34,41 @@ Complete the prerequisites in [CLI.md](../../../../docs/CLI.md#local-build-prere
 
 The flash command prints the onboarding codes captured from the first boot. To retrieve the persisted codes later, run `./espectre matter qr --chip c3 --port /dev/cu.usbmodemXXXX`.
 
-The first build downloads and compiles the managed `esp_matter` dependency; no manual clone is required. See [CLI.md](../../../../docs/CLI.md#native-and-matter) for Windows commands, build backends, and cache controls.
+The first build downloads and compiles the managed `esp_matter` dependency; no manual clone is required. See [`native` and `matter` commands](../../../../docs/CLI.md#native-and-matter) for Windows commands, build backends, and cache controls.
 
 Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files; ESP32-S2 is not supported by this frontend.
 
-### Commissioning Window Behavior
+### Commissioning window behavior
 
 An uncommissioned device opens a 300-second window with BLE discovery. Removing the last fabric stops ESPectre services and schedules a restart after two seconds to restore BLE. The device reuses its persisted onboarding codes; the restart is canceled if a fabric exists when the timer expires. Pairing and fabric-management screens depend on the controller.
 
 Improv Serial supports firmware discovery and retrieval of Matter codes, but does not accept Wi-Fi provisioning commands. Matter owns network commissioning. Serial logs report commissioning completion or fail-safe expiration.
 
-## Exposed Matter Surface
+## Exposed Matter surface
 
 | Feature | Matter mapping | Type | Access |
 |---------|----------------|------|--------|
 | Motion detected | `OccupancySensing` occupancy bitmap | bitmap | read-only |
 
-## What You Can Configure Today
+## What you can configure today
 
 Matter exposes read-only occupancy. To change detector settings, open Device settings or Monitor through Direct HTTP after commissioning. Run `./espectre devices --frontend matter` to find the endpoint.
 
-Direct provides sensing controls, diagnostics, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI collection. See [API.md](../../../../docs/API.md) for the resource contract and [DISCOVERY.md](../../../../docs/DISCOVERY.md) for discovery.
+Direct provides sensing controls, diagnostics, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI collection. See the [API reference](../../../../docs/API.md) for the resource contract and the [discovery reference](../../../../docs/DISCOVERY.md) for discovery.
 
 Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
 
-ESPectre stores a BSSID preference separately from Matter credentials and binds it to the commissioned SSID. A change reconnects without rebooting; failure restores the previous preference. Pending changes resume after restart. A confirmed pin applies only while the SSID matches and remains dormant on another network until explicitly cleared. See [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
+You can pin the device to one access point. The pin is tied to the commissioned network: it is ignored on another SSID until you clear it. Changing it reconnects without a reboot, and a failed change restores the previous pin. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
 
-Set initial sensing options through the shared ESP-IDF menu described in [SDK.md](../../../../docs/SDK.md#shared-sensing-options). Direct changes to the detector and traffic selections persist across reboot. Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) for tuning and [CLI.md](../../../../docs/CLI.md#collect) for collection.
+Set build-time defaults in menuconfig; see [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). Detector and traffic changes made through Direct survive a reboot. See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials).
 
-## Targets and Validation
+## Targets and validation
 
 Hardware smoke results are recorded for every published target. The generated snapshots define the exact scope: [ESP32.md](../../../../docs/performance/ESP32.md), [ESP32-S3.md](../../../../docs/performance/ESP32-S3.md), [ESP32-C3.md](../../../../docs/performance/ESP32-C3.md), [ESP32-C5.md](../../../../docs/performance/ESP32-C5.md), and [ESP32-C6.md](../../../../docs/performance/ESP32-C6.md). Controller commissioning coverage is separate.
 
-### Matter Controller Compatibility
+### Matter controller compatibility
 
-The following matrix separates support documented by each controller ecosystem from compatibility validated with ESPectre. Vendor support for the standard Occupancy Sensor device type or Occupancy Sensing cluster does not, by itself, prove that ESPectre commissions, reports state, and triggers automations correctly in that ecosystem. Vendor documentation was last reviewed on 2026-08-26.
+The table shows what each ecosystem documents and what we have actually tested with ESPectre. Vendor support for occupancy sensors does not guarantee that ESPectre works there. Vendor documentation was last checked on 2026-08-26.
 
 | Controller ecosystem | Vendor-documented Matter support | ESPectre validation |
 | --- | --- | --- |
@@ -78,21 +78,21 @@ The following matrix separates support documented by each controller ecosystem f
 | Samsung SmartThings | Provides a standard Matter [`motionSensor`](https://developer.smartthings.com/docs/edge-device-drivers/matter/defaults/motionSensor.html) handler in its Edge driver API | Not yet recorded |
 | Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Not yet recorded |
 
-Published target availability does not imply that every controller and target combination has been commissioned successfully. Current images are uncertified development accessories, so an ecosystem may require a developer workflow or an explicit acknowledgement. [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
+Not every controller and chip combination has been tested. Current images are uncertified development devices, so some ecosystems ask you to confirm before adding them. [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
 
 Mark a controller as validated only with a reproducible hardware record that identifies the controller app and hub versions, ESP32 target, firmware identity, and results for commissioning, occupancy-state updates, and an automation trigger.
 
-## Commissioning and Runtime Ownership
+## Commissioning and runtime ownership
 
 `esp-matter` owns Wi-Fi, commissioning, and fabrics. ESPectre defers runtime allocation until a fabric exists, keeping heap available for commissioning. CSI, Direct HTTP, and ESPectre discovery start after commissioning, with a 10-second grace for a newly commissioned device. An already commissioned boot skips that grace.
 
-Commissioning and fabric events are passed to the ESPectre loop; the CHIP task never reconfigures the sensing runtime directly. Occupancy changes are scheduled onto the CHIP work queue. Direct serialization runs after CSI processing, and discovery shares the Matter-owned mDNS responder. See [app_main.cpp](app/main/app_main.cpp) for the startup sequence and [SDK.md](../../../../docs/SDK.md#threading) for the shared runtime contract.
+Commissioning and fabric events are passed to the ESPectre loop; the CHIP task never reconfigures the sensing runtime directly. Occupancy changes are scheduled onto the CHIP work queue. Direct serialization runs after CSI processing, and discovery shares the Matter-owned mDNS responder. See [app_main.cpp](app/main/app_main.cpp) for the startup sequence and [SDK threading](../../../../docs/SDK.md#threading) for the shared runtime contract.
 
 [sdkconfig.defaults](app/sdkconfig.defaults) contains the Matter-specific endpoint, queue, and network memory budgets. BLE is used only for commissioning and released afterward, which is why removing the last fabric requires a restart.
 
-## Implementation Map
+## Implementation map
 
-The frontend uses public SDK headers. See [CLI.md](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+The frontend uses public SDK headers. See [building against an SDK bundle](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [frontend layer](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
 
 Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry in their frontend manifests. The shared Improv Serial service uses this dependency, which the SDK excludes.
 
@@ -106,7 +106,7 @@ This map is for frontend maintainers; it is not required for commissioning an ex
 - [matter_commissioning_data.cpp](app/main/matter_commissioning_data.cpp): random per-device onboarding data and `matter_factory` persistence
 - [`idf_component.yml`](app/main/idf_component.yml): `esp_matter` dependency declaration
 
-## Dependencies and Firmware Layout
+## Dependencies and firmware layout
 
 - firmware app: [`app/`](app/)
 - dependency manager: ESP-IDF Component Manager
@@ -121,11 +121,11 @@ The per-device onboarding flow removes the shared Matter test passcode, but the 
 
 ## OTA
 
-Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service. Matter firmware does not enforce an application signature on the device. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for catalog verification and the shared USB workflow.
+Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service. Matter firmware does not enforce an application signature on the device. See [official images and personal builds](../../../../docs/SETUP.md#official-images-and-personal-builds) for catalog verification and the shared USB workflow.
 
-## Matter-Specific Troubleshooting
+## Matter-specific troubleshooting
 
-Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
+Use the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
 
 ### The device does not appear for commissioning
 

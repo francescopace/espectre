@@ -1,71 +1,108 @@
 # Website
 
-The website is published at `espectre.dev` through GitHub Pages. Generated canonical pages provide indexable content, while a persistent SPA shell handles browser tools and in-app navigation.
+The website `espectre.dev` is published through GitHub Pages. Each public page is also generated as a static page so search engines can index it; a single-page app (SPA) shell runs the browser tools and in-app navigation.
 
 ## Local preview
 
-From the repository root, run:
+From the repository root:
 
 ```bash
 python -m http.server 8090 --directory docs/web
 ```
 
-Open `http://localhost:8090`. The USB installer always attempts firmware verification. On `localhost`, `127.0.0.1`, `[::1]`, and `test.espectre.dev`, a verification failure asks for explicit confirmation before continuing; no query parameter is needed. Production verification failures block installation. Native development firmware accepts loopback Origins only when `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y`; published firmware keeps this exception disabled. Flash, Improv Serial, and the Matter QR reader require a Chromium-based browser.
+Then open `http://localhost:8090`.
 
-The hosted Direct workflow is validated with Chrome 151 or later on macOS. Physical coverage on Windows and native Linux is still pending, and local discovery depends on the operating system's mDNS support. Other browsers are not guaranteed to work. A local HTTP preview does not prove hosted compatibility.
+- **Firmware verification** always runs. On `localhost`, `127.0.0.1`, `[::1]`, and `test.espectre.dev`, a failed check asks you to confirm before installing; in production it blocks installation.
+- **Local device access:** Native firmware accepts a local preview only when built with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y`. Published firmware never does.
+- **Browsers:** Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. The hosted Direct workflow is tested with Chrome 151 or later on macOS; Windows and Linux are not tested on hardware yet, and discovery depends on the system's mDNS support. A local preview does not prove that the hosted site works.
+
+Before a local preview can flash a board, stage the browser dependencies (see [Browser dependencies](#browser-dependencies)).
 
 ## Sources and generated pages
 
-Edit shared page fragments under `content/`, styles under `assets/css/`, images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` files. In `routes.json`, `routes` owns public pages, metadata, canonical paths, navigation groups, and Analytics names, `contentGroups` owns their Analytics grouping, and `sdkChannels` owns the generated Release, Preview, and Develop SDK artifact pages. Public routes always contribute to the sitemap; SDK channels contribute only when both their manifest and generated page are staged. `assets/js/route-registry.js` loads the manifest directly in hosted and local previews.
+Edit only the sources:
 
-Generate the standalone pages before testing direct route URLs:
+| Path | Contents |
+|------|----------|
+| `content/` | Page fragments |
+| `assets/css/`, `assets/images/`, `assets/js/` | Styles, images, and scripts |
+| `routes.json` | Public pages (`routes`), their Analytics groups (`contentGroups`), and the SDK channel pages (`sdkChannels`) |
+
+Never edit the generated `index.html` files. Generate them before testing page URLs directly:
 
 ```bash
 python3 .github/scripts/build_static_pages.py
 ```
 
-The generator adds route-specific titles, descriptions, canonical URLs, Open Graph metadata, and Twitter metadata from `routes.json`. The SPA loads the same manifest and fragments from `/content/`, and updates its runtime metadata when the active route changes.
+The generator adds each page's title, description, canonical URL, and social metadata from `routes.json`. The SPA reads the same manifest (through `assets/js/route-registry.js`) and fragments, and updates the metadata when you navigate. All public routes go into the sitemap; SDK channel pages only when their manifest and page are staged.
 
-First-party CSS, JavaScript, and brand assets referenced by committed entry pages use a 12-character SHA-256 prefix in `?v=`. The route manifest and SPA content fragments use HTTP revalidation so they remain directly loadable in local previews without generating assets. Restamp committed entry pages after changing hashed assets:
+Committed pages load first-party CSS, JavaScript, and brand assets with a `?v=` hash (first 12 characters of SHA-256). After changing one of these assets, update the hashes; the tests reject stale ones:
 
 ```bash
 python3 .github/scripts/web_asset_versions.py
 ```
 
-Website tests reject stale hashes. Generated static and SDK pages compute their asset hashes at build time.
+Generated pages compute their hashes at build time. The route manifest and fragments are not hashed; the browser revalidates them instead.
 
 ## Browser dependencies
 
-The browser installer uses a same-origin ESM bundle built from pinned `esptool-js` 0.6.1 and `improv-wifi-serial-sdk` 2.8.1 dependencies. The bundle adds ESPectre's `GET_MATTER_ONBOARDING` (`0x80`) RPC, QRCode.js 1.0.0 renders the returned Matter setup code, and ansi_up 6.0.6 renders ANSI styling in serial logs. Install and stage the dependencies locally with:
+The installer uses a local bundle built from pinned `esptool-js` 0.6.1 and `improv-wifi-serial-sdk` 2.8.1, extended with ESPectre's `GET_MATTER_ONBOARDING` (`0x80`) RPC. QRCode.js 1.0.0 draws the Matter setup code and ansi_up 6.0.6 colors the serial log. `package-lock.json` pins the versions.
 
 ```bash
 npm --prefix docs/web ci --ignore-scripts
 npm --prefix docs/web run stage:vendor
 ```
 
-`package-lock.json` owns the versions. `stage:vendor` builds the headless Web Serial bundle and copies it with the QR and ANSI renderers and upstream licenses. CI stages the same files, while `build/`, `vendor/`, and `node_modules/` remain ignored. There is no remote fallback: a local preview must run both commands before the installer can connect to a board.
+`stage:vendor` builds the Web Serial bundle and copies it, the QR and ANSI libraries, and their licenses. CI does the same; `build/`, `vendor/`, and `node_modules/` are not committed. There is no remote fallback, so a local preview needs both commands before it can connect to a board.
 
-The local Improv wrapper propagates initialization failures and cancels pending state requests before releasing the serial reader. A device that does not answer within the probe timeout proceeds through the USB detection fallbacks without leaving a background RPC timeout. State requests are retried once per second during the probe to allow firmware to finish booting.
+## USB installer
 
-During USB selection, identification, and restart, the Connect button replaces its normal label with a spinner, the current phase, and elapsed time. Progress distinguishes port opening and closing, Improv requests, startup logs, bootloader attempts, chip information, flash-reader startup, partition-table reads, and each firmware partition. Its normal label returns when the transition finishes or the USB flow is reset.
+### What the user sees
 
-The installer's Device settings link appears only when the firmware supplies a device address in the Improv URL's `target` parameter. The link forwards that parameter to `/tools/device-settings/`.
+- While connecting, identifying, or restarting a board, the Connect button shows a spinner, the current step, and the elapsed time.
+- After flashing Native or ESPHome, the installer uses standard Improv Serial to set up Wi-Fi if needed, and passes the device's address to Device settings when the firmware reports one (the `target` parameter of the Improv URL).
+- Matter only answers read-only Improv requests (firmware identity and the stored pairing codes). Its Wi-Fi is set up by the Matter controller.
 
-USB identification keeps progress in the Connect button without emitting per-step, per-block, periodic, or descriptor debug logs. Transfer failures retain their phase and I/O stage on the error reported by the installer. The reader consumes the stub's trailing digest frame before the next command, without verifying its checksum.
+### How the board is identified
 
-The bootloader connection requests a 64 KiB Web Serial buffer. Metadata reads use 1024-byte blocks with one block in flight, and validate each frame's exact expected length, including the final shorter block, before sending an ACK. A truncated frame fails immediately instead of acknowledging an incomplete transfer and waiting for bytes the stub has already sent.
+The installer tries, in order:
 
-Each partition-table or app-descriptor read has a ten-second overall deadline, including command transmission, replies, ACKs, and the trailing digest. Failed transfers stop firmware identification and display an error instead of continuing with an uncertain serial session. Pending reads and writes are cancelled on failure, and late completions cannot send another ACK. Error feedback appears before USB cleanup; cleanup waits for at most three seconds in the error handler. If the browser keeps the port locked, the error requests a physical reconnect, and another connection attempt cannot reuse the session while cleanup is pending. These limits do not change erase or firmware-write timeouts.
+1. **Improv Serial.** It retries the state request once per second while the firmware boots, and cancels pending requests before releasing the port.
+2. **Boot logs**, after a reset. ESPHome logs report the `francescopace.espectre` project version, even on renamed devices.
+3. **App descriptors**, read through the bootloader, when identity or version is still missing. An ESPHome descriptor named `espectre` is recognized, but its version is ESPHome's, so it is not shown. ESPHome builds with a custom app name need Improv or logs.
 
-## Firmware and artifacts
+Micro-ESPectre is recognized from its `micro-espectre` descriptor or its startup log. Its descriptor carries the firmware build version, not later deployments; older logs identify it without a version. Plain MicroPython is shown as MicroPython (marked "inferred" when guessed from a banner or from the standard 4 MiB three-partition layout), cannot be updated in place to Native, and offers no Wi-Fi setup. Pairing codes are read only when you open the Matter QR action.
 
-Published Native and ESPHome images speak standard Improv Serial. The ESPectre installer uses that protocol directly after flashing: it opens Wi-Fi setup when the device is unconfigured and carries the returned private address into Device settings when one is available. Matter exposes a read-only Improv surface for firmware identification and its persisted setup QR and manual code; it rejects Improv Wi-Fi provisioning because the Matter controller owns network commissioning.
+### Transfer limits
 
-USB detection tries Improv Serial first, then resets the board to inspect boot logs, and finally reads app descriptors through the bootloader when firmware identity or version is still unavailable. The fallbacks recognize Native, Matter, and ESPectre ESPHome firmware. ESPHome logs report the `francescopace.espectre` project version, including on renamed devices. Descriptor-only ESPHome detection recognizes the standard `espectre` app name and leaves the firmware version unavailable because that descriptor contains the ESPHome framework version. Custom ESPHome app names require Improv or project logs for identification. Initial detection does not request Matter pairing codes; the Matter QR action prefers the Improv onboarding RPC and retains serial markers as a compatibility fallback.
+- The bootloader connection asks for a 64 KiB serial buffer. Metadata is read in 1024-byte blocks, one at a time, and each block's exact length is checked before it is acknowledged, so a truncated block fails at once.
+- Each partition-table or descriptor read has a 10-second deadline. On failure, identification stops with an error, pending reads and writes are cancelled, and no late acknowledgement is sent.
+- The error is shown before cleanup, which waits at most 3 seconds. If the browser keeps the port locked, the message asks you to unplug and reconnect the board.
+- Failures keep their step and I/O stage in the error message; no per-block debug logs are written. These limits do not affect erase or write timeouts.
 
-Micro-ESPectre is identified from `micro-espectre` app metadata or its startup marker and chip log. New project builds embed the ESPectre Git version, as Native and Matter do; that descriptor identifies the firmware build, not later filesystem deployments. Older startup logs can identify Micro-ESPectre without supplying its version, and detection then avoids a flash read solely to search for a missing version. An ESPectre-branded MicroPython banner is labeled as inferred, with any MicroPython version kept separate from the application version. A generic MicroPython banner or named descriptor identifies only MicroPython. When both descriptor fields are empty, the exact three-partition MicroPython 4 MiB+ layout permits only an inferred MicroPython label. Other layouts remain unknown. Detected MicroPython firmware is not treated as Native, does not offer USB Wi-Fi provisioning, and requires a firmware change rather than an in-place Native update. These fallbacks require neither Improv nor Direct HTTP.
+### Firmware signature verification
 
-Use locally built firmware in the browser preview by restaging the available Native, Matter, and ESPHome factory images:
+Before erasing or writing flash, the installer checks every download. [firmware-auth.mjs](assets/js/firmware-auth.mjs), used by [flash-tool.js](assets/js/flash-tool.js), is the reference implementation:
+
+- `verifyCatalog()` checks the catalog signature and contents; `verifyArtifact()` checks each image's size and SHA-256; `authenticateDownload()` returns exactly the bytes that will be flashed.
+- In production, a missing signature, unknown key, altered data, unavailable keys, or wrong digest blocks installation. A failed download always blocks it.
+- On the four local and test hosts listed above, you can override a failed check once, after all images are downloaded; the same bytes are then flashed. Cancelling blocks installation, and the choice is never remembered. Query parameters change nothing.
+
+Catalog format:
+
+- `schema_version: 1`. Each artifact has `size` and `sha256`, and the catalog has an `authentication` object with `key_id`, `payload`, and `signature` (standard Base64).
+- The signature is RSA-PSS with SHA-256, MGF1-SHA-256, and a 32-byte salt, verified by Web Crypto on the decoded payload bytes before any JSON parsing.
+- The signed payload holds `format: "espectre-firmware-v1"`, channel, version, release tag, source commit, and the list of artifacts (frontend, chip, chip family, build type, filename, size, and SHA-256). URLs, timestamps, and display data are not signed, so staging can rewrite URLs and keep only factory images; every kept image is still checked against the signed list.
+- Trusted public keys are in [firmware-signing-keys.json](assets/firmware-signing-keys.json), as Base64 DER SubjectPublicKeyInfo (`spki`). A key ID is the SHA-256 of that DER.
+- Unsigned old channels are left out until rebuilt with signing; they are never re-signed on the fly.
+
+Factory images are verified in full, bootloader and partition table included. An update that keeps device data still writes the whole application image, including its signature and padding. NVS and Matter pairing data are kept as before.
+
+Limits: the checks trust the website code and key list, so whoever can replace them can bypass the checks. Device-side OTA verification is separate; Matter has only this browser-side check. The format does not prevent replaying an older signed catalog. Keys are managed as described in [firmware signing](../RELEASING.md#firmware-signing); the user workflow is in [official images and personal builds](../SETUP.md#official-images-and-personal-builds).
+
+## Firmware and SDK artifacts
+
+To try local firmware builds in the preview, stage their factory images:
 
 ```bash
 ./test/web/generate_firmware_manifest.sh
@@ -73,82 +110,75 @@ Use locally built firmware in the browser preview by restaging the available Nat
 ./test/web/generate_firmware_manifest.sh --replace
 ```
 
-The helper writes the release catalog under `artifacts/firmware/release/`. It preserves previously staged factory images unless `--replace` is present. Official deployments serve ESPectre version 3 and newer, including 3.x prereleases. Release contains the most recently published numeric GitHub release from version 3, including release candidates; it identifies a tested tagged release, not necessarily a stable version. Selection uses publication time, includes prereleases, and excludes drafts and rolling tags. Older published channels are omitted; until a supported tagged release exists, the Release channel remains unavailable. Rolling versions come from the SDK manifest, with the numeric Git tag ancestry used only to identify older releases without a manifest. New builds also need a numeric 3.x or newer Git tag in their ancestry; builds still identified as `2.8.0-<commits>-g<sha>` cannot be deployed.
+The helper writes the release catalog to `artifacts/firmware/release/` and keeps images already staged unless you pass `--replace`.
 
-All downloads live under the ignored `artifacts/` tree. Firmware uses `artifacts/firmware/<channel>/`; SDK archives use `artifacts/sdk/<channel>/`; and the generated API reference uses `artifacts/sdk/api/`. Generate the API reference with `python3 .github/scripts/generate_sdk_api.py`. It requires Doxygen 1.17.0 and a pinned m.css revision; `--mcss-root` reuses an existing checkout.
+Channels:
 
-The SDK landing page recommends ESP-IDF Component Manager and keeps source archives as an alternative. Tagged SDK releases, including prereleases, publish to production; Preview snapshots from `main` and Develop snapshots from `develop` publish to staging. Older prereleases published under the previous policy remain on staging. Registry snapshot versions include a branch suffix that archive labels omit. See [SDK.md](../SDK.md#esp-component-registry) for installation commands.
+- The site serves ESPectre 3 and later, prereleases included.
+- **Release** is the most recently published numeric GitHub release (release candidates included; drafts and rolling tags excluded). It is a tested tagged release, not necessarily a stable one. Until one exists, Release is unavailable.
+- Rolling versions come from the SDK manifest. Builds need a numeric 3.x (or later) tag in their history; builds still named `2.8.0-<commits>-g<sha>` cannot be deployed.
 
-The browser loads the API reference from the current website build, using `artifacts/sdk/api/api-index.json` and its fragments. Each generation replaces the reference tree, and verification requires its files to match exactly the current page inventory. The `api` and `member` query parameters select a page and a symbol within that reference. SDK package documentation links point to the corresponding source revision on GitHub. Generation checks that every public header in the Doxyfile produces a rendered page; detailed integration contracts come from `src/cpp/sdk_integration.dox`.
+All downloads live under the ignored `artifacts/` folder: firmware in `artifacts/firmware/<channel>/`, SDK archives in `artifacts/sdk/<channel>/`, and the API reference in `artifacts/sdk/api/`.
 
-The home and roadmap badges share the published Release firmware manifest, prefer its `release_tag` over `version`, and link to the browser installer. They do not compare against Preview or fall back to it. If Release is unavailable, the home badge remains hidden, and the roadmap keeps its unavailable label. The SDK API reference displays its own build version independently.
+**SDK pages.** The SDK page recommends the ESP-IDF Component Manager and offers source archives as an alternative. Tagged releases (prereleases included) go to the production registry; Preview (`main`) and Develop (`develop`) snapshots go to staging, with a branch suffix in their version. Older prereleases remain on staging. See [ESP Component Registry](../SDK.md#esp-component-registry).
 
-Commit CI runs website tests, builds pages and the API reference, and verifies the site without downloading published channels. Before deployment, the Snapshot and Release workflows stage firmware and SDK artifacts from the source CI run or current tag for the channel being updated, recover the other supported published channels, and require verification of every staged channel.
+**API reference.** Generate it with `python3 .github/scripts/generate_sdk_api.py` (needs Doxygen 1.17.0 and a pinned m.css revision; `--mcss-root` reuses an existing checkout). Each run replaces the whole reference, and every public header must produce a page. The browser loads it from `artifacts/sdk/api/api-index.json`; the `api` and `member` query parameters select a page and a symbol. Detailed contracts come from `src/cpp/sdk_integration.dox`, and package documentation links point to the matching source revision on GitHub.
 
-Snapshot and Release dispatch `pages.yml` on `main` and wait for its result. That workflow validates the source publication run, downloads its verified Pages archive, and uploads that same archive unchanged in the serialized deployment job. The API reference is already part of the verified website build. After deployment, the channel's firmware catalog, SDK catalog, and signing-key registry must match the archive byte for byte before IndexNow is notified. A stale deployment fails after a bounded propagation wait.
+**Version badges.** The home and roadmap badges show the Release firmware version (`release_tag`, else `version`) and link to the installer. They never fall back to Preview; without a Release, the home badge is hidden and the roadmap shows "unavailable". The API reference shows its own build version.
 
-For a website-only retry while the source artifacts remain available, dispatch `pages.yml` on `main` with `pages_run_id` and `pages_run_attempt` from the successful publication run. See [RELEASING.md](../RELEASING.md#website-deployment) for source validation and retry requirements.
+## Publication
 
-The shared `build-pages` action stages dependencies, runs the web tests, builds static routes and the API reference, and verifies the output before upload. `build_sitemap.py` generates the ignored `sitemap.xml` from `routes.json` and the SDK channels present in the staged Pages tree. Its `lastmod` dates come from the owning Git commits and staged SDK manifests, so Pages builds require full Git history. After deployment, IndexNow receives this exact generated sitemap inventory.
+- **Every commit:** CI runs the web tests, builds the pages and API reference, and verifies the site, without downloading published channels.
+- **Snapshot and Release workflows** stage the firmware and SDK for their channel, recover the other published channels, and verify all of them. They then start `pages.yml` on `main` and wait for it.
+- **`pages.yml`** checks the source run, downloads its verified Pages archive, and deploys it unchanged. After deployment, the live firmware catalog, SDK catalog, and signing keys must match the archive byte for byte (with a bounded wait for propagation) before IndexNow is notified.
+- **Retrying only the website:** run `pages.yml` on `main` with `pages_run_id` and `pages_run_attempt` from the successful run, while its artifacts still exist. See [website deployment](../RELEASING.md#website-deployment).
 
-### Firmware Signature Verification
+The shared `build-pages` action stages dependencies, runs the tests, builds pages and the API reference, and verifies the result. `build_sitemap.py` writes the ignored `sitemap.xml` from `routes.json` and the staged SDK channels; its `lastmod` dates come from Git history, so Pages builds need the full history. IndexNow receives exactly that sitemap.
 
-The installer attempts to authenticate every firmware download before erasing or writing flash. [firmware-auth.mjs](assets/js/firmware-auth.mjs) is the executable verification example used by [flash-tool.js](assets/js/flash-tool.js): `verifyCatalog()` verifies the catalog signature and metadata, `verifyArtifact()` checks an image's size and SHA-256, and `authenticateDownload()` returns the same downloaded byte arrays passed to the flasher. In production, any missing signature, unknown key, altered metadata, unavailable verification keys, or digest mismatch blocks installation.
+## Routing and analytics
 
-The same checks run on `localhost`, `127.0.0.1`, `[::1]`, and `test.espectre.dev`. Only these exact hosts allow a verification failure to be overridden through explicit confirmation for that installation attempt. The installer asks once, after downloading all selected images, and uses those same bytes if approved. Canceling or dismissing the prompt blocks installation; approval is never remembered for another attempt. Firmware download failures always block installation. Query parameters do not change verification or confirmation policy.
+**Routing.** The SPA uses canonical paths with the History API. Old `#` links still work and are replaced with the canonical path; static pages can use them to open a tool in the SPA. Device settings and Monitor load with the shared device session; CSI visualizer, Game, and Theremin load their scripts on first use (`data-script-src`). Keep `app.js` last among the core `defer` scripts, since it binds their initializers.
 
-The catalog keeps `schema_version: 1` and adds `size` and `sha256` to artifacts, plus an `authentication` object with `key_id`, `payload`, and `signature`. Payload and signature use standard Base64. Web Crypto verifies RSA-PSS with SHA-256, MGF1-SHA-256, and a 32-byte salt against the original decoded payload bytes, before parsing JSON. There is no browser-side JSON reserialization step. [firmware-signing-keys.json](assets/firmware-signing-keys.json) holds trusted public keys as Base64 DER SubjectPublicKeyInfo (`spki`); key IDs are SHA-256 fingerprints of that DER representation.
+**404 suggestions.** `404-suggestions.json` maps old paths to a suggested page. On an exact match (with or without a trailing slash or `index.html`), the 404 page shows that one link; it never redirects or changes the 404 status. Destinations must be public routes or the project's GitHub repository.
 
-The signed payload contains `format: "espectre-firmware-v1"`, channel, version, release tag, source commit, and an inventory binding each artifact's frontend, chip, chip family, build type, filename, size, and SHA-256. Download URLs, generation timestamps, and presentation metadata remain outside the signed payload. Staging may rewrite URLs and retain only factory images, but it preserves the authentication object and validates every retained artifact against the original inventory. Publication and deployment gates also verify file hashes. Unsigned historical channels are omitted until rebuilt with signing enabled; they are never silently re-signed while downloading them for a deployment.
+**Demo mode.** Moving the mouse simulates motion. On touch or pen devices, drag on the Monitor chart or the Theremin pitch display; the Game keeps its press-and-hold control.
 
-Factory images are authenticated in full, including the bootloader and partition table. During a USB update that preserves device data, the flasher preserves the complete application partition or OTA image, including trailing ESP-IDF signatures and padding. Local NVS and Matter commissioning data retain their existing preservation behavior.
+**Analytics.** `assets/js/analytics.js` enables GA4 only on production and allowlisted debug hosts, and only after consent.
 
-This verification trusts the deployed website code and public-key registry. A compromise that can replace that code can bypass its checks. Device-side OTA verification remains independent of the website; Matter currently has only browser-side artifact verification. This catalog format does not enforce freshness or prevent replay of a previously signed catalog. Key enrollment, custody, rotation, and recovery are documented in [RELEASING.md](../RELEASING.md#firmware-signing). The operator USB versus OTA workflow is in [SETUP.md](../SETUP.md#official-images-and-personal-builds).
-
-## Routing and Analytics
-
-`404-suggestions.json` maps retired paths to a related destination and its link title. The 404 page loads this map with HTTP revalidation and shows one suggestion for an exact path match, accepting a missing trailing slash or an `index.html` suffix. Unknown paths and failed map requests retain the generic navigation. Suggestions do not redirect or change the requested URL or HTTP 404 status. Internal destinations must be registered public routes; external destinations are limited to the project's GitHub repository.
-
-With Analytics consent, the existing static `page_view` records the requested path without query parameters. Clicking a suggestion also sends `select_404_suggestion` with no custom parameters; its page location identifies the old URL, and the JSON map identifies the destination. Normal destination-link events can still fire independently. No Cloudflare or deployment configuration is required.
-
-The SPA uses canonical paths with the History API. Legacy root hash links remain valid entry points and are replaced with their registered canonical path. Static tool calls to action may use this legacy handoff so the browser opens the persistent shell without losing the selected tool.
-
-Device settings and Monitor load with the shared device session. CSI visualizer, Game, and Theremin load their scripts on first use through `data-script-src`. Keep `app.js` last among the core `defer` scripts because it binds their initializers.
-
-In Demo mode, mouse movement simulates motion. Touch and pen users can drag on the Monitor chart or Theremin pitch display; scrolling remains available outside those areas. The Game retains its press-and-hold flight control.
-
-`assets/js/analytics.js` enables GA4 on production and allowlisted debug hosts only after explicit consent. The router sends manual `page_view` events with canonical `page_location`, `page_path`, `page_title`, and `content_group` values. GA4 page changes based on browser history events must remain disabled to avoid duplicate page views.
-
-All website custom events pass through `trackEvent()`. It rejects unregistered events, strips parameters outside the event contract, validates categorical values and numeric bounds, and normalizes error types and public firmware versions before calling `gtag`. Rolling Git versions are reported as `<major>.<minor>.<patch>-dev`; other unrecognized values become `unknown` or are omitted.
-
-Keep Analytics parameters low-cardinality. They must not include device IDs, network names or addresses, credentials, pairing codes, payloads, raw CSI, or exception messages. Enhanced Measurement is configured in GA4 and does not pass through this custom-event gate. The Analytics tests verify every custom event emitted by the browser tools. The public policy is in [privacy.html](content/privacy.html).
+- The router sends `page_view` events itself, with the canonical path, title, and content group. GA4's automatic history-based page views must stay disabled to avoid duplicates. The 404 page records the requested path without query parameters, and a click on a suggestion sends `select_404_suggestion`.
+- Every custom event goes through `trackEvent()`, which rejects unknown events, drops unknown parameters, checks values and ranges, and normalizes errors and firmware versions (rolling versions become `<major>.<minor>.<patch>-dev`; unknown values become `unknown` or are dropped).
+- Parameters must stay low-cardinality and never include device IDs, network names or addresses, credentials, pairing codes, payloads, raw CSI, or error messages. Enhanced Measurement is configured in GA4 and bypasses this gate.
+- The tests cover every custom event. The public policy is [privacy.html](content/privacy.html). No Cloudflare or deployment setup is needed.
 
 ## Direct HTTP
 
-`assets/js/espectre-direct.js` owns resource-oriented Direct HTTP, incremental SSE parsing, abort, and reconnect behavior. Device settings and the live tools share one connection picker with Local connection, Demo, and the planned Remote connection. Relay support is not implemented. The wire contract and capability boundaries are in [API.md](../API.md).
+`assets/js/espectre-direct.js` handles Direct requests, SSE parsing, cancellation, and reconnects; the protocol is in the [API reference](../API.md). Device settings and the live tools share one connection picker: Local, Demo, and a planned Remote option (the relay does not exist yet). The Local panel states the minimum firmware, ESPectre 3.0.0-rc1; USB installation and Demo work without it.
 
-The shared Local connection panel states the minimum supported device firmware, ESPectre 3.0.0-rc1, below its USB setup and connection-help links. This requirement applies to device connections; USB installation and Demo mode remain available without compatible firmware.
+- Starting Demo or leaving a page cancels a pending discovery, and late results are ignored.
+- The SSE connection stays open across pages and while the tab is hidden, so the device indicator stays live.
+- Monitor requests only its eight diagnostic fields (including the device's hardware-error total), once per second, and only while its diagnostics panel is open and the tab is visible.
+- Wi-Fi scan results are polled after 1 second, then 2, then every 3; polling stops when you leave Device settings or hide the tab.
+- Refreshes share requests in flight and reuse data kept current by SSE. Wi-Fi, MQTT, and settings diagnostics load only when Device settings opens, and are dropped when you leave. A reconnect discards the old session's data and cancels its requests.
+- After saving, only the changed resource is read back. The raw CSI parser handles split or merged HTTP chunks with a bounded buffer.
 
-Starting Demo or leaving a route cancels pending device discovery; late results cannot replace the active session. The raw CSI parser accepts split or aggregated HTTP chunks while keeping its working buffer bounded.
-
-The shared SSE connection stays open across routes and while the browser is hidden so the device indicator retains live motion. The Monitor requests only its eight diagnostic fields, including the device-aggregated hardware-error total, without loading the catalog. Diagnostics are requested once per second only while the Monitor diagnostics panel is open and the browser document is visible. Wi-Fi scan results are polled after one second, then two seconds, and then every three seconds; leaving Device settings or hiding the document stops polling. Configuration verification reads only the changed resource.
-
-Connection refreshes share in-flight reads and reuse session snapshots maintained by SSE. Device identity, health, sensing, and supported OTA status feed the shared interface; Wi-Fi, MQTT, and settings diagnostics are loaded when Device settings opens. Resources without SSE updates are invalidated when leaving settings. Reconnection discards the previous session's snapshots, aborts its pending HTTP requests, and prevents obsolete refreshes from continuing.
-
-`assets/js/browser-support.js` owns the browser matrix and Local Network Access permission checks. The active connection picker reports recovery guidance for permission, Origin, discovery, timeout, protocol, and SSE capacity failures. Direct support does not scan the LAN or relax a global security header.
+`assets/js/browser-support.js` holds the browser support list and the Local Network Access permission checks. The connection picker explains how to fix permission, origin, discovery, timeout, protocol, and SSE capacity errors. Direct never scans the network or relaxes security headers.
 
 ## Device settings
 
-Browser tools such as Flash, Device settings, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Device settings offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Device settings adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. Use the local preview instructions above to serve these tools from the repository.
+Device settings has MQTT presets for Home Assistant with the Mosquitto add-on, a local broker, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker. Credentials are never prefilled.
 
-On Device settings, click the device ID in the connected-device banner to set the first user-facing name, or click the current name to edit it. The browser saves the value when the field loses focus; Enter saves immediately, and Escape cancels the edit.
+- Cloud presets fill the TLS port and an editable endpoint template (`.emqxsl.com`, `.hivemq.cloud`). Their ports, and Flespi's fixed hostname, are read-only; endpoints, credentials, and topic prefixes stay editable.
+- Secure presets save with `mqtts://` automatically.
+- Monitor uses Direct HTTP, not MQTT over WebSockets.
+
+To name a device, click its ID in the banner (or the current name to change it). The name is saved when the field loses focus or on Enter; Escape cancels.
 
 ## Tests
 
-Run the hardware-independent Direct HTTP, Analytics, and structural tests from the repository root:
+Run the Direct HTTP, Analytics, and structural tests, which need no hardware, from the repository root:
 
 ```bash
 node --test 'test/web/*.mjs'
 ```
 
-`test/web/generate_firmware_manifest.sh` stages local firmware and is not part of the Node test runner.
+`test/web/generate_firmware_manifest.sh` stages local firmware and is not part of the test run.

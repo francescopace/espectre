@@ -1,82 +1,91 @@
 # Setup guide
 
-Install a frontend, connect it to your network, and check that it detects movement. Use the published firmware for browser installation. Local builds are covered in [CLI.md](CLI.md#local-build-prerequisites); firmware integration is covered in [SDK.md](SDK.md).
+Install ESPectre, connect it to your network, and check that it detects movement. This guide uses the published firmware and the browser installer. For local builds, see [local build prerequisites](CLI.md#local-build-prerequisites). To embed ESPectre in your own firmware, see the [SDK guide](SDK.md).
 
 ## Choose your frontend
 
-| Frontend | Use it for | Configuration and integration |
-|----------|------------|-------------------------------|
-| ESPHome | Home Assistant entities and YAML configuration | [README.md](../src/cpp/frontend/esphome/README.md) |
-| Native | A standalone sensor, browser tools, and optional MQTT or Home Assistant MQTT Discovery | [README.md](../src/cpp/frontend/native/README.md) |
-| Matter | A Matter occupancy sensor, with detector settings available through Direct HTTP | [README.md](../src/cpp/frontend/matter/README.md) |
+| Frontend | Use it for | Guide |
+|----------|------------|-------|
+| ESPHome | Home Assistant entities and YAML configuration | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
+| Native | A standalone sensor with browser tools and optional MQTT or Home Assistant MQTT Discovery | [Native guide](../src/cpp/frontend/native/README.md) |
+| Matter | A Matter occupancy sensor; detector settings are available through Direct HTTP | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
-For sensing research and MicroPython development, see Micro-ESPectre's [README.md](../src/python/micro_espectre/README.md).
+For sensing research in MicroPython, see the [Micro-ESPectre guide](../src/python/micro_espectre/README.md).
 
 ## Check the hardware
 
-You need a supported ESP32 board, a USB cable for flashing, and Wi-Fi. Every supported chip can use 2.4 GHz; ESP32-C5 also supports 5 GHz. Start with 2.4 GHz because detection quality on 5 GHz has not been characterized.
+You need a supported ESP32 board, a USB cable, and a Wi-Fi network.
 
-Use a LAN that permits communication between the browser and the device. The default internal ping source sends ICMP Echo Requests to the Wi-Fi gateway and uses its replies for sensing. Check that the network allows this traffic; [TROUBLESHOOTING.md](TROUBLESHOOTING.md#lan-traffic-blocked) covers isolation and filtering problems.
+| Frontend | Supported chips |
+|----------|-----------------|
+| ESPHome | ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6 |
+| Native | ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6 |
+| Matter | ESP32, ESP32-S3, ESP32-C3, ESP32-C5, ESP32-C6 |
 
-| Frontend | Supported chips | Delivery |
-|----------|-----------------|----------|
-| `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images, Improv Serial, and fallback-AP provisioning |
-| `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Improv Serial |
-| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Matter commissioning |
+All chips work on 2.4 GHz. ESP32-C5 also supports 5 GHz, but detection quality on 5 GHz has not been measured yet, so start with 2.4 GHz.
+
+By default, the device pings the Wi-Fi gateway and uses the replies for sensing. Your network must allow this traffic and let the browser reach the device. If it does not, see [LAN traffic blocked](TROUBLESHOOTING.md#lan-traffic-blocked).
 
 ## Web flash (no coding required)
 
-Use desktop Chrome or Edge for Web Serial flashing. Firefox, Safari, and mobile browsers cannot use this installation path; use the local workflow in [CLI.md](CLI.md#local-build-prerequisites).
+Use desktop Chrome or Edge. Firefox, Safari, and mobile browsers cannot flash over USB; use the [local workflow](CLI.md#local-build-prerequisites) instead.
 
-Choose `Release` for official firmware, `Preview` for the latest build from `main`, or `Development` for the latest build from `develop`.
+Pick a release channel: `Release` for official firmware, `Preview` for the latest build from `main`, or `Development` for the latest build from `develop`.
 
-1. Connect the board over USB
-2. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/), select **Connect USB device**, and choose the board from the browser's serial-port list
-3. Wait for the installer to detect the chip and current firmware, then choose an update, reinstall, or another firmware type and channel
-4. Review whether the installation preserves device data or erases the complete flash, then confirm
-5. Keep the page open until the board restarts, and complete the displayed setup step
+1. Connect the board over USB.
+2. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/), select **Connect USB device**, and choose the board.
+3. Wait for the installer to detect the chip and firmware, then choose what to install.
+4. Check whether the installation keeps device data or erases the whole flash, then confirm.
+5. Keep the page open until the board restarts, then complete the setup step shown.
 
-If the board does not enter download mode automatically, use its `BOOT` and `RESET` controls: hold `BOOT`, press and release `RESET`, release `BOOT`, and retry the flash. Board labels and automatic-reset behavior vary, so use the board documentation when those controls are named differently.
+If the board does not enter download mode, hold `BOOT`, press and release `RESET`, release `BOOT`, and try again. Some boards label these buttons differently; check the board documentation.
 
 ## Connect and configure
 
-For Native and ESPHome, complete the installer's Wi-Fi setup over USB. For Matter, use the displayed QR or manual code to commission the device with your Matter controller. The selected frontend's README covers provisioning recovery and integration with Home Assistant or Matter.
+For Native and ESPHome, complete the Wi-Fi setup in the installer. For Matter, commission the device with your Matter controller using the QR code or manual code shown. The frontend guide covers provisioning recovery and Home Assistant or Matter integration.
 
-Once the device joins your network:
+Once the device is on your network:
 
-1. Open [Device settings](https://espectre.dev/tools/device-settings/) on a computer on the same LAN.
-2. Use the installer's device link, enter the current private IP, or select **Auto-discovery**. Grant the browser's local-network permission when prompted.
-3. Set a device name and check its Wi-Fi connection. On Native, configure MQTT here if your integration needs it; enter your own endpoint and credentials.
-4. Keep the default detector and traffic settings for the first test. Published C++ firmware starts with Lightweight Detection and internal ping traffic.
+1. Open [Device settings](https://espectre.dev/tools/device-settings/) on a computer on the same network.
+2. Use the installer's device link, enter the device IP, or select **Auto-discovery**. Allow local-network access if the browser asks.
+3. Set a device name and check the Wi-Fi connection. On Native, you can also set up MQTT here with your own broker and credentials.
+4. Keep the default detector and traffic settings for the first test.
 
-If the browser cannot reach the device, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md#device-not-reachable). The frontend READMEs describe their available controls and configuration syntax; [SDK.md](SDK.md#shared-sensing-options) contains the shared parameter reference.
+If the browser cannot reach the device, see [Device not reachable](TROUBLESHOOTING.md#device-not-reachable). For every shared setting, see [shared sensing options](SDK.md#shared-sensing-options).
 
 ### Optional: external traffic from Home Assistant
 
-To supply traffic from Home Assistant instead of each sensor's internal generator, install the **ESPectre Traffic Generator** add-on on 64-bit Home Assistant OS. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md) for requirements, installation, and configuration.
+On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on can send sensing traffic instead of each device's internal generator. Its panel switches ESPHome and Native MQTT devices to external traffic and shows CSI diagnostics. Configure Matter devices through Device settings instead.
 
-Start the add-on and select **Open Web UI**. For devices already integrated through ESPHome or Native MQTT, use the panel to select external traffic and view automatically updated CSI diagnostics; **Show in sidebar** adds a shortcut. Configure Matter devices separately through Device settings. Match the add-on's `rate_pps` to the device's `csi_target_pps`, and check the CSI input rate and sensing readiness in Monitor. The add-on does not change device settings automatically. [CSI.md](CSI.md#external-sources) explains external traffic and how to avoid overlapping generators.
+Match the add-on's `rate_pps` to the device's `csi_target_pps`, then check the CSI rate and sensing readiness in Monitor. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md) for installation and options, and [external sources](CSI.md#external-sources) for how external traffic works.
 
 ## Sensor placement
 
-Keep the device out of metal enclosures and behind as few heavy obstacles as practical. A distance of roughly `3-8 m` from the access point is a starting point. Walls, antenna orientation, access-point power, and furniture can matter more than distance.
+Keep the device out of metal enclosures and away from heavy obstacles. About 3–8 m from the access point is a good start, but walls, antennas, and furniture often matter more than distance.
 
-At the chosen position, open [Monitor](https://espectre.dev/tools/monitor/) and check that valid CSI packets arrive steadily. Occupancy shows how much of the detector window contains valid input. The [sensor placement guide](https://espectre.dev/guides/placement/) covers room layouts, RSSI ranges, and a repeatable placement test.
+Open [Monitor](https://espectre.dev/tools/monitor/) at the chosen spot and check that CSI packets arrive steadily and occupancy stays high. The [placement guide](https://espectre.dev/guides/placement/) covers room layouts, RSSI ranges, and a repeatable placement test.
 
 ## Check the first detection
 
-If you moved the device after its initial calibration, restart it or use the advertised recalibration control at its final position. Keep the room quiet while Lightweight calibrates, and wait for calibration and detector readiness in Monitor before judging the result.
+The default Lightweight profile calibrates at startup. If you moved the device after the first boot, restart it or press recalibrate in its final position. Keep the room quiet until Monitor shows that calibration is complete and the detector is ready.
 
-If you selected High Accuracy, it uses its trained threshold and skips quiet-room calibration. It still waits for valid CSI input and feature-window warmup before detection becomes ready. Use [TROUBLESHOOTING.md](TROUBLESHOOTING.md#detection-profile) when deciding whether to change the profile.
+High Accuracy skips calibration but still needs a few seconds of valid CSI before it is ready. See [detection profile](TROUBLESHOOTING.md#detection-profile) to choose between the two.
 
-Walk through the monitored area and confirm that the movement score responds and the motion state changes. Stop moving and check that it returns to idle. Repeat the test from the positions you need to monitor.
+Then:
 
-Use [TROUBLESHOOTING.md](TROUBLESHOOTING.md) if CSI is missing, calibration stalls, or detection is unreliable. Its tuning section explains when to change the profile, threshold, or motion-hit settings.
+1. Walk through the area and check that the movement score rises and the state changes to motion.
+2. Stand still and check that it returns to idle.
+3. Repeat from every spot you want to cover.
+
+If CSI is missing, calibration stalls, or detection is unreliable, see [troubleshooting](TROUBLESHOOTING.md).
 
 ## Official images and personal builds
 
-The installer verifies each published download before it erases or writes flash. Official Native and ESPHome images also require signed OTA updates. Matter has no OTA implementation; update it with a full USB image. Matter firmware does not enforce an application signature on the device.
+Official Native and ESPHome images accept only signed OTA updates. This affects how you switch between official and personal builds:
 
-Local builds stay unsigned by default. A signed official Native or ESPHome image rejects an unsigned or differently signed personal build over OTA, so install that first personal image over USB. A full official USB image restores the official OTA trust chain. The first transition from unsigned firmware cannot authenticate itself retroactively; use a trusted full USB image when establishing the initial trust chain.
+- **Official to personal build:** install the personal build over USB. OTA rejects unsigned images.
+- **Personal build to official:** install the full official image over USB. This restores signed OTA updates.
+- **ESPHome Device Builder:** after adopting an official image, install the first Builder image over USB. Later Builder updates can use the network.
+- **Matter:** has no OTA. Always update over USB. Matter firmware does not verify image signatures.
 
-After adopting an official ESPHome image, the first personalized Device Builder image also needs USB; later unsigned Builder updates can use the network. Native HTTPS OTA, ESPHome consumption, and Matter USB updates are in the frontend READMEs. Key custody, rotation, and recovery are in [RELEASING.md](RELEASING.md#firmware-signing).
+The installer checks each published download before it writes flash. OTA details are in each frontend guide. Signing keys, rotation, and recovery are in [firmware signing](RELEASING.md#firmware-signing).

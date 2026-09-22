@@ -1,14 +1,14 @@
 # Troubleshooting
 
-Start with CSI occupancy and traffic, then check placement and detector behavior. Use the browser connectivity section if you cannot reach the device controls. These procedures cover the maintained C++ frontends.
+Start with the sensing input, then check placement, then tune the detector. If you cannot open the device controls, start with [Device not reachable](#device-not-reachable). These steps apply to the ESPHome, Native, and Matter frontends.
 
 ## Contents
 
+- [Check the sensing input](#check-the-sensing-input)
 - [Low occupancy](#low-occupancy)
-- [Bluetooth reduces CSI occupancy](#bluetooth-reduces-csi-occupancy)
 - [No CSI or insufficient input](#no-csi-or-insufficient-input)
 - [LAN traffic blocked](#lan-traffic-blocked)
-- [Check the sensing input](#check-the-sensing-input)
+- [Bluetooth reduces CSI occupancy](#bluetooth-reduces-csi-occupancy)
 - [Mesh Wi-Fi instability](#mesh-wi-fi-instability)
 - [Calibration stalls or startup quality is poor](#calibration-stalls-or-startup-quality-is-poor)
 - [Too many false positives](#too-many-false-positives)
@@ -17,161 +17,145 @@ Start with CSI occupancy and traffic, then check placement and detector behavior
 - [Tuning essentials](#tuning-essentials)
 - [Device not reachable](#device-not-reachable)
 
-## Low occupancy
-
-Occupancy measures how much of the detector window contains valid CSI input. Detection requires at least 70% valid occupancy. A high packet rate can still leave the detector unready when packets arrive in bursts.
-
-1. Compare traffic, callback, accepted-packet, and occupancy readings using the [log example](#check-the-sensing-input).
-2. If traffic or accepted input is missing, follow [No CSI or insufficient input](#no-csi-or-insufficient-input).
-3. If packets arrive but occupancy stays low, check loss, burst delivery, [Bluetooth activity](#bluetooth-reduces-csi-occupancy), and [LAN restrictions](#lan-traffic-blocked). Recheck placement using [SETUP.md](SETUP.md#sensor-placement) before compensating with detector parameters. On a mesh network, check whether the device is [roaming between access points](#mesh-wi-fi-instability).
-4. Repeat the quiet-and-motion test once occupancy is stable and the detector is ready.
-
-Keep `csi_target_pps` at its production default of `100` while repairing the traffic path. Changing it alters detector timing and requires validation at the chosen cadence; [ALGORITHMS.md](ALGORITHMS.md#detector-timing) explains that constraint. Lowering the detection threshold cannot repair missing input.
-
-## Bluetooth reduces CSI occupancy
-
-Bluetooth and Wi-Fi share radio time. BLE scanning can leave CSI packets concentrated in bursts: accepted input may remain near or above the target rate while admitted input and occupancy fall. Compare with Bluetooth disabled before changing detector thresholds. Callbacks that are all filtered, with no accepted input, require the separate [capture checks](#no-csi-or-insufficient-input); the measurements below do not explain that failure.
-
-For an advertisement-only ESPHome Bluetooth proxy, try short passive scan windows if BLE must remain enabled. The ESPHome [README.md](../src/cpp/frontend/esphome/README.md#bluetooth-proxy-and-csi-occupancy) provides the tested YAML and rebuild procedure. In ESPHome 2026.8.2 with ESP-IDF 5.5.5, setting the tracker's `software_coexistence: false` alone left ESP-IDF software coexistence enabled, including after a clean build. Explicitly disabling `CONFIG_ESP_COEX_SW_COEXIST_ENABLE` produced the largest occupancy improvement in this experiment. This disables software arbitration, not Bluetooth or radio contention.
-
-### ESP32-S3 measurements
-
-The investigation for [issue #165](https://github.com/francescopace/espectre/issues/165) included 18 runs on September 9, 2026, using one ESP32-S3 at 240 MHz, ESPHome 2026.8.2, ESP-IDF 5.5.5, and local ESPectre `develop` builds. The board position and AP BSSID were fixed, with internal `wifi_raw` traffic at 100 pps. Each run lasted 60–120 seconds; occupancy averages exclude its first 15 seconds. Repeated runs are listed separately within each row.
-
-| Scan window / interval | Scan type | Tracker software coexistence | ESP-IDF software coexistence | Mean CSI occupancy per run |
-|------------------------|-----------|------------------------------|------------------------------|----------------------------|
-| BLE disabled | — | — | — | 94.1%, 88.8%, 94.0% |
-| 320 / 320 ms | Active | Enabled | Enabled | 52.3% |
-| 30 / 320 ms | Passive | Enabled | Enabled | 53.2% |
-| 10 / 100 ms | Passive | Enabled | Enabled | 53.3%, 54.4% |
-| 5 / 100 ms | Passive | Enabled | Enabled | 53.6%, 51.9% |
-| 10 / 100 ms | Active | Enabled | Enabled | 54.0% |
-| 10 / 100 ms | Passive | Disabled | Enabled | 56.7% |
-| 5 / 100 ms | Passive | Disabled | Enabled | 56.5% |
-| 30 / 320 ms | Passive | Disabled | Explicitly disabled | 84.4% |
-| 10 / 100 ms | Passive | Disabled | Explicitly disabled | 88.5%, 87.6% |
-| 5 / 100 ms | Passive | Disabled | Explicitly disabled | 93.4%, 91.1%, 92.6% |
-
-Passive scanning for 5 ms every 100 ms, with both software coexistence settings disabled, had the lowest measured CSI impact among the BLE configurations. The final two-minute run used a fresh boot with static YAML: calibration completed, scored occupancy ranged from 89% to 96%, and the proxy received 433 advertisements from 26 distinct addresses over the full run. The 10 ms window received roughly twice as many advertisements in this environment, at the cost of lower CSI occupancy. The nominal window-to-interval ratio alone did not predict the impact.
-
-These are short measurements on one board and network, not a general BLE compatibility or motion-accuracy result. Active GATT proxy connections were not tested. Keep the workaround experimental, compare BLE reception as well as CSI occupancy on the target installation, and repeat quiet-and-motion checks after input becomes stable.
-
-## No CSI or insufficient input
-
-1. Check the Wi-Fi connection, selected traffic source, and CSI-enabled build configuration. If protocol or bandwidth appears as `unavailable` in logs, check packet counters before concluding that capture failed.
-2. For internal traffic, verify that the selected destination replies to the chosen protocol. For external traffic, verify that the host source is running and its packets can reach the device.
-3. If the source is active but traffic does not reach its destination, check [LAN restrictions](#lan-traffic-blocked).
-4. If callbacks arrive but few packets are accepted, inspect hardware-quality errors and frame identity filtering. Use [CSI.md](CSI.md#capture-quality) for the validation rules.
-
-Start with internal `ping`. If you selected experimental `wifi_raw` and usable input disappears, select another generator explicitly; the runtime has no automatic fallback. [CSI.md](CSI.md#compatibility-limits) records the tested hardware limits.
-
-## LAN traffic blocked
-
-Check the network path used by the selected source:
-
-- For internal traffic, check whether the destination accepts the selected ICMP or DNS protocol and whether network rules block or rate-limit it. An empty traffic destination uses the Wi-Fi gateway; [SDK.md](SDK.md#traffic-destination) describes how to select another reachable host.
-- For external traffic, check client isolation, guest-network restrictions, and firewall rules between the sending host and the ESP32. Devices on different VLANs need a permitted path for the selected traffic.
-- If multicast delivery fails, compare unicast traffic to the device's current IP. [API.md](API.md#external-csi-traffic) defines the accepted destinations, UDP port, and marker.
-
-Check sensing occupancy after each network change. Discovery and sensing use different traffic: blocked mDNS can prevent discovery while Direct HTTP remains reachable by IP. [DISCOVERY.md](DISCOVERY.md#client-validation-and-fallback) describes discovery restrictions.
-
 ## Check the sensing input
 
-Open Monitor or the device logs and check calibration, movement score, threshold, and motion state. CSI means channel state information; the detector needs a steady supply of valid CSI to produce usable motion data.
-
-Read the packet rates in sequence:
+The detector needs a steady supply of valid CSI (channel state information, the Wi-Fi measurement it works on). Open Monitor or the device logs and read the packet rates from left to right:
 
 | Observation | Check next |
 |-------------|------------|
 | No traffic | Wi-Fi connection and the selected traffic source |
-| Traffic without CSI callbacks | Capture configuration and radio state |
-| Callbacks without accepted packets | Hardware-quality errors and frame identity filtering |
-| Accepted packets with low occupancy | Packet loss, bursts, Bluetooth activity, and sensor placement |
-| Stable input with unstable output | Threshold, motion-hit settings, and detector profile |
+| Traffic but no CSI callbacks | Capture configuration and radio state |
+| Callbacks but no accepted packets | Hardware errors and packet filtering |
+| Accepted packets but low occupancy | Packet loss, bursts, Bluetooth, and placement |
+| Stable input but unstable output | Threshold, motion hits, and detection profile |
 
-Accepted packets have passed capture and identity checks. Admitted packets are the detector input after temporal admission. Occupancy measures how much of the detector window contains valid input; high packet rates can still leave gaps when packets arrive in bursts.
-
-The periodic sensing log includes:
+The periodic log line looks like this:
 
 ```text
 mvmt:0.012000 thr:0.500000 | IDLE | tx:100.0 cb:120.0 accepted:99.0 hwerr:2.0 occ:93% | ch:6 rssi:-55
 ```
 
-`tx`, `cb`, `accepted`, and `hwerr` are traffic, callback, accepted-packet, and hardware-rejection rates per second. `occ` is detector-window occupancy, and `ch` and `rssi` describe the Wi-Fi link. Missing values appear as `--`. Use [API.md](API.md#diagnostics) for counter definitions and [CSI.md](CSI.md#capture-quality) for capture validation.
+- `tx`, `cb`, `accepted`, and `hwerr`: traffic, callbacks, accepted packets, and hardware rejections per second.
+- `occ`: **occupancy**, the share of the detector window filled with valid input. Detection needs at least 70%. A high packet rate can still give low occupancy when packets arrive in bursts.
+- `ch` and `rssi`: the Wi-Fi channel and signal strength.
+
+Missing values appear as `--`. Field definitions are in [API diagnostics](API.md#diagnostics).
+
+## Low occupancy
+
+1. If traffic or accepted packets are missing, see [No CSI or insufficient input](#no-csi-or-insufficient-input).
+2. If packets arrive but occupancy stays low, check [Bluetooth](#bluetooth-reduces-csi-occupancy), [LAN restrictions](#lan-traffic-blocked), and [roaming on mesh networks](#mesh-wi-fi-instability).
+3. Recheck [placement](SETUP.md#sensor-placement) before changing detector settings.
+4. Once occupancy is stable, repeat the quiet-and-motion test.
+
+Keep `csi_target_pps` at its default of `100`. Changing it changes detector timing (see [detector timing](ALGORITHMS.md#detector-timing)). Lowering the threshold does not fix missing input.
+
+## No CSI or insufficient input
+
+1. Check the Wi-Fi connection and the selected traffic source.
+2. Internal traffic: check that the destination replies to the selected protocol. External traffic: check that the sender is running and its packets reach the device.
+3. If the traffic does not arrive, see [LAN traffic blocked](#lan-traffic-blocked).
+4. If callbacks arrive but few packets are accepted, check the hardware error counters; see [capture quality](CSI.md#capture-quality).
+
+Start with the default `ping` source. If you selected the experimental `wifi_raw` source and input disappears, switch to another source; there is no automatic fallback. See [compatibility limits](CSI.md#compatibility-limits).
+
+A protocol or bandwidth shown as `unavailable` in logs does not mean capture failed; check the packet counters first.
+
+## LAN traffic blocked
+
+- **Internal traffic:** check that the destination accepts ICMP or DNS and that no firewall blocks or rate-limits it. By default the destination is the Wi-Fi gateway; see [traffic destination](SDK.md#traffic-destination) to use another host.
+- **External traffic:** check client isolation, guest-network rules, and firewalls between the sender and the ESP32. Devices on different VLANs need a route for this traffic.
+- **Multicast:** if multicast does not arrive, try unicast to the device IP. Ports and markers are in [external CSI traffic](API.md#external-csi-traffic).
+
+Discovery uses different traffic from sensing. Blocked mDNS can hide the device while its IP still works; see [discovery fallback](DISCOVERY.md#client-validation-and-fallback).
+
+## Bluetooth reduces CSI occupancy
+
+Bluetooth and Wi-Fi share the same radio. BLE scanning can push CSI packets into bursts, so occupancy drops even when the packet rate looks fine. Compare with Bluetooth disabled before changing the threshold.
+
+If you run an ESPHome Bluetooth proxy, short passive scan windows and disabled software coexistence restore most of the occupancy. See [Bluetooth proxy and CSI occupancy](../src/cpp/frontend/esphome/README.md#bluetooth-proxy-and-csi-occupancy) for the tested YAML and measurements.
 
 ## Mesh Wi-Fi instability
 
-Roaming between access points can change the radio path, channel, and packet delivery. If these changes cause unstable detection, pin the device to a specific BSSID through its advertised Wi-Fi controls:
+Roaming between access points changes the radio path and can make detection unstable. Pin the device to one access point:
 
 1. Open [Device settings](https://espectre.dev/tools/device-settings/) and connect to the device.
-2. Refresh the access-point list, select the BSSID, and save. The station reconnects when it changes access point.
-3. Check occupancy and repeat the motion test after sensing becomes ready.
+2. Refresh the access-point list, select one, and save. The device reconnects.
+3. Wait for sensing to be ready, then check occupancy and repeat the motion test.
 
-Choose automatic access-point selection to clear a stale pin after replacing or removing an access point. This keeps the SSID and password. [CLI.md](CLI.md#access-point-selection) covers the equivalent commands; each frontend README describes persistence and recovery.
+To remove the pin, choose automatic access-point selection. The SSID and password are kept. The [access-point selection](CLI.md#access-point-selection) commands do the same from the CLI.
 
-After a Wi-Fi channel change, allow the runtime to reset detector history and collect fresh valid coverage before evaluating the result. Prefer a fixed access-point channel when possible.
+After a channel change, the detector restarts its history. Wait for it to be ready before judging the result. A fixed access-point channel helps.
 
 ## Calibration stalls or startup quality is poor
 
-Check occupancy, improve the radio path if needed, and boot Lightweight with the room quiet. Missing or burst-concentrated input extends startup because it supplies too little valid evidence. Wait for calibration and readiness before testing motion.
+Lightweight calibrates on quiet-room input. Missing or bursty input slows it down. Improve occupancy first, then restart the device with the room quiet and wait for calibration to finish.
 
-High Accuracy skips quiet-room threshold calibration but still needs CSI readiness and feature-window warmup. A profile change resets the threshold; switching to Lightweight starts calibration.
+High Accuracy does not calibrate but still waits for enough valid input. Switching to Lightweight starts a new calibration.
 
 ## Too many false positives
 
-Try in this order:
+Try these in order, one at a time:
 
-1. Check for environmental movement, such as fans, curtains, or pets.
-2. Verify occupancy and placement.
+1. Look for things that move: fans, curtains, or pets.
+2. Check occupancy and placement.
 3. Raise the threshold.
-4. Increase `motion_on_hits` if only short bursts become alarms.
-5. At the default 100 PPS cadence, enable or tune the low-pass filter if the score remains noisy.
+4. Increase `motion_on_hits` if short bursts trigger motion.
+5. Enable the low-pass filter if the score is still noisy.
 6. For Lightweight, recalibrate in a quiet room.
-
-Repeat the same quiet-and-motion test after each change.
 
 ## Missing movements
 
-Check packet flow, occupancy, and placement first. If the movement score responds but does not cross the threshold, lower the threshold. If it crosses the threshold but the motion state changes too slowly, reduce `motion_on_hits`. Compare High Accuracy when its additional CPU and memory cost fits the device.
+Check packet flow, occupancy, and placement first. Then:
+
+- If the score moves but stays below the threshold, lower the threshold.
+- If motion is detected too late, reduce `motion_on_hits`.
+- Try High Accuracy if the device has the CPU and memory for it.
 
 ## Slow response or flickering
 
-With stable occupancy, raise the threshold if the score repeatedly crosses it in a quiet room. Increase `motion_on_hits` to reject brief motion readings, or increase `motion_off_hits` to keep short idle readings from clearing motion. Reduce the corresponding hit count when confirmation is too slow.
+- If the score crosses the threshold in a quiet room, raise the threshold.
+- If motion turns on from brief spikes, increase `motion_on_hits`.
+- If motion turns off too early, increase `motion_off_hits`.
+- If confirmation is too slow, reduce the matching hit count.
 
-Tune these controls before changing `evaluation_interval_ms` or the detector window. If the score itself remains noisy, try the low-pass filter at the default 100 PPS cadence.
+Change these before touching `evaluation_interval_ms` or the detector window. If the score itself is noisy, try the low-pass filter.
 
 ## Tuning essentials
 
-Change one setting at a time and repeat the same test. The frontend README describes how to apply settings, and [SDK.md](SDK.md#shared-sensing-options) lists the shared defaults and ranges.
+Change one setting at a time and repeat the same test. Each frontend guide shows how to apply settings; defaults and ranges are in [shared sensing options](SDK.md#shared-sensing-options).
 
 ### Detection profile
 
-Choose Lightweight when the surrounding firmware needs lower detector CPU and working-memory use. Choose High Accuracy when detection quality is the priority and the additional cost fits. The maintained C++ frontends persist an accepted runtime profile selection. Current measurements and limitations are in [README.md](performance/README.md).
+- **Lightweight** uses less CPU and memory. Choose it when sensing shares the chip with other work.
+- **High Accuracy** detects better and skips calibration, but costs more CPU and memory.
+
+The frontends remember the selected profile across reboots. Measured results are in the [performance report](performance/README.md).
 
 ### Threshold
 
-Raise the threshold to reduce false positives; lower it to catch missed movement. A manual threshold applies to the current session. After reboot, Lightweight calibrates again and High Accuracy restores its trained default. A Lightweight override suspends automatic threshold lowering until recalibration or explicit adaptive-threshold application.
+Raise the threshold to reduce false positives; lower it to catch missed movement. A manual threshold lasts until reboot: then Lightweight calibrates again and High Accuracy returns to its trained default. While a manual threshold is set, Lightweight stops lowering it automatically until the next calibration.
 
 ### Filters and timing
 
-Keep Hampel filtering enabled unless a controlled comparison shows it removes useful motion detail. Try the low-pass filter only after checking input quality, placement, threshold, and motion hits. A lower cutoff adds smoothing and can hide fast motion; a higher cutoff preserves more short-term variation.
+Keep the Hampel filter on. Try the low-pass filter only after checking input, placement, threshold, and motion hits. A lower cutoff smooths more but can hide fast motion.
 
-Keep the production `1000 ms` detector window and `100 pps` target for routine tuning. Other settings change the feature timing and need detector validation. [ALGORITHMS.md](ALGORITHMS.md#signal-conditioning) explains filter behavior and [ALGORITHMS.md](ALGORITHMS.md#motion-hit-filtering) describes evaluation and confirmation timing.
+Keep the default `1000 ms` window and `100 pps` rate. Other values change detector timing and have not been validated. See [signal conditioning](ALGORITHMS.md#signal-conditioning) and [motion-hit filtering](ALGORITHMS.md#motion-hit-filtering).
 
 ### Recalibration
 
-Recalibrate after a material placement or radio-environment change when the frontend offers the control. Lightweight starts a fresh threshold calibration; keep the room quiet. High Accuracy immediately restores its trained threshold without collecting a quiet-room window.
+Recalibrate after moving the device or changing the room layout. Lightweight collects a new quiet-room baseline, so keep the room still. High Accuracy simply restores its trained threshold.
 
 ## Device not reachable
 
-The published ESP-IDF frontends expose Direct HTTP on the local network. If Device settings or Monitor cannot connect:
+If Device settings or Monitor cannot connect:
 
-1. Confirm that the device and browser are on the same LAN.
-2. Try the current private IPv4 address if the `.local` hostname does not resolve.
-3. Grant the browser's local-network permission when prompted.
-4. Use a desktop Chromium browser listed in the current [browser support matrix](https://espectre.dev/guides/setup/#setup-native-discovery) when another browser blocks hosted HTTPS-to-local-HTTP access.
-5. Confirm that the hosted page uses `https://espectre.dev`, `https://www.espectre.dev`, or `https://test.espectre.dev`. A local website preview also requires firmware that accepts the corresponding loopback origin.
+1. Check that the device and the browser are on the same network.
+2. Use the device IP if the `.local` name does not work.
+3. Allow local-network access when the browser asks.
+4. Use a desktop browser from the [browser support list](https://espectre.dev/guides/setup/#setup-native-discovery).
+5. Check that the page address is `https://espectre.dev`, `https://www.espectre.dev`, or `https://test.espectre.dev`. A local preview of the website needs firmware that accepts that local address.
 
-Device settings and Monitor accept a private IP, device name, full 16-character device ID, or the last 6 characters of that ID. A full ID maps to the device's unique local address; a name or short ID uses the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches require an explicit selection. Names, short IDs, and `.local` addresses depend on working mDNS. If discovery fails, use `./espectre devices`, enter the current IP, or check the router's DHCP lease table. Remove a stale remembered endpoint before entering a replacement address. [DISCOVERY.md](DISCOVERY.md#browser-bootstrap) owns the peer-discovery contract.
+You can connect with the device IP, its name, its 16-character ID, or the last 6 characters of the ID. Names and short IDs rely on mDNS. If discovery fails, run `./espectre devices`, enter the IP, or look it up in your router's DHCP list. Remove an old saved address before entering a new one. See [browser bootstrap](DISCOVERY.md#browser-bootstrap) for how discovery works.
 
-Origin, mixed-content, and local-network permission errors come from the browser boundary rather than the detector. Grant local-network access only to the ESPectre portal, confirm that the device remains on the same trusted LAN, and retry with a browser in the support matrix. Once Direct connects, return to the [occupancy checks](#low-occupancy).
+Once connected, go back to [Check the sensing input](#check-the-sensing-input).

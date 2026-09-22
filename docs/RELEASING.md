@@ -1,10 +1,10 @@
 # Release guide
 
-This guide covers firmware signing, SDK packaging, and registry publication for maintainers who publish official ESPectre releases. Run commands from the repository root. See [CONTRIBUTING.md](../CONTRIBUTING.md) for development and review requirements, and [SDK.md](SDK.md) for SDK installation and integration.
+This guide covers firmware signing, SDK packaging, and registry publication for maintainers who publish official ESPectre releases. Run commands from the repository root. See the [contributing guide](../CONTRIBUTING.md) for development and review requirements, and the [SDK guide](SDK.md) for SDK installation and integration.
 
 ## Firmware signing
 
-Local development builds do not need release keys. [SECURITY.md](../SECURITY.md#firmware-signing) summarizes what signature verification covers.
+Local development builds do not need release keys. The [security policy](../SECURITY.md#firmware-signing) summarizes what signature verification covers.
 
 ### Initial key setup
 
@@ -29,7 +29,11 @@ Commit only [firmware-signing-keys.json](web/assets/firmware-signing-keys.json),
 
 Keep an encrypted backup of both private keys under maintainer control, separate from GitHub, and record the custodians and recovery location in the project's private operational records. Never place private keys in issues, build logs, caches, firmware artifacts, or the repository.
 
-Protect `main`, `develop`, release tags, and changes to workflows, signing scripts, and the public-key registry. Only maintainers authorized to issue firmware should be able to change code that runs with the signing secrets. CI exposes release keys only on publication-eligible pushes and tagged releases; other builds use disposable test keys. The build wrapper keeps temporary key files outside toolchain cache and upload paths and removes them when it exits. A compromised signing job can authorize malicious firmware; GitHub Secrets is part of the release trust boundary.
+Protect `main`, `develop`, release tags, workflows, signing scripts, and the public-key registry: only maintainers allowed to issue firmware may change code that runs with the signing secrets.
+
+- CI uses the real keys only for publishing pushes and release tags; every other build uses throwaway test keys.
+- The build wrapper keeps temporary key files out of caches and uploads, and deletes them on exit.
+- A compromised signing job can sign malicious firmware, so GitHub Secrets is part of what you must trust.
 
 ### Rotation and recovery
 
@@ -39,7 +43,7 @@ OTA key rotation requires USB installation. The v2 software verifier trusts the 
 
 ### Release validation
 
-Publication CI checks the effective signing configuration, verifies each application signature, and checks that the full USB image contains the same signed application. Before release, validate signed upgrades, wrong-key and corrupt-image rejection, interruptions, startup recovery, and USB migration on each supported target. Native has two OTA slots and a manifest-version check, but no bootloader rollback or startup health-confirmation policy. ESPHome uses its upstream rollback behavior. See [SETUP.md](SETUP.md#official-images-and-personal-builds) for establishing the initial trust chain through USB.
+Publication CI checks the effective signing configuration, verifies each application signature, and checks that the full USB image contains the same signed application. Before release, validate signed upgrades, wrong-key and corrupt-image rejection, interruptions, startup recovery, and USB migration on each supported target. Native has two OTA slots and a manifest-version check, but no bootloader rollback or startup health-confirmation policy. ESPHome uses its upstream rollback behavior. See [official images and personal builds](SETUP.md#official-images-and-personal-builds) for establishing the initial trust chain through USB.
 
 Hardware Secure Boot, flash encryption, and hardware anti-rollback require a separate manufacturing policy covering target-specific key custody, eFuse sequencing, and recovery. General-purpose builds leave these features disabled; the decision is recorded in [2026-09-16-sign-published-firmware-and-verify-browser-downloads.md](adr/2026-09-16-sign-published-firmware-and-verify-browser-downloads.md).
 
@@ -79,6 +83,16 @@ Use an empty destination outside the checkout. The verifier appends the selected
 
 The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and pins it to `1.12.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. Run the Direct compile and link checks before changing that pin.
 
+### ESP-IDF compatibility checks
+
+The [SDK compatibility table](SDK.md#esp-idf-compatibility-validation) comes from Docker builds of the example with the `espressif/idf` images, covering the application and bootloader. ESP-IDF 5.5.0–5.5.2 were checked against the official headers only; no full firmware build was run.
+
+The build lockfiles and CMake component lists confirm bundled MQTT on 5.5.3, 5.5.4, and 5.5.5, and `espressif/mqtt` `1.0.0` on 6.x. The linked applications contain the expected SHA-256 backend: mbedTLS before IDF 6 and PSA Crypto from IDF 6 onward. The compatibility change preserves device identity input bytes, digest byte order, and identifier formatting. It also uses the `WIFI_BW20` and `WIFI_BW40` enum names shared by these versions; the sensing bandwidth remains 20 MHz.
+
+Host tests exercise both identity branches with real OpenSSL-backed SHA-256 adapters, three known vectors, a deterministic MAC, cached results, crypto initialization and hashing failures, and invalid digest lengths. For MAC `7c:2c:67:42:bb:ac`, both branches produce `3cf79180d3a0aca4`. These automated tests do not execute ESP-IDF's hardware crypto drivers.
+
+No hardware validation was performed for this matrix. Before publishing, compare the same device's ID before and after upgrading from 5.5.3 and 5.5.5 to each 6.x version, and verify boot, Wi-Fi reconnection, CSI acquisition and sensing readiness, MQTT, and Direct on the representative targets. Include the minimum supported 5.5.3, both supported bands on C5, and the supported traffic modes on C6. S2 and S3 were not compiled in this matrix. Full ESPHome, Native, and Matter firmware builds and a clean registry installation remain separate integration gates.
+
 ### Registry setup
 
 Before the first upload, the repository owner must complete these steps:
@@ -86,12 +100,19 @@ Before the first upload, the repository owner must complete these steps:
 1. Sign in to both [staging](https://components-staging.espressif.com/) and [production](https://components.espressif.com/), own the `francescopace` namespace, and create the `espectre` component entry in each registry.
 2. In GitHub, configure environments `sdk-registry-staging` and `sdk-registry-production`. Allow release tags (`*.*.*`), including prerelease tags such as `3.0.0-rc3`, in production, allow only **Branch** rules for `main` and `develop` in staging, and require owner approval for the first production release. The rolling tags `snapshot` and `snapshot-dev` are publication outputs and need no environment rules.
 3. In the Espressif registries, configure trusted uploaders for repository `francescopace/espectre`: one staging uploader (`cd.yml`, with environment `sdk-registry-staging`) and one production uploader (`cd.yml`, with environment `sdk-registry-production`). In each Espressif trusted uploader, leave the Branch field empty; GitHub environment rules restrict the allowed refs. Each publisher's filename identifies the workflow that requests the OIDC token. Replace the previous `snapshot.yml` and `release.yml` trusted uploaders when migrating to unified delivery. Follow Espressif's [OIDC setup](https://docs.espressif.com/projects/idf-component-manager/en/latest/publish/how_to_github_actions_upload.html), and verify the uploader configuration with the first staging run.
-4. Confirm the right to redistribute every packaged contribution under the commercial agreement as well as GPLv3. Review the packaged source history, including renames, against [CLA.md](../CLA.md) and the signatures recorded in [cla-signatures.json](../.github/cla-signatures.json); a DCO trailer alone does not grant commercial relicensing rights. Resolve any uncovered historical contribution before offering it under that agreement.
+4. Confirm the right to redistribute every packaged contribution under the commercial agreement as well as GPLv3. Review the packaged source history, including renames, against the [CLA](../CLA.md) and the signatures recorded in [cla-signatures.json](../.github/cla-signatures.json); a DCO trailer alone does not grant commercial relicensing rights. Resolve any uncovered historical contribution before offering it under that agreement.
 5. Complete the owner review of the [registry terms](https://components.espressif.com/pages/terms), including sections 5.1–5.5. Section 5.3 recognizes the supplied license; seek clarification from Espressif if the broader wording of section 5.5 leaves unresolved concerns. The workflow cannot establish these legal rights or accept the terms for the owner.
 
 ### CI and publication
 
-`ci.yml` runs on every branch and tag push, on pull requests targeting `develop`, and on manual dispatches. `Prepare Build`, `Website Unit Tests`, `C++ Unit Tests`, and `Python Unit Tests` run in parallel with identical downstream dependencies. Preparation selects the version, artifact names, signing mode, and publication channel. All four jobs must succeed before the ESPHome, Matter, and Native firmware matrices and `Build SDK Package` start in parallel. Each successful firmware matrix starts its frontend's dependency audit, while the SDK package starts the isolated SDK component verification matrix. The publication channel passes through the SDK package and verification outputs, so `Dispatch Publication` depends only on the three audits and SDK verification. `Dispatch Publication` starts `cd.yml` through `workflow_dispatch` on the original branch or tag and links its run in the CI summary. CD derives the publication channel, release tag, registry, and environment from the validated source, then forwards that metadata through the job outputs. Firmware and SDK artifacts are built once; the publisher downloads them from that CI run. Checks and publication have separate run statuses and graphs.
+`ci.yml` runs on every branch and tag push, on pull requests to `develop`, and on manual runs:
+
+1. `Prepare Build`, `Website Unit Tests`, `C++ Unit Tests`, and `Python Unit Tests` run in parallel. Preparation chooses the version, artifact names, signing mode, and publication channel.
+2. When all four pass, the ESPHome, Matter, and Native firmware builds and `Build SDK Package` start in parallel.
+3. Each firmware build then runs its dependency audit; the SDK package runs the isolated SDK verification builds.
+4. `Dispatch Publication` waits for the three audits and SDK verification, then starts `cd.yml` (`workflow_dispatch`) on the same branch or tag and links it in the CI summary.
+
+CD derives the channel, release tag, registry, and environment from the validated source and passes them along through job outputs. Artifacts are built once in CI and downloaded by CD. Checks and publication show up as separate runs.
 
 Branch protection should require preparation, the initial test jobs, firmware builds, dependency audits, SDK packaging, and SDK component build checks. Downstream checks alone are insufficient because they can be skipped after an upstream failure. Snapshot and release dispatch require every terminal audit and SDK verification prerequisite to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
 
@@ -110,13 +131,21 @@ After `Publish SDK` succeeds, `verify-sdk` runs the same twelve-build matrix for
 
 ### Snapshot workflow
 
-On pushes to `main` or `develop`, the final `dispatch-publication` job in `ci.yml` waits for every build, test, audit, and SDK component check, then dispatches `cd.yml` on the source branch with the CI run ID, attempt, and full commit SHA. Firmware, GitHub releases, website updates, registry uploads, and coverage badge updates require all prerequisite jobs to succeed. Coverage badges update only after the rolling release succeeds and remain at their last published values if CI fails. Pull requests, other branches, and manually dispatched CI runs do not publish snapshots.
+Only pushes to `main` and `develop` publish snapshots (not pull requests, other branches, or manual CI runs):
 
-For snapshots, CD starts with `Validate Source Run`, which waits for the source CI attempt to finish and verifies its repository, push event, branch, commit, completed CI result, SDK package result, and successful dispatch job. Only `Create Release` depends directly on this validation. A superseded source commit skips the release job and downstream publishers. Once the release succeeds, SDK staging publication, website publication, and coverage badge publication run in parallel, using the validated source metadata forwarded through the release outputs. SDK registry verification follows the SDK upload. The SDK publisher downloads the existing `registry-component` artifact and uploads it to staging through OIDC. It checks that the source commit is still current, that the archive and inventory agree, and that the component belongs to the validated commit and channel. A push to `develop` publishes `snapshot-dev`; a push to `main` publishes `snapshot` and updates the website. Both branches upload SDK snapshots to staging.
+- `main` publishes `snapshot` and updates the website; `develop` publishes `snapshot-dev`. Both upload the SDK to staging, never to production.
+- CI's last job, `dispatch-publication`, waits for every build, test, audit, and SDK check, then starts `cd.yml` on the branch with the CI run ID, attempt, and full commit SHA. Nothing is published unless all of them pass; a failed CI leaves the published files and coverage badges unchanged.
+- In CD, `Validate Source Run` waits for that CI attempt and checks its repository, push event, branch, commit, result, SDK package, and dispatch job. `Create Release` depends only on it. If a newer commit has superseded the source, the release and everything after it are skipped.
+- After the release, the SDK upload to staging, the website, and the coverage badges run in parallel; SDK verification follows the upload. The SDK publisher uploads the CI's `registry-component` artifact through OIDC, after checking that the commit is still current, the archive matches its inventory, and the component belongs to that commit and channel.
 
 To retry a failed publication, use **Re-run failed jobs** on the CD run while the source CI artifacts are retained. Retry failed checks on the original CI run; its final dispatch supplies the new attempt. A publisher rejects an older attempt after CI has been rerun. The original branch and commit remain the publication source, and superseded commits are skipped. Push CI runs on these branches and on tags, and publication runs, finish without automatic cancellation by newer runs; pending runs may be superseded. Other CI runs retain automatic cancellation.
 
-Registry snapshot versions append `.main` or `.develop` to the git-describe version, for example `3.0.0-rc2-4-g0150604.main`. The `preview` channel maps to `.main`. A branch push at an exact stable tag uses `<tag>-0-g<short-sha>.<branch>`, such as `3.0.0-0-g0150604.main`, to remain a valid prerelease version; release-tag publication keeps the exact tag. The full source commit remains in the component metadata and inventory and is checked against the validated CI run. The component manifest, SDK version macros, example dependency, and inventory carry the same registry version. GitHub and website SDK bundles retain their git-describe version and rolling asset names. Repeating an upload succeeds only if the existing registry contents pass the same manifest and file comparisons against the CI artifact.
+Snapshot versions:
+
+- The registry version is the `git describe` version plus `.main` or `.develop`, for example `3.0.0-rc2-4-g0150604.main`. The `preview` channel is `.main`.
+- A branch push exactly on a stable tag becomes `<tag>-0-g<short-sha>.<branch>` (such as `3.0.0-0-g0150604.main`), so it stays a prerelease; tag publication keeps the exact tag.
+- The manifest, SDK version macros, example dependency, and inventory all carry this version; the full commit is in the metadata and inventory. GitHub and website bundles keep their `git describe` version and rolling file names.
+- Uploading the same version again succeeds only if the registry contents match the CI artifact.
 
 The publish job ends after the upload action confirms processing, then the shared SDK verification matrix runs against staging. Website and coverage badge publication run alongside the registry jobs after the GitHub snapshot release succeeds. A publication or registry verification failure fails that run; the originating CI retains its check results. Snapshots never upload to the production registry.
 
@@ -126,7 +155,11 @@ Registry builds disable the HTTP cache inside the build container and retry for 
 
 ### Staging snapshot retention
 
-`sdk-staging-cleanup.yml` runs every Monday at 03:23 UTC on `main`. It only deletes old snapshots of `francescopace/espectre` from `https://components-staging.espressif.com`; the registry and component are fixed in the script. It retains the ten most recently uploaded snapshots of `main` and the ten most recently uploaded snapshots of `develop`, regardless of their age. Selection uses registry upload timestamps, not semantic version order. Both `.main`/`.develop` versions and legacy `-snapshot.preview.g<sha>`/`-snapshot.develop.g<sha>` versions are recognized. Stable versions and release candidates without a snapshot suffix are retained. GitHub releases, artifacts, and the production registry are unaffected.
+`sdk-staging-cleanup.yml` runs every Monday at 03:23 UTC on `main` and deletes old `francescopace/espectre` snapshots from `https://components-staging.espressif.com` (both fixed in the script).
+
+- It keeps the ten most recently uploaded snapshots of `main` and of `develop`, whatever their age, ordered by upload time, not by version.
+- It recognizes `.main`/`.develop` versions and the older `-snapshot.preview.g<sha>`/`-snapshot.develop.g<sha>` form. Versions without a snapshot suffix (stable releases and release candidates) are never deleted.
+- It never touches GitHub releases, artifacts, or the production registry.
 
 Before enabling scheduled cleanup, create a staging registry API token with `write:components` permission and save it as the `SDK_REGISTRY_STAGING_CLEANUP_TOKEN` secret in the GitHub `sdk-registry-staging` environment. Manage its expiration and rotation in the staging token settings. Cleanup uses the API-token deletion path verified on staging; it does not assume that the publication OIDC integration permits deletion. No additional trusted uploader is required. The workflow must reach the default branch (`main`) before GitHub schedules it, and the environment must allow that branch.
 
@@ -140,19 +173,26 @@ Deletion is permanent, and a deleted version number cannot be uploaded again, ev
 
 ### Release workflow
 
-On a validated release tag, CI builds firmware and SDK artifacts with the exact tag as their version. After all checks pass, it dispatches `cd.yml` on that tag with the CI run ID, attempt, and full commit SHA. `Validate Source Run` verifies the successful completed source CI attempt, SDK package job, and dispatch job, and revalidates the tag and main ancestry. `Create Release` then publishes the validated artifacts, signed firmware manifests, compliance bundles, registry archive, and changelog notes to GitHub.
+For a release tag (prereleases such as `3.0.0-rc3` included):
 
-After `Create Release` succeeds, SDK publication, website publication, and coverage badge publication run in parallel. The SDK verification matrix depends only on `Publish SDK`. The validated source run ID and registry URL pass through the release and upload outputs, so verification uses the published registry and original tag CI artifacts. Coverage badges are attached to the versioned GitHub release. Tagged release publication does not require a separate snapshot run on main.
+1. CI builds firmware and SDK with the exact tag as version and, if every check passes, starts `cd.yml` on the tag with the CI run ID, attempt, and full commit SHA.
+2. `Validate Source Run` checks the CI attempt, SDK package, and dispatch job, and checks again that the tag is on `main`.
+3. `Create Release` publishes the artifacts, signed firmware manifests, compliance bundles, registry archive, and changelog notes on GitHub. Prerelease tags stay marked as prereleases.
+4. Then, in parallel: `Publish SDK` uploads the archive built by tag CI to the **production** registry (environment `sdk-registry-production`, official Espressif action, OIDC), the website is published, and the coverage badges are attached to the release.
+5. The SDK verification builds all twelve consumers against production, using the published registry and the original CI artifacts.
 
-All validated release tags, including prereleases such as `3.0.0-rc3`, publish directly to the production registry after the GitHub release succeeds. `Publish SDK` uses the `sdk-registry-production` environment and uploads the archive already built and verified by tag CI, using the pinned official Espressif action and OIDC, then the shared verification matrix builds all twelve consumers against production. Registry selection depends on the publication source, while prerelease tags remain marked as prereleases on GitHub. Branch builds from `main` and `develop` continue to use staging, even when their source commit has a release tag.
+Notes:
 
-Older prereleases published under the previous policy remain on staging. The upload job compares an existing version before skipping upload; differing contents fail the run. Registry resolution retries have a bounded wait, so propagation delays can be retried without silently accepting a different package. A registry verification failure fails the CD run; the already published GitHub release, website, and badges are retained.
+- No separate snapshot run on `main` is needed. Branch builds of `main` and `develop` always go to staging, even on a tagged commit. Older prereleases remain on staging.
+- If the version already exists, its contents are compared first; any difference fails the run.
+- Registry lookups retry for a limited time to cover propagation delays, without accepting a different package.
+- A verification failure fails the CD run, but the GitHub release, website, and badges already published stay.
 
 Retry a failed release publication through **Re-run failed jobs** on the CD run while its source CI artifacts are retained. A failed publication does not change the successful CI result; follow the publication link in the CI summary for its outcome.
 
 ### Website deployment
 
-CD dispatches `pages.yml` on `main` after building and verifying the website, and wait for the deployment result. The separate branch run avoids the existing Pages issue with tag deployments reusing an older artifact for the same commit. It validates the source publication workflow, attempt, main ancestry, and completed prerequisite jobs, then downloads the Pages archive and sitemap from the successful website build attempt. A superseded snapshot website is rejected.
+CD starts `pages.yml` on `main` after building and verifying the website, and waits for the deployment result. The separate branch run avoids the existing Pages issue with tag deployments reusing an older artifact for the same commit. It validates the source publication workflow, attempt, main ancestry, and completed prerequisite jobs, then downloads the Pages archive and sitemap from the successful website build attempt. A superseded snapshot website is rejected.
 
 The serialized Pages job uploads the verified website archive unchanged, including the API reference generated by that build. Each build replaces the generated reference tree and verifies that it contains exactly its current page inventory. The deployment checks the live channel catalogs and signing keys before notifying IndexNow.
 
@@ -164,4 +204,4 @@ Install `cd.yml` and `pages.yml` on the default branch (`main`) before relying o
 
 Ensure the tag points to the intended commit on `main` and has a finalized changelog entry. Its own CI run must succeed before release publication starts.
 
-Keep the [ROADMAP.md](ROADMAP.md) publication gate open until public installation succeeds and the C3 hardware check covers startup, calibration, movement, and Wi-Fi reconnection.
+Keep the [roadmap](ROADMAP.md) publication gate open until public installation succeeds and the C3 hardware check covers startup, calibration, movement, and Wi-Fi reconnection.

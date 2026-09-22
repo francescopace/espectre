@@ -1,8 +1,8 @@
-# ESPectre ESPHome Frontend
+# ESPectre ESPHome frontend
 
-The ESPHome frontend exposes ESPectre as a YAML component with Home Assistant entities. This guide covers provisioning, entity configuration, adoption, and builds. For installation, placement, and the first sensing check, start with [SETUP.md](../../../../docs/SETUP.md).
+The ESPHome frontend turns ESPectre into a YAML component with Home Assistant entities. This guide covers Wi-Fi setup, entities, adoption, and builds. For installation, placement, and the first detection check, start with the [setup guide](../../../../docs/SETUP.md).
 
-## Getting Started
+## Getting started
 
 After flashing, configure Wi-Fi with one of these provisioning paths:
 
@@ -11,40 +11,34 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 | USB | Use Improv Serial with `./espectre provision --ssid MyNetwork` or any Improv Serial-compatible web flasher, such as the [ESPectre web flasher](https://espectre.dev/tools/flash/) |
 | Captive portal | Connect to the `ESPectre Fallback` network and finish setup in the browser |
 
-The maintained examples enable Improv Serial, return a Device settings URL after provisioning, and keep SSID, password, and BSSID out of YAML.
+The examples keep the SSID, password, and BSSID out of YAML. After provisioning, Improv Serial returns a link to Device settings. On ESP32-S2, the logger and Improv Serial share the TinyUSB console.
 
-On ESP32-S2 with the USB CDC logger, the frontend initializes the shared TinyUSB primary console and routes the logger and Improv Serial through it. The frontend owns this USB dependency and console setup; both are outside the SDK package.
+Once Wi-Fi is set up, Home Assistant discovers the device through ESPHome.
 
-For an unstable access-point association, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). You can pin the device to an access point by BSSID without editing YAML or rebooting. The pin persists across restarts and suppresses periodic roaming scans. Clearing it restores the configured roaming policy. If a new pin fails, the device reconnects once with the previous pin.
+If the device roams between access points, you can pin it to one without editing YAML or rebooting; see [mesh Wi-Fi instability](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). The pin survives restarts and stops roaming scans. If a new pin fails, the device goes back to the previous one. The requests are in [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection).
 
-ESPectre stores the pin separately from Wi-Fi credentials. See [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture behavior after reconnection.
+Official images add the last three MAC bytes to the ESPHome hostname, for example `espectre-a1b2c3.local`. This lets one image serve multiple devices on the same network. The Home Assistant device and entity IDs use the same suffix.
 
-Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
+## Integration surface
 
-Official images add the last three MAC bytes to the ESPHome hostname, for example
-`espectre-a1b2c3.local`. This lets one image serve multiple devices on the same
-network. The Home Assistant device and entity IDs use the same suffix.
+Declaring `espectre:` creates the [entities](#integrated-entities) automatically.
 
-## Integration Surface
+The device also runs ESPectre's Direct HTTP API next to the ESPHome API. Direct offers the same controls plus local management and raw CSI collection; find it with `./espectre devices --frontend esphome`. See the [API reference](../../../../docs/API.md) and [discovery reference](../../../../docs/DISCOVERY.md).
 
-The frontend maps runtime state and controls into the ESPHome entities listed under [Integrated Entities](#integrated-entities). Those entities are created automatically when the `espectre:` component is declared.
-
-ESPHome advertises its native API alongside ESPectre's Direct HTTP service. Run `./espectre devices --frontend esphome` to find the Direct endpoint. Direct and the ESPHome entities use the same runtime controls; Direct also provides local management and raw CSI collection. See [API.md](../../../../docs/API.md) for capabilities and [DISCOVERY.md](../../../../docs/DISCOVERY.md) for discovery.
-
-Direct API is enabled by default. To expose only ESPHome's native API and Home Assistant entities, disable it in the component configuration:
+Direct is on by default. To keep only the ESPHome API and entities, turn it off:
 
 ```yaml
 espectre:
   direct_api: false
 ```
 
-This disables Direct HTTP requests, SSE telemetry, raw CSI streaming, `_espectre._tcp.local.` discovery, and the peer-assisted browser bootstrap responder. It does not disable ESPHome's native API or ESPectre entities.
+This turns off Direct requests, live telemetry, raw CSI streaming, and ESPectre discovery. The ESPHome API and entities keep working.
 
-A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe the same runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome. Changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
+Changes made through Direct show up in Home Assistant right away. Wi-Fi credentials, OTA, and API encryption stay under ESPHome's control. Renaming the device in ESPectre does not change the ESPHome hostname or entity IDs.
 
-## Configuration Surface
+## Configuration surface
 
-Shared sensing options go under `espectre:` with the names, defaults, and ranges in [SDK.md](../../../../docs/SDK.md#shared-sensing-options). The YAML schema is in [__init__.py](components/espectre/__init__.py); the [Integrated Entities](#integrated-entities) table lists the runtime controls. Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) to decide what to adjust.
+Sensing options go under `espectre:`, with the names, defaults, and ranges listed in [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). The full YAML schema is in [__init__.py](components/espectre/__init__.py). See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) for what to adjust.
 
 Set the capture profile in YAML and rebuild to change it:
 
@@ -54,13 +48,13 @@ espectre:
   csi_traffic_mode: external
 ```
 
-`lltf` always uses LLTF20. `ht-vht` selects HT20 or VHT20 from the chip and associated band, including with `wifi.band_mode: AUTO` on ESP32-C5. The `wifi_raw` generator requires `auto` or `lltf`; incompatible YAML and runtime generator changes are rejected. The profile has no Home Assistant control or Direct mutation. [CSI.md](../../../../docs/CSI.md#capture-profiles) owns automatic selection and the LLTF capture behavior.
+The profile cannot be changed from Home Assistant or Direct. The `wifi_raw` source needs `auto` or `lltf`. See [capture profiles](../../../../docs/CSI.md#capture-profiles) for what each value selects.
 
-### Diagnostic Telemetry
+### Diagnostic telemetry
 
-Press `Refresh Diagnostics` to publish the latest cached rate sample to Home Assistant. Diagnostic sensors are available in production builds and publish only on request. Direct HTTP also exposes performance, heap, load, and detector timing; see [API.md](../../../../docs/API.md#diagnostics). For interpreting input rates and occupancy, follow [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#check-the-sensing-input).
+Diagnostic sensors update only when you press `Refresh Diagnostics`. Direct also reports performance, memory, and detector timing; see [API diagnostics](../../../../docs/API.md#diagnostics). To read the rates, see [check the sensing input](../../../../docs/TROUBLESHOOTING.md#check-the-sensing-input).
 
-### Detection Profile Selection
+### Detection profile selection
 
 ```yaml
 wifi:
@@ -70,15 +64,13 @@ espectre:
   detection_algorithm: lightweight  # or high_accuracy
 ```
 
-Set the Wi-Fi band under `wifi:`, separately from ESPectre's detector selection. On ESP32-C5, `band_mode` accepts `2.4GHz`, `5GHz`, or `AUTO` and defaults to `AUTO`. Other supported targets use 2.4 GHz. Capture profiles and the limits of 5 GHz sensing are documented in [CSI.md](../../../../docs/CSI.md#capture-profiles).
+On ESP32-C5, `wifi.band_mode` accepts `2.4GHz`, `5GHz`, or `AUTO` (default). Other chips use 2.4 GHz.
 
-The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and `calibration_active_sensor` reflects automatic and user-triggered calibration state.
+`detection_algorithm` is only the starting profile. The `detector_select` entity changes it live and remembers the choice. Switching to Lightweight starts a calibration, shown by `calibration_active_sensor`. See [detection profile](../../../../docs/TROUBLESHOOTING.md#detection-profile) to choose.
 
-See [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#detection-profile) for profile selection and startup, and [ALGORITHMS.md](../../../../docs/ALGORITHMS.md) for detector behavior.
+## Entity customization
 
-## Entity Customization
-
-### Integrated Entities
+### Integrated entities
 
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
@@ -92,7 +84,7 @@ See [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#detection-profile) 
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` selection |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine; publishes the runtime state at startup |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
-| `calibration_active_sensor` | binary_sensor | `Calibration Active` | Read-only authoritative calibration state |
+| `calibration_active_sensor` | binary_sensor | `Calibration Active` | Whether calibration is running (read-only) |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `generator_rate_sensor` | sensor | `Generator Rate` | Successful internal generator sends; zero in external mode |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Station network packets accepted by the driver |
@@ -132,7 +124,7 @@ espectre:
 
 Use `internal: true` on `movement_sensor` when you want to keep the binary motion entity for automations without publishing the raw score to Home Assistant.
 
-## Home Assistant Integration
+## Home Assistant integration
 
 Once the device is flashed and connected to Wi-Fi:
 
@@ -141,29 +133,23 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-Writable entities report the authoritative runtime state, including when a change is rejected. Direct mutations synchronize the affected entities immediately.
+How entities update:
 
-Movement Score updates on the detector evaluation cadence, 250 ms by default. The high-rate path runs while the Movement Score entity exists or a Direct SSE client is connected, so Direct-only configurations do not need an unused Home Assistant sensor. Motion Detected publishes only on filtered state edges.
+- Writable entities always show the value the device is using, even after a rejected change.
+- Movement Score updates at every evaluation (250 ms by default). Motion Detected updates only when the state changes.
+- Threshold also updates after calibration and when Lightweight lowers it automatically.
 
-Threshold also updates after calibration and Lightweight settled-level recovery. Motion-hit controls publish on change, and traffic selects synchronize on connect and after accepted changes.
+Movement Score produces a lot of history. To keep the recorder small, exclude `sensor.*_movement_score` rather than slowing the evaluation interval.
 
-To reduce Home Assistant recorder history, exclude `sensor.*_movement_score` from recording. Keep the evaluation cadence set for the detector.
-
-To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. Repository builds launched through `./espectre esphome` resolve `project_version` from the same numeric `git describe` identity used by the other frontends. First-party CI and release builds override it with the detected build version or release tag.
-
-To install a prebuilt OTA image from GitHub Releases instead, download the `espectre-esphome-<channel-or-version>-<chip>-ota.bin` asset and upload it over the network:
+To manage configuration and OTA updates, adopt the device in ESPHome Device Builder. The adopted configuration builds from the GitHub `main` branch and reports version `0.0.0-main`. To stay on a release, use a prebuilt image instead: download `espectre-esphome-<channel-or-version>-<chip>-ota.bin` from GitHub Releases and upload it:
 
 ```bash
 ./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
-An existing installation without a MAC-suffixed hostname remains reachable at
-`espectre.local` for this update. After it restarts with an official image, use
-its new `espectre-<mac-suffix>.local` hostname for subsequent OTA uploads.
+An older installation without the MAC suffix is still at `espectre.local` for this upload. Afterwards, use `espectre-<mac-suffix>.local`.
 
-To stay on a released version, use the matching prebuilt image rather than the rolling `main` example.
-
-### Dashboard Examples
+### Dashboard examples
 
 [home-assistant-dashboard.yaml](examples/home-assistant-dashboard.yaml) provides motion, movement score, history, controls, and diagnostics.
 
@@ -179,13 +165,13 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-Official images use `name_add_mac_suffix: true`, so include the six-character MAC suffix in the entity IDs when adapting the dashboard. If you changed the base device name from `espectre`, update that prefix too. Inspect the exact IDs under the Home Assistant device because an existing registry collision can add a suffix such as `_2`.
+Official images add the MAC suffix to entity IDs, so update the IDs in the dashboard to match your device (and the `espectre` prefix, if you renamed it). Check the exact IDs in Home Assistant: a name clash can add a suffix such as `_2`.
 
-## Traffic Configuration
+## Traffic configuration
 
-The ESPHome surface exposes the shared runtime traffic settings under `espectre:`. [`CSI.md`](../../../../docs/CSI.md#traffic-sources) describes traffic modes and pacing; [API.md](../../../../docs/API.md#external-csi-traffic) defines ports and external markers; [`TROUBLESHOOTING.md`](../../../../docs/TROUBLESHOOTING.md#no-csi-or-insufficient-input) owns rate and occupancy guidance.
+Traffic settings go under `espectre:`. See [traffic sources](../../../../docs/CSI.md#traffic-sources) for how they work.
 
-### Internal Traffic Generator
+### Internal traffic generator
 
 ```yaml
 espectre:
@@ -195,13 +181,13 @@ espectre:
   traffic_generator_target_ip: "" # Empty uses the gateway; set an IPv4 address to override
 ```
 
-The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change. ESP32-C6 rejects `traffic_generator_mode: wifi_raw` and omits that option from the select entity; see [CSI.md](../../../../docs/CSI.md#compatibility-limits).
+The `traffic_generator_mode_select` and `csi_traffic_mode_select` entities change the source and mode at runtime, and the device remembers them. ESP32-C6 does not offer `wifi_raw`; see [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
 
-### External Traffic Mode
+### External traffic mode
 
-Home Assistant OS users can install the ESPectre Traffic Generator add-on and switch devices to external traffic from its panel. Follow the [web guide](https://espectre.dev/guides/home-assistant/#ha-traffic-generator) for setup instructions and screenshots. See [DOCS.md](../../../../tools/ha_traffic_generator_addon/DOCS.md) for requirements, options, and troubleshooting.
+On Home Assistant OS, the ESPectre Traffic Generator add-on can send the traffic and switch devices to external mode from its panel. See the [web guide](https://espectre.dev/guides/home-assistant/#ha-traffic-generator) and the [add-on documentation](../../../../tools/ha_traffic_generator_addon/DOCS.md).
 
-To disable the internal generator and rely on external traffic:
+To use external traffic in YAML:
 
 ```yaml
 espectre:
@@ -210,13 +196,13 @@ espectre:
   csi_traffic_multicast_group: "239.255.0.1"
 ```
 
-For raw collection, keep Direct API enabled and follow [CLI.md](../../../../docs/CLI.md#collect). The collector selects external traffic mode, which persists after collection.
+Raw collection needs Direct; see the [`collect` command](../../../../docs/CLI.md#collect). Collection switches the device to external mode, and it stays there afterwards.
 
-## Build and Consumption
+## Build and consumption
 
-The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile updates from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+The `release`, `preview`, and `develop` channels publish a full-flash image and an OTA image for each chip. Both detection profiles are included; Lightweight is the starting one.
 
-Checked-in example YAML and ordinary Device Builder builds keep signing disabled. Adoption does not bypass the verifier already on the device. You may instead enable ESPHome's `signed_ota_verification` with your own signing key. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA after an official image, and [RELEASING.md](../../../../docs/RELEASING.md#firmware-signing) for key custody.
+The example YAML and normal Device Builder builds are not signed, and a device with an official image rejects them over OTA. Install the first one over USB (see [official images and personal builds](../../../../docs/SETUP.md#official-images-and-personal-builds)), or enable ESPHome's `signed_ota_verification` with your own key.
 
 ### As an ESPHome external component
 
@@ -231,9 +217,9 @@ external_components:
     components: [espectre]
 ```
 
-`esphome.project.version` sets the application version. If omitted, a numeric source `ref`, such as `3.0.0-rc1`, supplies it; other refs and local sources retain ESPHome's default. Application versions are limited to 31 bytes. SDK identity is separate; see [SDK.md](../../../../docs/SDK.md#versioning).
+Omit `ref` to follow the default branch, or set a tag or commit to pin the component. An empty `ref: ""` is invalid.
 
-Omit `ref` to use the repository's default branch, or set a valid tag or commit to pin the component. An empty `ref: ""` is invalid.
+`esphome.project.version` sets the firmware version (up to 31 bytes). If you omit it, a numeric `ref` such as `3.0.0-rc1` is used. The SDK version is separate; see [versioning](../../../../docs/SDK.md#versioning).
 
 Repository development selects `espectre-source-local.yaml` instead, which resolves the same component from the local checkout:
 
@@ -247,7 +233,7 @@ external_components:
 
 ### Repository CLI
 
-See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side tools, and wrapper behavior.
+See the [CLI reference](../../../../docs/CLI.md) for all options.
 
 ```bash
 ./espectre esphome build --chip c6 --clean
@@ -258,31 +244,31 @@ See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side tools, 
 
 On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass a COM port such as `COM5` to `--device` when serial access is needed.
 
-The repository CLI keeps the selected canonical YAML and loads the ESPectre component from the local checkout. Use `flash` for upload-only and `monitor` for logs.
+The CLI builds the chip's example YAML with the component from your local checkout, and sets the version from `git describe`. Use `flash` to upload without building and `monitor` for logs.
 
-## Hardware and Packaging Notes
+## Hardware and packaging notes
 
-### Build Toolchain
+### Build toolchain
 
-The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) compiles the selected SDK through the canonical build definition at [`CMakeLists.txt`](../../CMakeLists.txt). During configuration, CMake checks the fingerprint of the generated Python schema against that SDK. No toolchain override or separate library package is required.
+The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) compiles the selected SDK through the canonical build definition at [`CMakeLists.txt`](../../CMakeLists.txt). No toolchain override or separate library is needed.
 
-### Automatic SDK Configuration
+### Automatic SDK configuration
 
-The component sets the required CSI, Wi-Fi power, aggregation, buffer, and lwIP options in [__init__.py](components/espectre/__init__.py). It routes runtime logs through the ESPHome logger and selects TinyUSB CDC for logging and Improv Serial on maintained USB-OTG configurations that need it. Board-specific overrides can go under `esp32.framework.sdkconfig_options`.
+The component sets the CSI, Wi-Fi, buffer, and lwIP options it needs in [__init__.py](components/espectre/__init__.py), and sends runtime logs to the ESPHome logger. Put board-specific overrides under `esp32.framework.sdkconfig_options`.
 
-The examples use Improv Serial to avoid the flash, memory, and radio contention costs of a BLE provisioning stack. Keep that choice when adapting an example unless your product requires BLE.
+The examples use Improv Serial instead of BLE provisioning, which saves flash and memory and avoids radio contention. Keep it that way unless you need BLE.
 
-### Flash Size and Partitions
+### Flash size and partitions
 
-The ESPHome frontend fits in `4 MB` flash with OTA and uses the board and framework default partition table. A custom project can override it with `esp32.partitions`; ESPectre itself does not require a custom table.
+The firmware fits in 4 MB of flash with OTA and uses the default partition table. You can override it with `esp32.partitions` if needed.
 
-## ESPHome-Specific Troubleshooting
+## ESPHome-specific troubleshooting
 
-Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#check-the-sensing-input) for sensing and connectivity problems, and [SETUP.md](../../../../docs/SETUP.md#web-flash-no-coding-required) when the board does not enter download mode.
+For sensing and connection problems, see the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md). If the board does not enter download mode, see [web flash](../../../../docs/SETUP.md#web-flash-no-coding-required).
 
 ### Bluetooth proxy and CSI occupancy
 
-If enabling BLE reduces CSI occupancy, first compare with Bluetooth disabled. [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#bluetooth-reduces-csi-occupancy) records the scan comparisons, measured results, and interpretation. For an advertisement-only proxy, the following experimental settings had the lowest CSI impact in those ESP32-S3 tests. Merge them into the existing device configuration, preserving board, Wi-Fi, API, and other required settings:
+Bluetooth and Wi-Fi share the radio, so a Bluetooth proxy can lower CSI occupancy. If it does, compare with Bluetooth disabled first. For a proxy that only forwards advertisements, these experimental settings had the smallest impact in our tests. Merge them into your existing configuration:
 
 ```yaml
 esp32:
@@ -309,13 +295,33 @@ espectre:
   traffic_generator_mode: wifi_raw
 ```
 
-In the tested ESPHome 2026.8.2 / ESP-IDF 5.5.5 combination, `esp32_ble_tracker.software_coexistence: false` did not force the ESP-IDF flag off: its SDK default remained enabled even after a clean build. The explicit SDK override above is required to reproduce the tested configuration. Run **Clean Build Files**, rebuild, and install the firmware. Verify that the generated SDK configuration contains `# CONFIG_ESP_COEX_SW_COEXIST_ENABLE is not set`.
+- The `sdkconfig_options` line is required. With ESPHome 2026.8.2 and ESP-IDF 5.5.5, `software_coexistence: false` alone left ESP-IDF coexistence enabled, even after a clean build.
+- Run **Clean Build Files**, rebuild, and install. The generated SDK configuration must contain `# CONFIG_ESP_COEX_SW_COEXIST_ENABLE is not set`.
+- `bluetooth_proxy.active: false` turns off active GATT connections but still forwards advertisements. `scan_parameters.active: false` selects passive scanning.
+- Short scan windows receive fewer advertisements. Check that the BLE devices you rely on still report.
+- Active GATT connections were not tested with these settings. For `wifi_raw` limits, see [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
 
-`bluetooth_proxy.active: false` disables active GATT proxy connections; it still forwards advertisements. The separate `scan_parameters.active: false` selects passive scanning. Active GATT connections were not validated with this workaround. Shorter scan windows reduce advertisement reception, so check the BLE devices you rely on alongside CSI occupancy. Keep the detector settings fixed during that comparison; the YAML includes those used in the experiment. For `wifi_raw` hardware and capture-profile limits, see [CSI.md](../../../../docs/CSI.md#compatibility-limits).
+The tests for [issue #165](https://github.com/francescopace/espectre/issues/165) used one ESP32-S3 at 240 MHz, a fixed position and access point, and `wifi_raw` at 100 pps. Each run lasted 60–120 seconds, and the first 15 seconds were excluded:
+
+| Scan window / interval | Scan type | Tracker coexistence | ESP-IDF coexistence | Mean CSI occupancy per run |
+|------------------------|-----------|---------------------|---------------------|----------------------------|
+| BLE disabled | — | — | — | 94.1%, 88.8%, 94.0% |
+| 320 / 320 ms | Active | On | On | 52.3% |
+| 30 / 320 ms | Passive | On | On | 53.2% |
+| 10 / 100 ms | Passive | On | On | 53.3%, 54.4% |
+| 5 / 100 ms | Passive | On | On | 53.6%, 51.9% |
+| 10 / 100 ms | Active | On | On | 54.0% |
+| 10 / 100 ms | Passive | Off | On | 56.7% |
+| 5 / 100 ms | Passive | Off | On | 56.5% |
+| 30 / 320 ms | Passive | Off | Off | 84.4% |
+| 10 / 100 ms | Passive | Off | Off | 88.5%, 87.6% |
+| 5 / 100 ms | Passive | Off | Off | 93.4%, 91.1%, 92.6% |
+
+In the final two-minute run with the 5 ms window, the proxy still received 433 advertisements from 26 devices. The 10 ms window received about twice as many, with lower occupancy. These are short tests on one board and network, not a general compatibility result.
 
 ### View logs
 
-Home Assistant entity updates do not replace the serial status log. The shared runtime forwards its 1 Hz `IDLE | csi:` / `MOTION | csi:` heartbeats through the ESPHome sink, so they should appear on USB serial and in `esphome logs` when the `espectre.runtime` tag permits INFO messages.
+The runtime logs an `IDLE | csi:` or `MOTION | csi:` status line every second. It appears on USB serial and in `esphome logs` when the `espectre.runtime` tag allows INFO messages.
 
 ```bash
 esphome logs <your-config>.yaml
@@ -323,13 +329,11 @@ esphome logs <your-config>.yaml --device espectre.local
 ./espectre monitor --port /dev/cu.usbmodem*
 ```
 
-## Implementation Map
+## Implementation map
 
-The frontend uses public SDK headers. See [CLI.md](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+The frontend uses public SDK headers. See [building against an SDK bundle](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [frontend layer](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
 
-ESPHome imports constants from the checked-in `sensing_schema.py`, generated from the public SDK schema. Importing the component does not read C++ headers. During configuration, CMake compares the schema fingerprint with the selected SDK and rejects mismatches before compilation.
-
-This map is for component maintainers; it is not required for normal installation or tuning.
+This section is for component maintainers. `sensing_schema.py` is generated from the SDK schema; CMake checks that it matches the selected SDK before compiling.
 
 - [`__init__.py`](components/espectre/__init__.py): YAML schema, validation, codegen, native ESP-IDF component registration, and ESPHome build flags
 - [`CMakeLists.txt`](components/espectre/CMakeLists.txt): native ESP-IDF bridge to the canonical shared SDK build definition

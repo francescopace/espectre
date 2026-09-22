@@ -1,16 +1,16 @@
-# Wi-Fi CSI Literature Notes
+# Wi-Fi CSI literature notes
 
-This document is the durable literature index for ESPectre sensing research. It records the parts of each source that matter to this project: signal features, preprocessing and filters, algorithms, evaluation results, hardware assumptions, and the resulting research action.
+This index summarizes published Wi-Fi sensing research and what each source means for ESPectre: features, preprocessing, algorithms, results, hardware assumptions, and whether the idea can work on ESP32 hardware. It is written for sensing researchers and feature contributors. For how the detector works today, see the [algorithms reference](ALGORITHMS.md).
 
-This index is for sensing researchers and feature contributors. It is intentionally detailed and does not explain the operational detector; start with [ALGORITHMS.md](ALGORITHMS.md) for current behavior or [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for device settings. In the notes, HT20 means a 20 MHz Wi-Fi channel, CIR means channel impulse response, and a transfer limit explains why a published result may not apply directly to ESP32 hardware or ESPectre data.
+It covers the external papers in the local `.papers` collection and the online sources reviewed up to 2026-08-21. ESPectre's own research is not included; the earlier NBVI work is recorded in the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Links point to the publisher, DOI, or arXiv, so the PDFs are not needed. Release dates are the first public version, not the date we read it.
 
-The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-08-21. Internally authored ESPectre research is excluded; the historical NBVI work is retained in the decision history of the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
+A published result does not prove that an idea works on ESPectre data: tasks, labels, hardware, packet rates, rooms, and splits all differ. ESPectre's own measurements and verdicts are in the [feature ledger](FEATURES.md).
 
-This is not evidence that an algorithm works on ESPectre data. Published accuracy values are rarely comparable because tasks, labels, radio hardware, packet rates, environments, splits, and leakage controls differ. Use [FEATURES.md](FEATURES.md) for ESPectre measurements and verdicts, and use ADRs for durable production decisions.
+Abbreviations: HT20 is a 20 MHz Wi-Fi channel; CIR is the channel impulse response.
 
-## How To Read The Notes
+## How to read the notes
 
-Transfer labels mean:
+Each source gets a transfer label that says how it applies to ESPectre:
 
 - **Direct**: the physical idea is compatible with single-link ESP32 HT20 CSI and can be expressed without absolute CSI scale.
 - **Adapt**: the idea is useful, but the published pipeline depends on multi-antenna phase, wider bandwidth, heavy models, or a formulation that must be made scale invariant.
@@ -18,11 +18,11 @@ Transfer labels mean:
 - **Context**: useful background or a separate sensing task, but not a current motion-feature candidate.
 - **Defer**: the required resolution or topology is not available in the current ESP32 HT20 contract.
 
-Unless a note explicitly says otherwise, amplitude-domain pipelines use absolute magnitudes and are not scale invariant as published. Normalization, ratios, correlations, ranks, phase differences, and within-map power fractions can be scale invariant, but every concrete implementation still needs a gain stress test and near-zero handling.
+Unless a note says otherwise, published amplitude pipelines use absolute magnitudes, which ESPectre cannot trust because the per-packet gain is not recorded. Ratios, correlations, ranks, phase differences, and normalized power shares can avoid that problem, but every implementation still needs a gain stress test and safe handling of values near zero.
 
-## Conclusions For ESPectre
+## Conclusions for ESPectre
 
-The literature reinforces seven project-level conclusions:
+Seven conclusions for the project:
 
 1. **Remove nuisances before extracting richer features.** Packet gain, carrier-frequency offset, sampling-frequency offset, packet detection delay, phase rotation, null tones, and irregular sampling can otherwise dominate the apparent sensing signal.
 2. **Frequency structure is the strongest unexploited HT20 axis.** Cross-subcarrier ratios, rank changes, coherence-versus-frequency-offset, and robust distributional aggregation retain channel-shape information without trusting absolute magnitude.
@@ -32,7 +32,7 @@ The literature reinforces seven project-level conclusions:
 6. **Bandwidth limits the physical representation.** CIR, delay, range, and range-Doppler papers are useful long-term directions, but results obtained with 80-160 MHz, multiple antennas, or monostatic Wi-Fi cannot justify an HT20 ESP32 feature.
 7. **Embedded accuracy is not enough.** A deployment claim must report end-to-end cadence, latency, RAM, flash, energy, external-memory requirements, and whether capture and inference share the device. Offline inference over stored test samples is not evidence of a live sensing runtime.
 
-The most actionable scale-invariant experiments remain:
+The most promising scale-invariant experiments:
 
 | Priority | Experiment | Literature basis | ESPectre requirement |
 | ---: | --- | --- | --- |
@@ -42,7 +42,7 @@ The most actionable scale-invariant experiments remain:
 | 4 | Packet-age or cadence robustness | Resource-efficient sensing and large deployments | Treat as timing/provenance input unless it carries independent physical information |
 | 5 | Micro-motion spectral concentration | SA-WiSense, RF-DS, and heart-rate sensing | Evaluate only on a separate Presence-versus-Empty corpus |
 
-## Preprocessing And Physical Feature Sources
+## Preprocessing and physical feature sources
 
 ### Optimal Preprocessing of WiFi CSI for Sensing Applications
 
@@ -124,7 +124,7 @@ The most actionable scale-invariant experiments remain:
 - **Results:** average accuracy 96.8%, median error about 0.8 bpm, 80% of estimates within 2 bpm, and 90% within 4.1 bpm across nine participants.
 - **ESPectre:** **Context** for a future stationary micro-motion task. The multi-antenna ratio and 200 Hz cadence are not current ESPectre assumptions. The transferable idea is a within-spectrum power ratio or concentration, never absolute power.
 
-## Motion, Activity, And Recognition Sources
+## Motion, activity, and recognition sources
 
 ### Indoor Motion Detection Using Wi-Fi CSI in Flat Floors Versus Staircases
 
@@ -222,7 +222,7 @@ The most actionable scale-invariant experiments remain:
 - **Results:** all separation methods remain at 45-56% accuracy with statistically insignificant differences; the best, NMF, reaches 56%. Intra-person variability is high, inter-person distinguishability is low, and performance degrades sharply as the number of people rises.
 - **ESPectre:** **Validation** and important negative evidence. Do not place multi-person identity separation on the current single-link ESP32 roadmap without a material change in topology or signal quality.
 
-## Presence, Localization, And High-Resolution Sources
+## Presence, localization, and high-resolution sources
 
 ### Home Presence Detection and Localization Using Wi-Fi CSI
 
@@ -280,7 +280,7 @@ The most actionable scale-invariant experiments remain:
 - **Results:** reports robust device-free presence without per-room calibration or retraining on the tested platform.
 - **ESPectre:** **Context** for separating presence from motion and for multi-rate acquisition. The CIR resolution is not transferable to HT20, but a dimensionless narrowband spectral concentration remains worth testing on a dedicated presence corpus.
 
-## Surveys, Datasets, Deployment, And Security
+## Surveys, datasets, deployment, and security
 
 ### WiFi Sensing on the Edge: Signal Processing Techniques and Challenges
 
@@ -394,7 +394,7 @@ The most actionable scale-invariant experiments remain:
 - **Results:** reports stronger cross-dataset and few-shot generalization than task-specific baselines over the curated heterogeneous corpus.
 - **ESPectre:** **Validation** and long-term context. The useful idea is to make hardware and cadence heterogeneity explicit. The foundation model is outside the on-device MLP budget and does not replace scale-invariant physical features.
 
-## Maintenance Rules
+## Maintenance rules
 
 When adding a source:
 
@@ -404,8 +404,8 @@ When adding a source:
 4. retain only results needed to judge the claim;
 5. state the radio hardware, bandwidth, antenna, and cadence assumptions when they affect transfer;
 6. classify the ESPectre action and scale-invariance implications; and
-7. move actual ESPectre measurements and candidate verdicts to [FEATURES.md](FEATURES.md), rather than duplicating them here.
+7. move actual ESPectre measurements and candidate verdicts to the [feature ledger](FEATURES.md), rather than duplicating them here.
 
-ADRs may link the relevant source heading in this index for the reviewed evidence, while retaining the decision-time conclusion and a direct primary source link when the publication is essential to the decision.
+ADRs can link a source heading here. When a paper is essential to a decision, the ADR also keeps its own conclusion and a direct link to the source.
 
-If the file becomes difficult to scan, move the category sections unchanged under `docs/literature/`, keep `LITERATURE.md` as the index, and preserve its stable source links.
+If this file becomes hard to scan, move the category sections unchanged into `docs/literature/` and keep this file as the index, with the same headings.

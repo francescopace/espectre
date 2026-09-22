@@ -1,8 +1,12 @@
 # Architecture
 
-This reference is for contributors and firmware integrators who need the current code layout, dependency boundaries, and execution model. Use [SDK.md](SDK.md) for the integration contract and [SETUP.md](SETUP.md) for installation.
+This page shows how the C++ code is organized today: the layers, what each one does, and how they depend on each other. It is for contributors and firmware integrators. For integrating the SDK, see the [SDK guide](SDK.md); for installing a device, the [setup guide](SETUP.md); for why things are this way, the [ADR index](adr/README.md).
 
-In this document, `core` means portable detector logic, `runtime` means the execution and event layer around it, and `frontend` means an ecosystem-specific adapter such as ESPHome or Matter. Historical rationale lives in the [README.md](adr/README.md); this page describes only the current structure.
+Three layers:
+
+- **`core`**: the detectors and signal processing. Portable, no platform code.
+- **`runtime`**: runs the detectors: Wi-Fi, CSI capture, calibration, events.
+- **`frontend`**: connects the runtime to one ecosystem, such as ESPHome or Matter.
 
 ## Source layout
 
@@ -21,7 +25,7 @@ src/cpp/
 Frontend -> Runtime -> Core
 ```
 
-The portable runtime contracts and detector logic compile on a host without ESP-IDF. Platform implementations live under `runtime/esp_idf/` and implement the shared runtime boundaries; portable code must not depend on that subtree. Frontends select a backend through `RuntimeFrontendController` and do not call `core` directly.
+Each layer may use only the one below it. The detectors and runtime interfaces compile on a computer without ESP-IDF; ESP-IDF code lives in `runtime/esp_idf/`, and portable code must not depend on it. Frontends go through `RuntimeFrontendController` and never call `core` directly.
 
 ## Layer responsibilities
 
@@ -37,7 +41,7 @@ The portable runtime contracts and detector logic compile on a host without ESP-
 
 `core` must stay independent of frontend schemas, network transports, and platform services.
 
-Shared code uses the portable sink contract in `core/espectre_log.h`. The frontend registers its logging backend before runtime setup; with no sink, shared logging is silent. [SDK.md](SDK.md#logging) defines sink lifetime and callback requirements.
+Shared code uses the portable sink contract in `core/espectre_log.h`. The frontend registers its logging backend before runtime setup; with no sink, shared logging is silent. [SDK logging](SDK.md#logging) defines sink lifetime and callback requirements.
 
 ### `src/cpp/runtime/`
 
@@ -50,9 +54,7 @@ Shared code uses the portable sink contract in `core/espectre_log.h`. The fronte
 - runtime snapshots, capabilities, and events
 - common runtime-facing configuration validation
 
-The shared runtime layer owns the frontend-facing contract. The ESP-IDF implementation under `src/cpp/runtime/esp_idf/` runs sensing and capability-gated raw collection for every maintained C++ frontend.
-
-Shared runtime services also live here, including:
+The ESP-IDF implementation in `src/cpp/runtime/esp_idf/` runs sensing and raw collection for every C++ frontend. Shared services also live here:
 
 - `RuntimeFrontendController`
 - standalone Wi-Fi helpers for non-ESPHome firmware
@@ -64,59 +66,56 @@ Shared runtime services also live here, including:
 
 `WiFiLifecycleManager` owns the shared CSI radio policy and coordinates association changes with traffic and capture startup. `csi_traffic_service` owns traffic selection, lifecycle, and counters through the portable `ICsiTrafficGenerator` and `ICsiTrafficIngress` boundaries. ESP-IDF adapters implement transmission and UDP ingress.
 
-CSI callbacks validate and normalize frames before enqueueing them. The runtime loop admits samples and runs the detector; raw collection uses a separate bounded queue and HTTP worker. [CSI.md](CSI.md) describes the radio lifecycle, source selection, capture validation, and normalization. [ALGORITHMS.md](ALGORITHMS.md#detector-timing) defines temporal admission.
+CSI callbacks validate and normalize frames before enqueueing them. The runtime loop admits samples and runs the detector; raw collection uses a separate bounded queue and HTTP worker. The [CSI guide](CSI.md) describes the radio lifecycle, source selection, capture validation, and normalization. [detector timing](ALGORITHMS.md#detector-timing) defines temporal admission.
 
 ### Shared protocol and transport services
 
-`FrontendCommandEngine` is the C++ command owner below the frontend adapters. Native MQTT, Native Direct, the shared Direct bridge, and ESPHome entities construct the same typed request and receive the same structured result and change set; Matter inherits the same path through the shared bridge. Commands execute serially on the existing frontend task. Queries return only through the requesting adapter, while accepted mutations publish the affected state families to every active adapter. MQTT and each Direct client keep independent outbound queues because transport backpressure is independent of command semantics.
+**Commands.** Every command, from any transport, goes through `FrontendCommandEngine`. Native MQTT, Native Direct, the shared Direct bridge (also used by Matter), and ESPHome entities all build the same request and get the same result. Commands run one at a time on the frontend task. A query answers only the client that asked; an accepted change is published to every connected transport. MQTT and each Direct client have their own outgoing queue, so a slow client does not block the others.
 
-`EspectreCapabilityProfile` is the single C++ catalog for executable Direct methods, published event families, and visible configuration sections. Serialization and command enforcement consume the same profile.
+**Capabilities.** `EspectreCapabilityProfile` is the one list of Direct methods, event types, and configuration sections a device offers. Both the JSON output and command checks use it.
 
-The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the raw CSI session. Transport adapters retain their own connection and queue state. The [integration reference](https://espectre.dev/sdk/api/?api=sdk_integration&member=integration_transport_adapters) describes deferred-request lifetimes.
+**Direct service.** It handles HTTP requests, SSE, delayed responses, and the raw CSI session; each transport keeps its own connections and queues. The [integration reference](https://espectre.dev/sdk/api/?api=sdk_integration&member=integration_transport_adapters) explains delayed-request lifetimes.
 
-Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization; `runtime/esp_idf/peer_discovery_service_esp_idf` owns the asynchronous DNS-SD browse; and `runtime/esp_idf/mdns_bootstrap_responder` owns the shared IPv4 bootstrap response through the existing Espressif responder. Frontend shutdown and Wi-Fi reconfiguration release pending discovery work without retaining a peer inventory. [`DISCOVERY.md`](DISCOVERY.md#dns-sd-and-mdns) owns the advertisement, bootstrap wire behavior, request and result schemas, limits, and compatibility rules.
+**Discovery.** `runtime/peer_discovery` validates, de-duplicates, sorts, and serializes results; `runtime/esp_idf/peer_discovery_service_esp_idf` runs the DNS-SD browse; `runtime/esp_idf/mdns_bootstrap_responder` answers the browser's bootstrap name through Espressif's responder. Nothing is kept after a search, and shutdown or a Wi-Fi change cancels pending work. The protocol is in [DNS-SD and mDNS](DISCOVERY.md#dns-sd-and-mdns).
 
 ### `src/cpp/frontend/`
 
-`frontend` maps the runtime into a concrete ecosystem or firmware surface.
-
-Frontend-specific schemas, transport bindings, and ecosystem integration belong here.
+`frontend` connects the runtime to one ecosystem: its configuration format, transports, and integration.
 
 | Frontend | Responsibility | Local reference |
 |----------|----------------|-----------------|
-| ESPHome | Map YAML and entities to the shared runtime and Direct bridge; provide the external-component packaging root | [README.md](../src/cpp/frontend/esphome/README.md) |
-| Native | Compose Direct, MQTT, provisioning, Home Assistant discovery, and frontend OTA adapters around the shared runtime | [README.md](../src/cpp/frontend/native/README.md) |
-| Matter | Map runtime occupancy into Matter and expose the shared Direct bridge for detector controls | [README.md](../src/cpp/frontend/matter/README.md) |
+| ESPHome | Map YAML and entities to the shared runtime and Direct bridge; provide the external-component packaging root | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
+| Native | Compose Direct, MQTT, provisioning, Home Assistant discovery, and frontend OTA adapters around the shared runtime | [Native guide](../src/cpp/frontend/native/README.md) |
+| Matter | Map runtime occupancy into Matter and expose the shared Direct bridge for detector controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
-Frontends use the public sensing and optional services SDK headers. Native, Matter, and ESPHome keep their source lists in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK source groups. Micro-ESPectre links the core and managed traffic groups through its MicroPython components, while MicroPython owns capture, calibration, and event delivery. See [CLI.md](CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle.
+- Frontends use only the public SDK headers. Native, Matter, and ESPHome list their own sources in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK.
+- Micro-ESPectre links only the core and traffic code; MicroPython handles capture, calibration, and events.
+- Improv Serial, console setup, firmware version, and OTA live in `frontend/`, outside the SDK. Native and Matter use the shared Improv service. Each frontend reports its version through `frontend_firmware_version()`.
+- Each frontend registers the logger and keeps it alive until the runtime stops. Shared code depends on neither ESPHome logging nor `esp_log`.
 
-Shared Improv Serial, console initialization, firmware version helpers, and OTA services live in `frontend/`, outside the SDK. Native and Matter link the shared Improv service and declare its external dependency. Native, Matter, and ESPHome supply their application version through `frontend_firmware_version()`; OTA services receive that version from their owner. The SDK provisioning service accepts credentials independently of the firmware's onboarding protocol.
-
-Frontends own logger registration and keep the sink alive until the runtime shuts down. Shared code does not depend on ESPHome logging or ESP-IDF `esp_log`.
+To build a frontend against an extracted SDK, see [building against an SDK bundle](CLI.md#building-against-an-sdk-bundle).
 
 ## Runtime contract
 
-Frontends use `RuntimeFrontendController` and the contracts in `runtime_interface.h`, `runtime_snapshot.h`, `runtime_events.h`, and `runtime_capabilities.h`. They configure and drive the runtime through this interface and receive snapshots, motion and calibration events, and faults. They must not bypass it to control low-level Wi-Fi or CSI services.
+Frontends control the runtime only through `RuntimeFrontendController` and the interfaces in `runtime_interface.h`, `runtime_snapshot.h`, `runtime_events.h`, and `runtime_capabilities.h`. They get back snapshots, motion and calibration events, and faults. They must never reach around it to Wi-Fi or CSI services.
 
-[SDK.md](SDK.md#runtime-contract) documents the public lifecycle, capabilities, errors, and callback rules. Frontend READMEs describe which controls are exposed and persisted.
+[SDK runtime contract](SDK.md#runtime-contract) documents the public lifecycle, capabilities, errors, and callback rules. Each frontend guide lists which controls it exposes and saves.
 
 ### Runtime performance diagnostics
 
-The runtime owns cumulative capture counters, performance aggregation, and the shared diagnostic sample read by frontend and transport adapters. Keeping sampling below the frontends gives every adapter the same rates and observation window.
+The runtime keeps the capture counters and performance statistics, and produces the one diagnostic sample all frontends and transports read, so they all report the same numbers over the same interval.
 
-[SDK.md](SDK.md#diagnostics) describes the snapshots and sampling behavior. [API.md](API.md#diagnostics) defines public field names, units, and optionality; [README.md](performance/README.md) covers repeatable resource measurements.
+[SDK diagnostics](SDK.md#diagnostics) describes the snapshots and sampling behavior. [API diagnostics](API.md#diagnostics) defines public field names, units, and optionality; the [performance report](performance/README.md) covers repeatable resource measurements.
 
 ## Protocol boundaries
 
-ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`API.md`](API.md) owns resources, operations, payloads, Direct HTTP and MQTT mappings, public limits, and version semantics. [`DISCOVERY.md`](DISCOVERY.md) owns DNS-SD, mDNS, browser bootstrap, and peer-result contracts.
-
-For every maintained C++ frontend, protocol adapters sit at the boundary between the frontend and shared runtime layers.
+The ESPectre Protocol is the message format shared by the frontends and tools. The [API reference](API.md) defines messages, HTTP and MQTT mapping, limits, and versions; the [discovery reference](DISCOVERY.md) defines discovery. In every C++ frontend, the protocol adapters sit between the frontend and the runtime.
 
 ## Related references
 
-- Deployment and frontend selection: [SETUP.md](SETUP.md)
-- Supported SDK surface: [SDK.md](SDK.md)
-- CSI acquisition and traffic: [CSI.md](CSI.md)
-- Detector behavior and troubleshooting: [ALGORITHMS.md](ALGORITHMS.md) and [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- Measured detector results: [README.md](performance/README.md)
+- Deployment and frontend selection: [setup guide](SETUP.md)
+- Supported SDK surface: [SDK guide](SDK.md)
+- CSI acquisition and traffic: [CSI guide](CSI.md)
+- Detector behavior and troubleshooting: [algorithms reference](ALGORITHMS.md) and the [troubleshooting guide](TROUBLESHOOTING.md)
+- Measured detector results: [performance report](performance/README.md)
 - Frontend operation: the relevant README under `src/cpp/frontend/`

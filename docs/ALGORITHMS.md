@@ -1,51 +1,46 @@
 # Algorithms
 
-Current detector and signal-processing reference for ESPectre.
+This reference describes the detectors and signal processing in the current release. It is written for detector and firmware contributors; operators should start with the [troubleshooting guide](TROUBLESHOOTING.md).
 
-This file documents only algorithms active in the current project surface. Feature experiments and promotion evidence live in [FEATURES.md](FEATURES.md), decision rationale lives in [adr/](adr/), and mutable detector metrics live in the generated [performance report](performance/README.md).
+Feature experiments are in the [feature ledger](FEATURES.md), design decisions in the [ADR index](adr/README.md), and measured results in the [performance report](performance/README.md).
 
-This reference is for detector and firmware contributors. Operators normally need [TROUBLESHOOTING.md](TROUBLESHOOTING.md), which turns these mechanisms into practical settings.
+Terms used below:
 
-Terms used throughout this document:
-
-- **CSI:** channel state information, the complex Wi-Fi channel measurement captured for each packet.
+- **CSI:** channel state information, the Wi-Fi channel measurement captured for each packet.
 - **Subcarrier:** one narrow frequency bin inside the Wi-Fi channel.
-- **HT20:** the supported 20 MHz 802.11n channel layout.
-- **AGC:** automatic gain control in the radio; ESPectre keeps it active and therefore favors scale-invariant features.
-- **CV:** coefficient of variation, standard deviation divided by the mean.
-- **pps:** CSI packets per second. Raw accepted pps is capture supply; admitted pps is the detector input after temporal slot admission.
+- **HT20:** the 20 MHz 802.11n channel layout the detectors use.
+- **AGC:** the radio's automatic gain control. ESPectre leaves it on, so features must not depend on signal scale.
+- **CV:** coefficient of variation, the standard deviation divided by the mean.
+- **pps:** CSI packets per second. *Accepted* pps is what capture delivers; *admitted* pps is what reaches the detector after temporal admission.
 
 ## Overview
 
-ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and passing those signals to one of two production profiles:
+ESPectre reads the amplitudes of a fixed set of subcarriers, turns them into scale-invariant signals, and feeds them to one of two detection profiles:
 
-- **Lightweight Detection** (`lightweight`), implemented by `LightweightDetector`, the default non-ML detector
-- **High-Accuracy Detection** (`high_accuracy`), implemented by `HighAccuracyDetector`, the neural detector with a trained probability threshold
+- **Lightweight Detection** (`lightweight`, `LightweightDetector`): the default, a two-feature statistical model.
+- **High-Accuracy Detection** (`high_accuracy`, `HighAccuracyDetector`): a small neural network over eight features.
 
-Representative raw CSI amplitude windows for empty room, static presence, and motion:
+Example raw CSI amplitude windows for an empty room, a person standing still, and motion:
 
 ![CSI amplitude heatmaps for empty, static presence, and motion](web/assets/images/guides/csi-amplitude-heatmap.webp)
 
-The current production detector definition is:
+In short:
 
-- AGC stays active
-- the shared fixed 12-subcarrier set feeds turbulence and L1 displacement, adjacent live bins feed aggregated turbulence, and channel-shape features read the full 56-bin live band
-- the Lightweight path uses weighted `turb_autocorr + turb_iqr_over_mean_aggr` fusion
-- the Lightweight runtime has no voting branch or legacy low-RSSI blend term
-- the High-Accuracy path uses the compact eight-feature scale-invariant production set
+- AGC stays on.
+- A fixed set of 12 subcarriers feeds turbulence and L1 displacement. Aggregated turbulence averages neighboring bins. Channel-shape features read the full 56-bin band.
+- Lightweight combines `turb_autocorr` and `turb_iqr_over_mean_aggr` with fixed weights.
+- High Accuracy uses eight scale-invariant features.
 
-## Why Two Detection Profiles
+## Why two detection profiles
 
-Lightweight and High Accuracy are both production paths because they optimize different constraints.
+The two profiles trade cost against quality:
 
-- **Lightweight Detection minimizes active detector cost.** It uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
-- **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains eight production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
+- **Lightweight** tracks two features and does less work per packet. It leaves more CPU and memory for the rest of the firmware, but is less accurate and generalizes less well to new rooms.
+- **High Accuracy** tracks eight features and runs a small neural network. It costs more CPU and memory, detects better, and needs no quiet-room calibration because its threshold is trained.
 
-Lightweight calibration consumes up to 10 seconds of temporally valid, ready CSI coverage after temporal warmup. It can complete early when the motion-first gate observes a stable quiet anchor, sustained motion, and a return to quiet; otherwise it uses the quiet-first fallback within the same evidence budget. Missing slots can extend the wall-clock duration because an invalid window does not consume the budget. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
+In firmware that can switch profiles at runtime, choosing Lightweight reduces working memory and per-packet work, but the ML code and weights may stay in flash.
 
-## Processing Pipeline
-
-Steady-state detector flow:
+## Processing pipeline
 
 ```text
 CSI packet
@@ -58,62 +53,66 @@ CSI packet
   -> thresholded motion state
 ```
 
-At boot:
+At startup, Lightweight calibrates its threshold; High Accuracy starts from its trained threshold once its feature window is full. See [calibration summary](#calibration-summary).
 
-- `lightweight` performs startup threshold calibration
-- `high_accuracy` starts from its trained default threshold once CSI capture is active and its feature window has filled
+## Detector timing
 
-With the default `1000 ms` detector window and `100 pps` target, the `lightweight` startup budget is ten seconds of valid equivalent slot coverage after the detector first becomes ready. Missing slots do not become synthetic packets, same-slot bursts do not advance calibration, and a contaminating window-sized gap restarts it. Successful motion-first calibration can finish before the budget is exhausted; quiet-first fallback must converge within it. The budget measures admissible evidence, not a wall-clock timeout.
+The detector runs on elapsed time, not on packet counts:
 
-## Detector Timing
-
-The deployed detector uses a time-relative evaluation cadence and fixed feature geometry:
-
-| quantity | production setting | nominal interpretation at 100 pps |
+| Quantity | Production setting | At 100 pps |
 | --- | --- | --- |
-| detector window | `1000 ms` | 100 samples |
-| evaluation interval | `250 ms` | time-based, not packet-count driven |
-| CSI temporal target | `100 pps` | one `10 ms` slot |
-| minimum valid occupancy | `70%` | at least 70 valid slots |
-| ML L1 profile-displacement lag | derived from `100 ms` | 10 slots |
-| turbulence autocorrelation lag | derived from `10 ms` | 1 slot |
+| Detector window | `1000 ms` | 100 samples |
+| Evaluation interval | `250 ms` | time-based |
+| CSI target rate | `100 pps` | one `10 ms` slot |
+| Minimum valid occupancy | `70%` | at least 70 valid slots |
+| ML L1 profile-displacement lag | `100 ms` | 10 slots |
+| Turbulence autocorrelation lag | `10 ms` | 1 slot |
 
-The runtime derives fixed slots from `csi_target_pps`, not from measured arrival rate. It admits at most one packet per slot, retaining the candidate nearest the ideal slot center until a later slot is observed. The minimum distance between consecutive selected candidates is half a target slot and is derived from `csi_target_pps`; other same-slot candidates count as excess. Duplicate, stale, and out-of-order timestamps are rejected, and a gap spanning the configured window clears detector history immediately even while the first post-gap candidate stays pending. Detector changes and calibration boundaries clear admitted window data but preserve the active timestamp-grid phase; only a true CSI session discontinuity starts a new temporal epoch. Missing slots remain invalid in feature rings: window statistics consume valid samples, while adjacent and lagged features require valid samples at the exact configured slot offsets. Detection becomes ready after a complete temporal window with at least seven tenths valid occupancy. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
+### Temporal admission
 
-Calibration and steady-state detection share one cadence. Both paths evaluate admitted packets on the same schedule.
+The runtime divides time into fixed slots derived from `csi_target_pps`, not from the measured packet rate:
 
-The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Live sensing, collector-derived sensing, replay, training, Python validation, and C++ integration replay all apply temporal admission before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [API.md](API.md#csi-collection).
+- At most one packet per slot is admitted: the one closest to the slot center. The choice is final only when a packet arrives in a later slot, so a late but better packet is not lost.
+- Two selected packets are at least half a slot apart. Other packets in the same slot count as *excess*.
+- Duplicate, stale, and out-of-order timestamps are rejected. Wall-clock time is used only to reject packets that waited too long in the processing queue.
+- Missing slots stay empty. Window statistics use the valid samples; lagged features need valid samples at the exact slot offsets.
+- A gap as long as the window clears detector history at once.
+- Detection is ready after one full window with at least 70% valid slots.
 
-Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. A live slot is closed by observing a packet in a later timestamp slot, not merely because wall-clock time passed, so a delayed but better candidate is not discarded. Wall-clock time is used only to reject processing-backlog staleness. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
+Changing the detector or starting calibration clears the window but keeps the slot grid. Only a real break in the CSI session starts a new grid. Changing the target rate or window rebuilds the detector; the measured rate never does.
 
-The rest of the replay contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
+Live sensing, replay, training, Python validation, and C++ replay all apply the same admission before feature processing. Replay data must carry trustworthy timestamps; packets without advancing timestamps add no evidence. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md), [Wi-Fi and CSI lifecycle](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle), [CSI collection](API.md#csi-collection), and the [ML training guide](ML_TRAINING.md).
 
-The detector window setting is elapsed time. Together with `csi_target_pps`, it defines the fixed slot count:
+### Window size
+
+The window length and `csi_target_pps` set the number of slots:
 
 ```text
 window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)
 ```
 
-The production model, replay gates, training workflow, and published performance evidence use `1000 ms`. Other supported values change feature geometry and response time but are not covered by those published results. Do not use the window as a routine false-positive or latency control; prefer threshold and hit filtering. If a product needs a different window, validate the selected detector profile and the C++/Python parity gates at that setting.
+The model, replay gates, and published results all use `1000 ms`. Other values change feature timing and response time and are not covered by those results. Do not use the window to tune false positives or latency; use the threshold and motion hits instead. If a product needs another window, revalidate the detector and the C++/Python parity gates at that setting.
 
 ### Motion-hit filtering
 
-The detector processes every admitted CSI packet into its sliding window, but it evaluates and publishes on the coarser `evaluation_interval_ms` cadence. Packet timestamps drive that cadence; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps.
+The detector processes every admitted packet but evaluates only every `evaluation_interval_ms`. Each evaluation gives a raw `IDLE` or `MOTION` reading:
 
-Each evaluation produces a raw `IDLE` or `MOTION` reading. The runtime requires `motion_on_hits` consecutive opposing readings before publishing `MOTION`, and `motion_off_hits` consecutive readings before returning to `IDLE`. One reading in the current published state clears the pending count. These hits are evaluation ticks, not detector windows.
+- `motion_on_hits` consecutive `MOTION` readings switch the state to `MOTION`.
+- `motion_off_hits` consecutive `IDLE` readings switch it back.
+- One reading that agrees with the current state resets the count.
 
-For a sustained threshold crossing, the nominal hit-filter delay includes the wait for the first evaluation plus the remaining confirmation ticks. At regular 250 ms intervals, the default ranges are:
+Hits count evaluations, not windows. With the default 250 ms interval:
 
-| Transition | Hits | Confirmation latency |
-|------------|------|----------------------|
+| Transition | Hits | Confirmation delay |
+|------------|------|--------------------|
 | `IDLE -> MOTION` | `4` | about `0.75-1.0 s` |
 | `MOTION -> IDLE` | `3` | about `0.50-0.75 s` |
 
-The lower bound applies when the crossing aligns with an evaluation tick; the upper bound applies when it begins just after one. These ranges describe hit filtering only. Feature-window response and missing valid coverage can add delay between physical movement and the published state.
+The shorter delay applies when the change lines up with an evaluation. The window and missing input can add more delay.
 
-ESPHome, Native, and Matter expose persisted runtime hit controls through their advertised surfaces. Telemetry is available on detector evaluations once `ready_to_publish` is true and a frontend consumer requests it. [API.md](API.md) describes the published resources and events.
+ESPHome, Native, and Matter expose and persist the hit counts. Telemetry is published once `ready_to_publish` is true and a client asks for it; see the [API reference](API.md).
 
-## AGC-Active Normalization
+## AGC-active normalization
 
 The shared turbulence signal is:
 
@@ -134,7 +133,7 @@ If AGC scales all amplitudes by a factor `k`, turbulence stays unchanged. This s
 - dataset schema
 - offline ML tooling
 
-## Fixed Subcarrier Set
+## Fixed subcarrier set
 
 Both detectors sample the same fixed 12-subcarrier set for their turbulence and L1-displacement features:
 
@@ -146,7 +145,7 @@ These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they as
 
 The active runtime no longer selects subcarriers for each session. This set is part of the current detector definition. The indices come from measured channel coherence, not a detection-metric search: motion perturbation stays coherent over about 10 subcarriers while quiet noise is nearly independent per tone, so spreading the selected tones across the band provides independent observations. For the full rationale behind the band and the count, see [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
-### Bands For Frequency-Domain Features
+### Bands for frequency-domain features
 
 The 12-tone set is a sampling of the spectrum, and it serves the features that build a time series out of it. Aggregated turbulence averages a five-bin live-band neighborhood around each selected tone. Channel-shape features instead measure structure across frequency inside a single packet, so they read the full HT20 live band: bins `4..31` and `33..60`, the 56 subcarriers left after the guard bands and the DC null.
 
@@ -160,13 +159,13 @@ The split follows from what each family measures rather than from independent ba
 
 Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../tools/lib/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../tools/lib/ml_feature_trackers.py).
 
-Production detectors consume a canonical centered 64-subcarrier, 20 MHz view. [CSI.md](CSI.md#normalization) defines capture layouts and normalization. For LLTF, raw capture keeps the unavailable physical tones ±27 and ±28 at zero; the private detector view copies I/Q from the nearest live ±26 tone before feature extraction. The current detection corpus validates 2.4 GHz HT20 with HT-LTF; 5 GHz VHT20 detection quality remains uncharacterized.
+Capture layouts and normalization are described in [normalization](CSI.md#normalization). For LLTF, the missing tones ±27 and ±28 stay zero in raw data; the detector copies them from the nearest live ±26 tone before extracting features.
 
-## Signal Conditioning
+## Signal conditioning
 
 Optional filters operate on the scalar turbulence stream before detector evaluation.
 
-### Hampel Filter
+### Hampel filter
 
 Default: enabled (`window=7`, `threshold=5.0` MAD)
 
@@ -178,15 +177,15 @@ MAD = median(|x_i - median(x)|)
 
 Packets that exceed the configured MAD-scaled deviation are replaced by the current window median.
 
-### Low-Pass Filter
+### Low-pass filter
 
 Default: disabled
 
-The low-pass stage is a first-order Butterworth IIR filter applied to the turbulence signal before detector evaluation. Use [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) for the operational trade-off between false-positive reduction and responsiveness.
+The low-pass stage is a first-order Butterworth IIR filter applied to the turbulence signal before detector evaluation. Use the [troubleshooting guide](TROUBLESHOOTING.md) for the operational trade-off between false-positive reduction and responsiveness.
 
 The current C++ implementations calculate low-pass coefficients against a nominal `100 Hz` sample rate. `lowpass_cutoff` has its nominal frequency meaning when the admitted stream follows that regular cadence. A different target or substantial missing-slot pattern changes the effective time scale, so treat that combination as an experiment and revalidate it.
 
-## Lightweight Implementation: LightweightDetector
+## Lightweight implementation: LightweightDetector
 
 `LightweightDetector` is the production non-ML path. It combines:
 
@@ -194,7 +193,7 @@ The current C++ implementations calculate low-pass coefficients against a nomina
 - robust relative IQR of adjacent-bin aggregated turbulence
 - a fixed, weighted logistic fusion with no voting branches
 
-### Turbulence Autocorrelation
+### Turbulence autocorrelation
 
 Per-packet turbulence is the spatial coefficient of variation:
 
@@ -204,9 +203,9 @@ t_i = std(A_i) / mean(A_i)
 
 After Hampel filtering, Lightweight calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
 
-Lightweight does not allocate or update an L1-delta tracker. The tracker remains conditional on the exported feature IDs in ML, where `l1_delta_lag_ratio` consumes it. Current runtime-state ownership and measured feature costs are recorded in [FEATURES.md](FEATURES.md).
+Lightweight does not allocate or update an L1-delta tracker. The tracker remains conditional on the exported feature IDs in ML, where `l1_delta_lag_ratio` consumes it. Current runtime-state ownership and measured feature costs are recorded in the [feature ledger](FEATURES.md).
 
-### Aggregated Turbulence IQR
+### Aggregated turbulence IQR
 
 Lightweight's second input reuses the same `W=5` adjacent-magnitude aggregation as ML. Each selected tone is replaced by the mean amplitude of its five-bin live-band neighborhood, with the DC null skipped and edge windows clamped to bins 4–60. Spatial turbulence is then computed as `std/mean` and filtered into a dedicated ring.
 
@@ -216,7 +215,7 @@ turb_iqr_over_mean_aggr = (Q75(x_aggr) - Q25(x_aggr)) / max(abs(mean(x_aggr)), 1
 
 The robust spread is dimensionless and gain-invariant. Lightweight maintains one additional window-sized float ring plus its Hampel and low-pass state, but it no longer extracts complex full-band coherence. The packet magnitude frame is computed once and shared by the normal and aggregated turbulence paths.
 
-### Weighted Fusion
+### Weighted fusion
 
 Lightweight standardizes `turb_autocorr` and `turb_iqr_over_mean_aggr` with fixed training statistics, applies a two-term linear model, and converts its logit to a probability:
 
@@ -228,9 +227,7 @@ motion = probability > threshold
 
 The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay because a dense-window OOF false-positive rate does not encode the empty-room alarm budget. Current results and alarm gates live in the generated [performance report](performance/README.md). The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
 
-Startup adaptation thresholds this fitted two-feature logit directly. The older low-RSSI L1 blend path is retired; it is not part of the current detector surface.
-
-### Startup Threshold Calibration
+### Startup threshold calibration
 
 At startup, Lightweight begins from the validated global probability threshold and shifts its logit using the session's startup `q95` relative to the training idle reference. The shift applies `50%` of the observed session-to-training offset:
 
@@ -244,15 +241,13 @@ Only the first `64` ready evaluations contribute startup evidence. This keeps th
 
 The settled-level rule cannot create a high threshold. It only ever lowers one after a long quiet dwell, so any threshold that lands near `1.0` came from the startup `q95` shift, not from later recovery.
 
-### Known Limits
+### Known limits
 
-Lightweight has weaker quiet-room and held-out generalization than High Accuracy on the maintained corpus. The generated [performance report](performance/README.md) owns the current per-chip, weak-link, occupancy, false-positive, and alarm results.
+Lightweight is less robust than High Accuracy in quiet rooms and in rooms it was not trained on. Per-chip results are in the [performance report](performance/README.md). No additional feature pair or triplet is approved for Lightweight on the current corpus; see the [feature ledger](FEATURES.md).
 
-Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Lightweight Detection when CPU and working-memory headroom are the stronger product constraint. The active Lightweight feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
+### Settled-level threshold recovery
 
-### Settled-Level Threshold Recovery
-
-The detector revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The shared runtime reports that control-plane change through `on_threshold_changed`; frontend and transport propagation are documented in [ARCHITECTURE.md](ARCHITECTURE.md#runtime-contract) and [API.md](API.md#mqtt).
+The detector revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The shared runtime reports that control-plane change through `on_threshold_changed`; frontend and transport propagation are documented in [runtime contract](ARCHITECTURE.md#runtime-contract) and [MQTT topics](API.md#mqtt-topics).
 
 The recovery has these safeguards:
 
@@ -264,14 +259,14 @@ The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin prod
 
 Its limit is the mirror of its safety. A room that grows genuinely noisier after the threshold has come down cannot push it back up; only a recalibration does that.
 
-### Implementation Status
+### Implementation status
 
 Current aligned implementations:
 
 - `tools/lib/lightweight_detector.py`
 - `src/cpp/core/lightweight_detector.*`
 
-## High-Accuracy Implementation: HighAccuracyDetector
+## High-Accuracy implementation: HighAccuracyDetector
 
 `HighAccuracyDetector` is the production neural detector. It treats motion detection as a binary classification problem over a sliding window and outputs a probability in the range `0.0-1.0`.
 
@@ -283,7 +278,7 @@ motion if probability > 0.5
 
 High-Accuracy Detection skips startup threshold calibration. Detection begins after CSI is ready and the feature window has filled.
 
-### Current Runtime Topology
+### Current runtime topology
 
 The production export is a compact MLP:
 
@@ -298,7 +293,7 @@ Total parameter count: 529
 
 The runtime accepts exported hidden-layer layouts generated by the training script, but the committed production artifact currently uses the topology above.
 
-### Production Feature Set
+### Production feature set
 
 The production model consumes these eight scale-invariant inputs, in export order:
 
@@ -311,11 +306,11 @@ The production model consumes these eight scale-invariant inputs, in export orde
 7. `chan_shape_excess_path`
 8. `chan_shape_subband_kendall_lag_excess`
 
-Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
+Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in the [feature ledger](FEATURES.md).
 
-The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Consecutive identical CSI payloads contribute no additional profiles, but their timestamps still advance the window and expire old trajectory features. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [FEATURES.md](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
+The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Consecutive identical CSI payloads contribute no additional profiles, but their timestamps still advance the window and expire old trajectory features. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [current production ML set](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
 
-### Inference Flow
+### Inference flow
 
 ```text
 CSI packet
@@ -327,7 +322,7 @@ CSI packet
   -> probability threshold at 0.5
 ```
 
-### Runtime Alignment
+### Runtime alignment
 
 The same production feature set is used by:
 
@@ -335,17 +330,21 @@ The same production feature set is used by:
 - `src/cpp/core/ml_*`
 - `tools/train_ml_model.py` exports
 
-## Calibration Summary
+## Calibration summary
 
 | Detection profile | Threshold | Startup behavior |
 |----------|-----------|------------------|
 | `lightweight` | automatic, session-adjustable | motion-first completion with quiet-first fallback inside the valid evidence budget; applies session `q95` logit adaptation |
 | `high_accuracy` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
 
-Lightweight startup uses up to 10 seconds of valid, ready coverage after temporal warmup. A clean `quiet -> motion -> quiet` pattern can finish earlier. For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
+Lightweight calibration uses up to 10 seconds of valid input after the detector becomes ready:
+
+- Stay quiet right after boot. Movement during this first quiet phase lowers calibration quality.
+- A clean `quiet -> motion -> quiet` pattern can finish calibration early. This is optional; otherwise calibration falls back to a quiet-only estimate within the same 10 seconds.
+- The 10 seconds count valid slots, not wall-clock time. Missing or bursty input makes calibration take longer, and a window-long gap restarts it.
 
 Both profiles use the same fixed subcarrier set and temporal-admission contract. Their feature extraction, working state, readiness gates, motion metric, and threshold-calibration behavior differ.
 
 ## References
 
-See [LITERATURE.md](LITERATURE.md) for the paper index, publication dates, reported preprocessing, algorithms, results, hardware assumptions, and ESPectre transferability notes. This file retains only the active algorithm definition.
+Published research and how it applies to ESPectre are in the [literature review](LITERATURE.md).

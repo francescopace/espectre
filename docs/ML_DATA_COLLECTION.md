@@ -1,49 +1,41 @@
-# ML Data Collection Guide
+# ML data collection guide
 
-This guide is for dataset contributors collecting `empty`, `static_presence`, and `motion` recordings. New contributors can follow [Quick Start](#quick-start) and [`espectre collect`](#espectre-collect); metadata and validation sections are reference material for curators.
+This guide explains how to record CSI datasets for the High Accuracy model: `empty`, `static_presence`, and `motion` recordings. If you are new, read [Quick start](#quick-start), [Labels](#labels), and [Contributing data](#contributing-data). The rest is reference for dataset curators.
 
-A **label** is the observed room state, a **pair** links comparable static-presence and motion recordings, a **dataset role** controls how a recording may be used during model selection, and an **NPZ** file is the compressed NumPy container written for one device capture.
+Terms:
 
-Use:
+- **Label:** what was happening in the room during the recording.
+- **Pair:** a `static_presence` and a `motion` recording made in comparable conditions.
+- **Dataset role:** how a recording may be used: for training, for model selection, for the final test, or not at all.
+- **NPZ:** the compressed NumPy file written for each device and recording.
 
-- [`SETUP.md`](SETUP.md) for ESPectre firmware setup and external traffic generation
-- [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
-- [`ALGORITHMS.md`](ALGORITHMS.md) for detector and feature definitions
+Related: the [setup guide](SETUP.md) to install a device, the [ML training guide](ML_TRAINING.md) to train and validate, and the [algorithms reference](ALGORITHMS.md) for how the detector works.
 
-Historical rationale behind the dataset contract remains in the [ADR index](adr/README.md); this guide describes the current collection workflow.
+## What to collect
 
-## Scope
+For v3, collect only three labels. The model maps them to two states:
 
-Current collection priority for v3:
+| Label | Room state | Model state |
+|-------|------------|-------------|
+| `empty` | Nobody in the room, quiet | `IDLE` |
+| `static_presence` | Someone present but mostly still | `IDLE` |
+| `motion` | Normal movement | `MOTION` |
 
-- `empty`
-- `static_presence`
-- `motion`
-
-Those three labels feed the current production binary ML workflow:
-
-- `empty` and `static_presence` map to `IDLE`
-- `motion` maps to `MOTION`
-
-Gesture, HAR, and people-counting datasets are possible, but they are not the mainline v3 collection target.
-
-## Supported Collection Path
-
-The primary collection path is:
+## How collection works
 
 ```text
-CSI-capable ESPectre frontend
-  -> ExternalTrafficGenerator UDP marker
-  -> connection-bound GET /espectre/v1/csi response
+ESPectre device
+  <- UDP markers from the collector
+  -> raw CSI over GET /espectre/v1/csi
   -> ./espectre collect
-  -> one .npz per device_id
+  -> one .npz per device
 ```
 
-The collector resolves the Direct endpoint, persistently selects `csi_traffic_mode=external`, verifies the device configuration, opens the raw HTTP stream, and imports the same standard-library-only external generator used by `tools/ha_traffic_generator_addon/espectre_traffic_generator.py` and the Home Assistant add-on. This guide assumes that a raw-capable ESPectre device is already running and reachable.
+`./espectre collect` switches the device to external traffic, sends the traffic itself, and saves what the device streams back. You need a running ESPectre device (ESPHome, Native, or Matter) with Direct enabled, reachable from your computer. All flags are in the [`collect` command](CLI.md#collect) reference.
 
-## Quick Start
+## Quick start
 
-From the repository root:
+Set up the Python environment once, from the repository root:
 
 ```bash
 python3 -m venv .venv
@@ -51,15 +43,15 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-On Windows PowerShell, activate `.venv\\Scripts\\Activate.ps1` and replace `./espectre` with `.\espectre.cmd`.
+On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1` and use `.\espectre.cmd` instead of `./espectre`.
 
-Inspect the live stream first:
+Watch the live stream first to check that everything works:
 
 ```bash
 ./espectre collect --target 192.168.1.50
 ```
 
-Then record labeled data:
+Then record:
 
 ```bash
 ./espectre collect --label empty --duration 60 --target 192.168.1.50
@@ -67,7 +59,29 @@ Then record labeled data:
 ./espectre collect --label motion --duration 60 --target 192.168.1.50
 ```
 
-Before validation, curate the new entries in `data/dataset_info.json`. The collector records capture and transport provenance, but it cannot infer the room name or decide how a recording may be used. Add an explicit `environment` and `dataset_role` to every new entry; use `exclude` while reviewing a capture, and assign `train`, `selection`, or `holdout` only as a deliberate corpus decision. One entry should look like this:
+Recording starts only when the detector is ready: after calibration for `lightweight` (the default), or once the feature window is full for `high_accuracy`. Press `Ctrl+C` to stop: with `--duration`, this discards the recording; without it, the packets received so far are saved.
+
+The device stays in external mode afterwards.
+
+## Labels
+
+- `empty`: nobody in the room, and nothing moving.
+- `static_presence`: someone in the room, mostly still.
+- `motion`: normal movement in the room.
+
+Use a label only if it is true for the whole recording; mixed recordings are not supported. Long quiet recordings used to test false alarms are also `empty`, marked with `long_recording: true` in the catalog. They are never used for training.
+
+A good session:
+
+1. Record `empty`, then `static_presence`, then `motion`.
+2. Aim for 30–60 seconds per recording and at least 10 recordings per label.
+3. Stay in one room per session, and vary your position and distance.
+4. [Add the catalog fields](#add-the-catalog-fields) for each new file.
+5. Run `./espectre collect --info` and `python tools/validate_dataset_quality.py`.
+
+## Add the catalog fields
+
+Each recording has an entry in `data/dataset_info.json`. The collector fills in the technical details but cannot know the room or how the recording should be used, so add two fields by hand:
 
 ```json
 {
@@ -77,69 +91,55 @@ Before validation, curate the new entries in `data/dataset_info.json`. The colle
 }
 ```
 
-Use the same environment name for comparable recordings. Do not add pair fields by hand: the validator derives reciprocal static-presence and motion pairs after the required manual metadata is present.
+- `environment`: a room name. Use the same name for all recordings from the same room.
+- `dataset_role`: start with `exclude` while you review the recording. Changing it to `train`, `selection`, or `holdout` is a deliberate decision about the corpus.
 
-## `espectre collect`
+Do not add pair fields yourself: the validator creates them.
 
-`./espectre collect` is the host-side entry point for live inspection and dataset capture in the workflow described above.
+## Check the dataset
 
-For the full command reference, supported targets, external generator options, and examples, see [`CLI.md#collect`](CLI.md#collect).
+```bash
+./espectre collect --info
+python tools/validate_dataset_quality.py
+python tools/train_ml_model.py --info
+```
 
-Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not part of the supported workflow.
+- `collect --info` lists the recordings, one table per room.
+- `validate_dataset_quality.py` checks every file, creates the pair fields, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. A failure (FAIL) blocks training; the feature-space scores are only informative. It never sets dataset roles.
+- `train_ml_model.py --info` shows which recordings the trainer will use.
 
-### Save Semantics
+The validator warns when a file has less than 85% occupancy and fails below 70%. A file without usable timing information fails; it is never assumed to be 100 pps. See the [tools guide](../tools/README.md#dataset-inspection-and-validation) for options.
 
-When saving captures:
+## Contributing data
 
-- collection starts only after the ready gate is satisfied
-- for `lightweight`, that happens after startup calibration
-- `high_accuracy` uses its production feature window and does not run startup calibration
-- `--detector` chooses the production detection profile for the ready gate in both live and timed collection; timed collection accepts one profile, while live inspection can compare `lightweight,high_accuracy`
-- `Ctrl+C` before a requested `--duration` finishes aborts the partial live capture
-- without `--duration`, `Ctrl+C` saves the packets already accepted
+The most useful recordings right now:
 
-## Labels
+- `empty`, to reduce false alarms
+- `static_presence`, to make idle detection more robust
+- `motion`, from different chips, routers, and room layouts
 
-Current canonical room-state labels:
+Before opening a pull request:
 
-- `empty`: quiet room, no person present
-- `static_presence`: person present but mostly still
-- `motion`: ordinary room movement
+1. Record at least 10 files per label, if you can.
+2. Make sure each file has a single label.
+3. Add `environment` and `dataset_role` to every catalog entry.
+4. Describe the room and anything unusual in `description`.
+5. Run `./espectre collect --info`.
+6. Run `python tools/validate_dataset_quality.py` and fix every FAIL.
 
-Use these labels only when the whole capture is homogeneous.
+### Data privacy
 
-Quiet long-run replays also live under `empty`. Mark them in `dataset_info.json` with `long_recording: true` so validation and long-recording suites can find them. The trainer excludes these recordings from fitting; `selection` and `holdout` long recordings still participate in the quiet replay gate.
+CSI contains no images or audio, but it is not anonymous. Device IDs, timestamps, names, room labels, radio metadata, and detected activity can identify people or reveal private information.
 
-Mixed sessions are not part of the current v3 mainline dataset contract.
+- Record only where you have the right to, tell the people affected, and follow privacy laws.
+- Before the pull request, check the `.npz` metadata and `data/dataset_info.json`. Remove unnecessary details, and use a pseudonym as contributor if you prefer.
+- Never submit Wi-Fi passwords, SSIDs, BSSIDs, local IP addresses, serial logs, or unrelated personal data.
 
-Suggested workflow for one session:
+You keep ownership of your data and are credited in the dataset documentation. See [DCO and CLA](../CONTRIBUTING.md#dco-and-cla) for the contribution terms.
 
-1. collect `empty`
-2. collect `static_presence`
-3. collect `motion`
-4. add `environment` and an explicit `dataset_role` to each new `dataset_info.json` entry
-5. run `./espectre collect --info`
-6. run `python tools/validate_dataset_quality.py`
+## Reference
 
-Recommended starting point:
-
-- 30 to 60 seconds per sample
-- at least 10 samples per label
-- one environment at a time
-- varied positions and distances within the same environment
-
-## Raw Record Metadata
-
-Raw HTTP carries CSI V8 records with metadata useful for analysis and validation:
-
-- `device_ticks_us`
-- `wifi_rx_ts_us`, when available
-- `wifi_rx_start_ts_ns`, when available
-- RF context such as `channel`, `rssi_dbm`, and `noise_floor_dbm`
-
-## Dataset Layout
-
-Directory shape:
+### Dataset layout
 
 ```text
 data/
@@ -149,45 +149,31 @@ data/
 └── motion/
 ```
 
-Typical filename:
+File names follow `{label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_index}.npz`. Each file holds one device; mixed-device files are not supported.
 
-```text
-{label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_index}.npz
-```
+### Catalog fields
 
-All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training and validation loaders therefore label captures without per-record PHY metadata as `ht20`; new raw HTTP captures preserve explicit PHY and LTF metadata.
+`data/dataset_info.json` stores, for each file:
 
-## Metadata
+| Field | Meaning |
+|-------|---------|
+| `filename`, `chip`, `subcarriers`, `device_id` | Which file and device |
+| `contributor`, `collected_at`, `description` | Who, when, and notes |
+| `duration_ms`, `num_packets` | Length of the recording |
+| `environment` | Room name (set by hand) |
+| `dataset_role` | `train`, `selection`, `holdout`, or `exclude` (set by hand). `selection` files are used to choose between candidate models; `holdout` files stay sealed until the final check of the chosen model. The trainer treats a missing role as `exclude`, but the validator fails until every entry has one |
+| `optimal_pair_motion_file`, `optimal_pair_static_presence_file` | The matching recording of the pair (set by the validator) |
+| `low_rssi: true` | Weak-signal recording. Allows up to 5% missing records instead of 3% (warning above 1% for both) |
+| `synthetic: true` | Generated, not a real measurement |
+| `long_recording: true` | Long quiet `empty` recording, used only to test false alarms. With role `exclude`, it is kept only for reference and the quality report |
 
-`dataset_info.json` is the dataset-level index. It stores file metadata such as:
+The validator writes the pair fields itself and never pairs a real recording with a synthetic one.
 
-- `filename`
-- `chip`
-- `subcarriers`
-- `device_id`
-- `contributor`
-- `collected_at`
-- `duration_ms`
-- `num_packets`
-- `description`
-- `environment`
-- `optimal_pair_motion_file` / `optimal_pair_static_presence_file` for reciprocal `static_presence` / `motion` pairing
-- `low_rssi: true` for real and synthetic weak-link datasets stored under their semantic labels. Stream-continuity admission warns above 1% missing sequence records, fails above 3% for normal recordings, and fails above 5% for `low_rssi` recordings; maximum sequence-gap and inter-packet-gap gates remain unchanged
-- `synthetic: true` for generated captures that are not real measurements
-- `long_recording: true` for quiet long-run `empty` captures reserved for the long-recording replay suites; these stay evaluation-only and do not enter ML training or the standard empty-room admission table. A long recording with `dataset_role: exclude` remains in the catalog for provenance and quality-report diagnostics only
-- `dataset_role: train | selection | holdout | exclude` to control how a recording participates in fitting and deployment replay. The trainer treats a missing role as `exclude` for safety, but dataset validation still fails until every entry declares its role explicitly. `selection` recordings gate candidate selection, `holdout` recordings stay sealed until the trainer evaluates the final winner once, and `exclude` keeps a dataset in the catalog while removing it from the current train/selection/holdout workflow
+Older synthetic weak-link files live in the normal label folders, marked `low_rssi: true` and `synthetic: true`. The generator that made them is no longer shipped, and model promotion now relies on real recordings.
 
-`validate_dataset_quality.py` regenerates those pair fields automatically before admission and shared feature-space review. It never pairs a real capture with a synthetic capture; generated pair identity is read from the NPZ metadata.
+### NPZ contents
 
-Legacy synthetic low-RSSI derivatives use the standard `data/<label>/` directories. Their `low_rssi: true` and `synthetic: true` catalog markers describe the link condition and generated origin without changing the `empty`, `static_presence`, or `motion` meaning. The repository no longer ships the synthetic generator, and current model promotion relies on real captures.
-
-Existing generated NPZs can retain detailed generation provenance, fitted parameters, and historical Core-6 diagnostics. These fields are a backward-compatible legacy contract for self-describing analysis inputs, not a description of the current production feature set.
-
-## NPZ Contract
-
-Each `.npz` file stores raw CSI plus capture metadata.
-
-Current collector fields:
+Each `.npz` holds the raw CSI and the capture metadata:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -230,9 +216,7 @@ Current collector fields:
 
 Legacy generated NPZ files may additionally store `synthetic`, `source_dataset`, `low_rssi_profile`, `generation_mode`, `generation_seed`, `generation_group`, `generated_at`, and `generator_version`. They may also embed historical Core-6 feature names, source, target, and achieved medians, normalized fit errors, and fitted impairment parameters. These fields keep old generated files self-describing for ML analysis; the runtime packet loader ignores them.
 
-CSI uses the Espressif ordering `[Q0, I0, Q1, I1, ...]`.
-
-Amplitude extraction:
+CSI values are stored in Espressif order, `[Q0, I0, Q1, I1, ...]`:
 
 ```python
 Q = csi_data[:, 0::2].astype(float)
@@ -241,9 +225,9 @@ amplitudes = np.sqrt(I**2 + Q**2)
 phases = np.arctan2(Q, I)
 ```
 
-## Loading Data
+### Loading data
 
-Minimal example (raw on-disk arrays, including any non-HT20 rows):
+Plain NumPy returns the raw arrays, including rows the detector would skip:
 
 ```python
 import numpy as np
@@ -253,7 +237,7 @@ csi_data = data["csi_data"]
 label = str(data["label"])
 ```
 
-Using the tool library (HT20 sensing view by default):
+The tool library returns the same view the detector uses (HT20, HT-LTF, 64 subcarriers):
 
 ```python
 from pathlib import Path
@@ -262,58 +246,23 @@ from tools.lib.csi_io import load_npz_as_packets
 packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ```
 
-`load_npz_as_packets` and `load_npz_csi_data` expose the production sensing view by default: `phy_mode=ht`, `ltf_type=ht-ltf`, `channel_width=20`, and the stored 64-subcarrier HT20 layout. Historical captures that omit all per-record PHY metadata are only accepted when the on-disk payload already matches that same 64-subcarrier contract. Partially missing PHY metadata (some arrays present, others absent) is rejected rather than defaulted: a capture recorded after PHY provenance was introduced should carry every field, so a missing one marks the file as suspect. There is no fallback to `legacy` rows. Pass `keep_all_phy=True` to inspect mixed-PHY or unsupported captures explicitly. Dataset quality validation and the C++ test NPZ loader use the same filtered view, so excessive non-sensing drops show up as stream continuity gaps.
+- Old recordings without any PHY fields are accepted only if their data already has the 64-subcarrier HT20 layout.
+- A file with only some PHY fields is rejected as suspect.
+- Pass `keep_all_phy=True` to see every row, including other capture profiles.
 
-## Collection Notes
+The dataset validator and the C++ test loader use the same view, so skipped rows show up as gaps in the continuity checks.
 
-- AGC stays active during collection
-- `--pps` controls the external UDP generator and nominal dataset rate; HTTP does not pace or decimate records
-- the collector intentionally leaves the device in `external` mode after it stops
-- the external traffic marker is the exact four-byte UTF-8 payload `"👻".encode("utf-8")` (`F0 9F 91 BB`) on the capability-advertised UDP endpoint
-- the fixed training and validation view is HT20 + HT-LTF + 64 subcarriers; the runtime may select `lltf20` on the original ESP32 and ESP32-S2 or `vht20` on a VHT-capable 5 GHz association, but those raw rows retain their PHY metadata and remain outside this default dataset view
-- the current ML runtime and training flow use the eight scale-invariant production features defined in [FEATURES.md](FEATURES.md)
+### Collection notes
 
-## Dataset Inspection
+- AGC stays on during collection.
+- `--pps` sets the rate of the collector's own traffic; the device does not pace or skip records.
+- The traffic marker is the four bytes `F0 9F 91 BB` (`"👻".encode("utf-8")`), sent to the device's advertised UDP port.
+- Training uses only HT20 + HT-LTF + 64 subcarriers. The device may capture `lltf20` (classic ESP32, ESP32-S2) or `vht20` (5 GHz); those rows keep their PHY fields and are left out of the default view.
+- Raw records also carry timing and radio data: `device_ticks_us`, `wifi_rx_ts_us` and `wifi_rx_start_ts_ns` when available, `channel`, `rssi_dbm`, and `noise_floor_dbm`.
+- The dataset rules come from earlier decisions recorded in the [ADR index](adr/README.md).
 
-Use:
+## Next steps
 
-```bash
-./espectre collect --info
-python tools/validate_dataset_quality.py
-python tools/train_ml_model.py --info
-```
-
-`collect --info` summarizes collected files but does not assign environments or dataset roles. `validate_dataset_quality.py` requires those manual fields, refreshes pair metadata, runs admission plus quality review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Mean valid-slot occupancy warns below 85%, fails admission below 70%, and caps every affected review score; temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`. Insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
-
-Run the validator after curating new entries and before training. Admission failures block the workflow; feature-space scores are diagnostic only. Dataset roles remain manual, and the validator never assigns `train`, `selection`, or `holdout`. See [`tools/README.md`](../tools/README.md#dataset-inspection-and-validation) for command variants and report behavior.
-
-## Contributing Data
-
-The most useful contributions for the current project direction are:
-
-- `empty` captures that reduce false positives
-- `static_presence` captures that improve idle robustness
-- `motion` captures across chips, routers, and room layouts
-
-Before opening a PR:
-
-1. collect at least 10 samples per label when possible
-2. keep labels homogeneous
-3. add a stable environment name and an explicit dataset role to every catalog entry
-4. record room type and unusual environmental conditions in the description
-5. verify the dataset with `./espectre collect --info`
-6. run `python tools/validate_dataset_quality.py` and resolve admission FAILs
-
-### Data privacy
-
-CSI captures do not contain images or audio, but they are not inherently anonymous. Persistent device identifiers, timestamps, contributor names, environment labels, packet-level radio metadata, and inferred presence or activity can identify people or reveal sensitive information.
-
-Collect data only in spaces where you have the right to do so, inform affected people, and follow applicable privacy laws. Before opening a pull request, inspect the `.npz` metadata and `data/dataset_info.json`. Remove unnecessary identifying details and use a pseudonymous contributor value when attribution does not require your real name.
-
-Do not submit Wi-Fi credentials, SSIDs, BSSIDs, local IP addresses, serial logs, or unrelated personal information. Contributors retain ownership of their data and are credited in the dataset documentation. [CONTRIBUTING.md](../CONTRIBUTING.md#dco-and-cla) describes the DCO and CLA requirements.
-
-## Next Steps
-
-- [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks
-- [`API.md`](API.md#csi-collection) for raw HTTP framing and session ownership
-- [`README.md` (tools)](../tools/README.md) for analysis helpers
+- [ML training guide](ML_TRAINING.md): train, export, and check the model
+- [CSI collection](API.md#csi-collection): the raw stream format
+- [Tools guide](../tools/README.md): analysis helpers

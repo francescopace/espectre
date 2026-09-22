@@ -1,14 +1,14 @@
-# ESPectre Native Frontend
+# ESPectre Native frontend
 
 Native is the standalone ESP-IDF firmware for Direct HTTP, optional MQTT, Home Assistant MQTT Discovery, and HTTPS OTA. This guide covers its provisioning, integrations, build options, and recovery.
 
-## Getting Started
+## Getting started
 
-Follow [SETUP.md](../../../../docs/SETUP.md) to select a supported board, flash Native, provision Wi-Fi, and check sensing. Wi-Fi alone is enough to use Device settings and Monitor. Add MQTT in Device settings when you need Home Assistant MQTT Discovery or broker-based clients.
+Follow the [setup guide](../../../../docs/SETUP.md) to select a supported board, flash Native, provision Wi-Fi, and check sensing. Wi-Fi alone is enough to use Device settings and Monitor. Add MQTT in Device settings when you need Home Assistant MQTT Discovery or broker-based clients.
 
-### Local ESP-IDF Workflow
+### Local ESP-IDF workflow
 
-Complete the local build prerequisites in [CLI.md](../../../../docs/CLI.md#local-build-prerequisites), then run:
+Complete the local build prerequisites in [local build prerequisites](../../../../docs/CLI.md#local-build-prerequisites), then run:
 
 ```bash
 ./espectre native build --chip s2 --ota-channel develop --clean
@@ -16,9 +16,9 @@ Complete the local build prerequisites in [CLI.md](../../../../docs/CLI.md#local
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-`--ota-channel` sets the default channel for OTA requests. See [CLI.md](../../../../docs/CLI.md#native-and-matter) for build, upload, and console options. Improv Serial uses the target's primary serial console, including TinyUSB CDC on maintained USB-OTG configurations that need it.
+`--ota-channel` sets the default OTA channel. See [`native` and `matter` commands](../../../../docs/CLI.md#native-and-matter) for all options.
 
-Console setup lives in the shared frontend `primary_console` implementation. Native declares TinyUSB for ESP32-S2 and enables `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` in that target's defaults; its menuconfig option is under **ESPectre Firmware**. These sources and dependencies are outside the SDK package.
+Improv Serial uses the main serial console. On ESP32-S2 that is TinyUSB CDC, enabled by `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` under **ESPectre Firmware** in menuconfig.
 
 Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S2, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files.
 
@@ -26,17 +26,17 @@ Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI l
 
 After Wi-Fi connects, run `./espectre devices --frontend native` to find the Direct endpoint. Use Device settings for configuration and OTA, and Monitor for sensing controls and diagnostics. The endpoint never returns stored Wi-Fi or MQTT passwords.
 
-See [API.md](../../../../docs/API.md) for resources, events, limits, and security; [DISCOVERY.md](../../../../docs/DISCOVERY.md) for endpoint discovery; and [CLI.md](../../../../docs/CLI.md#collect) for raw CSI collection. For a local browser-tool build, enable `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED` and follow [README.md](../../../../docs/web/README.md#local-preview); published firmware leaves loopback origins disabled.
+See the [API reference](../../../../docs/API.md) for resources, events, limits, and security; the [discovery reference](../../../../docs/DISCOVERY.md) for endpoint discovery; and [`collect` command](../../../../docs/CLI.md#collect) for raw CSI collection. For a local browser-tool build, enable `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED` and follow [local preview](../../../../docs/web/README.md#local-preview); published firmware leaves loopback origins disabled.
 
-## Wi-Fi Provisioning and Recovery
+## Wi-Fi provisioning and recovery
 
 Use Improv Serial to set the Wi-Fi SSID and password over USB. It returns a Device settings link for the connected device. Direct HTTP can inspect the association, scan for access points on the provisioned network, select a BSSID, or remove saved Wi-Fi credentials. Band selection is a build-time option.
 
-Scanning can briefly interrupt sensing and network traffic. A BSSID change disconnects clients while Native verifies the new association; failure restores the last-known-good settings. A power loss during the transaction leaves the pending candidate available for retry at boot. Automatic selection clears the pin and channel hint. See [API.md](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [CSI.md](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
+A scan can briefly interrupt sensing and network traffic. Changing the BSSID disconnects clients while Native tests the new access point; if it fails, the previous settings come back, even after a power loss. Automatic selection clears the pin and channel hint. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
 
 Removing Wi-Fi credentials in Device settings disconnects the station and returns it to Improv Serial provisioning.
 
-Holding BOOT for `ESPECTRE_RECOVERY_BUTTON_HOLD_MS` clears saved Wi-Fi configuration and returns the device to Improv Serial provisioning. The default hold is 3 seconds. The default active-low GPIO is GPIO0 on ESP32, ESP32-S2, and ESP32-S3, GPIO9 on ESP32-C3 and ESP32-C6, and GPIO28 on ESP32-C5. Override or disable the input for boards that route BOOT differently.
+Holding BOOT for 3 seconds clears the saved Wi-Fi settings and returns to Improv Serial provisioning. BOOT is GPIO0 on ESP32, ESP32-S2, and ESP32-S3, GPIO9 on ESP32-C3 and ESP32-C6, and GPIO28 on ESP32-C5. Change the pin or hold time with the `ESPECTRE_RECOVERY_BUTTON_*` options if your board differs.
 
 Frontend-owned defaults in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) are useful for reproducible lab images. Runtime provisioning stored in NVS takes precedence.
 
@@ -49,15 +49,20 @@ Frontend-owned defaults in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) are
 | `ESPECTRE_WIFI_CHANNEL` | Optional channel hint (`0` scans normally) |
 | `ESPECTRE_RECOVERY_BUTTON_*` | Physical recovery GPIO and hold policy |
 
-ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other supported Native targets use `2g`. See [CSI.md](../../../../docs/CSI.md#capture-profiles) for capture-profile selection and the limits of 5 GHz sensing.
+ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other supported Native targets use `2g`. See [capture profiles](../../../../docs/CSI.md#capture-profiles) for capture-profile selection and the limits of 5 GHz sensing.
 
 ## Optional MQTT and Home Assistant
 
 MQTT is disabled until configured. It runs alongside Direct HTTP, and broker failures do not disable Direct sensing. The browser Monitor always uses Direct HTTP.
 
-Device settings requires an explicit scheme, host, and port. Select `mqtt`, a bare local hostname such as `homeassistant.local`, and port `1883` for a typical trusted-LAN Home Assistant or Mosquitto broker. Select `mqtts` and the broker's TLS port, commonly `8883`, for a public-CA-secured broker; Native verifies both the certificate chain and broker hostname. Do not put `mqtt://`, `mqtts://`, credentials, a port, or a path in the host field. WebSocket MQTT and private certificate authorities are not supported in this configuration version.
+In Device settings, enter the scheme, host, and port separately:
 
-An older saved endpoint without an explicit scheme is retained for recovery but remains disconnected and reports `configured: false`. Open Device settings over Direct HTTP and save the endpoint again with the intended scheme. Native never guesses whether an existing broker should use plaintext or TLS.
+- **Local broker** (Home Assistant or Mosquitto): `mqtt`, a host such as `homeassistant.local`, port `1883`.
+- **TLS broker** with a public certificate: `mqtts`, the broker's TLS port (usually `8883`). Native checks the certificate and hostname.
+
+Put only the hostname in the host field, without `mqtt://`, credentials, port, or path. MQTT over WebSocket and private certificate authorities are not supported.
+
+A broker saved by an older firmware without a scheme stays disconnected and reports `configured: false`. Save it again in Device settings with the right scheme.
 
 Home Assistant discovery is enabled in published firmware and can be disabled with `CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED`. It exposes:
 
@@ -72,15 +77,15 @@ Home Assistant discovery is enabled in published firmware and can be disabled wi
 | Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
 | Generator, network, CSI, and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
 
-Standalone MQTT clients use the topics and payloads in [API.md](../../../../docs/API.md#mqtt). Production diagnostics are available through both Direct and MQTT, including transport queues, drops, and failures; see [API.md](../../../../docs/API.md#diagnostics).
+Standalone MQTT clients use the [MQTT topics](../../../../docs/API.md#mqtt-topics). Production diagnostics are available through both Direct and MQTT, including transport queues, drops, and failures; see [API diagnostics](../../../../docs/API.md#diagnostics).
 
-## Detection and Traffic
+## Detection and traffic
 
-Set build-time sensing defaults in the shared ESP-IDF menu using [SDK.md](../../../../docs/SDK.md#shared-sensing-options). Direct HTTP, MQTT, and Home Assistant expose runtime controls; accepted detector and traffic selections persist across reboot. Use [CSI.md](../../../../docs/CSI.md#traffic-sources) for traffic behavior and [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) for practical tuning.
+Set build-time defaults in menuconfig; see [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). Direct, MQTT, and Home Assistant can change the settings at runtime, and the device remembers detector and traffic choices. See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials).
 
 ## OTA
 
-Use Device settings, Direct HTTP, or MQTT to check for and install HTTPS OTA updates. [API.md](../../../../docs/API.md#ota-actions) defines the operations. Native pauses sensing and stops its transports during the download.
+Use Device settings, Direct HTTP, or MQTT to check for and install HTTPS OTA updates. [OTA actions](../../../../docs/API.md#ota-actions) defines the operations. Native pauses sensing and stops its transports during the download.
 
 - `release`, `preview`, and `develop` select the corresponding publication channel.
 - Clients cannot override the manifest host, image URL, chip, or target version.
@@ -89,15 +94,15 @@ Use Device settings, Direct HTTP, or MQTT to check for and install HTTPS OTA upd
 - A failed update restores Direct HTTP and MQTT; sensing resumes only if it was enabled before the update.
 - USB reflashing with the full factory image remains the recovery path when OTA cannot complete.
 
-OTA selects the application-only image for the device chip from the chosen channel's firmware manifest. Missing or ambiguous matches fail the check. The service is frontend code, outside the sensing SDK; see [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md) for layer ownership.
+OTA selects the application-only image for the device chip from the chosen channel's firmware manifest. Missing or ambiguous matches fail the check. The service is frontend code, outside the sensing SDK; see the [architecture overview](../../../../docs/ARCHITECTURE.md) for layer ownership.
 
 Device settings checks for updates when you connect. If the check fails, the device reports an OTA error and keeps running the installed firmware.
 
-Official images verify signed OTA updates. Two OTA slots do not imply automatic rollback: Native does not yet enable bootloader rollback or confirm startup health after an update. See [SETUP.md](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA when switching between official and personal builds, and [RELEASING.md](../../../../docs/RELEASING.md#firmware-signing) for key custody.
+Official images accept only signed OTA updates. There is no automatic rollback yet: if a new image fails to start properly, reflash over USB. See [official images and personal builds](../../../../docs/SETUP.md#official-images-and-personal-builds) for USB versus OTA when switching between official and personal builds, and [firmware signing](../../../../docs/RELEASING.md#firmware-signing) for key custody.
 
 ## Troubleshooting
 
-Use [TROUBLESHOOTING.md](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
+Use the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
 
 ### The device does not join Wi-Fi
 
@@ -105,17 +110,25 @@ Reconnect over Improv Serial and provision the network again. If a BSSID pin is 
 
 ### OTA failed or an older release is required
 
-Reflash the full factory image over USB when OTA cannot complete. Downgrades are not a general compatibility promise: use an older factory image only when that release's migration notes explicitly allow it, and erase flash when its persisted configuration schema is incompatible. A full reflash and Improv Serial provisioning do not depend on MQTT, a remembered endpoint, or the original browser profile.
+Reflash the full factory image over USB. This works without MQTT or saved browser settings. Install an older release only if its migration notes allow it, and erase flash if its saved settings are incompatible.
 
 ### MQTT clients do not receive data
 
-Confirm that the endpoint reports `configured: true`, that the broker hostname resolves from the ESP32, that the selected scheme and port match the broker listener, that the credentials are valid, and that the intended broker client subscribes to the canonical topics. For `mqtts`, the certificate must chain to the ESP-IDF public bundle and identify the configured host. The browser Monitor uses Direct HTTP and should remain operational while broker issues are diagnosed.
+Check that:
 
-## Implementation Map
+- the MQTT settings report `configured: true`;
+- the ESP32 can resolve the broker hostname;
+- the scheme and port match the broker;
+- the credentials are valid;
+- your client subscribes to the [documented topics](../../../../docs/API.md#mqtt-topics).
 
-The frontend uses public SDK headers. See [CLI.md](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+For `mqtts`, the broker certificate must be signed by a public authority and match the hostname. Monitor keeps working over Direct in the meantime.
 
-Native links `ESPECTRE_FRONTEND_OTA_SOURCES` from the shared frontend sources. `ota_service.h` defines the update interface, `ota_service_https.h` implements HTTPS updates from ESPectre release catalogs, and `ota_protocol.h` exposes them as a protocol extension. `frontend_ota_protocol()` supplies the OTA routes, parameter validation, and events. Its validator normalizes decoded parameters so the selected channel is independent of MQTT envelope values and JSON escapes. These files remain outside the SDK.
+## Implementation map
+
+The frontend uses public SDK headers. See [building against an SDK bundle](../../../../docs/CLI.md#building-against-an-sdk-bundle) for builds against an extracted SDK bundle and [frontend layer](../../../../docs/ARCHITECTURE.md#srccppfrontend) for source groups and ownership.
+
+OTA comes from the shared frontend sources (`ESPECTRE_FRONTEND_OTA_SOURCES`), outside the SDK: `ota_service.h` defines the interface, `ota_service_https.h` downloads from the ESPectre release catalogs, and `ota_protocol.h` adds the OTA routes to the protocol.
 
 Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry in their frontend manifests. The shared Improv Serial service uses this dependency, which the SDK excludes.
 
@@ -126,4 +139,4 @@ Native and Matter pin `improv/improv` to `1.2.7` from the ESP Component Registry
 - [native_mqtt_frontend.cpp](espectre/native_mqtt_frontend.cpp): MQTT transport adapter
 - [home_assistant_mqtt_frontend.cpp](espectre/home_assistant_mqtt_frontend.cpp): Home Assistant discovery and entity mapping
 
-Shared runtime and transport components are mapped in [ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md) and [SDK.md](../../../../docs/SDK.md).
+Shared runtime and transport components are mapped in the [architecture overview](../../../../docs/ARCHITECTURE.md) and the [SDK guide](../../../../docs/SDK.md).

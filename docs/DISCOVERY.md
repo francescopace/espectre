@@ -1,14 +1,14 @@
-# ESPectre Discovery
+# ESPectre discovery
 
-ESPectre implements IPv4 Zeroconf service discovery using mDNS and DNS-SD.
+ESPectre devices announce themselves on the local network with mDNS and DNS-SD over IPv4. Use **Find devices** in the browser tools or `./espectre devices` to list them. If discovery fails, enter the device IP instead.
 
-Use **Find devices** in the portal or `./espectre devices` to find ESPectre devices on your local network. Discovery requires IPv4 and working mDNS between the client and devices. If automatic discovery fails, enter the device IP directly. See [CLI.md](CLI.md#devices) for command options and [API.md](API.md) for the device API.
+This reference describes the discovery contract for client and firmware developers. For command options, see the [`devices` command](CLI.md#devices); for the device API, see the [API reference](API.md).
 
 ## DNS-SD and mDNS
 
-ESPectre uses mDNS and DNS-SD to locate the Direct HTTP endpoint. Every networked frontend publishes `_espectre._tcp.local.` on TCP port `62587`. The stable host name is `espectre-{device_id}.local`; the service instance and display name may use the configured label, but consumers use `device_id` as identity.
+Every frontend publishes the service `_espectre._tcp.local.` for its Direct HTTP endpoint on TCP port `62587`. The host name is always `espectre-{device_id}.local`. The service name can show the user's label, but clients identify a device by `device_id`.
 
-A DNS-SD browse starts from the service-type PTR record. Each instance resolves through SRV, TXT, and address records. The host CLI accepts IPv4 A records; an advertisement that resolves only through AAAA is excluded.
+Clients browse the PTR record, then resolve SRV, TXT, and address records. Only IPv4 (A) addresses are used; a device that resolves only to IPv6 is skipped.
 
 | Frontend | Service type | Direct SRV port | Other frontend service |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@ A DNS-SD browse starts from the service-type PTR record. Each instance resolves 
 | Matter | `_espectre._tcp.local.` | `62587` | Matter operational and commissioning services |
 | Micro | `_espectre._tcp.local.` | `62587` | none |
 
-A manually entered Direct endpoint may specify another port. Clients do not probe legacy ports. ESPHome and Matter keep publishing their upstream service records, but `./espectre devices` browses only `_espectre._tcp.local.`.
+A manually entered address can use another port; clients never try old ports. ESPHome and Matter also publish their own services, but `./espectre devices` looks only for `_espectre._tcp.local.`.
 
 ### TXT record
 
@@ -34,49 +34,57 @@ A manually entered Direct endpoint may specify another port. Clients do not prob
 | `chip` | Active target, such as `esp32c3` |
 | `capabilities` | Bounded comma-separated discovery hints |
 
-There is no `events` TXT key. Clients derive resource, `/events`, and `/csi` URLs from `path`, then negotiate the exact surface through `GET /capabilities`. Discovery capability tokens are presentation hints, not authorization or UI feature gates.
+Rules for clients:
 
-`txtvers` versions the TXT key/value schema. `protovers` is the same application version exposed as `capabilities.protocol_version`; it is not an independent Direct version. Unknown TXT keys may be ignored, but an unknown `txtvers` or `protovers` value is incompatible.
+- Build all URLs (`/events`, `/csi`, and resources) from `path`, then read `GET /capabilities` for what the device supports. The `capabilities` TXT value is only a display hint, not a permission.
+- `txtvers` is the version of this TXT layout. `protovers` is the same protocol version as `capabilities.protocol_version`. An unknown value of either means the device is incompatible. Unknown keys are ignored.
+- Compare TXT keys and DNS names without regard to ASCII case. If a key appears twice, the first one wins, even if it is empty. Values keep their case.
+- A record is valid only with an IPv4 address, a non-zero port, a valid `device_id`, a known `frontend`, the exact `txtvers`, `protovers`, and `transport` values above, and `path=/espectre/v1`. `name`, `firmware`, `chip`, and `capabilities` are extra information, not identity.
 
-Consumers compare TXT keys and DNS names case-insensitively for ASCII letters. The first occurrence of a TXT key wins, including an empty or valueless occurrence; unknown keys are ignored. Values and displayed names retain their case. Advertisements keep their canonical lowercase keys. `txtvers` is the first transmitted TXT entry on all four frontends.
-
-The CLI accepts a record only when it has an IPv4 address, a non-zero SRV port, a valid `device_id`, a supported `frontend`, the exact version and transport values above, and `path=/espectre/v1`. `name`, `firmware`, `chip`, and `capabilities` enrich the result but do not identify the device.
+Devices send lowercase keys, with `txtvers` first.
 
 ### Service lifecycle
 
-Services are available only while the station interface has a usable IPv4 address. A frontend that owns its mDNS responder sends a best-effort goodbye on a clean disconnect and announces again after reconnect or an address change. ESPHome and Matter retain ownership of their responder lifecycle; ESPectre adds or removes only its service.
+The service is published only while the device has an IPv4 address. It is withdrawn on a clean disconnect and announced again after reconnecting or changing address. On ESPHome and Matter, the platform runs the mDNS responder and ESPectre only adds or removes its own service.
 
-Native uses `espectre-{device_id}.local` and updates the TXT `name` after a saved label change. ESPHome uses the same stable ESPectre host identity without changing its YAML name, native API identity, or entity IDs. Matter publishes ESPectre only after a fabric has been commissioned; removing the last fabric removes the service and stops Direct HTTP.
+- **Native** updates the TXT `name` when the label changes.
+- **ESPHome** uses the same `espectre-{device_id}.local` host name without changing its YAML name or entity IDs.
+- **Matter** publishes the service only after commissioning. Removing the last fabric removes it and stops Direct HTTP.
 
 ## Browser bootstrap
 
-Web pages cannot enumerate DNS-SD services. For each automatic discovery attempt, the portal obtains 96 random bits from Web Crypto, encodes them as 24 lowercase hexadecimal characters, and starts with a fresh host name:
+A web page cannot browse DNS-SD. Instead, the portal resolves a special host name that ESPectre devices answer, then asks one of them to browse for the others. Each attempt uses a new random name (96 bits from Web Crypto, as 24 lowercase hexadecimal characters):
 
 ```text
 espectre-devices-{nonce}.local
 ```
 
-A fresh name prevents a cached positive or negative answer from satisfying a later attempt. The static alias `espectre-devices.local` is unsupported, and firmware does not provide a compatibility fallback for a different bootstrap contract.
+A new name every time means no cached answer can be reused. The fixed name `espectre-devices.local` is not supported.
 
 ### Bootstrap DNS behavior
 
-Native, ESPHome, and commissioned Matter devices answer bootstrap queries. Micro publishes its DNS-SD service and can appear in a peer's discovery result, but does not answer bootstrap names itself.
+Native, ESPHome, and commissioned Matter devices answer the bootstrap name. Micro does not answer it, but still shows up in results found by another device.
 
-A bootstrap answer contains the responder's current IPv4 address with a ten-second TTL. Several devices may answer the same name. The response also includes NSEC to indicate that no IPv6 address is available; see the remaining limitation below.
-
-The responder accepts compressed names, multiple questions, ANY queries, multicast, QU, and legacy-unicast requests. It suppresses records already known by the requester, waits for Known Answer continuations in truncated queries, and limits repeated multicast replies. Malformed queries are ignored. Pending responses are cleared after a disconnect or address change.
-
-The responder keeps at most four pending responses and sends at most eight datagrams per second. Its bounded queues can drop queries under contention or overload. These limits and network packet loss can require another discovery attempt.
+- The answer is the device's IPv4 address with a 10-second TTL. Several devices may answer the same name.
+- The answer includes an NSEC record saying there is no IPv6 address (see [Limits](#limits)).
+- The responder handles compressed names, multiple questions, ANY, QU, multicast, and legacy-unicast queries. It skips records the client already knows, waits for Known Answer continuations, and limits repeated multicast replies. Malformed queries are ignored.
+- It keeps at most four pending answers and sends at most eight packets per second. Under load, queries can be dropped; the client then needs another attempt. Pending answers are dropped on disconnect or address change.
 
 ### `/devices` scan
 
-After resolving one bootstrap responder, the portal requests `GET /espectre/v1/devices` with the same Origin policy as any Direct request and a 10-second client timeout. Native, ESPHome, and Matter implement this resource.
+Once one device answers, the portal calls `GET /espectre/v1/devices` on it (Native, ESPHome, and Matter). The request takes no parameters and follows the same origin rules as any Direct request.
 
-If the first request is still pending after four seconds, the browser tries one more fresh nonce. A transport failure starts that retry immediately. Both requests share the original ten-second deadline; the first valid result wins, and the other request is cancelled. An HTTP `409` from an overlapping scan leaves the other request active. Invalid responses, denied permissions, and other HTTP errors end discovery. Requests to an explicit device address stay on that address.
+On the device:
 
-The request takes no parameters. It starts one asynchronous PTR browse for `_espectre._tcp.local.` with a fixed 3,000 ms query window. A concurrent scan returns HTTP `409` with code `conflict`; a scan that cannot start returns code `unavailable`. Closing the requesting connection prevents later delivery and creates no waiter or persistent peer inventory.
+- It browses `_espectre._tcp.local.` for 3,000 ms and returns what it found.
+- If a scan is already running, it returns `409` with code `conflict`; if it cannot start one, code `unavailable`.
+- It closes the connection after each response, so repeated searches do not use up sockets. It keeps no list of peers afterwards.
 
-The server closes each `/devices` connection after sending the response so repeated searches do not exhaust the device's socket limit. Other API requests, SSE, and CSI keep their existing connection policy.
+In the browser:
+
+- The whole search has a 10-second deadline.
+- If the first request has no answer after 4 seconds, or fails at the network level, the browser tries once more with a new random name. The first valid result wins and the other request is cancelled. A `409` from one request does not cancel the other.
+- An invalid response, a denied permission, or any other HTTP error ends the search.
 
 The result schema is:
 
@@ -138,23 +146,29 @@ Each device object uses this schema:
 | `capabilities` | 1 to 8 unique tokens, each at most 32 characters |
 | `addresses` | 1 to 2 validated on-link IPv4 address strings |
 
-The result includes the responding device even when the underlying Espressif query API omits its own advertisement. Devices are deduplicated by `device_id` and sorted lexicographically. Records for one identity and endpoint merge their addresses; hostname comparison ignores ASCII case while preserving the first spelling. Records that give one identity conflicting hostnames, frontends, ports, or paths reject that identity. Addresses sort numerically.
+How the device builds the list:
 
-Accepted addresses must be IPv4 unicast addresses on the responder's station subnet. Unspecified, network, broadcast, loopback, multicast, and off-link addresses are rejected. The response contains no credentials, configuration secrets, motion events, CSI, or broker details.
+- The answering device always includes itself.
+- Devices are merged by `device_id` and sorted by it. Addresses of the same device are merged and sorted numerically. Host names are compared without regard to case, keeping the first spelling.
+- If two records for one `device_id` disagree on host name, frontend, port, or path, that device is rejected.
+- Only unicast IPv4 addresses on the device's own subnet are kept.
+
+The response contains no credentials, settings, motion data, CSI, or broker details.
 
 ### Serialization limits
 
-The comma-separated TXT capability value may contain at most 128 characters. Capability tokens contain only letters, digits, `-`, and `_`; duplicate tokens invalidate the record. The complete result object is limited to 3,584 bytes. Device, address, and output-size limits retain the deterministic leading results and set `truncated`.
+- The TXT `capabilities` value is at most 128 characters. Tokens use letters, digits, `-`, and `_`; a duplicate token makes the record invalid.
+- The whole result is at most 3,584 bytes. When a limit is hit, the first entries in sort order are kept and `truncated` is true.
 
 ## Client validation and fallback
 
-The portal validates the complete result before rendering a device or constructing an endpoint. It remembers only the selected unique address, never the shared bootstrap name or peer list. After selection, the client requests `GET /device` and `GET /capabilities`; the `device_id`, frontend, protocol version, and base path must agree with discovery.
+The portal checks the whole result before showing any device. It remembers only the address you pick, never the bootstrap name or the list. After you pick a device, it reads `GET /device` and `GET /capabilities` and checks that `device_id`, frontend, protocol version, and base path match the discovery data.
 
-If no eligible responder is reachable, connect with a private device IP, the unique `espectre-{device_id}.local` host name, a remembered endpoint, or Improv Serial. Routed networks, multicast filtering, client isolation, and browser local-network permissions can block discovery without blocking Direct connectivity.
+Routers, multicast filtering, client isolation, and browser permissions can block discovery while the device itself is still reachable. In that case, connect with the device IP, its `espectre-{device_id}.local` name, a saved address, or Improv Serial.
 
 ## Limits
 
-- Multicast filtering, client isolation, and packet loss can hide a device that remains reachable by IP. Intermittent omissions were observed on a mesh network. Retries improve recovery but cannot guarantee discovery; use the device IP when needed. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#mesh-wi-fi-instability).
-- Discovery uses IPv4. An IPv6-only advertisement is excluded.
-- The shared bootstrap name retains an NSEC assertion despite having multiple responders, a known deviation from [RFC 6762, section 6.1](https://www.rfc-editor.org/rfc/rfc6762.html#section-6.1). Removing NSEC has not completed validation across the supported frontends and remains experimental.
-- Espressif's canonical-host responder has known deviations involving invalid RCODE queries, class ANY, negative AAAA answers, and legacy-unicast TTLs. These are outside the ESPectre bootstrap corrections.
+- Multicast filtering, client isolation, and packet loss can hide a device that still answers on its IP. Devices sometimes went missing on a mesh network. Retries help but cannot guarantee a result; see [mesh Wi-Fi instability](TROUBLESHOOTING.md#mesh-wi-fi-instability).
+- Only IPv4 is supported.
+- The bootstrap name has several responders but still carries an NSEC record, which deviates from [RFC 6762, section 6.1](https://www.rfc-editor.org/rfc/rfc6762.html#section-6.1). Removing it is still experimental.
+- Espressif's own host-name responder has known deviations (invalid RCODE queries, class ANY, negative AAAA answers, and legacy-unicast TTLs). ESPectre's bootstrap responder does not change them.

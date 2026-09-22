@@ -1,10 +1,10 @@
-> **Note**: Please target the `develop` branch. PRs to `main` will not be accepted.
+> **Note:** open pull requests against `develop`. Pull requests to `main` are not accepted.
 
 ## Description
 
-Brief description of the changes in this PR.
+What does this pull request change, and why?
 
-## Affected Area
+## Affected area
 
 - [ ] Shared core/runtime
 - [ ] ESPHome
@@ -13,7 +13,7 @@ Brief description of the changes in this PR.
 - [ ] Micro-ESPectre / Python tooling
 - [ ] Documentation / GitHub / CI
 
-## Type of Change
+## Type of change
 
 - [ ] Bug fix (non-breaking change that fixes an issue)
 - [ ] New feature (non-breaking change that adds functionality)
@@ -22,11 +22,11 @@ Brief description of the changes in this PR.
 - [ ] Refactoring (no functional changes)
 - [ ] Test update
 
-## Related Issues
+## Related issues
 
 Closes #
 
-## Changes Made
+## Changes made
 
 - 
 - 
@@ -45,4 +45,4 @@ Closes #
 - [ ] I have added an entry to CHANGELOG.md (if applicable)
 - [ ] My changes generate no new warnings
 - [ ] My commits include `Signed-off-by` trailers (`git commit -s`)
-- [ ] I have signed the [CLA](../CLA.md): my GitHub login is in `.github/cla-signatures.json` (first PR only; see [CLA.md](../CLA.md) for how to sign)
+- [ ] I have signed the [CLA](../CLA.md): my GitHub login is in `.github/cla-signatures.json` (first pull request only)

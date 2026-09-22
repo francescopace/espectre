@@ -10,7 +10,7 @@
 ## About
 
 ESPectre is a motion detection platform based on Wi-Fi signal analysis.
-This addon supply external traffic to your ESPectre sensors directly from Home Assistant. 
+This add-on supplies external traffic to your ESPectre sensors directly from Home Assistant.
 One multicast stream can serve multiple devices, or you can send traffic to individual device IP addresses.
 
 Open the Home Assistant panel to switch your ESPHome or Native MQTT devices between internal and external traffic, and view automatically updated CSI diagnostics. Pin it with **Show in sidebar** for quick access.

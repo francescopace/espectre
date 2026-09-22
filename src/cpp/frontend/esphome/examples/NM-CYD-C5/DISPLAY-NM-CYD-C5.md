@@ -1,8 +1,8 @@
-# NM-CYD-C5 Display Solution (ESPectre × Cheap Yellow Display C5)
+# NM-CYD-C5 display solution (ESPectre × Cheap Yellow Display C5)
 
 > Goal: bring [NM-CYD-C5](https://github.com/RockBase-iot/NM-CYD-C5) (the ESP32-C5 version of the "Cheap Yellow Display", 320×240 ST7789 + XPT2046 resistive touch) into ESPectre, and show a live Movement-score curve with the Movement Threshold line on the local display — with on-screen threshold adjustment and one-tap calibration.
 
-## 1. What the ESPectre component exposes (code survey)
+## 1. What the ESPectre component exposes
 
 The ESPHome component (`src/cpp/frontend/esphome/components/espectre/`) auto-creates its core entities with defaults; the example only needs to give them IDs. The ones used by the display and touch buttons:
 
@@ -59,17 +59,17 @@ The approach mirrors `examples/espectre-s3-touch-lcd.yaml` (Waveshare S3 1.47" d
 |---|---|
 | `THR −0.05` | `threshold_number` call −0.05, takes effect immediately (clamped 0.0–1.0) |
 | `THR +0.05` | same, +0.05 |
-| `⟳ CALIBRATE` | `button.press` on `recalibrate_button` → re-calibration (~10 s at the default 1 s × 10 windows; keep the environment still). `calibration_active_sensor` turns on during calibration and off when done |
+| `⟳ CALIBRATE` | `button.press` on `recalibrate_button` → recalibration (about 10 s of valid input; keep the room still). `calibration_active_sensor` turns on during calibration and off when done |
 
-Refresh strategy: `display` is set to `update_interval: never`; a single 1 s `interval` (main-loop context) handles all redraws. **All** ESPectre entity callbacks may fire from non-main-loop tasks, so **none of them may call `component.update` on the display** — that would race the XPT2046 touchscreen's SPI polling on the same bus and trigger `spi_master: Cannot acquire bus when a polling transaction is in progress` assertion reboots (observed twice in practice, then fixed). The graph lambda de-duplicates curve points, so the fixed cadence loses nothing; touch-button feedback appears on the next redraw.
+Refresh: the display uses `update_interval: never`, and one 1-second `interval` on the main loop redraws everything. ESPectre entity callbacks can run on other tasks, so **none of them may call `component.update` on the display**: that would collide with the touchscreen's SPI polling on the same bus and reboot the device with `spi_master: Cannot acquire bus when a polling transaction is in progress`. The graph skips duplicate points, so the fixed rate loses nothing; button presses show up on the next redraw.
 
 ## 5. Deliverables
 
 | File | Description |
 |---|---|
 | `src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml` | Complete NM-CYD-C5 config (extends `espectre-c5.yaml`, with display + touch + buttons) |
-| [DISPLAY-NM-CYD-C5.md](DISPLAY-NM-CYD-C5.md) | This design document |
-| [USAGE-NM-CYD-C5.md](USAGE-NM-CYD-C5.md) / [USAGE-NM-CYD-C5_zh.md](USAGE-NM-CYD-C5_zh.md) | English / Chinese usage guides |
+| [Display design](DISPLAY-NM-CYD-C5.md) | This design document |
+| [Usage guide](USAGE-NM-CYD-C5.md) | Usage guide |
 
 ## 6. Optional future extensions (require component changes)
 

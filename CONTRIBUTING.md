@@ -1,48 +1,51 @@
 # Contributing
 
-Submit contributions through pull requests against `develop`. This guide covers review expectations, validation, and contribution requirements. Installation and technical workflows live in the documents linked below.
+Contributions come in as pull requests against `develop`. This guide explains what we expect, how to test, and the sign-off requirements.
 
 ## Getting started
 
 1. Fork and clone the repository, then create a branch from `develop`.
-2. Set up the repository environment using [CLI.md](docs/CLI.md#local-build-prerequisites). Install ML extras only when needed, following [ML_TRAINING.md](docs/ML_TRAINING.md#prerequisites).
-3. Read the document and local README that own your change. [ARCHITECTURE.md](docs/ARCHITECTURE.md) maps the code and dependency boundaries; [SETUP.md](docs/SETUP.md) covers device installation and configuration.
+2. Set up the environment with the [local build prerequisites](docs/CLI.md#local-build-prerequisites). Add the [ML extras](docs/ML_TRAINING.md#prerequisites) only if you need them.
+3. Read the documentation for the part you are changing. The [architecture overview](docs/ARCHITECTURE.md) shows how the code is organized; the [setup guide](docs/SETUP.md) shows how to install a device.
 
-[ROADMAP.md](docs/ROADMAP.md) describes current priorities. Discuss scope and implementation questions in the issue associated with the work or in [GitHub Discussions](https://github.com/francescopace/espectre/discussions).
+The [roadmap](docs/ROADMAP.md) shows current priorities. Discuss scope and design in the related issue or in [GitHub Discussions](https://github.com/francescopace/espectre/discussions).
 
 ## Making changes
 
-Keep each pull request focused on one feature or fix. Match the surrounding code, write code and comments in English, and add tests for new behavior. Preserve existing license notices, including third-party notices. New first-party source files should follow neighboring headers, including `SPDX-License-Identifier: GPL-3.0-only` and the commercial-license notice. [LICENSING.md](LICENSING.md) describes the licensing tracks.
+- Keep each pull request to one feature or fix.
+- Match the surrounding code, write code and comments in English, and add tests for new behavior.
+- Keep existing license notices. New source files copy the header of their neighbors, including `SPDX-License-Identifier: GPL-3.0-only` and the commercial-license notice (see the [licensing terms](LICENSING.md)).
+- Try detector changes in Python first, then port them to C++. See the [algorithms reference](docs/ALGORITHMS.md) and [required validation](docs/ML_TRAINING.md#required-validation).
+- When behavior, settings, or workflows change, update the document that covers them.
 
-Use [SDK.md](docs/SDK.md) for public integration contracts, [CSI.md](docs/CSI.md) for acquisition and traffic, and [API.md](docs/API.md) for shared messages and operations. Prototype detector changes in Python before porting them to C++; [ALGORITHMS.md](docs/ALGORITHMS.md) and [ML_TRAINING.md](docs/ML_TRAINING.md#required-validation) describe the detector behavior and validation gates.
-
-Update the owning documentation whenever behavior, configuration, or operator workflows change.
+Useful references: the [SDK guide](docs/SDK.md) for the public API, the [CSI guide](docs/CSI.md) for capture and traffic, and the [API reference](docs/API.md) for the device protocol.
 
 ## Validation
 
-Run the narrowest checks for the changed behavior first, then the required integration and parity gates. Include the commands and results in the pull request, and explain any check you could not run.
+Run the checks closest to your change first, then the integration and parity checks it requires. In the pull request, list the commands and results, and say which checks you could not run and why.
 
-- C++ host tests and coverage: follow [README.md](test/cpp/README.md). Run the coverage workflow for C++ changes and investigate unexplained regressions in the affected layer. Coverage helpers use Bash; Windows contributors can use CMake/CTest for host tests or WSL/Git Bash for coverage.
-- Python runtime, CLI, tools, and validation tests: use the repository virtual environment. The full suite and coverage commands are below.
-- Website tests, generated pages, and local preview: follow [README.md](docs/web/README.md#tests).
-- Detector and model changes: run the required checks in [ML_TRAINING.md](docs/ML_TRAINING.md#required-validation). [README.md](docs/performance/README.md) records measured results.
+- **C++:** follow the [C++ test guide](test/cpp/README.md), including coverage, and explain any coverage drop. The coverage scripts need Bash; on Windows, use CMake/CTest for tests and WSL or Git Bash for coverage.
+- **Python** (runtime, CLI, tools): use the repository virtual environment and the commands below.
+- **Website:** follow the [website tests](docs/web/README.md#tests).
+- **Detector and model:** run the [required validation](docs/ML_TRAINING.md#required-validation).
 
 ```bash
 .venv/bin/pytest test/python -q --tb=short
 ./test/python/run_coverage.sh
 ```
 
-Python test auto-parallelism is capped at four workers because replay-heavy tests slow down at higher process counts. Set `PYTEST_XDIST_AUTO_NUM_WORKERS` to a positive integer to override the cap. Firmware builds and device checks follow the selected frontend's README.
+Python tests run on at most four workers, because the replay tests get slower with more. Set `PYTEST_XDIST_AUTO_NUM_WORKERS` to change that. For firmware builds and device checks, follow the frontend's guide.
 
 ### SDK validation
 
-`test/cpp/` builds the sensing stack on a host machine, including integration suites that replay CSI recordings through the production pipeline. `test/python/` checks algorithm parity. The facade compile test in `test/cpp/suites/runtime/test_sdk_surface.cpp` checks that the documented surface remains reachable through `espectre_sdk.h` and that published defaults stay consistent. `test/python/contracts/test_sdk_surface_invariants.py` checks the generated ESPHome schema, rejects frontend dependencies on private SDK headers, and verifies public header coverage in the API reference and [SDK.md](docs/SDK.md#header-map).
-
-After changing the canonical sensing schema, run `.venv/bin/python .github/scripts/generate_esphome_schema.py`; use `--check` to verify the generated file without writing it. Validate the packaged component and example using [RELEASING.md](docs/RELEASING.md#package-and-validate).
+- `test/cpp/suites/runtime/test_sdk_surface.cpp` checks that everything documented is reachable through `espectre_sdk.h` and that the defaults match.
+- `test/python/contracts/test_sdk_surface_invariants.py` checks the generated ESPHome schema, blocks frontends from using private SDK headers, and checks that every public header is documented in the API reference and in [public headers](docs/SDK.md#public-headers).
+- After changing the sensing schema, run `.venv/bin/python .github/scripts/generate_esphome_schema.py` (`--check` only verifies).
+- To check the packaged component and example, follow [package and validate](docs/RELEASING.md#package-and-validate).
 
 ## Pull requests
 
-Target `develop`; `main` is reserved for releases. Explain the problem, the resulting behavior, and how you tested it. Include the relevant documentation changes. All required CI checks must pass, and the pull request needs at least one review approval.
+Open pull requests against `develop`; `main` is only for releases. Explain the problem, what changes, and how you tested it, and include the documentation updates. All required CI checks must pass, and at least one reviewer must approve.
 
 ### Commits
 
@@ -54,11 +57,8 @@ git commit -s -m "fix: correct calibration for edge cases"
 
 ### DCO and CLA
 
-Every human-authored commit must include a valid `Signed-off-by` trailer under the Developer Certificate of Origin (DCO), enforced by CI. Dependabot-authored commits are exempt from sign-off; all commits must satisfy the linear-history check.
-
-The project also requires a one-time [CLA.md](CLA.md) signature for distribution under both licensing tracks in [LICENSING.md](LICENSING.md). Add your GitHub login and signing date to `.github/cla-signatures.json` in your first pull request, following the CLA instructions. You retain ownership of your contribution.
-
-If your latest commit lacks a sign-off, use `git commit --amend -s` before updating your pull request branch.
+- Every commit you write needs a `Signed-off-by` line (Developer Certificate of Origin, or DCO); CI checks it. Forgot it on the last commit? Run `git commit --amend -s`. Dependabot commits are exempt, but every commit must keep a linear history.
+- Sign the [CLA](CLA.md) once, so your work can be distributed under both licenses (see the [licensing terms](LICENSING.md)): add your GitHub login and the date to `.github/cla-signatures.json` in your first pull request. You keep ownership of your contribution.
 
 ### Updating and merging
 
@@ -70,30 +70,29 @@ git rebase origin/develop
 git push --force-with-lease
 ```
 
-Rewrite only your pull request branch. Never force-push `main` or `develop`. Integrate pull requests with **Rebase and merge**; merge commits and squash merges are disabled.
+Only rewrite your own pull request branch; never force-push `main` or `develop`. Pull requests are merged with **Rebase and merge** (merge commits and squash merges are disabled).
 
 ## Data contributions
 
-Follow [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md#contributing-data) for priority labels, recording requirements, metadata, and quality checks. Add recordings under the documented dataset layout and describe the setup in your pull request. Collection and training have separate workflows; [ML_TRAINING.md](docs/ML_TRAINING.md) explains dataset roles and model promotion.
-
-Read the privacy requirements in [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md#data-privacy) before recording or submitting data. DCO and CLA requirements also apply to data contributions.
+Follow [contributing data](docs/ML_DATA_COLLECTION.md#contributing-data) for what to record, catalog fields, and checks, and describe your setup in the pull request. Read [data privacy](docs/ML_DATA_COLLECTION.md#data-privacy) before recording. The DCO and CLA apply to data too.
 
 ## Documentation
 
-Update the existing topic owner instead of copying details into another guide. [AGENTS.md](docs/AGENTS.md#topic-owners) defines document ownership; its style rules require concise technical English, the Oxford comma, and clear distinctions between deployed, experimental, and planned behavior. Check commands, file paths, and link targets in your changes.
+Each topic has one document; update it instead of copying details elsewhere. The [documentation rules](docs/AGENTS.md#topic-owners) list which document covers what, and ask for short, plain sentences, the Oxford comma, and a clear line between what ships, what is experimental, and what is planned. Check commands, paths, and links in your changes.
 
-For website changes, edit authored fragments and follow the generation and verification workflow in [README.md](docs/web/README.md). Generated reports must be regenerated through their owning tools.
+For the website, edit the source fragments and follow the [website guide](docs/web/README.md). Regenerate reports with their tools; never edit them by hand.
 
 ## Issues and questions
 
-Search [GitHub Issues](https://github.com/francescopace/espectre/issues) before opening a report. Check [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) and the frontend README, and verify whether the problem persists on the latest `develop` build.
+Before opening an issue, search [GitHub Issues](https://github.com/francescopace/espectre/issues), check the [troubleshooting guide](docs/TROUBLESHOOTING.md) and the frontend guide, and try the latest `develop` build.
 
-A bug report should include reproduction steps, expected and observed behavior, the ESPectre version, chip, and relevant configuration. Include the Home Assistant version when applicable. Remove credentials and unrelated personal information from configuration and logs. For feature requests, explain the use case, proposed behavior, and alternatives considered.
+- **Bug reports:** steps to reproduce, what you expected and what happened, ESPectre version, chip, configuration, and Home Assistant version if relevant. Remove passwords and personal data from configuration and logs.
+- **Feature requests:** the use case, the behavior you propose, and the alternatives you considered.
 
-Use [GitHub Discussions](https://github.com/francescopace/espectre/discussions) for help and design questions. Participation follows [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md); report unacceptable behavior to contact@espectre.dev.
+Ask for help and discuss designs in [GitHub Discussions](https://github.com/francescopace/espectre/discussions). Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md); report problems to contact@espectre.dev.
 
-Contributors are acknowledged in pull requests, significant contributions in release notes, and dataset contributions in the dataset documentation.
+Contributors are credited in pull requests, major contributions in release notes, and data contributions in the dataset documentation.
 
 ## Publishing releases
 
-Maintainer procedures for firmware signing, key rotation and recovery, SDK packaging, and registry publication are documented in [RELEASING.md](docs/RELEASING.md).
+Firmware signing, key management, SDK packaging, and publication are in the [release guide](docs/RELEASING.md).

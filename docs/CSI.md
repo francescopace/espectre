@@ -1,101 +1,119 @@
 # CSI acquisition and traffic
 
-The shared C++ sensing runtime obtains channel state information (CSI) from Wi-Fi frames, validates the capture, and normalizes it before passing samples to the detector or raw collection.
+ESPectre senses motion from channel state information (CSI): a per-packet measurement of how the Wi-Fi signal travels through the room. The shared C++ runtime needs a steady flow of packets to measure. It captures CSI from those packets, checks its quality, and converts it to one common layout for the detector.
 
-Use [SDK.md](SDK.md#shared-sensing-options) for configuration defaults and ranges, [API.md](API.md#external-csi-traffic) for external traffic and collection formats, and [ALGORITHMS.md](ALGORITHMS.md#detector-timing) for detector timing.
+For settings and defaults, see [shared sensing options](SDK.md#shared-sensing-options). For external traffic and data formats, see [external CSI traffic](API.md#external-csi-traffic). For timing, see [detector timing](ALGORITHMS.md#detector-timing).
 
 ## Traffic sources
 
-`csi_traffic_mode` selects whether the device generates traffic (`internal`) or receives it from an external source (`external`). `csi_target_pps` sets the managed-traffic target and detector slot cadence independently of that selection. It never enables or disables traffic.
+`csi_traffic_mode` chooses who sends the traffic: the device (`internal`) or another host (`external`). `csi_target_pps` sets the packet rate and the detector timing in both cases.
 
-The runtime preserves an explicit source selection across ordinary delivery problems. Occupancy is diagnostic and never changes the target or selects a fallback protocol.
+The runtime never switches source on its own. Low occupancy is reported as a diagnostic; it does not change the rate or the source.
 
 ### Internal generators
 
-| Mode | Traffic | Destination requirement |
-|------|---------|-------------------------|
-| `ping` | ICMP Echo Requests | A host that replies to ping |
-| `dns` | Connectionless DNS root queries over UDP | A resolver on port `53` |
-| `dns_tcp` | Length-prefixed DNS queries over a persistent, non-blocking TCP connection | A resolver that accepts TCP queries on port `53` |
-| `wifi_raw` | Experimental 802.11 Null Data frames | The associated AP, with usable ACK CSI on the selected device and driver |
+| Mode | Traffic | Destination must |
+|------|---------|------------------|
+| `ping` (default) | ICMP Echo Requests | Reply to ping |
+| `dns` | DNS root queries over UDP | Be a resolver on port `53` |
+| `dns_tcp` | DNS queries over a persistent TCP connection | Accept TCP queries on port `53` |
+| `wifi_raw` | Experimental 802.11 Null Data frames | Be the access point, with usable ACK CSI on this chip |
 
-The default is `ping`. The IP-based generators use `traffic_generator_target_ip`, or the current Wi-Fi gateway when it is empty. The runtime uses the same resolved address for sending and identifying IP responses, and refreshes it after reconnection. [SDK.md](SDK.md#traffic-destination) describes address validation and startup configuration.
+`ping`, `dns`, and `dns_tcp` send to `traffic_generator_target_ip`, or to the Wi-Fi gateway when it is empty. The address is refreshed after every reconnect. See [traffic destination](SDK.md#traffic-destination) for valid values.
 
-The build-time station TX rate defaults to HT20 MCS0 with long GI (6.5 Mbps) on classic ESP32 and Auto on other targets. `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` accepts `"0"` (Auto), `"6"`, or `"6.5"`; see [SDK.md](SDK.md#shared-sensing-options). This rate applies to station traffic, including Direct and MQTT, independently of sensing or traffic mode. It does not set the AP's downlink rate or change the requested packet cadence.
+`wifi_raw` sends Null Data frames to the access point at 6 Mbps and measures CSI on the ACKs that come back. If the driver rejects that rate, `wifi_raw` does not start. It ignores the IP destination and follows the access point after roaming. Check the [compatibility limits](#compatibility-limits) before using it.
 
-A fixed 6.5-Mbps rate requires an 802.11n AP. Fixed OFDM 6 Mbps requires a 5 GHz AP or support for 802.11g or 802.11n. Firmware uses automatic rates when the AP lacks the selected PHY or TX A-MPDU is enabled, and reevaluates the choice after association or roaming. The AP must also allow the selected rate in its configuration. A driver error prevents connected services from starting and is logged; it does not select another rate automatically. Micro uses the same policy; see its [README.md](../src/python/micro_espectre/README.md#csi-acquisition).
+#### Transmit rate
 
-`wifi_raw` sends Null Data frames to the associated AP at legacy OFDM 6 Mbps and obtains CSI from its ACKs. The configured IP destination has no effect on this mode. The target BSSID is refreshed after roaming, even when IP and channel stay the same. A rejected raw-rate setting prevents this generator from starting. See [Compatibility limits](#compatibility-limits) before selecting it.
+`CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` is a build-time setting for all station traffic, including Direct and MQTT:
+
+| Value | Rate | Requires |
+|-------|------|----------|
+| `"0"` | Automatic (default on every chip except classic ESP32) | — |
+| `"6.5"` | HT20 MCS0, long GI (default on classic ESP32) | An 802.11n access point |
+| `"6"` | Legacy OFDM | An 802.11g/n access point, or 5 GHz |
+
+If the access point does not support the selected rate, or TX A-MPDU is enabled, the firmware falls back to automatic rates. It checks again after each connection or roam. If the driver rejects the rate, connected services do not start and the error is logged. The setting does not change the access point's rate or the packet rate. Micro-ESPectre follows the same rules; see its [CSI acquisition](../src/python/micro_espectre/README.md#csi-acquisition) section.
 
 ### External sources
 
-In `external` mode, the internal generator stops. The ESP-IDF frontends accept UDP markers or unicast ICMP Echo Requests addressed to the device. The host owns pacing. UDP can use unicast or the configured multicast group; the listener joins that group unless the setting is empty.
+In `external` mode the internal generator stops, and another host sends the packets and sets the pace. The ESP-IDF frontends accept UDP markers, by unicast or on the configured multicast group, and unicast ICMP Echo Requests addressed to the device. An empty multicast group disables the multicast join.
 
-For continuous external traffic on 64-bit Home Assistant OS, use the **ESPectre Traffic Generator** add-on. It runs the shared UDP generator and provides an Ingress panel for traffic ownership and automatically updated diagnostics through existing ESPHome or Native MQTT entities in Home Assistant. Set each device to `csi_traffic_mode: external` and match the add-on's `rate_pps` to the device's `csi_target_pps`; mode changes require an explicit action. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md) for installation, requirements, and configuration. Stop the add-on before running `./espectre collect` for the same devices, because collection starts its own generator.
+On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on sends this traffic and adds a panel to switch ESPHome and Native MQTT devices between internal and external mode. Match its `rate_pps` to the device's `csi_target_pps`. Stop the add-on before running `./espectre collect` on the same devices, because collection starts its own generator. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md).
 
-The host UDP generator defaults to multicast TTL 8, allowing up to seven router hops when multicast forwarding is configured in the network. Set `multicast_ttl` to 1 to keep multicast local; Layer 2 switches do not consume TTL. Unicast uses the operating system's normal TTL. See [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md#switches-vlans-and-routed-networks) for cross-VLAN setup and interface selection.
+The host generator sends multicast with TTL 8, so it can cross up to seven routers where multicast routing is set up. Set `multicast_ttl` to 1 to keep it on the local network. See [switches, VLANs, and routed networks](../tools/ha_traffic_generator_addon/DOCS.md#switches-vlans-and-routed-networks).
 
-Subnet and limited broadcast do not produce reliable HT20 CSI. Use the destination, port, and marker contract in [API.md](API.md#external-csi-traffic). Host generation and collection workflows are in [CLI.md](CLI.md#collect).
+Broadcast traffic does not give reliable HT20 CSI; use unicast or multicast. Ports and markers are defined in [external CSI traffic](API.md#external-csi-traffic), and host commands in [`collect`](CLI.md#collect).
 
 ### Pacing
 
-The device and host generators pace traffic at the configured rate and avoid bursts after scheduling delays. Delivery errors can reduce the observed rate; the runtime keeps your selected target and traffic source.
+The device and host generators send packets at an even rate and avoid bursts after delays. Delivery errors can lower the measured rate, but the runtime keeps your target and source.
 
-Internal IP traffic requests DSCP 46 treatment. The host UDP generator uses the same default, with a configurable `dscp` codepoint from 0 to 63; see [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md#advanced-dscp-marking). A particular WMM priority or improvement in delivery is not guaranteed. [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md) records the pacing decision and measurements.
+IP traffic is marked with DSCP 46 by default. The host generator lets you set another value from 0 to 63; see [DSCP marking](../tools/ha_traffic_generator_addon/DOCS.md#advanced-dscp-marking). Better delivery is not guaranteed. The measurements behind this choice are in [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md).
 
 ## Wi-Fi and capture lifecycle
 
-Sensing starts after Wi-Fi has a usable IPv4 address and stops on disconnect. Reconnection or roaming restarts the traffic source and refreshes CSI capture. A roaming transition can retain its address; firmware restores sensing, discovery, and Direct services after checking the current association, once the retained address is available. Initial connections and ordinary reconnects wait for a valid address.
+Sensing starts once Wi-Fi has an IPv4 address and stops on disconnect. After a reconnect or roam, the runtime restarts traffic and CSI capture. A roam that keeps the same address restores sensing, discovery, and Direct as soon as the new association is confirmed.
 
-If startup traffic continues without CSI callbacks, the runtime can attempt one recovery scan on the associated channel. If usable CSI still does not arrive, follow [TROUBLESHOOTING.md](TROUBLESHOOTING.md#no-csi-or-insufficient-input).
+If traffic flows but no CSI arrives at startup, the runtime tries one recovery scan on the current channel. If CSI still does not arrive, see [no CSI or insufficient input](TROUBLESHOOTING.md#no-csi-or-insufficient-input).
+
+ESPectre captures CSI only while connected to an access point and never uses promiscuous mode. Use it only on networks you are allowed to use; having the Wi-Fi password is not consent to sensing.
 
 ### Capture profiles
 
-The C++ runtime accepts a build-time `csi_capture_profile` selection through ESPHome YAML, the shared Kconfig capture-profile choice, or `RuntimeConfig`: `auto`, `lltf`, or `ht-vht`. The default `auto` follows the policy below. `lltf` always selects LLTF20. `ht-vht` selects VHT20 on a VHT-capable 5 GHz link and HT20 otherwise, including on ESP32 and ESP32-S2; it also supports automatic band selection on ESP32-C5. `wifi_raw` requires `auto` or `lltf`, including when selected through existing runtime traffic controls. A persisted source incompatible with the configured profile is ignored at startup, preserving the configured source. The configured policy is not persisted or writable at runtime. The read-only `csi_profile` diagnostic reports the effective physical profile: `lltf20`, `ht20`, or `vht20`.
+A capture profile decides which part of the Wi-Fi frame is measured. Set `csi_capture_profile` at build time through ESPHome YAML, Kconfig, or `RuntimeConfig`. It cannot be changed at runtime. The read-only `csi_profile` diagnostic shows the profile in use.
 
-The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g` is the validated band, while `5g` and `auto` are available only on dual-band targets. The lifecycle applies that band mode first and pins 20 MHz bandwidth on the selected band or bands. With `auto`, the runtime selects `lltf20` after association for internal `wifi_raw`, `vht20` on a VHT-capable 5 GHz link, and `ht20` otherwise, including on ESP32 and ESP32-S2; HE capture remains disabled. The shared C++ `lltf20` capture profile enables ACK dumping and admits valid 802.11 ACKs addressed to the local station, independently of the selected traffic generator; IP traffic retains its configured provenance filter. Other capture profiles reject ACKs. See [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
+| Setting | With internal `wifi_raw` | On a 5 GHz VHT link | Otherwise |
+|---------|--------------------------|---------------------|-----------|
+| `auto` (default) | `lltf20` | `vht20` | `ht20` |
+| `lltf` | `lltf20` | `lltf20` | `lltf20` |
+| `ht-vht` | not allowed | `vht20` | `ht20` |
 
-Published ESP32-C5 firmware defaults to automatic band selection; single-band targets use 2.4 GHz. Detection quality on 5 GHz remains uncharacterized.
+- `wifi_raw` needs `auto` or `lltf`. A saved `wifi_raw` selection that does not match the profile is ignored at startup.
+- `lltf20` also measures ACKs addressed to the device, whatever the traffic source. Other profiles drop ACKs.
+- With `auto`, switching away from `wifi_raw` returns to `ht20` or `vht20`. With `lltf`, the profile never changes.
+- A profile change clears pending samples and detector history. Wi-Fi stays connected.
+- Changing the traffic mode restarts Lightweight calibration. High Accuracy keeps its threshold.
 
-Selecting internal `wifi_raw` switches to LLTF20 and ACK capture. A runtime source change stops the generator and reconfigures CSI only if the effective capture profile changes; Wi-Fi stays associated. With `auto`, leaving `wifi_raw` restores the chip/band profile, including when traffic ownership changes to `external`; explicit `lltf` keeps LLTF20 selected. Profile changes clear pending samples and detector history. Active traffic-mode changes recalibrate Lightweight while preserving High Accuracy thresholds. Explicit `lltf` keeps the same capture profile across generator changes on every supported chip.
-
-First-party firmware captures CSI while associated with a Wi-Fi access point and keeps promiscuous mode disabled. Use a network you are authorized to access; having credentials does not establish consent to sensing.
+The band is set separately to `2g`, `5g`, or `auto`. `5g` and `auto` are available only on dual-band chips such as ESP32-C5, and published ESP32-C5 firmware uses `auto`. Bandwidth is always 20 MHz. Only 2.4 GHz is validated; 5 GHz detection quality has not been measured yet. The reasons for this design are in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
 ## Capture quality
 
-Packets with hardware-quality errors are rejected before sensing or raw collection. A nonzero `rx_state` rejects a packet on every supported chip. C5 and C6 also reject nonzero `rxend_state` or a cleared `rx_channel_estimate_info_vld`. Per-reason counters are available in C++ frontend diagnostics. These counters include background traffic and do not identify which generator caused an error.
+Packets flagged with hardware errors are dropped before sensing and collection:
 
-`first_word_invalid` marks the first four source bytes. Full-width frames can still be used when their layout is known: the affected pairs appear as zeros in raw output, which retains the flag. In classic ordering, the affected bins are DC and physical subcarrier +1; raw-data consumers must treat +1 as missing. The detector fills that missing tone from +2 in its private input. Compact or ambiguous flagged frames are rejected.
+- On every chip: a nonzero `rx_state`.
+- On C5 and C6 also: a nonzero `rxend_state` or a cleared `rx_channel_estimate_info_vld`.
 
-A high callback rate does not establish usable CSI input. Check accepted packets, temporal occupancy, and sensing readiness; without enough valid CSI, sensing is unavailable. Follow the diagnostic sequence in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#no-csi-or-insufficient-input).
+Per-reason counters are in the frontend diagnostics. They include background traffic, so they do not tell which source caused an error.
+
+The `first_word_invalid` flag marks the first four bytes as invalid. Full-width frames with a known layout are kept: the affected values are zeros in raw output and the flag is preserved. In classic layout this hits the DC bin and subcarrier +1, so raw-data users must treat +1 as missing. The detector fills +1 from +2 on its own copy. Short or ambiguous flagged frames are dropped.
+
+Many callbacks do not mean usable input. Check accepted packets, occupancy, and readiness as described in [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input).
 
 ## Normalization
 
-Production detectors consume a canonical centered 64-subcarrier, 20 MHz view. The runtime admits the named `lltf20`, `ht20`, and `vht20` capture profiles and normalizes recognized layouts onto that view. The current detection corpus validates only 2.4 GHz HT20 with HT-LTF; 5 GHz VHT20 detection quality is not characterized yet. HE20 and wider layouts are not accepted. The PHY rationale lives in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
+The detector works on one layout: 64 subcarriers over 20 MHz, centered. The runtime accepts the `lltf20`, `ht20`, and `vht20` profiles and maps each known layout onto it. HE20 and wider channels are rejected. The current dataset validates only 2.4 GHz HT20.
 
-Supported HT20 payload variants are normalized onto the same internal 64-subcarrier index grid before fixed-subcarrier extraction. Short estimates are centered so the HT20 midpoint remains aligned, and doubled payloads are collapsed to one HT20 half.
+| Input | Raw size | Mapping | Output |
+|-------|----------|---------|--------|
+| HT20 | `128 B = 64 SC` | unchanged | `64 SC / 128 B` |
+| Short HT estimate | `114 B = 57 SC` | pad 4 left, copy 57, pad 3 right | `64 SC / 128 B` |
+| Double HT20 | `256 B = 2 x 64 SC` | keep one half | `64 SC / 128 B` |
+| Double short HT | `228 B = 2 x 57 SC` | keep one half, pad 4 left and 3 right | `64 SC / 128 B` |
+| Compact LLTF | `106 B = 53 SC`, ordered `-26..+26` | pad 6 left, 5 right; DC lands on bin 32 | `64 SC / 128 B` |
 
-| Input case | Raw layout | Mapping to HT20 | Output |
-|------------|------------|-----------------|--------|
-| Native HT20 | `128 B = 64 SC` | pass-through | `64 SC / 128 B` |
-| Short HT estimate | `114 B = 57 SC` | zero-pad `4` SC left, copy `57` SC, zero-pad `3` SC right | `64 SC / 128 B` |
-| Double HT20 payload | `256 B = 2 x 64 SC` | collapse to one `128 B` half | `64 SC / 128 B` |
-| Double short HT estimate | `228 B = 2 x 57 SC` | collapse to one `57 SC` half, then pad `4` left and `3` right | `64 SC / 128 B` |
-
-Normalization supports compact 106-byte LLTF estimates (53 signed 8-bit I/Q pairs) as well as full-width LLTF. Compact estimates require legacy LLTF admission. Their centered ordering is `-26..+26`, with DC at pair 26. Normalization pads six bins on the left and five on the right, placing DC at bin 32 in the existing 128-byte payload and leaving absent bins zero-filled. The detector applies its separate LLTF edge-tone imputation.
-
-This mapping accepts 8-bit components; it does not decode packed 12-bit samples. C5 LLTF capture selects 8-bit mode. The ordering was confirmed on C5 hardware; evidence and the limits of that observation are in [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
+Compact LLTF also needs legacy LLTF capture; full-width LLTF is accepted too. Missing bins stay zero. Samples must be 8-bit: packed 12-bit samples are not decoded, and C5 LLTF capture selects 8-bit mode. The LLTF ordering was confirmed on C5 hardware; see the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
 
 ## Detector input and raw collection
 
-Sensing and raw collection accept packets from the selected traffic source after capture validation. The detector uses a private normalized view: missing LLTF edge tones are filled from -26/+26, and an invalid classic +1 tone is filled from +2. Valid zero values are retained. C++ and Python use the same preparation for calibration and detection.
+Sensing and raw collection receive the same validated packets. The detector then works on its own copy, where missing LLTF edge tones are filled from -26/+26 and an invalid +1 tone from +2. Real zero values are kept. C++ and Python prepare data the same way.
 
-Raw collection preserves the normalized data and hardware flags before those detector-specific replacements. It also keeps accepted packets that exceed the detector's temporal sampling cadence. A raw record holds at most 128 CSI bytes. See [API.md](API.md#csi-collection) for framing and drop counters, [ALGORITHMS.md](ALGORITHMS.md#detector-timing) for detector timing, and [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md) for collection instructions.
+Raw collection keeps the normalized data and hardware flags without those fills. It also keeps extra packets that the detector skips to hold its rate. Each record holds at most 128 CSI bytes. See [CSI collection](API.md#csi-collection) for framing and drop counters, and the [data collection guide](ML_DATA_COLLECTION.md) for how to collect.
 
 ## Compatibility limits
 
-`wifi_raw` is experimental and unavailable on ESP32-C6 in every frontend. Firmware ignores an older saved `wifi_raw` selection on C6 and keeps the configured source. Use `ping`, `dns`, or `dns_tcp` instead.
+`wifi_raw` is experimental and not available on ESP32-C6 in any frontend. A saved `wifi_raw` selection on C6 is ignored. Use `ping`, `dns`, or `dns_tcp` instead.
 
-ESP32-C6 revision 0.1 with ESP-IDF 5.5.5 produced invalid ACK CSI estimates, tracked in [esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062). The restriction remains in place for all C6 revisions until a working configuration is validated.
+On ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, ACK CSI estimates were invalid ([esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062)). The restriction applies to all C6 revisions until a working setup is validated.
 
-The hardware trials, including frame-length and PHY comparisons, remain in [2026-08-23-standardize-managed-csi-traffic-sources.md](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation). Detector accuracy and benchmark results are tracked separately in [README.md](performance/README.md).
+The hardware trials are in the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation). Detection results are in the [performance report](performance/README.md).

@@ -29,10 +29,10 @@ For integration-service inquiries, contact our team at <contact@espectre.dev>.
 Contributions are accepted so they can be distributed under both licensing tracks:
 
 - Every commit must carry a DCO `Signed-off-by` trailer (`git commit -s`), certifying the origin of the change.
-- Contributors sign the [CLA.md](CLA.md) once. The CLA grants the maintainer the rights needed to distribute contributions under both GPLv3 and the commercial license, while contributors retain ownership of their work.
+- Contributors sign the [CLA](CLA.md) once. The CLA grants the maintainer the rights needed to distribute contributions under both GPLv3 and the commercial license, while contributors retain ownership of their work.
 
 ## Third-party components
 
 A commercial license may cover eligible ESPectre first-party material, including the shared `core` and `runtime` layers and the `Native` or `Matter` frontends. It does not replace third-party license terms, grant rights to third-party trademarks or media, or cover the GPL-only `ESPHome` frontend.
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the complete attribution and dependency record. Published firmware builds include an SPDX SBOM, a notice summary, and the license files for their exact components, grouped in `firmware-compliance-<channel-or-version>.zip` on GitHub Releases and alongside the corresponding image on the ESPectre website.
+See the [third-party notices](THIRD_PARTY_NOTICES.md) for the complete attribution and dependency record. Published firmware builds include an SPDX SBOM, a notice summary, and the license files for their exact components, grouped in `firmware-compliance-<channel-or-version>.zip` on GitHub Releases and alongside the corresponding image on the ESPectre website.

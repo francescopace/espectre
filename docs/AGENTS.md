@@ -4,7 +4,9 @@
 
 - Use clear, concise, technical English and a neutral tone except in product-facing entry points. Prefer bullets or tables only when they improve readability.
 - Do not hard-wrap prose. Keep each paragraph and list item on one source line unless Markdown syntax requires a line break.
-- Use simple descriptive titles, filename-only text for internal links, and rare, purposeful emoji. Established entry points may retain branding.
+- Use sentence-case titles and rare, purposeful emoji. Established entry points may retain branding.
+- Write internal link text as the reader-facing topic, such as `[performance report](performance/README.md)` or `[ESPHome guide](../src/cpp/frontend/esphome/README.md)`, not a bare filename. A filename is acceptable for ADRs and files the reader must open or edit.
+- Prefer short sentences and plain words. Keep maintainer notes, experiment data, and migration history out of user guides; link to the owner instead.
 - Keep one source of truth per topic. Secondary documents should summarize and link to the owner instead of repeating mutable formulas, metrics, commands, or corpus data.
 - Keep frontend-specific setup and firmware workflows in the local frontend README files; link to `API.md` and `DISCOVERY.md` for shared contracts.
 - Make public compatibility, controller-support, privacy, and security claims only from repository evidence. Use a validation matrix when coverage is incomplete.

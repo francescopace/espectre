@@ -1,8 +1,8 @@
 # Repository CLI
 
-Use this reference when you already know which ESPectre workflow you need and want the repository command for it. Start with [SETUP.md](SETUP.md) if you have not chosen a frontend yet. Frontend READMEs own configuration, prerequisites, and device-specific troubleshooting.
+This reference lists the repository commands. If you have not chosen a frontend yet, start with the [setup guide](SETUP.md). Configuration and device-specific troubleshooting are in each frontend guide.
 
-The command tables below are summaries; `./espectre --help` and `./espectre <namespace> --help` are authoritative for current flags.
+The tables below are summaries. For the exact current flags, run `./espectre --help` or `./espectre <namespace> --help`.
 
 ## Launchers
 
@@ -11,11 +11,11 @@ The command tables below are summaries; `./espectre --help` and `./espectre <nam
 | macOS/Linux | `./espectre` |
 | Windows PowerShell/CMD | `.\espectre.cmd` |
 
-Run the CLI from the repository root.
+Run the CLI from the repository root. The examples below use `./espectre`; on Windows, use `.\espectre.cmd` instead.
 
 ## Local build prerequisites
 
-The maintained host workflows target Python `3.14`. Create the repository environment with that interpreter before a local firmware build or host-tool workflow:
+Create the repository environment with Python `3.14`:
 
 ```bash
 python3 -m venv .venv
@@ -23,23 +23,32 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
+On Windows PowerShell, use `py -3 -m venv .venv` and `.\.venv\Scripts\Activate.ps1`, then run the same install command.
 
-Native, Matter, and Micro-ESPectre firmware builds use one shared backend policy: prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
+Native, Matter, and Micro-ESPectre builds need ESP-IDF. The CLI looks for it in this order:
+
+1. An active `IDF_PATH` environment.
+2. A standard local ESP-IDF installation.
+3. The ESP-IDF toolchain already installed by ESPHome.
+4. The pinned ESP-IDF Docker image, if Docker is running.
 
 ```bash
 ./espectre native build --chip c3
 ```
 
-On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter.
+About Docker:
 
-When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
+- A cached image is used without asking. A missing image is downloaded only after you confirm; in scripts, pass `--pull missing`.
+- If Docker is installed but stopped, the CLI asks you to start it.
+- Docker only compiles. Flashing always uses the serial port on your computer.
 
-Docker covers firmware compilation only; flashing still uses host serial tooling. If neither build backend is available, build an ESPHome configuration once to provision its native toolchain, install Docker, or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
+Use `--backend local` or `--backend docker` to force one option, and `./espectre doctor` to check the local ESP-IDF setup. If you have neither, install Docker, build any ESPHome configuration once (which installs a toolchain), or install ESP-IDF `5.5.5` following the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) guide.
+
+ESPHome commands always use ESPHome's own ESP-IDF toolchain, never PlatformIO.
 
 ### Building against an SDK bundle
 
-Repository builds compile the SDK from the current checkout by default. To build Native, Matter, ESPHome, or Micro-ESPectre against an extracted GitHub/web SDK bundle, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory. Run the command for your frontend from the repository root:
+By default, builds use the SDK in your checkout. To build against an extracted SDK bundle instead, set `ESPECTRE_SDK_ROOT` to the absolute path of its `src/cpp` directory:
 
 ```bash
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre native build --chip c3
@@ -48,145 +57,112 @@ ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre esphome build --chip
 ESPECTRE_SDK_ROOT=/path/to/extracted-sdk/src/cpp ./espectre micro build --chip c3
 ```
 
-Native, Matter, and Micro-ESPectre pass the selected SDK path to CMake. Changing or unsetting `ESPECTRE_SDK_ROOT` reconfigures an existing build. Their Docker backend forwards the selection and mounts bundles outside the checkout read-only at distinct container paths. Add `--backend docker` to select that backend. Micro-ESPectre resolves its firmware version from the frontend checkout independently of the selected SDK.
-
-These builds check that the firmware can consume the packaged public SDK without relying on SDK files from the repository checkout. [ARCHITECTURE.md](ARCHITECTURE.md#srccppfrontend) describes the source boundaries; each frontend README covers its integration details.
+This checks that the firmware builds with the published SDK alone. Changing or unsetting the variable reconfigures the build. Docker builds mount the bundle read-only. The firmware version still comes from your checkout. See the [frontend layer](ARCHITECTURE.md#srccppfrontend) for the source boundaries.
 
 ### Optional compiler cache
 
-`ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. The local `./espectre` backend enables it automatically when `ccache` is on `PATH`. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.
+`ccache` speeds up repeated builds, especially Matter. Local builds use it automatically when it is on `PATH`; Docker builds always have a cache.
 
-Install `ccache` for the local backend:
+Install it for local builds:
 
-- macOS with Homebrew: `brew install ccache`
-- Debian or Ubuntu Linux: `sudo apt update && sudo apt install ccache`; on other distributions, install the `ccache` package with the system package manager
-- Windows: the official ESP-IDF Tools installation includes `ccache`; verify it from an ESP-IDF PowerShell with `ccache --version`. For a manually managed toolchain, install the [official Windows release](https://ccache.dev/download.html) or run `choco install ccache` when Chocolatey is available
+- macOS: `brew install ccache`
+- Debian or Ubuntu: `sudo apt update && sudo apt install ccache` (other distributions: the `ccache` package)
+- Windows: included with the official ESP-IDF Tools installer. Otherwise, use the [official release](https://ccache.dev/download.html) or `choco install ccache`.
 
-Confirm the binary is on `PATH`:
-
-```bash
-ccache --version
-```
-
-`./espectre native build --chip c3`, `./espectre matter build --chip c3`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Replace `c3` with the selected chip. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
-
-Use the equivalent PowerShell environment variable on Windows to disable the cache:
-
-```powershell
-$env:IDF_CCACHE_ENABLE = "0"
-ccache --version
-```
-
-The frontend workflow sections below cover build cleanup, chip-matched flash selection, and namespace-specific flags.
+Check it with `ccache --version`. When active, `build` and `doctor` print `Compiler cache: ccache`. To turn it off for one shell, set `IDF_CCACHE_ENABLE=0` (PowerShell: `$env:IDF_CCACHE_ENABLE = "0"`).
 
 ### Generated files and caches
 
-Repository workflows keep generated files under `.cache/`: `firmware/` and `sdk/` contain distribution files, `reports/` contains audit and coverage reports, `build/` contains Docker toolchain homes, and `npz/`, `ruff/`, and `pytest/` contain reusable caches. The virtual environment remains in `.venv/`, and ESP-IDF and ESPHome retain their frontend-specific build directories.
+Generated files live under `.cache/`:
 
-Python bytecode follows the interpreter defaults or the user's `PYTHONPYCACHEPREFIX` setting; repository scripts do not set a bytecode cache location. NPZ tooling continues to support `ESPECTRE_NPZ_CACHE_DIR` for a cache on another volume. Moving an existing `.npz_cache/` to `.cache/npz/` preserves its contents; avoid moving caches while a build, test, or training process is using them.
+| Directory | Contents |
+|-----------|----------|
+| `firmware/`, `sdk/` | Distribution files |
+| `reports/` | Audit and coverage reports |
+| `build/` | Docker toolchain homes |
+| `npz/`, `ruff/`, `pytest/` | Reusable caches |
 
-## Command Map
+The virtual environment is `.venv/`, and each frontend keeps its own build directories. Set `ESPECTRE_NPZ_CACHE_DIR` to keep the NPZ cache on another disk. An old `.npz_cache/` can be moved to `.cache/npz/`; do not move caches while a build, test, or training run is using them.
+
+## Command map
 
 | Namespace | Purpose |
 |-----------|---------|
 | `esphome` | Build, flash, validate, or monitor the ESPHome frontend |
-| `native` | Build or flash the native ESP-IDF frontend |
-| `matter` | Build, flash, or read onboarding data from the Matter ESP-IDF frontend |
-| [`micro`](../src/python/micro_espectre/README.md#commands) | Build, flash, deploy, run, and verify the research frontend |
-| `monitor` | Attach to serial logs with auto-reconnect support |
-| `devices` | Discover advertised ESPectre devices on the local network |
-| `provision` | Provision Native or ESPHome Wi-Fi through Improv Serial |
-| `direct` | Send one Direct HTTP protocol request to a device |
-| `collect` | Run live CSI inspection and dataset collection flows |
-| `doctor` | Validate the local ESP-IDF environment used by the wrapper |
+| `native` | Build or flash the Native frontend |
+| `matter` | Build, flash, or read the pairing codes of the Matter frontend |
+| [`micro`](../src/python/micro_espectre/README.md#commands) | Build, flash, deploy, run, and verify Micro-ESPectre |
+| `monitor` | Show serial logs, reconnecting automatically |
+| `devices` | Find ESPectre devices on the local network |
+| `provision` | Set up Wi-Fi on Native or ESPHome over USB (Improv Serial) |
+| `direct` | Send one Direct HTTP request to a device |
+| `collect` | Watch live CSI or record a dataset |
+| `doctor` | Check the local ESP-IDF environment |
 | `mqtt` | Open the interactive MQTT shell |
-| `version` | Show the CLI version label |
+| `version` | Show the CLI version |
 | `about` | Show project and CLI information |
 
-## Common Patterns
+## Serial port selection
 
-- Use `./espectre --help` for the current top-level command list.
-- Use `./espectre <namespace> --help` for namespace-specific flags.
-- The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
-- `Native` and `Matter` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
-- Serial selection is shared across published frontend flash, monitor, provision, and onboarding operations. It classifies the physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`) from non-destructive USB metadata and never opens or resets candidates. Native and ESPHome provision and monitor operations, and Matter monitor operations, prefer a single native USB console over a secondary UART bridge. If several equally suitable ports remain, the resolver prompts for a selection. Pass `--port` to require that exact compatible device. Serial flash commands require `--chip`, and esptool verifies the connected target while flashing. UART and USB Serial/JTAG use esptool's normal loader entry; ESP32-S2 USB CDC must already be in download mode.
+Commands that use a serial port (`flash`, `monitor`, `provision`, `matter qr`) pick it the same way:
 
-## Frontend Workflow Commands
+- `--chip` keeps only ports that match the chip. Flash commands require it, and esptool also checks the chip while flashing.
+- If a board exposes both a native USB port and a UART bridge, the native USB port is preferred.
+- If several ports still match, the CLI asks you to choose. It never opens or resets a port just to identify it.
+- `--port` selects one port explicitly; an incompatible port is rejected.
+
+ESP32-S2 boards using USB CDC must already be in download mode to flash.
+
+## Frontend workflow commands
 
 ### `esphome`
 
-The `esphome` namespace exposes:
-
 | Command | Purpose |
 |---------|---------|
-| `build` | Build the selected ESPHome firmware |
-| `flash` | Flash the selected ESPHome firmware |
-| `config` | Validate and render the selected config |
-| `monitor` | Open logs for the selected config |
+| `build` | Build the firmware |
+| `flash` | Flash the firmware |
+| `config` | Validate and show the configuration |
+| `monitor` | Show logs |
 
-Common flags include `--chip`, `--config`, and `--device`. Serial `flash` and `monitor` follow the shared `--chip` selection rule when `--device` is omitted or names a serial port. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build: serial flashing expects an ESPHome factory image written at offset `0x0`, while a hostname or IP address expects an ESPHome OTA image.
+Common flags are `--chip`, `--config`, and `--device`. Each chip has one example configuration; the CLI uses it with the ESPectre component from your local checkout.
+
+- `build --clean` runs `esphome clean` first; `--clean-all` runs `esphome clean-all`.
+- `flash --erase` erases all flash before a serial upload. It does not work over the network.
+- `flash --firmware <path>` uploads a prebuilt image instead of the last build: a factory image over serial, or an OTA image to a hostname or IP.
+- `build --json` prints a final JSON object with the frontend, chip, image path, size, and SHA-256.
 
 ```bash
 ./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
-`esphome flash --erase` clears all flash data before a serial upload. It resolves or requires a serial device and cannot be combined with an OTA hostname.
-
-Each chip uses one canonical example. The repository CLI keeps that device configuration and switches the ESPectre component source from GitHub to the local checkout.
-
-`esphome build --json` emits one final JSON object after the normal build log. It identifies the frontend, chip, exact application artifact, byte size, and SHA-256 digest for machine consumers. Omitting `--config` keeps canonical config selection inside the CLI.
-
-The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
-
-For `build`, cleanup flags are:
-
-- `--clean`: run `esphome clean` for the selected config before compiling.
-- `--clean-all`: run `esphome clean-all` for the config root before compiling.
-
 ### `native` and `matter`
 
-The Native and Matter namespaces expose `build` and `flash`:
+| Command | Purpose |
+|---------|---------|
+| `build` | Build the firmware for one chip |
+| `flash` | Flash the last successful build over serial |
+
+`build` flags:
+
+- `--clean`: delete the build directory for this chip (for example `build-esp32c3`).
+- `--clean-all`: delete all build directories, flash images, `sdkconfig`, and `dependencies.lock`.
+- `--backend auto|local|docker`: pick where to build. `auto` (default) uses local ESP-IDF when available, otherwise Docker.
+- `--pull ask|missing|never`: what to do when the Docker image is missing. The default `ask` prompts; scripts should use `missing` or `never`.
+- `--json`: print the same final JSON object as ESPHome.
+
+Each chip has its own build directory and `sdkconfig`, so building one chip never touches another. Docker builds use separate directories (such as `build-esp32c3-docker`).
+
+A successful build copies its flash files to `build-flash-<chip>`. `flash --chip <chip>` always flashes the last successful build from there, local or Docker, and a failed build never replaces it. `flash` does not need ESP-IDF or Docker. If there is nothing to flash, it tells you to run `build` first. `ESPECTRE_IDF_BUILD_DIR` overrides the build directory.
+
+`flash --erase` erases the whole flash first. On Matter this also deletes the pairing identity, so the device creates new pairing codes on the next boot.
+
+Matter also has:
 
 | Command | Purpose |
 |---------|---------|
-| `build` | Configure the chip target and build the firmware |
-| `flash` | Flash the last successfully published firmware using host esptool |
+| `qr` | Restart the device and print its QR payload and manual pairing code |
 
-For `build`, cleanup flags are:
-
-- `--clean`: remove only the resolved build directory for the selected chip, such as `build-esp32c3`.
-- `--clean-all`: remove all frontend build directories plus shared artifacts such as `sdkconfig`, `sdkconfig.old`, and `dependencies.lock`.
-
-Build environment flags are:
-
-- `--backend auto`: prefer local ESP-IDF and use Docker only when no local installation is detected; this is the default.
-- `--backend local`: require local ESP-IDF and do not consider Docker.
-- `--backend docker`: require the pinned ESP-IDF Docker image.
-- `--pull ask|missing|never`: ask before downloading a missing Docker image, download it automatically, or require it to be cached. The default is `ask`; non-interactive jobs should use `missing` or `never` explicitly.
-
-`native build --json` and `matter build --json` emit the same final build-metadata object as ESPHome, including the exact artifact selected from the resolved chip build directory.
-
-Each chip build directory owns its generated `sdkconfig`. The CLI passes `IDF_TARGET` directly to CMake, so an ordinary build never runs `set-target` or its implicit `fullclean` and cannot invalidate another chip's configuration.
-
-Local builds enable `ccache` automatically when the binary is on `PATH`. Docker builds already keep a persistent compiler cache. Set `IDF_CCACHE_ENABLE=0` to disable the local cache.
-
-Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` uses the host esptool installation and serial port.
-
-After a successful local or Docker build, the CLI copies all flash binaries into a shared directory for that frontend and chip, such as `build-flash-esp32c5`. Files are named by their content hash, and `flasher_args.json` is replaced atomically only after all files are ready. A failed build or publication leaves the previous image selected. Older binaries remain available to a flash already in progress; `--clean-all` explicitly removes published images as well as compilation caches.
-
-For `flash`, the required `--chip` selects the last successfully published firmware in that shared directory, regardless of its build backend. The CLI reads the published `flasher_args.json` metadata and passes its flash settings and files to one esptool operation using esptool 5 option names. `--erase` adds `write-flash --erase-all`. The verified image starts through `--after watchdog-reset`, except on classic ESP32, where esptool requires `--after hard-reset`. On Matter, erasing also removes the persisted onboarding identity, so the next boot generates new onboarding codes.
-
-`flash` never configures or rebuilds firmware, and it does not require Docker or ESP-IDF to be available. If no published image exists, it directs the operator to run the matching `build` command first. `ESPECTRE_IDF_BUILD_DIR` remains an explicit override for the compilation directory and the directory read by `flash`.
-
-Matter also exposes:
-
-| Command | Purpose |
-|---------|---------|
-| `qr` | Reset the connected device and print its persisted QR payload and manual pairing code |
-
-Use `matter qr --json` or `matter flash --json` when another tool must consume onboarding data. The final JSON object contains the selected port, chip, QR payload, and manual code; treat that output as a commissioning secret.
-
-`qr` requires `--chip` and uses the shared serial selection. It restarts the installed firmware before reading onboarding output; use `--no-reset` to read from the device without restarting it.
+`qr` requires `--chip`; add `--no-reset` to read without restarting. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
 
 Examples:
 
@@ -203,75 +179,52 @@ Examples:
 ./espectre matter qr --chip c6 --port /dev/cu.usbmodemXXXX
 ```
 
-## Device And Host Commands
+## Device and host commands
 
 ### `monitor`
 
-`monitor` attaches to a serial port and streams logs.
+`monitor` shows the serial logs. Flags: `--port`, `--chip`, `--frontend`, `--baud`, `--raw`, and `--reset`. Ports are chosen as described in [serial port selection](#serial-port-selection).
 
-Common flags:
-
-- `--port`
-- `--chip`
-- `--frontend`
-- `--baud`
-- `--raw`
-- `--reset`
-
-When `--chip` is supplied, serial selection follows the shared rule above and keeps ports whose USB console matches the chip. An explicit incompatible `--port` is rejected. Without `--chip`, Native and ESPHome `monitor` and `provision`, and Matter `monitor`, automatically prefer a single native USB console over a secondary UART bridge; they prompt without resetting either interface when several equally suitable ports remain. By default, `monitor` attaches without resetting the device. With `--reset`, the CLI requires `--chip` and delegates application start to esptool before opening the monitor. USB CDC consoles such as the ESP32-S2 TinyUSB console still require a manual reset and `monitor` without `--reset`.
-
-Example:
+By default it attaches without restarting the device. `--reset` restarts it first and requires `--chip`. On USB CDC consoles, such as ESP32-S2, `--reset` does not work: reset the board by hand instead.
 
 ```bash
 ./espectre monitor --chip c3 --frontend native --port /dev/cu.usbmodemXXXX
-```
-
-Reset on open:
-
-```bash
 ./espectre monitor --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --reset
 ```
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists compatible firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`DISCOVERY.md`](DISCOVERY.md#dns-sd-and-mdns) defines the record-level contract.
+`devices` searches the network for `_espectre._tcp.local.` and lists each device's frontend, ID, name, chip, IP, and Direct address. It ignores other services such as ESPHome's or Matter's. See [DNS-SD and mDNS](DISCOVERY.md#dns-sd-and-mdns) for the record format.
 
 | Flag | Purpose |
 |------|---------|
-| `--frontend native\|esphome\|matter\|micro` | Limit discovery to one frontend; omit it to browse every supported service |
-| `--chip esp32\|c3\|s2\|s3\|c5\|c6` | Limit normalized records to one chip family |
-| `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 6 seconds |
-| `--json` | Emit machine-readable normalized records for scripts and tooling |
-
-Examples:
+| `--frontend native\|esphome\|matter\|micro` | Only list one frontend |
+| `--chip esp32\|c3\|s2\|s3\|c5\|c6` | Only list one chip family |
+| `--timeout <seconds>` | How long to search; the default is 6 seconds |
+| `--json` | Print JSON for scripts |
 
 ```bash
 ./espectre devices
 ./espectre devices --frontend native
 ./espectre devices --frontend matter --timeout 5
 ./espectre devices --frontend matter --chip s3 --json
-./espectre devices --frontend esphome
-./espectre devices --frontend matter
-./espectre devices --json
 ```
 
-Each invocation starts a fresh search. The default search waits six seconds, even if one device responds earlier, to allow retries and replies from other devices. A shorter `--timeout` returns sooner but may miss devices. With a longer timeout, the search can finish after six seconds without a changed result; if no device responds, it waits for the full timeout.
-
-The host and devices must share an mDNS-visible network. VLAN boundaries, client isolation, and multicast filtering can hide otherwise reachable devices. If discovery fails, use a device IP, its unique `.local` name, or Improv Serial. See [DISCOVERY.md](DISCOVERY.md#client-validation-and-fallback) for connection alternatives and limitations.
+The search always runs for the full timeout, so slower devices have time to answer. A shorter timeout may miss devices. Your computer and the devices must be on the same mDNS network: VLANs, client isolation, and multicast filtering can hide them. If a device does not show up, use its IP, its `.local` name, or Improv Serial; see [client validation and fallback](DISCOVERY.md#client-validation-and-fallback).
 
 ### `provision`
 
-`provision` uses the shared Improv Serial v1 client to configure a clean Native or ESPHome device over USB. It accepts the same optional `--chip`, `--frontend`, and `--port` capability-aware selection used by `monitor`. The command resolves and validates the serial port before reading the Wi-Fi password from `ESPECTRE_WIFI_PASSWORD`, or from the variable named by `--password-env`; when the variable is unset, the CLI then prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL. Add `--json` to return the selected port, endpoint, and provisioning evidence to another tool.
+`provision` sets up Wi-Fi on a new Native or ESPHome device over USB, using Improv Serial. It accepts `--chip`, `--frontend`, and `--port` like `monitor`.
 
 ```bash
 ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --ssid MyNetwork
 ```
 
-The password is never accepted as a command-line value, printed, or included in the returned endpoint. `--timeout` bounds the complete state, device-info, and Wi-Fi provisioning exchange.
+The password comes from `ESPECTRE_WIFI_PASSWORD`, from the variable named by `--password-env`, or from a hidden prompt. It is never accepted on the command line or printed. `--timeout` limits the whole exchange, and `--json` prints the port, device address, and result for other tools.
 
 ### `direct`
 
-`direct` sends one ESPectre resource request. Supply an HTTP verb and relative resource, then use `--endpoint` with an HTTP(S) device URL or `--frontend` to discover a device. Add `--chip` to narrow frontend discovery before selection. When discovery returns multiple matching records, the CLI prompts for an explicit selection.
+`direct` sends one request to a device. Give an HTTP verb and a resource, then either `--endpoint` with the device URL or `--frontend` (optionally with `--chip`) to find it. If several devices match, the CLI asks which one.
 
 ```bash
 ./espectre direct get health --frontend native
@@ -282,7 +235,7 @@ The password is never accepted as a command-line value, printed, or included in 
 ./espectre direct post sensing/calibrations --frontend matter --chip s3
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits mutation JSON to 2,048 bytes, accepts a response up to 8,192 bytes, validates direct resource snapshots or mutation results, and closes cleanly. It negotiates protocol `1.0` once through `capabilities`; messages do not repeat the version. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The CLI sends `Origin: https://test.espectre.dev`, which firmware allows by default. Use `--origin` only for another origin the firmware already accepts. Requests are limited to 2,048 bytes and responses to 8,192 bytes, and responses are checked against the [API reference](API.md).
 
 #### Access-point selection
 
@@ -292,83 +245,63 @@ The client sends the exact allowed `https://test.espectre.dev` Origin by default
 ./espectre direct put wifi/bssid --data '{"bssid":"AA:BB:CC:DD:EE:FF"}'  # pin one AP
 ```
 
-The scan is asynchronous, so wait a few seconds after `POST /wifi/scans` before reading `GET /wifi/access-points`. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct base URL. The station reconnects after a pin or clear.
+Wait a few seconds after starting the scan before reading the results. The device reconnects after you pin or clear an access point.
 
-To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Device settings or run:
+To go back to automatic selection, keeping the SSID and password, run the command below or choose automatic selection in Device settings. Do this also after replacing or removing a pinned access point.
 
 ```bash
 ./espectre direct delete wifi/bssid
 ```
 
-Clear a stale pin after replacing or removing an access point. [API.md](API.md#wi-fi-scan-and-bssid-selection) defines the methods and responses; the frontend README describes persistence.
+See [Wi-Fi scan and BSSID selection](API.md#wi-fi-scan-and-bssid-selection) for the requests and responses.
 
 ### `collect`
 
-`collect` is the HTTP-only host-side CSI collection entry point. One runtime path supports three modes:
+`collect` receives raw CSI from a device over HTTP. It has three modes:
 
-- live inspection when `--label` is omitted
-- live recording when `--label` is set
-- read-only dataset inventory when `--info` is used
-
-Common flags:
+- **Live view:** without `--label`.
+- **Recording:** with `--label`, saves a dataset.
+- **Inventory:** `--info` prints the recorded datasets from `dataset_info.json`, one table per environment, without touching any device.
 
 | Flag | Purpose |
 |------|---------|
-| `--target` | Device IP, hostname, full Direct endpoint, or device ID; omit it to discover a raw-capable device |
-| `--frontend` | Optional `native`, `esphome`, or `matter` discovery filter |
-| `--source-ip` | Optional local IPv4 source for hosts with multiple interfaces |
+| `--target` | Device IP, hostname, Direct address, or device ID; omit it to search the network |
+| `--frontend` | Only consider `native`, `esphome`, or `matter` devices when searching |
+| `--source-ip` | Local IPv4 address to send from, on computers with several interfaces |
 | `--duration` | Stop after N seconds |
-| `--label` | Dataset label for saved collections; use 1-64 ASCII letters, digits, underscores, or hyphens, starting with a letter or digit; omit for live inspection without saving |
-| `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
-| `--pps` | Intentional external UDP generator rate and nominal dataset rate |
-| `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
-| `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
-
-When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps raw-capable ESPectre records at their advertised Direct port:
-
-- `0` devices: fail explicitly and suggest `--target`
-- `1` device: auto-select it
-- `N` devices: prompt for an interactive choice
-
-The collector uses the same discovery window as `devices`: the default browse consumes its full six-second budget, including when a first device responds earlier.
-
-`--target` remains the deterministic bypass. The collector resolves an IP, hostname, full Direct endpoint, or full device ID through the same Direct resolver. Native, Matter, and ESPHome use port `62587`; a full manually entered endpoint may specify another explicit port, but the resolver does not probe legacy ports.
-
-`--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
-
-Live collection negotiates CSI support, persistently sets `csi_traffic_mode` to `external`, verifies the resulting resource, starts `ExternalTrafficGenerator` from `tools/ha_traffic_generator_addon/espectre_traffic_generator.py`, and only then opens `GET /csi`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. Closing the response ends collection, then the generator stops. The collector intentionally does not restore the previous traffic mode.
-
-Example:
+| `--label` | Dataset label: 1–64 ASCII letters, digits, `_`, or `-`, starting with a letter or digit |
+| `--start-delay` | Wait N seconds before starting; requires `--duration` |
+| `--pps` | Packets per second to send, also stored as the dataset rate |
+| `--detector` | `lightweight` or `high_accuracy` for the readiness check; a comma-separated list compares both in live view |
+| `--ready-stable-seconds` | How long the detector must stay idle before recording starts; `0` disables the check |
 
 ```bash
 ./espectre collect --target 192.168.1.51 --pps 100
 ```
 
-Saved files and catalog entries record `transport=http`, the Direct endpoint, requested and observed PPS, raw protocol version, CSI record version, frontend, chip, firmware, and device ID.
+**Choosing the device.** Without `--target`, the CLI searches for 6 seconds like `devices`. With no device it stops and suggests `--target`; with one it uses it; with several it asks. `--target` skips the search. If a device was found by searching, its CSI records must carry the same `device_id`; if another device has taken that IP address, collection stops instead of mixing data.
 
-Collection terms:
+**What happens during collection:**
 
-- **Delivered rate:** CSI records received by the collector, measured in packets per second (`pps`).
-- **Admitted rate:** records that occupy a detector slot after temporal admission.
-- **Excess:** extra same-slot records that do not improve occupancy.
-- **Backpressure:** firmware reports that it cannot transmit records as quickly as they are produced.
-- **Queue drop:** a classified record rejected because the fixed 16-record raw ring is full.
+1. The device is switched to `external` traffic mode. It stays in that mode afterwards.
+2. The CLI starts sending UDP markers at `--pps` (the same generator as the Home Assistant add-on), then opens `GET /csi`.
+3. The device sends every valid CSI record, without pacing or skipping.
+4. When recording, the CLI waits until the selected detector is ready and has stayed idle for `--ready-stable-seconds`. Lightweight calibrates first; High Accuracy fills its feature window.
+5. Closing the connection ends collection, then the generator stops.
 
-The external generator is the sole rate owner. HTTP applies no credit window, adaptive rate, sample replacement, or device-side timer. After drain, the invariant `fresh_record_total + raw_drop_total == classified_frames_offered_to_raw` exposes any hidden loss before the network send.
+`--duration` counts from the first packet in live view, or from the start of recording. It is checked even if packets stop arriving, with up to one second of delay. With `--start-delay`, the CLI waits before starting everything.
 
-`--detector` selects the production detector used for collection readiness. The derived live sensing view applies the production temporal sampler to raw records using the nominal `--pps`; the saved raw stream remains un-decimated. `lightweight` performs its normal startup calibration before it can become ready. `high_accuracy` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `lightweight,high_accuracy` in parallel.
+**After saving,** each file is checked for integrity, signal quality, occupancy, and continuity. Occupancy is measured on full detector windows: below 85% gives a warning, below 70% fails. A failed file is kept for diagnosis, but `collect` exits with an error. Each file records the device, firmware, endpoint, requested and measured rate, and format versions.
 
-When `--label` is set, saved collection waits for the detector to stay below threshold for `--ready-stable-seconds` before packets are recorded. Set `--ready-stable-seconds 0` to bypass that gate explicitly.
+Terms in the output:
 
-After saving each capture, the collector runs the validator's canonical per-file integrity, signal-quality, temporal-occupancy, and stream-continuity checks. Temporal occupancy is measured on complete production detector windows, warns below 85%, and fails below the shared 70% admission floor. The post-collect summary does not use average packet rate as a quality proxy because excess same-slot records do not improve detector occupancy. A failed capture remains saved for diagnosis, but `collect` exits unsuccessfully.
+- **Delivered rate:** CSI records received per second.
+- **Admitted rate:** records that fill a detector slot.
+- **Excess:** extra records in an already filled slot; they do not improve occupancy.
+- **Backpressure:** the device cannot send records as fast as it produces them.
+- **Queue drop:** a record lost because the device's 16-record queue was full.
 
-When `--start-delay` is set, `--duration` is required. The collector waits first, then starts the ordinary generator and capture flow.
-
-The duration is measured from the first received packet for live inspection, or from the start of recording when saving a dataset. Once started, the deadline is checked even when no further packets arrive, with up to one second of polling delay.
-
-For discovery-selected targets, the collector also validates that CSI records carry the same `device_id` announced over mDNS. If an address was reused by another device, collection aborts instead of saving mixed data under the wrong identity.
-
-Examples:
+The sender alone sets the rate. After draining, `fresh_record_total + raw_drop_total` must equal `classified_frames_offered_to_raw`, so any loss before the network send is visible. The saved stream keeps every record; only the live detector view applies the detector's slot sampling.
 
 ```bash
 ./espectre devices --frontend native
@@ -381,52 +314,16 @@ Examples:
 
 ### `mqtt`
 
-`mqtt` opens the interactive MQTT shell for ESPectre Protocol devices.
-
-When `--device-id` is provided, the shell targets that device directly.
-
-When `--device-id` is not provided, the shell briefly subscribes to:
-
-```text
-espectre/v1/devices/+/device
-espectre/v1/devices/+/health
-```
-
-It then:
-
-1. collects device identities from retained `device` and `health` plus any live publishes during the scan
-2. shows an interactive selection list
-3. falls back to manual device-id entry if nothing is discovered
-
-After selection, the shell publishes commands to `commands/request` and subscribes to the matching response and payload topics:
-
-```text
-espectre/v1/devices/{device_id}/commands/request
-espectre/v1/devices/{device_id}/commands/result
-espectre/v1/devices/{device_id}/capabilities
-espectre/v1/devices/{device_id}/device
-espectre/v1/devices/{device_id}/health
-espectre/v1/devices/{device_id}/sensing
-espectre/v1/devices/{device_id}/wifi
-espectre/v1/devices/{device_id}/ota
-```
-
-After selection, the shell consumes retained `capabilities` to populate help and tab completion. Mutations and actions return through `commands/result`; `read_diagnostics` returns its selected snapshot in `data`. The CLI requests all values by default; use `read_diagnostics fields=traffic_tx_pps,csi_hw_error_total` for a subset or `read_diagnostics fields=[]` for the catalog. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise, they appear on the next line. Retained state topics are still dumped as YAML.
-
-This behavior belongs to the MQTT transport and applies to ESPectre devices that advertise the MQTT topic surface.
-
-Common MQTT flags:
+`mqtt` opens an interactive shell for ESPectre devices on an MQTT broker.
 
 | Flag | Default |
 |------|---------|
 | `--broker` | `homeassistant.local` or `MQTT_BROKER` |
 | `--port-mqtt` | `1883` or `MQTT_PORT` |
 | `--topic-prefix` | `espectre/v1/devices` or `MQTT_TOPIC_PREFIX` |
-| `--device-id` | Explicit device identifier; otherwise runtime discovery |
+| `--device-id` | The device to use; without it, the shell searches |
 | `--username` | `mqtt` or `MQTT_USERNAME` |
 | `--password` | `mqtt` or `MQTT_PASSWORD` |
-
-Examples:
 
 ```bash
 ./espectre mqtt
@@ -434,23 +331,28 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`). Help, tab completion, and argument discovery use the device `capabilities` resource. Unknown or unsupported commands are rejected by the device with a stable result code. Sensing changes use `update_sensing`, with named values such as `threshold=0.35`, `motion_on_hits=4`, and `motion_off_hits=3`.
+Without `--device-id`, the shell listens briefly on `espectre/v1/devices/+/device` and `+/health`, lists the devices it sees, and lets you pick one or type an ID.
 
-`check_ota` and `start_ota` accept an optional channel (`release`, `preview`, or `develop`), for example `check_ota channel=preview` or `start_ota channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends omit unsupported OTA commands from `capabilities`.
+Commands go to the device's `commands/request` topic and results come back on `commands/result`. The shell also shows the retained `capabilities`, `device`, `health`, `sensing`, `wifi`, and `ota` topics as YAML. Help and tab completion come from the device's `capabilities`. Besides device commands, the shell has only `help`, `about`, `clear`, and `exit`.
 
-Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
+- Change settings with `update_sensing`, for example `update_sensing threshold=0.35 motion_on_hits=4 motion_off_hits=3`.
+- `read_diagnostics` returns all values; use `read_diagnostics fields=traffic_tx_pps,csi_hw_error_total` for some, or `fields=[]` for the list.
+- `check_ota` and `start_ota` accept `channel=release|preview|develop`. Without it, the device uses its built-in default.
+- Results are marked `✓` or `✗ code: reason`.
 
-Browser tools such as Flash, Device settings, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Serial logs remain `./espectre monitor`.
+The built-in OTA default comes from `native build --ota-channel release|preview|develop`, or the `NATIVE_OTA_CHANNEL` variable; it is `release` otherwise.
 
-## Utility Commands
+Browser tools such as Flash, Device settings, Monitor, and Theremin are on [espectre.dev](https://espectre.dev).
+
+## Utility commands
 
 | Command | Purpose |
 |---------|---------|
-| `./espectre doctor` | Validate the ESP-IDF environment used by the wrapper |
-| `./espectre version` | Show the current CLI version label |
+| `./espectre doctor` | Check the ESP-IDF environment used by the CLI |
+| `./espectre version` | Show the CLI version |
 | `./espectre about` | Show project and CLI information |
 
-## Related Documents
+## Related documents
 
-- [`SETUP.md`](SETUP.md) for shared setup, frontend selection, and entry points
-- frontend READMEs under `src/cpp/frontend/` for frontend-specific build, flash, provisioning, and protocol details
+- [Setup guide](SETUP.md): installation and choosing a frontend
+- Frontend guides: [ESPHome](../src/cpp/frontend/esphome/README.md), [Native](../src/cpp/frontend/native/README.md), [Matter](../src/cpp/frontend/matter/README.md), and [Micro-ESPectre](../src/python/micro_espectre/README.md)

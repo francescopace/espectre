@@ -4,53 +4,58 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0-rc3] - in progress - SDK component distribution and release delivery
+## [3.0.0-rc3] - 2026-09-22 - SDK on the ESP Component Registry and ESP-IDF 6 support
 
-### SDK packaging and integration
+### Highlights
 
-- Add a reproducible source package for `francescopace/espectre` on the ESP Component Registry, with a file inventory and a standalone Wi-Fi sensing example.
-- Add twelve isolated consumer build checks using ESP-IDF 5.5.5: minimal sensing on six targets, individual optional service groups on ESP32-C3, and all services together on ESP32-C3 and ESP32-S2. Run the same matrix against installed registry packages after publication, comparing their versions and files with the CI artifact.
-- Add ESP-IDF 6.x support to the SDK alongside 5.5.x (`>=5.5.3`). Keep bundled MQTT on 5.5.x, pin external MQTT to ESPHome-compatible `1.0.0` on 6.x, switch device identity hashing to PSA Crypto on 6.x without changing IDs, and use the shared Wi-Fi bandwidth enum names. Earlier 5.5 patches lack the ESP32-C5 LLTF format selector required by the runtime. Release builds remain on 5.5.5; see [SDK.md](SDK.md#esp-idf-compatibility-validation) for build coverage and pending hardware checks.
-- Include a generated `API.md` in registry packages with the C++ reference and integration contracts for the packaged version and commit. Keep the SDK guide focused on installation and integration, and resolve external documentation links against the packaged source revision.
-- Resolve external MQTT only when the MQTT backend is enabled on IDF 6, and resolve mDNS only when Direct is enabled. Remove unconditional MQTT and HTTP server requirements from the SDK, and keep the services facade usable without HTTP server headers. Make shared bootstrap select provisioning, and provide Wi-Fi snapshot support independently of Direct.
-- Release completed calibration state before listener callbacks, and preserve the active and persisted detector when startup calibration allocation fails.
-- Notify `on_sensing_readiness_changed()` when `RuntimeFrontendController::shutdown()` stops a ready runtime, so listeners that publish availability do not keep reporting sensing as ready. The controller destructor stays silent because the listener may already be partly destroyed.
-- Keep the configured threshold at setup when the persisted detector matches the configured one; only a different persisted detector resets the threshold to its default.
-- Recover missing CSI at startup with one scan on the associated Wi-Fi channel, limiting disruption to discovery and Direct connections.
-- Release standalone Wi-Fi resources after shutdown or setup failure, preserve full-length credentials, and resume exhausted reconnect attempts after 30 seconds.
-- Restore sensing and network services after roaming with a retained IPv4 address, including when the address becomes available late. Ignore duplicate IP notifications.
-- Accept ASCII case-insensitive DNS names and TXT keys, honor the first duplicate key, and transmit `txtvers` first on all four frontends. Keep discovery metadata compatible with rc1 and rc2.
-- Extend default CLI discovery to six seconds so retries can find slower devices. Request replies directly to the CLI to avoid competition with Bonjour; shorter explicit timeouts remain available.
-- Improve IPv4 bootstrap discovery with compressed and ANY queries, Known-Answer Suppression, truncated-query handling, and reply rate limits. See [DISCOVERY.md](DISCOVERY.md#limits) for remaining RFC deviations.
-- Prevent Native reboots during automatic OTA checks in Device settings; failed downloads or insufficient memory report an OTA error.
-- Release HTTP connections after `/devices` responses so repeated browser discovery does not exhaust available sockets. Preserve other API, SSE, and CSI connections.
-- Boot the installed application after CLI `matter qr` and `monitor --reset` instead of leaving the device in the firmware loader.
-- Report the running Matter firmware version in discovery, Direct, and Improv instead of `unknown`.
+- Published the SDK as the `francescopace/espectre` component on the [ESP Component Registry](https://components.espressif.com/components/francescopace/espectre).
+- Added ESP-IDF 6.x support to the SDK, alongside 5.5.3 and later.
+- Added the Home Assistant [Traffic Generator add-on](https://github.com/francescopace/espectre/blob/3.0.0-rc3/tools/ha_traffic_generator_addon/DOCS.md) (#168).
+- Improved device discovery and sensing recovery after Wi-Fi roaming.
 
-### ESPHome firmware and Home Assistant
+### Added
 
-- Set the WiFi Channel sensor's state class to `measurement` so Home Assistant applies its zero-decimal display precision (#181).
-- Give official ESPHome images MAC-suffixed hostnames, so one Web Serial image can provision and discover multiple ESPectre devices without custom YAML. Existing installations use the new hostname after their first update.
-- Suppress ESPHome's periodic roaming scans while a BSSID pin is saved, including after restart. Clearing the pin restores the configured roaming policy.
+- Added ESP-IDF 6.x support to the SDK. Official firmware stays on 5.5.5, and hardware checks on 6.x are still pending; see [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#esp-idf-compatibility-validation).
+- Added registry packages with a Wi-Fi sensing example and the API reference for their version. Twelve consumer builds validate each package before and after publication.
+- Added the Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel to control traffic and view live diagnostics (#168).
+- Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
+- Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
+- Added the SDK API reference to the website, with its version and commit.
 
-### Web tools, builds, and publication
+### Changed
 
-- Retry slow or failed browser discovery once within the existing ten-second timeout. Keep the first request active if an overlapping scan returns HTTP `409`; see [DISCOVERY.md](DISCOVERY.md#browser-bootstrap).
-- Add the ESPectre Traffic Generator add-on for 64-bit Home Assistant OS, using the shared external UDP generator with configurable unicast or multicast targets, packet rate, source interface, multicast TTL, and DSCP. Its minimal Ingress panel controls traffic ownership, streams Home Assistant entity changes, and requests diagnostics every second while visible through existing ESPHome or Native MQTT entities, with individual and bulk actions and an optional sidebar shortcut. Include translated configuration help and an installation guide in [DOCS.md](../tools/ha_traffic_generator_addon/DOCS.md).
-- Show the published Release firmware on the home and roadmap badges, using its release tag when available. Preview snapshots no longer replace the home release badge.
-- Generate the website's SDK API reference with each build, display its version and source commit, and verify that its files match the current page inventory.
-- Run shared CI on every branch and tag push, and gate firmware and SDK builds on build preparation and website, C++, and Python tests. Replace `snapshot.yml` and `release.yml` with one `cd.yml` workflow that publishes snapshots and tagged releases from the tested CI artifacts, with separate check and publication statuses. Install the dispatch workflows on `main` and update registry trusted uploaders as described in [RELEASING.md](RELEASING.md#migrating-the-workflow-configuration).
-- Upload SDK snapshots from `main` and `develop`, plus tagged prereleases, to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) through OIDC; reserve the production registry for stable tags. Bind snapshot versions to their branch and source commit, and verify existing package contents before accepting a repeated upload.
-- Add weekly staging cleanup that retains the ten most recently uploaded SDK snapshots per branch and preserves tagged prereleases and stable versions. Manual runs default to a dry run.
-- Dispatch Pages deployments from `main` using the verified website archive from CD, avoiding stale artifacts on tag deployments. Validate the source run and attempt, and reject superseded snapshot websites. See [RELEASING.md](RELEASING.md).
+- **Breaking:** Official ESPHome images use MAC-suffixed hostnames such as `espectre-a1b2c3.local`, so one image can serve several devices. After the first update, use the new hostname for OTA and add the suffix to dashboard entity IDs (#179).
+- **Breaking:** The SDK exports only its root include directory. Use layer-prefixed includes such as `#include "runtime/runtime_interface.h"`; the facades are unchanged.
+- Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately. Micro-ESPectre needs rebuilt firmware for station rates (#182).
+- The SDK requires MQTT and mDNS only when their service is enabled, and no longer requires the HTTP server.
+- CLI discovery waits six seconds by default and asks devices to reply directly.
+- A saved BSSID pin disables ESPHome's periodic roaming scans, including after restart.
+- Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
+- One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
 
-### Breaking changes and migration
+### Fixed
 
-- Separate successful internal traffic generation (`generator_pps`, zero in external mode) from station network traffic (`traffic_tx_pps` and `traffic_rx_pps`). Keep CSI callback and accepted rates unchanged. Remove the mixed `traffic_packets_total` diagnostic and SDK accessor; use `get_generator_packets_total()` for generation or `get_packets_received()` for validated external UDP ingress. Add Generator Rate and Traffic RX Rate to Home Assistant. The Monitor displays and requests network TX/RX, CSI callbacks and accepted packets, occupancy, RSSI, free heap, and loop time. Micro network rates require rebuilt firmware; NPZ replay reports unavailable traffic rates as `null`.
-- Move primary console setup and TinyUSB to shared frontend code. SDK integrations must provide their own console setup; `initialize_primary_console()` is no longer part of the SDK API.
-- Export only the SDK root as an include directory, so generic SDK header names such as `utils.h` and `filters.h` no longer collide with application headers. SDK sources include other layers by layer-prefixed path. Replace flat includes such as `#include "runtime_interface.h"` with `#include "runtime/runtime_interface.h"`; the facades are unchanged. `ESPECTRE_SHARED_INCLUDE_DIRS` now contains only the root, and `ESPECTRE_CORE_INCLUDE_DIRS` and `ESPECTRE_RUNTIME_INCLUDE_DIRS` are removed.
-- Remove `wifi_tx_rate.h` from the services facade, so integrators no longer receive its internal rate constants or ESP-IDF's private Wi-Fi header. Integrations that own the Wi-Fi station call `apply_station_tx_rate()` from `network_traffic.h`, which requires the traffic source group as before.
-- Support only CSI V8 binary records, and remove the historical V7 SDK header and parser support. Existing NPZ datasets remain readable; V8 framing and payloads are unchanged.
+- Fixed the generator rate counting station traffic; it now reads zero when no internal generator runs (#182).
+- Fixed the WiFi Channel sensor showing decimals (#181).
+- Fixed sensing and network services not resuming after roaming with a retained IPv4 address.
+- Fixed startup waiting on a Wi-Fi scan; a single scan now runs only when CSI does not start.
+- Fixed mDNS replies to several common query types on all four frontends, keeping compatibility with rc1 and rc2. See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/DISCOVERY.md#limits).
+- Fixed repeated browser discovery running out of HTTP connections, and added one retry for slow devices.
+- Fixed Native rebooting while checking for OTA updates in Device settings.
+- Fixed `matter qr` and `monitor --reset` leaving the device in the firmware loader.
+- Fixed Matter reporting its firmware version as `unknown`.
+- Fixed a failed startup calibration dropping the active detector, and an unchanged detector losing its configured threshold.
+- Fixed `RuntimeFrontendController::shutdown()` leaving availability reported as ready.
+- Fixed standalone Wi-Fi leaking resources after shutdown, truncating full-length credentials, and giving up on reconnection; it now retries every 30 seconds.
+- Fixed Preview snapshots replacing the Release firmware on the home badge.
+
+### Removed
+
+- **Breaking:** Removed the `traffic_packets_total` diagnostic and SDK accessor. Use `get_generator_packets_total()` for internal generation or `get_packets_received()` for external UDP (#182).
+- **Breaking:** Removed `initialize_primary_console()` from the SDK; integrations set up their own console.
+- **Breaking:** Removed `wifi_tx_rate.h` from the services facade; call `apply_station_tx_rate()` from `network_traffic.h`.
+- **Breaking:** Removed `ESPECTRE_CORE_INCLUDE_DIRS` and `ESPECTRE_RUNTIME_INCLUDE_DIRS`.
+- **Breaking:** Removed CSI V7 binary record support. Existing NPZ datasets still load.
 
 ---
 

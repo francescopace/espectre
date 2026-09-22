@@ -1,18 +1,18 @@
 # ESPectre API
 
-This document owns the public ESPectre application contract carried by Direct HTTP, Server-Sent Events (SSE), and MQTT. Discovery is specified in [DISCOVERY.md](DISCOVERY.md).
+This reference defines the ESPectre messages and operations used over Direct HTTP, Server-Sent Events (SSE), and MQTT. Discovery is specified in the [discovery reference](DISCOVERY.md).
 
 ## Contract principles
 
-- The application version is `1.0`, and the Direct base path is `/espectre/v1`.
-- HTTP and MQTT share resource payloads, operation names, validation, and result codes. Transport framing and delivery policy stay outside resource payloads.
-- `protocol_version` appears only in `capabilities` and discovery metadata.
-- In application JSON, `device_id` appears only in `device` and multi-device discovery results. The established binary CSI records also carry it.
-- This contract replaces the former RPC and explicit CSI-session APIs. There are no legacy routes, commands, topics, or aliases.
+- The protocol version is `1.0`, and the Direct base path is `/espectre/v1`.
+- HTTP and MQTT use the same payloads, operation names, validation, and result codes. Only framing and delivery differ.
+- `protocol_version` appears only in `capabilities` and discovery data.
+- `device_id` appears only in `device`, in discovery results, and in binary CSI records.
+- There are no legacy routes, commands, topics, or aliases.
 
 ## Direct HTTP
 
-Direct HTTP listens on TCP port `62587`. A client starts with `GET /espectre/v1/capabilities` and uses the returned `resources` and `operations` catalogs instead of inferring support from the frontend name.
+Direct HTTP listens on TCP port `62587`. Clients start with `GET /espectre/v1/capabilities` and use the `resources` and `operations` it returns, rather than guessing from the frontend name.
 
 ### Support matrix
 
@@ -30,11 +30,13 @@ Direct HTTP listens on TCP port `62587`. A client starts with `GET /espectre/v1/
 | `DELETE` | `/wifi/bssid` | yes | yes | yes | no |
 | `DELETE` | `/wifi/credentials`, `/mqtt` | yes | no | no | no |
 
-Unsupported resources and method combinations return HTTP `404`. Capability negotiation remains authoritative when a custom build disables an otherwise supported feature. Micro-ESPectre's request limits, SSE behavior, and transport policies are documented in its [README.md](../src/python/micro_espectre/README.md#direct-http-surface).
+Unsupported combinations return HTTP `404`. A custom build can disable features listed here, so always check `capabilities`. Micro-ESPectre limits are in its [Direct HTTP surface](../src/python/micro_espectre/README.md#direct-http-surface) section.
 
 ### Request and response framing
 
-Successful `GET` requests return the resource object directly. A request body, when present, must be a JSON object. An empty body is equivalent to `{}`. C++ frontends accept at most 2,048 request bytes. Send `Content-Type: application/json` whenever the body is non-empty.
+- A successful `GET` returns the resource object itself.
+- A request body must be a JSON object; an empty body means `{}`. Send `Content-Type: application/json` with any non-empty body.
+- C++ frontends accept at most 2,048 request bytes.
 
 Mutations return a result object:
 
@@ -42,7 +44,7 @@ Mutations return a result object:
 {"accepted":true,"code":"ok","message":"operation accepted","data":{}}
 ```
 
-`data` is optional. Synchronous mutations use HTTP `200`. Asynchronous and disruptive routes use HTTP `202` after the request has passed application dispatch. Validation, capability, and conflict errors instead use the status codes in [Errors](#errors).
+`data` is optional. Immediate changes return HTTP `200`. Changes that run in the background or disconnect the device return `202` once accepted. Errors use the codes in [Errors](#errors).
 
 ## Resources
 
@@ -52,7 +54,7 @@ Mutations return a result object:
 {"status":"ok","online":true,"uptime_s":42,"timestamp_ms":42000}
 ```
 
-`status` is `ok` while the device is online and `offline` in an MQTT Last Will. `uptime_s` and `timestamp_ms` use the device's monotonic clock. Calibration and intentional CSI collection do not make health degraded.
+`status` is `ok` while the device is online, and `offline` in the MQTT Last Will. Times use the device's monotonic clock. Calibration and CSI collection do not affect health.
 
 ### `device`
 
@@ -68,7 +70,9 @@ Mutations return a result object:
 }
 ```
 
-`device_id` is the stable 16-character lowercase hexadecimal identity. `label` is the configured label and may be empty. When it is empty, `name` contains the generated stable display name. `csi_profile`, when available, is the runtime-selected read-only profile: `lltf20`, `ht20`, or `vht20`.
+- `device_id`: stable identity, 16 lowercase hexadecimal characters.
+- `label`: the name set by the user; may be empty. `name` is the label, or a generated name when the label is empty.
+- `csi_profile`: the capture profile in use (`lltf20`, `ht20`, or `vht20`), when known. Read-only.
 
 ### `capabilities`
 
@@ -83,7 +87,7 @@ Mutations return a result object:
 | `features.csi` | boolean | Whether `GET /csi` is available |
 | `csi` | object, optional | CSI endpoint, framing versions, queue parameters, and external traffic settings |
 
-The CSI feature is named `csi`. Clients must tolerate additive resources, operations, events, feature fields, and CSI parameters.
+Clients must ignore resources, operations, events, and fields they do not know.
 
 ### `sensing`
 
@@ -98,7 +102,7 @@ The CSI feature is named `csi`. Clients must tolerate additive resources, operat
 | `threshold` | number | Current detector threshold in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integer | Consecutive evaluations required for each state transition |
 | `csi_traffic_mode` | string | `internal` or `external` |
-| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [CSI.md](CSI.md#compatibility-limits)) |
+| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
@@ -107,9 +111,9 @@ During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derive
 
 ### `wifi`
 
-The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or an empty string when unknown. Unavailable RSSI is `null`. Native also returns `ip`, `apply_state`, and `apply_message`; these fields are optional for other frontends. Station MAC addresses and stored credentials are never returned.
+The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown; unknown RSSI is `null`. Native also returns `ip`, `apply_state`, and `apply_message`. The MAC address and credentials are never returned.
 
-The retained MQTT `wifi` payload is redacted. It contains `configured`, `connected`, `band`, `channel`, `rssi_dbm`, `apply_state`, and `apply_message`, but omits SSID, BSSID, and IP address.
+The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 
 ### `wifi/access-points`
 
@@ -123,15 +127,15 @@ The retained MQTT `wifi` payload is redacted. It contains `configured`, `connect
 }
 ```
 
-`access_points` contains the latest completed scan. Starting a later scan sets `scanning` and updates `message`; clients poll this resource for completion.
+`access_points` holds the last completed scan. While a new scan runs, `scanning` is true; poll this resource until it finishes.
 
 ### `mqtt`
 
-Native returns `configured`, `scheme`, `host`, `port`, `username_configured`, and `topic_prefix`. `configured` is true only when the scheme, host, and port form a valid endpoint. The password is write-only, and the username is represented only by `username_configured`.
+Native returns `configured`, `scheme`, `host`, `port`, `username_configured`, and `topic_prefix`. `configured` is true only when scheme, host, and port are valid. The username and password are never returned.
 
 ### `ota`
 
-OTA is a frontend-owned extension of the canonical message model. Native registers its resource, operations, event, and parameter validation through the same extension catalog for Direct HTTP and MQTT. The sensing SDK does not implement firmware updates.
+OTA is available only on Native. It is a frontend extension: the sensing SDK does not update firmware.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -146,15 +150,27 @@ OTA is a frontend-owned extension of the canonical message model. Native registe
 
 ### `diagnostics`
 
-`GET /diagnostics` without `fields`, or with `fields: []`, returns a catalog: `{"fields":[{"name":"traffic_tx_pps","type":"number","unit":"pps"}, ...]}`. Names and metadata come from the canonical registry in `src/cpp/runtime/diagnostic_fields.h`; the catalog is limited to the frontend's diagnostic surface and does not read measurement values. A supported measurement can still be unavailable, in which case selecting it returns `null`.
+Diagnostics are read on request only; they are never pushed over SSE or a retained MQTT topic.
 
-Pass `{"fields":["traffic_tx_pps","csi_hw_error_total","direct_http.send_failures"]}` to request values. Responses contain only the selected fields, plus `timestamp_ms` and `uptime`. Dotted paths select leaves while preserving nested response objects, and a group name such as `raw_csi` selects all its leaves. Duplicate and overlapping selections are emitted once. `{"fields":["*"]}` requests the complete snapshot; the wildcard must be the only selection. Unknown names, wrong types, and mixed wildcard selections are invalid parameters. Names outside the frontend catalog are also invalid parameters.
+**Catalog.** `GET /diagnostics` with no `fields`, or `fields: []`, returns the list of fields this frontend supports: `{"fields":[{"name":"traffic_tx_pps","type":"number","unit":"pps"}, ...]}`. The list comes from `src/cpp/runtime/diagnostic_fields.h`.
 
-HTTP accepts the JSON parameter object in the GET body. Browsers use `GET /espectre/v1/diagnostics?fields=%5B%22traffic_tx_pps%22%5D`, where `fields` is a URL-encoded JSON array; a query cannot be combined with a body or additional query parameters. Body limits still apply to decoded query parameters, and the HTTP server also enforces its URI limit. Use a body for long selections. MQTT carries the same `fields` array at the top level of `read_diagnostics` and returns the same object inside `commands/result.data`. Diagnostics are not published through SSE or a retained MQTT topic.
+**Values.** Pass the fields you want:
 
-Network traffic rates include UDP, ICMP, TCP data and acknowledgements, ARP, and other station data passed through the stack. They exclude 802.11 control acknowledgements, management frames, radio retries, and raw Wi-Fi injection. TX counts driver acceptance, not over-the-air delivery; RX counts driver delivery even if the stack later drops the packet. Rates share the existing diagnostic sampling interval. Network counters use modulo-32-bit deltas and are independent of generator resets. A zero network rate means no measured traffic; unavailable counters, including NPZ replay and older Micro firmware, produce `null`.
+```json
+{"fields":["traffic_tx_pps","csi_hw_error_total","direct_http.send_failures"]}
+```
 
-Current clients request their fields directly, without fetching the catalog first. The Monitor requests its displayed indicators, Device settings requests the Wi-Fi channel, the firmware benchmark requests its measurement and Direct transport fields, and CSI collection requests `raw_csi`. The generic CLI defaults to `["*"]`; explicitly pass `fields: []` to inspect the catalog. Continuous counters and performance windows retain their existing sampling behavior; selection controls value retrieval and serialization, not detector instrumentation.
+- The response contains the selected fields plus `timestamp_ms` and `uptime`.
+- A dotted path selects one nested value; a group name such as `raw_csi` selects the whole group. Duplicates are returned once.
+- `["*"]` returns everything. `*` cannot be combined with other names.
+- Unknown names, names outside the catalog, and wrong types return `invalid_params`.
+- A supported field that has no value right now returns `null`.
+
+**Transport.** Over HTTP, send the object as the GET body. Browsers can use a query instead: `GET /espectre/v1/diagnostics?fields=%5B%22traffic_tx_pps%22%5D`, with `fields` as a URL-encoded JSON array and no other parameters or body. Body and URI limits still apply, so use a body for long lists. Over MQTT, send `fields` with the `read_diagnostics` command; the values come back in `commands/result.data`.
+
+The CLI requests `["*"]` by default; pass `fields: []` to see the catalog. Selecting fields only affects what is returned, not what is measured.
+
+**Network rates** count station packets passed through the IP stack: UDP, ICMP, TCP, ARP, and so on. They do not count 802.11 ACKs, management frames, retries, or raw `wifi_raw` frames. TX counts packets the driver accepted, not packets delivered over the air. A rate of zero means no traffic; `null` means the counter is not available, for example on NPZ replay or older Micro firmware.
 
 | Field group | Meaning |
 | --- | --- |
@@ -182,9 +198,9 @@ Current clients request their fields directly, without fetching the catalog firs
 | `raw_csi` | CSI session state, drops, send backpressure, delivered records, and stream sequence |
 | `mqtt` | Native MQTT connection, queue, outbox, drop, failure, and reconnect counters |
 
-Memory values use KiB. Timings use microseconds unless the field ends in `_ms`, and rates use packets per second. `csi_occupancy` is the valid fraction of the active detector window. Fields that depend on a complete performance window are `null` until that window is ready. A frontend may omit measurements and transport objects that it cannot provide; clients must not replace a missing value with zero.
+Units: memory in KiB, times in microseconds unless the name ends in `_ms`, rates in packets per second. Fields that need a complete performance window are `null` until it is ready. A frontend may leave out fields it cannot measure; clients must not treat a missing value as zero.
 
-The periodic sensing log labels the traffic, callback, accepted-packet, and hardware-rejection rates `tx`, `cb`, `accepted`, and `hwerr`. Rates use packets per second over the actual diagnostic interval. `hwerr` sums RX errors, RX end errors, invalid hardware estimates, and unsafe invalid first words; it includes background traffic and excludes other filtering reasons. `occ` is valid detector-window occupancy. Channel and RSSI use the same association diagnostics as the API. Missing values appear as `--`. The diagnostics resource also includes admitted rates, temporal-drop reasons, cumulative error counts, and performance details.
+The periodic log line shows a subset of these values (`tx`, `cb`, `accepted`, `hwerr`, `occ`, `ch`, `rssi`); see [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input). `hwerr` is the sum of RX errors, RX end errors, invalid estimates, and unusable invalid first words.
 
 ## Operations
 
@@ -198,7 +214,7 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 {"label":"Kitchen"}
 ```
 
-`label` is required, must be a single-line string, and may contain at most 32 encoded bytes. An empty string clears the label. Success returns HTTP `200` and publishes the updated `device` resource.
+`label` is required: a single line of at most 32 bytes. An empty string clears it. Success returns HTTP `200` and publishes `device`.
 
 ### Sensing update and calibration
 
@@ -211,9 +227,11 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `threshold` | finite number in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integers from `1` through `20`; both must be present together |
 | `csi_traffic_mode` | `internal` or `external` |
-| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [CSI.md](CSI.md#compatibility-limits)) |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) |
 
-The request is parsed and all field constraints and capabilities are checked before changes are applied. Success returns HTTP `200` and publishes `sensing`. `POST /sensing/calibrations` takes no parameters, returns HTTP `202` when queued, and returns `409` with code `busy` when calibration is already active.
+All fields are checked before anything changes: either the whole request applies or none of it does. Success returns HTTP `200` and publishes `sensing`.
+
+`POST /sensing/calibrations` takes no parameters. It returns `202` when calibration starts, or `409` with code `busy` if one is already running.
 
 ### Wi-Fi scan and BSSID selection
 
@@ -225,11 +243,11 @@ The request is parsed and all field constraints and capabilities are checked bef
 {"bssid":"aa:bb:cc:dd:ee:ff","force":false}
 ```
 
-`bssid` is required and must contain six hexadecimal octets separated by colons. `force` is an optional boolean and defaults to false. If the requested BSSID is already active, the normal request persists the selection without forcing a link transition; `force: true` exercises the disconnect and reconnect lifecycle.
+`bssid` is required, as six hexadecimal octets separated by colons. If the device is already on that BSSID, the pin is saved without reconnecting; set `force: true` to reconnect anyway.
 
-`DELETE /wifi/bssid` clears the pin. `DELETE /wifi/credentials`, available only on Native, removes provisioned Wi-Fi credentials and returns the device to provisioning. Both DELETE routes take no parameters.
+`DELETE /wifi/bssid` clears the pin. `DELETE /wifi/credentials` (Native only) erases the Wi-Fi credentials and returns the device to provisioning. Neither takes parameters.
 
-The three disruptive Wi-Fi mutations return HTTP `202` before any disconnect. Their result `data` contains the active BSSID observed before apply:
+These three routes return `202` before the device disconnects. `data` holds the BSSID in use before the change:
 
 ```json
 {"accepted":true,"code":"ok","message":"Wi-Fi BSSID update accepted","data":{"current_bssid":"11:22:33:44:55:66"}}
@@ -250,11 +268,14 @@ The three disruptive Wi-Fi mutations return HTTP `202` before any disconnect. Th
 }
 ```
 
-`scheme`, `host`, and `port` are required on every request. `scheme` accepts lowercase `mqtt` or `mqtts`. `host` is a DNS hostname, IPv4 address, or unbracketed IPv6 address without a scheme, user information, port, path, query, fragment, whitespace, or control characters. `port` is an integer from `1` through `65535`.
+| Field | Rule |
+| --- | --- |
+| `scheme` | Required. `mqtt` (plain TCP, for a trusted local broker) or `mqtts` (TLS, verified against the public certificate bundle and hostname) |
+| `host` | Required. Hostname, IPv4, or IPv6 without brackets. No scheme, credentials, port, path, or spaces |
+| `port` | Required. `1` to `65535` |
+| `username`, `password`, `topic_prefix` | Optional, single line, at most 128, 256, and 128 bytes. Omitted fields keep their saved value. An empty `topic_prefix` restores `espectre/v1/devices` |
 
-`username`, `password`, and `topic_prefix` are optional single-line strings with maximum lengths of 128, 256, and 128 bytes. An omitted optional field keeps its stored value. An empty `topic_prefix` restores `espectre/v1/devices`. Success returns HTTP `200`. `DELETE /mqtt` takes no parameters, clears the broker endpoint and credentials, and returns HTTP `200`.
-
-`mqtt` selects explicit plaintext TCP for a trusted local broker. `mqtts` uses the public certificate bundle and verifies the broker hostname. WebSocket transports are not supported.
+Success returns HTTP `200`. `DELETE /mqtt` takes no parameters, clears the broker and credentials, and returns `200`. MQTT over WebSocket is not supported.
 
 ### OTA actions
 
@@ -264,11 +285,11 @@ The three disruptive Wi-Fi mutations return HTTP `202` before any disconnect. Th
 {"channel":"release"}
 ```
 
-`channel` is `release`, `preview`, or `develop`. Omitting it uses the firmware build's default channel. Client-supplied `manifest_url`, `image_url`, and `version` values are rejected, as are all other unknown fields. A started check or update returns HTTP `202`; an already active OTA operation returns `409` with code `busy`. OTA state changes are published as `ota` events and retained on the MQTT `ota` topic.
+`channel` is `release`, `preview`, or `develop`; the default is the firmware's build channel. Clients cannot pass a URL or version. A started check or update returns `202`; if one is already running, the result is `409` with code `busy`. Progress is published as `ota` events and on the retained MQTT `ota` topic.
 
 ## Events
 
-`GET /espectre/v1/events` is the only JSON SSE connection. The C++ frontends publish `health`, `device`, `sensing`, `wifi`, `ota`, `motion`, and `fault` according to their capability catalog. Resource events carry complete snapshots. MQTT configuration, diagnostics, discovery results, and CSI never appear in this stream.
+`GET /espectre/v1/events` is the SSE stream. C++ frontends publish `health`, `device`, `sensing`, `wifi`, `ota`, `motion`, and `fault`, as listed in `capabilities`. Resource events carry the full resource. MQTT settings, diagnostics, discovery, and CSI never appear here.
 
 A `motion` event is produced for each detector evaluation:
 
@@ -276,7 +297,7 @@ A `motion` event is produced for each detector evaluation:
 {"timestamp_ms":42000,"state":"idle","score":0.0123}
 ```
 
-`state` is `idle` or `motion`, and `score` is the detector output. Threshold and detector metadata remain in `sensing`. Under backpressure, replaceable motion events may be coalesced or dropped; C++ diagnostics expose the count as `direct_http.dropped_motion_events`. Future derived events, such as presence and gesture, use this event plane.
+`state` is `idle` or `motion`, and `score` is the detector output; the threshold is in `sensing`. If the client is slow, motion events may be dropped; the count is in `direct_http.dropped_motion_events`. Future events such as presence and gestures will use the same stream.
 
 A `fault` event reports a runtime error without changing a resource payload:
 
@@ -284,31 +305,30 @@ A `fault` event reports a runtime error without changing a resource payload:
 {"timestamp_ms":42000,"message":"runtime fault"}
 ```
 
-Each SSE connection receives a `: heartbeat` comment every 10 seconds. There is no replay. C++ frontends support at most two event clients. Persistent send failures close the affected stream.
+Each connection gets a `: heartbeat` comment every 10 seconds. Missed events are not replayed. C++ frontends accept at most two clients, and close a stream that keeps failing.
 
 ## CSI collection
 
-`GET /espectre/v1/csi` opens the single exclusive binary CSI collection session. No setup request, bearer token, session deletion, or bind timeout exists. Closing the TCP response ends collection.
+`GET /espectre/v1/csi` opens the binary CSI collection session. Only one session can be open, and closing the connection ends it. There is no setup request or token.
 
-The C++ runtime requires sensing services to be armed before collection starts. If sensing is disabled or services are suspended for reconfiguration or maintenance, opening collection fails without re-enabling CSI capture or traffic generation. An accepted collection pauses derived sensing while retaining the active capture and traffic services.
+- **Before opening:** sensing must be enabled and running. Otherwise the request fails and nothing is restarted. With external traffic, start the host traffic generator first.
+- **While open:** `sensing.mode` is `csi_collection`, `ready` is false, and motion and other derived events pause on every transport. Capture and traffic keep running, and resource events are still published. A second `/csi` request, and any sensing, Wi-Fi, or OTA change, returns `409`.
+- **After closing:** the runtime restores its previous state, recalibrates if needed, and resumes events once it is ready again. If the client disconnects while no records are flowing, the session also ends.
 
-Capture rejects hardware-invalid estimates before sensing and collection. [CSI.md](CSI.md#capture-quality) defines validation and normalization; the diagnostics above expose rejection counts and rates.
+Records use CSI format V8: a 60-byte little-endian prefix per record and a 16-byte session ID that must stay the same for the whole connection. Order is preserved; records dropped by the device queue show up in the diagnostics counters. NPZ datasets store decoded arrays, so they do not depend on the record version.
 
-The public CSI record format is unchanged. Filtered streams may have fewer usable packets, including no usable packets if the hardware reports invalid estimates for the selected source. This is not a quiet measurement, and the runtime does not silently select another generator. Detailed hardware metadata is not added to collected datasets.
-
-CSI V8 is the only supported binary record version. Each record retains the established 60-byte little-endian HTTP prefix. The client adopts the 16-byte session identifier from the first frame and rejects a change within the same connection. The producer preserves order; fixed-ring drops remain observable in the transport counters. Existing NPZ datasets store decoded arrays and remain readable independently of the binary record version used during capture.
-
-While CSI is active, sensing reports `csi_collection`, readiness is false, and motion plus all present or future derived events are paused on every transport. Control and resource events remain available. A second `/csi` request and sensing, Wi-Fi, or OTA mutations return `409`. On close, the runtime restores its prior state, recalibrates when required, and resumes derived events only after readiness returns. The raw worker also detects a disconnected client when no CSI records are available; it closes the session without synthesizing records. When external traffic is configured, the host traffic generator must start before opening `/csi`.
+Packets with hardware errors are dropped before collection (see [capture quality](CSI.md#capture-quality)). If the source produces only invalid estimates, the stream can be empty; this is not a quiet room, and the runtime does not switch source. Hardware metadata is not stored in datasets.
 
 ### External CSI traffic
 
-In `external` mode, ESPHome, Native, and Matter accept UDP markers and unicast ICMP Echo Requests addressed to the device. UDP can use the device IP or `csi_traffic_multicast_group`, which defaults to `239.255.0.1`. An empty multicast setting disables the group join while preserving unicast reception.
+In `external` mode, ESPHome, Native, and Matter measure CSI on:
 
-The UDP listener uses port `5555` and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Unicast Echo Requests become CSI candidates, and the normal IP stack sends the replies. The external host owns pacing for either protocol. [CLI.md](CLI.md#collect) covers host generation; [CSI.md](CSI.md#external-sources) describes delivery limits.
+- **UDP markers** on port `5555`, sent to the device IP or to `csi_traffic_multicast_group` (default `239.255.0.1`; empty disables multicast). The payload must be exactly the four bytes `F0 9F 91 BB` (`"👻".encode("utf-8")`).
+- **ICMP Echo Requests** sent by unicast to the device. The device replies normally.
 
-Multicast sensing traffic may arrive with the group's multicast MAC or the device's unicast MAC when the access point converts multicast to unicast. Both delivery forms require the configured multicast destination IP, UDP port, and exact marker; frames addressed to another device are rejected.
+The sending host sets the pace. Some access points convert multicast to unicast; both forms are accepted, as long as the destination IP, port, and marker match. See the [`collect` command](CLI.md#collect) and [external sources](CSI.md#external-sources).
 
-## MQTT
+## MQTT topics
 
 The base topic is `espectre/v1/devices/{device_id}` unless Native is configured with another `topic_prefix`.
 
@@ -324,15 +344,15 @@ The base topic is `espectre/v1/devices/{device_id}` unless Native is configured 
 | `fault` | no | Runtime fault |
 | `commands/result` | no | Correlated command result |
 
-There is no application heartbeat in addition to MQTT keepalive. The retained `health` topic is also the Home Assistant availability topic. The broker publishes the retained offline health Last Will after an ungraceful disconnect.
+Liveness uses MQTT keepalive only. The retained `health` topic doubles as the Home Assistant availability topic; if the device drops off, the broker publishes its offline Last Will there.
 
-Publish commands to `commands/request`. Every request has a top-level `command_id` and `command`; parameters are also top-level. Neither `protocol_version` nor `device_id` is present.
+Send commands to `commands/request`. `command_id`, `command`, and the parameters all sit at the top level:
 
 ```json
 {"command_id":"cmd-42","command":"update_sensing","threshold":0.5}
 ```
 
-`command_id` is 1 to 64 characters and accepts ASCII letters, digits, `_`, `-`, `.`, and `:`. The complete command payload is limited to 2,048 bytes. Results echo `command_id` and `command`, then carry `accepted`, `code`, `message`, and optional `data`.
+`command_id` has 1 to 64 characters from ASCII letters, digits, `_`, `-`, `.`, and `:`. A command is at most 2,048 bytes. The result repeats `command_id` and `command`, and adds `accepted`, `code`, `message`, and optional `data`.
 
 | Command | Parameters | HTTP-equivalent validation |
 | --- | --- | --- |
@@ -343,11 +363,11 @@ Publish commands to `commands/request`. Every request has a top-level `command_i
 | `check_ota` | optional `channel` | `POST /ota/checks` |
 | `start_ota` | optional `channel` | `POST /ota/updates` |
 
-There are no MQTT topics for MQTT configuration, diagnostics, discovery, or CSI. Home Assistant Discovery remains a separate adapter profile and uses `health` for availability.
+MQTT settings, discovery, and CSI are not available over MQTT; diagnostics only through `read_diagnostics`. Home Assistant Discovery is a separate layer on top.
 
 ## Errors
 
-Application results use `application/json` and the result object shown above. The C++ Direct dispatcher maps these stable codes as follows:
+Application results are JSON result objects. On C++ frontends, codes map to HTTP status like this:
 
 | HTTP status | Result codes | Meaning |
 | --- | --- | --- |
@@ -356,9 +376,9 @@ Application results use `application/json` and the result object shown above. Th
 | `409` | `busy`, `conflict`, `busy_raw_collection` | The request conflicts with active calibration, discovery, CSI, or OTA work |
 | `200` or `202` | `unavailable`, `internal_error` | Dispatch reached the operation, but its backend could not complete it; the route's synchronous or asynchronous status is retained |
 
-MQTT has no HTTP status; subscribers use `accepted` and `code` in `commands/result`. A command outside the published MQTT command set returns code `forbidden`.
+Over MQTT, read `accepted` and `code` in `commands/result`. A command not in the MQTT list returns `forbidden`.
 
-The HTTP service can reject a request before application dispatch. These failures are not canonical result objects. C++ frontends return `text/plain; charset=utf-8`. Clients must inspect the HTTP status and `Content-Type` before parsing JSON.
+The HTTP server can also reject a request before it reaches the application. These errors are plain text (`text/plain; charset=utf-8`), not result objects, so check the status and `Content-Type` before parsing JSON.
 
 | HTTP status | Pre-dispatch failure |
 | --- | --- |
@@ -371,12 +391,12 @@ The HTTP service can reject a request before application dispatch. These failure
 | `429` | The request or mutation rate limit was reached |
 | `503` | The service is stopping, its queue is full, or request handling cannot start |
 
-`rate_limited` is not an application result code. Rate limiting is a transport failure reported with HTTP `429` and counted in diagnostics.
+Rate limiting is reported only as HTTP `429` (there is no `rate_limited` result code) and is counted in diagnostics.
 
 ## Security and versioning
 
-Direct HTTP is a trusted-LAN surface. Firmware enforces exact browser Origin allowlists, Private Network Access preflight, bounded bodies, queues, clients, and request rates. It binds to the station interface and does not expose stored Wi-Fi or MQTT passwords. `/mqtt` may gain independent protection only through an additive security extension.
+Direct HTTP is meant for a trusted local network. The firmware accepts only listed browser origins, requires the Private Network Access preflight, and limits body size, queues, clients, and request rate. It listens only on the Wi-Fi station interface and never returns stored passwords. Any extra protection for `/mqtt` would come as an additive extension.
 
-During the 3.0.0 release-candidate phase, the application contract remains `1.0`: Direct uses `/espectre/v1`, the default MQTT prefix is `espectre/v1/devices`, and DNS-SD advertises `protovers=1.0`. Diagnostic field selection changes within this pre-release contract: an unselected request returns a catalog, while `fields: ["*"]` returns all values. Use matching firmware and clients; there is no automatic fallback to the earlier diagnostics response. An explicitly configured MQTT prefix remains a user setting.
+Clients check `capabilities.protocol_version` once. Version `1.0` can gain resources, fields, operations, and events; clients must ignore what they do not know. After the stable release, a breaking change needs a new base path and discovery protocol version.
 
-Clients negotiate once through `capabilities.protocol_version`. Compatible additions may add resources, fields, operations, or events within `v1`; consumers must ignore unknown additive fields. After the contract is released as stable, an incompatible change requires a new base-path major version and discovery protocol version.
+During the 3.0.0 release candidates the version stays `1.0` (`/espectre/v1`, MQTT prefix `espectre/v1/devices`, `protovers=1.0`). Diagnostics changed within this phase: a request without fields now returns the catalog, and `["*"]` returns all values. Use matching firmware and clients.

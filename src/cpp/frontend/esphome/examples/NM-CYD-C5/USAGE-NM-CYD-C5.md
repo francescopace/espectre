@@ -1,24 +1,24 @@
-# ESPectre × NM-CYD-C5 User Guide
+# ESPectre × NM-CYD-C5 user guide
 
 > Firmware: `src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml` (extends `espectre-c5.yaml`)
 > Hardware: NM-CYD-C5 (external-antenna version recommended, nm-cyd-c5-ant; ESP32-C5, 2.8" 320×240 ST7789 touch display)
 
-ESPectre is a WiFi CSI (Channel State Information) based human motion detection system. In addition to the core motion detection, this firmware on the NM-CYD-C5 provides complete local interaction: a live motion curve, threshold line display, touch buttons for manual threshold adjustment, and one-tap calibration, plus Home Assistant and web tool support.
+ESPectre detects motion from Wi-Fi signals. On the NM-CYD-C5, this firmware adds a touch screen: a live motion graph with the threshold line, buttons to adjust the threshold, and one-tap calibration. Home Assistant and the web tools work as usual.
 
 ---
 
-## 1. Feature Overview
+## 1. Feature overview
 
 | Feature | Access |
 |---|---|
-| Motion detection (lightweight / high_accuracy algorithms) | Runs automatically — passive WiFi CSI sensing, nothing to wear |
+| Motion detection (Lightweight or High Accuracy) | Automatic; nothing to wear |
 | Movement curve + Threshold line | On-device display (320×240) |
 | Touch threshold adjustment (±0.05, range 0–1) | Screen buttons / HA |
-| Auto-calibration (adaptive threshold) | Screen CALIBRATE button / HA Recalibrate button |
+| Calibration (automatic threshold) | Screen CALIBRATE button / HA Recalibrate button |
 | Home Assistant integration | Native ESPHome API (auto-discovery) |
 | Web tools (entity control, device settings) | https://espectre.dev/tools/ |
 
-## 2. First-Time Provisioning
+## 2. First-time provisioning
 
 Build this board's configuration from the repository root:
 
@@ -27,15 +27,15 @@ Build this board's configuration from the repository root:
 ./espectre esphome build --chip c5 --config src/cpp/frontend/esphome/examples/espectre-cyd-c5.yaml
 ```
 
-The generic C5 image does not include this display configuration. Shared provisioning and update instructions are in [README.md](../../README.md).
+The standard C5 image does not include the display. General setup and update instructions are in the [ESPHome guide](../../README.md).
 
-The device ships with no saved WiFi credentials and automatically starts a provisioning hotspot on first boot after flashing:
+After flashing, the device has no Wi-Fi settings and opens a setup hotspot:
 
-1. On your phone or computer, scan for WiFi networks and connect to the **`ESPectre Fallback`** hotspot;
-2. The captive portal opens automatically in the browser (or browse manually to `192.168.4.1`);
-3. Select your WiFi network and enter its password;
-4. After a successful save, the device reboots and connects to your WiFi automatically;
-5. Once connected, **the device IP address is shown directly in the top-left header of the screen** (yellow `NO WIFI` is displayed while disconnected).
+1. On your phone or computer, connect to the **`ESPectre Fallback`** Wi-Fi network.
+2. The setup page opens by itself (otherwise, go to `192.168.4.1`).
+3. Choose your Wi-Fi network and enter its password.
+4. The device restarts and connects.
+5. **Its IP address appears at the top left of the screen.** Yellow `NO WIFI` means it is not connected.
 
 > You can also provision over USB with Improv Serial, e.g. `./espectre provision --ssid MyNetwork` or the web flasher at https://espectre.dev/tools/flash/.
 
@@ -43,9 +43,9 @@ The device ships with no saved WiFi credentials and automatically starts a provi
 
 Prerequisite: the device and Home Assistant are on the **same subnet**.
 
-1. In Home Assistant, install the **ESPHome** integration (Settings → Devices & Services → Add Integration → ESPHome);
-2. Open Home Assistant → **Settings** → find **ESPHome** → click **Add New Device**;
-3. When the device and HA are on the same network it is **discovered automatically** (mDNS hostname `espectre`) — click it and confirm to finish adding; if it is not discovered, enter the IP address shown on the screen manually.
+1. Install the **ESPHome** integration (Settings → Devices & Services → Add Integration → ESPHome).
+2. Home Assistant finds the device by itself (as `espectre-` plus the last six characters of its MAC address). Click it and confirm.
+3. If it does not appear, add it with the IP address shown on the screen.
 
 Once added, the main entities are:
 
@@ -58,7 +58,7 @@ Once added, the main entities are:
 | Recalibrate | button | Triggers re-calibration |
 | WiFi Signal | sensor | Signal strength in dBm |
 
-## 4. Screen Layout & Operation
+## 4. Screen layout and controls
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -74,30 +74,28 @@ Once added, the main entities are:
 └────────────┴──────────────────┴──────────────┘
 ```
 
-- **Graph area**: ~68 seconds of scrolling history (~4 points/s), auto-scaled Y axis; curve segments above the yellow threshold line turn red, making the "decision" process intuitive.
-- **THR −0.05 / +0.05**: step-adjust the threshold, range 0–1, takes effect immediately.
-- **CALIBRATE**: triggers re-calibration (~10 seconds — keep the environment still during it). Calibration recomputes the adaptive threshold; `Calibration Active` is ON while it runs.
+- **Graph**: about 68 seconds of history (about 4 points per second), with automatic scale. Parts of the curve above the yellow threshold line turn red.
+- **THR −0.05 / +0.05**: lower or raise the threshold (0–1); the change is immediate.
+- **CALIBRATE**: recalculates the threshold in about 10 seconds. Keep the room still meanwhile; `Calibration Active` is ON while it runs.
 - Status text: `MOTION` (red) / `IDLE` (green) / `CALIBRATING...` (blue) / `BOOT` (yellow).
 
-## 5. Web Tools
+## 5. Web tools
 
-Open https://espectre.dev/tools/device-settings/ and point it at the device (by IP or `espectre.local`) to view and control the device. The device also serves the ESPectre Direct HTTP API (see [DISCOVERY.md](../../../../../../docs/DISCOVERY.md)).
+Open https://espectre.dev/tools/device-settings/ and connect with the IP shown on the screen, or use **Auto-discovery** (see the [discovery reference](../../../../../../docs/DISCOVERY.md)).
 
-Firmware updates: use the ESPHome dashboard or `esphome upload` (direct over WiFi, no USB needed).
+To update the firmware, use the ESPHome dashboard or `esphome upload` over Wi-Fi.
 
-## 6. Daily Usage Tips
+## 6. Everyday tips
 
-- **Placement**: keep the line of sight between the device and the router free of metal obstructions — CSI is sensitive to 2.4 GHz link quality;
-- **When to calibrate**: after moving the device, changing the room layout, or when false positives/negatives become noticeable, press CALIBRATE again (keep the room empty and still during calibration); or trigger the Recalibrate button from Home Assistant;
-- **Threshold tuning**: more false positives → increase; more missed detections → decrease. For detecting small movements, re-calibrate first before fine-tuning;
-- **Self-healing on network loss**: the device reconnects WiFi automatically, and CSI detection resumes by itself — no intervention needed.
+- **Placement:** avoid metal between the device and the router; see the [placement guide](https://espectre.dev/guides/placement/).
+- **Recalibrate** after moving the device or rearranging the room, or when false alarms or missed movements increase. Keep the room empty and still. You can also use Recalibrate in Home Assistant.
+- **Threshold:** too many false alarms → raise it; missed movements → lower it. For small movements, recalibrate before fine-tuning.
+- **Network loss:** the device reconnects and resumes detection by itself.
 
 ## 7. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Screen shows `NO WIFI` | Not connected: join the `ESPectre Fallback` hotspot and provision again, using a 2.4 GHz network |
-| HA cannot find the device | Check the subnet/VLAN; or add it manually with the IP shown on the screen |
-| Touch buttons unresponsive or offset | Resistive touch varies per unit — fine-tune the four boundary values in `touchscreen.calibration` in the YAML |
-| Calibration fails or is unsatisfactory | Keep the environment absolutely still during calibration; when the signal is too strong (very close to the router) the gain lock skips, which is expected |
-| Firmware update | ESPHome dashboard or `esphome upload` (direct over WiFi, no USB) |
+| Screen shows `NO WIFI` | Connect to the `ESPectre Fallback` network and set up Wi-Fi again. A 2.4 GHz network is recommended |
+| Home Assistant cannot find the device | Check that both are on the same network or VLAN, or add the device with the IP on the screen |
+| Touch buttons do not respond or are offset | Touch screens vary: adjust the four values in `touchscreen.calibration` in the YAML |
