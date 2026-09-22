@@ -63,7 +63,9 @@
  * Use it to keep one integration compiling against several SDK releases:
  * @code
  * #if ESPECTRE_SDK_VERSION_AT_LEAST(3, 1, 0)
- *   controller.set_motion_hits_runtime(3, 5);
+ *   // Use an API introduced in 3.1.0.
+ * #else
+ *   // Keep the equivalent behavior for earlier SDK releases.
  * #endif
  * @endcode
  */
