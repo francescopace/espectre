@@ -38,6 +38,13 @@ WEB_COVERAGE_RUNNER = REPO_ROOT / "test" / "web" / "run_coverage.sh"
 WEB_COVERAGE_THRESHOLDS = REPO_ROOT / "test" / "web" / "coverage-thresholds.json"
 
 
+def _markdown_links(document: str) -> list[str]:
+    """Return link targets outside fenced blocks and code spans, where C++ like `operator[](size_t)` is not a link."""
+    prose = re.sub(r"(?ms)^(`{3,})[^\n]*\n.*?^\1\s*$", "", document)
+    prose = re.sub(r"(`+).+?\1", "", prose, flags=re.S)
+    return re.findall(r"\]\(([^)]+)\)", prose)
+
+
 def _workflow_job(source: str, job_name: str) -> str:
     match = re.search(
         rf"(?ms)^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
@@ -522,11 +529,11 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str
     readme = component_files["README.md"].decode()
     # Shared site navigation may remain above the standalone integration guide.
     readme_sections = readme.split("\n## ", 1)[1]
-    assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", readme_sections))
+    assert all(urlparse(link).hostname != "espectre.dev" for link in _markdown_links(readme_sections))
     anchors = re.findall(r'<a id="([^"]+)"></a>', api)
     assert len(anchors) == len(set(anchors))
     for document in (readme, api):
-        for link in re.findall(r"\]\(([^)]+)\)", document):
+        for link in _markdown_links(document):
             if link.startswith("API.md#") or (document is api and link.startswith("#")):
                 assert link.split("#", 1)[1] in anchors
     protocol_reference = f"https://github.com/francescopace/espectre/blob/{inventory['commit']}/docs/API.md"
@@ -551,7 +558,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str
     assert_sdk_registry_installation(component_files, version, "https://components.espressif.com",
                                      tmp_path / "consumer")
     for name in ("README.md", "API.md", "LICENSING.md", "THIRD_PARTY_NOTICES.md"):
-        for link in re.findall(r"\]\(([^)]+)\)", component_files[name].decode()):
+        for link in _markdown_links(component_files[name].decode()):
             link = link.strip("<>")
             if not link.startswith(("https://", "mailto:", "#")):
                 assert link.split("#", 1)[0] in component_files
@@ -581,7 +588,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path, version: str
     assert f"{bundle_root}/CMakeLists.txt" not in archived
     assert f"{bundle_root}/src/cpp/sdk_integration.dox" in archived
     guide_sections = bundled_guide.split("\n## ", 1)[1]
-    assert all(urlparse(link).hostname != "espectre.dev" for link in re.findall(r"\]\(([^)]+)\)", guide_sections))
+    assert all(urlparse(link).hostname != "espectre.dev" for link in _markdown_links(guide_sections))
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
     assert re.search(rf"(?m)^PROJECT_NUMBER\s*=\s*{re.escape(version)}\s*$", bundled_doxyfile)
