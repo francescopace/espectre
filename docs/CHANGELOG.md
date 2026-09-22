@@ -66,6 +66,43 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed `RuntimeSubcarrierSource`, `subcarrier_source_name()`, and the `subcarrier_source` and `fixed_subcarriers` snapshot fields. Read the fixed subcarrier set once from `RuntimeFrontendController::subcarriers()`.
 - **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `runtime_csi_traffic_mode_valid()` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
 
+### SDK source migration
+
+Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only where noted, and nothing changes on the wire, in Kconfig, in ESPHome YAML, or in saved settings.
+
+| rc2 | rc3 |
+|-----|-----|
+| `#include "runtime/runtime_interface.h"` | `#include "runtime/runtime_config.h"` |
+| `IEspectreRuntime` | Internal; use `RuntimeFrontendController` |
+| Protocol, JSON, and transport contracts from `espectre_sdk.h` | `#include "espectre_protocol_sdk.h"`; the services and MQTT headers include it |
+| Diagnostic JSON and field helpers in `runtime/runtime_diagnostics.h` | `runtime/runtime_diagnostics_protocol.h` |
+| Profile masks `1U`, `2U`, `4U`, `7U` | `ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE`, `_BRIDGE`, `_MICRO`, `_ALL` |
+| `CsiTrafficMode` | `CsiTrafficSource` |
+| `RuntimeTrafficMode` | `TrafficGeneratorMode` |
+| `config.csi_traffic_mode` | `config.csi_traffic_source` |
+| `config.csi_capture_profile` | `config.csi_capture_policy` |
+| `config.segmentation_threshold` | `config.threshold` |
+| `config.segmentation_window_size_ms` | `config.window_size_ms` |
+| `RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT` | `RUNTIME_THRESHOLD_DEFAULT` |
+| `RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_*` | `RUNTIME_WINDOW_SIZE_MS_*` |
+| `set_threshold_runtime()`, `set_motion_hits_runtime()`, `set_detection_algorithm_runtime()` | `set_threshold()`, `set_motion_hits()`, `set_detection_algorithm()` |
+| `set_csi_traffic_mode_runtime()` | `set_csi_traffic_source()` |
+| `set_traffic_generator_mode_runtime()` | `set_traffic_generator_mode()` |
+| `traffic_mode_name()`, `parse_traffic_mode()` | `traffic_generator_mode_name()`, `parse_traffic_generator_mode()` |
+| `csi_traffic_mode_name()`, `parse_csi_traffic_mode()` | `csi_traffic_source_name()`, `parse_csi_traffic_source()` |
+| `runtime_traffic_mode_valid()`, `runtime_traffic_mode_supported()` | `runtime_traffic_generator_mode_valid()`, `runtime_traffic_generator_mode_supported()` |
+| `runtime_csi_traffic_mode_valid()`, `csi_traffic_mode_is_sensing_control()` | `runtime_csi_traffic_source_valid()` |
+| `make_runtime_sensing_config()` | `RuntimeConfig{}` |
+| `snapshot.fixed_subcarriers` | `controller.subcarriers()` |
+| `diagnostics.csi_accepted_total`, `diagnostics.wifi_rssi_dbm` | `diagnostics.csi.accepted_total`, `diagnostics.link.rssi_dbm`; see the grouping entry above |
+| `on_periodic_update(snapshot, packets_received)` | `on_periodic_update(snapshot, csi_accepted)`; same signature |
+| `RuntimeProfile`, `RuntimeSubcarrierSource`, `visit_runtime_diagnostics()` | Removed |
+
+Two behavior changes need a decision:
+
+- A hand-built `RuntimeConfig{}` on ESP32-C5 now uses `AUTO` band selection. Set `wifi_band_policy = WifiBandPolicy::BAND_2G` to keep 2.4 GHz.
+- If your firmware owns configuration, set `persist_runtime_overrides = false` so saved controls no longer override it.
+
 ---
 
 ## [3.0.0-rc2] - 2026-09-16 - Signed firmware, CSI capture controls, and standalone SDK builds

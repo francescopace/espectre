@@ -167,7 +167,7 @@ Your firmware handles boot, provisioning, networking, OTA, and the product itsel
 - `RuntimeFrontendController` (`runtime/esp_idf/runtime_frontend_controller.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access. It owns the sensing backend.
 - `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for sensing readiness, motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. The controller emits `on_sensing_readiness_changed()` once per availability transition from its loop, including detector warm-up and input expiry. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
-After `setup()`, `config()` returns the configuration in use, including saved detector, motion-hit, and traffic settings. Writing to `config()` after setup only affects the next setup; use the runtime setters for live changes.
+After `setup()`, `config()` returns the configuration in use, including saved detector, motion-hit, and traffic settings. Set `persist_runtime_overrides` to false if your firmware owns the configuration; the runtime then neither restores nor saves those settings. Writing to `config()` after setup only affects the next setup; use the runtime setters for live changes.
 
 Use the [traffic destination](#traffic-destination) setting to select the internal generator's IP destination before setup.
 
@@ -262,6 +262,7 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 | `hampel_enabled` | `bool` | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | `uint8_t` | `7` | `3-11` samples |
 | `hampel_threshold` | `float` | `5.0` | `1.0-10.0` MAD units |
+| `persist_runtime_overrides` | `bool` | `true` | Restores and saves the traffic source, generator packet, motion hits, and selectable detector across reboots. `false` makes this config the only source of truth |
 
 The transmit rate is a build-time Kconfig string, not a `RuntimeConfig` field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="0"` (automatic), `"6"`, or `"6.5"`. Keep the quotes. See [transmit rate](CSI.md#transmit-rate) for defaults and requirements.
 
