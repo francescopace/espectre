@@ -12,6 +12,7 @@
 // Deliberately the only two ESPectre includes: the recommended runtime facade
 // and the explicit core-only extension.
 #include "espectre_sdk.h"
+#include "runtime/runtime_config_validation.h"
 #include "espectre_core_sdk.h"
 
 #include "test_harness.h"

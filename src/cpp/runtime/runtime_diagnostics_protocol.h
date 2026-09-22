@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "diagnostic_fields.h"
-#include "runtime_config.h"
 #include "runtime_diagnostics.h"
 #include "runtime_snapshot.h"
 
@@ -51,11 +50,5 @@ std::string diagnostic_response(const std::vector<std::string> &fields, unsigned
 /** Read a shared scalar from a cached rate sample or a lazily acquired runtime snapshot. */
 std::string runtime_diagnostic_value(const char *key, const RuntimeDiagnosticsSample *sample,
                                      const std::function<const RuntimeDiagnosticsSnapshot &()> &snapshot);
-
-using runtime_diagnostic_visitor_t = std::function<void(const char *key, const char *value)>;
-
-void visit_runtime_diagnostics(const RuntimeConfig &config,
-                               const RuntimeSnapshot &snapshot,
-                               runtime_diagnostic_visitor_t visitor);
 
 }  // namespace espectre

@@ -14,6 +14,7 @@
 
 #include "core/espectre_log.h"
 #include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_config_validation.h"
 #include "sdkconfig.h"
 
 #ifndef CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT
@@ -147,7 +148,7 @@ uint8_t clamp_uint8_or_default_(uint32_t value, uint8_t default_value, uint8_t m
 }
 
 std::string multicast_group_or_default_(const char *value, const char *key) {
-  RuntimeConfig probe = make_runtime_sensing_config();
+  RuntimeConfig probe = RuntimeConfig{};
   probe.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
   probe.csi_traffic_multicast_group = value != nullptr ? value : "";
   if (validate_runtime_config(probe) != RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP) {
@@ -162,7 +163,7 @@ std::string multicast_group_or_default_(const char *value, const char *key) {
 }  // namespace
 
 RuntimeConfig make_runtime_sensing_config_from_kconfig() {
-  RuntimeConfig config = make_runtime_sensing_config();
+  RuntimeConfig config = RuntimeConfig{};
 
 #if CONFIG_ESPECTRE_WIFI_BAND_5G
   config.wifi_band_policy = WifiBandPolicy::BAND_5G;

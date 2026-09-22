@@ -21,6 +21,7 @@
 #include "core/lightweight_detector.h"
 #include "lwip/inet.h"
 #include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_config_validation.h"
 #include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime/runtime_time.h"

@@ -61,6 +61,7 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed CSI V7 binary record support. Existing NPZ datasets still load.
 - **Breaking:** Removed `RuntimeProfile`, `RuntimeConfig::runtime_profile`, `RuntimeConfigError::RUNTIME_PROFILE`, `runtime_profile_name()`, and `runtime_csi_traffic_mode_valid_for_profile()`. The runtime has one profile; use `runtime_csi_traffic_mode_valid()`.
 - **Breaking:** Removed `RuntimeSubcarrierSource`, `subcarrier_source_name()`, and the `subcarrier_source` and `fixed_subcarriers` snapshot fields. Read the fixed subcarrier set once from `RuntimeFrontendController::subcarriers()`.
+- **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `runtime_csi_traffic_mode_valid()` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
 
 ---
 

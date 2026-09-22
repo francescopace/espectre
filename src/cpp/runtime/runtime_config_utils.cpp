@@ -8,6 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "runtime_config_utils.h"
+#include "runtime_config_validation.h"
 
 #if __has_include("sdkconfig.h")
 #include "sdkconfig.h"
@@ -25,18 +26,6 @@ bool validate_runtime_threshold(float threshold) {
 bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorithm algorithm) {
   return std::isfinite(threshold) && threshold >= RUNTIME_THRESHOLD_MIN &&
          threshold <= runtime_threshold_max(algorithm);
-}
-
-bool validate_runtime_float(float value, float min_value, float max_value) {
-  return std::isfinite(value) && value >= min_value && value <= max_value;
-}
-
-bool validate_runtime_uint32(uint32_t value, uint32_t min_value, uint32_t max_value) {
-  return value >= min_value && value <= max_value;
-}
-
-bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value) {
-  return value >= min_value && value <= max_value;
 }
 
 namespace {
@@ -244,14 +233,6 @@ const char *csi_traffic_mode_name(CsiTrafficMode mode) {
   }
 }
 
-bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL;
-}
-
-CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode) {
-  return runtime_csi_traffic_mode_valid(mode) ? mode : CsiTrafficMode::INTERNAL;
-}
-
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   switch (algorithm) {
     case DetectionAlgorithm::HIGH_ACCURACY:
@@ -297,7 +278,5 @@ WifiBandPolicy parse_wifi_band_policy(const char *policy) {
   }
   return WifiBandPolicy::BAND_2G;
 }
-
-RuntimeConfig make_runtime_sensing_config() { return RuntimeConfig{}; }
 
 }  // namespace espectre

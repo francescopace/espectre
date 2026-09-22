@@ -289,7 +289,7 @@ bool NativeFrontend::handle_csi_traffic_mode_write_(CsiTrafficMode mode) {
     ESP_LOGW(TAG, "Runtime traffic control is not supported");
     return false;
   }
-  if (!csi_traffic_mode_is_sensing_control(mode)) {
+  if (!runtime_csi_traffic_mode_valid(mode)) {
     ESP_LOGW(TAG, "CSI traffic mode is not selectable");
     return false;
   }

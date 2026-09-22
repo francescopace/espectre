@@ -654,10 +654,6 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("unsupported") == CsiTrafficMode::INTERNAL);
-    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::INTERNAL));
-    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::EXTERNAL));
-    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::EXTERNAL));
-    TEST_ASSERT_TRUE(normalize_sensing_csi_traffic_mode(CsiTrafficMode::INTERNAL) == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
     TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
     TEST_ASSERT_EQUAL_STRING("2g", wifi_band_policy_name(WifiBandPolicy::BAND_2G));
@@ -795,28 +791,6 @@ void test_capture_profile_selection_and_source_constraints(void) {
 #if !CONFIG_IDF_TARGET_ESP32C5
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, configure_csi(&wifi, CsiCaptureProfile::VHT20));
 #endif
-}
-
-void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
-    RuntimeConfig config;
-    RuntimeSnapshot snapshot;
-    config.lowpass_enabled = true;
-    snapshot.threshold = 2.5f;
-    snapshot.detector_name = "lightweight";
-    snapshot.startup_threshold = 0.125f;
-
-    std::vector<std::string> lines;
-    visit_runtime_diagnostics(config, snapshot, [&lines](const char *key, const char *value) {
-        lines.emplace_back(std::string(key) + "=" + value);
-    });
-
-    TEST_ASSERT_TRUE(!lines.empty());
-    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "threshold=2.500000") != lines.end());
-    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "detector=lightweight") != lines.end());
-    TEST_ASSERT_TRUE(std::find(lines.begin(), lines.end(), "lowpass=on") != lines.end());
-    TEST_ASSERT_TRUE(std::none_of(lines.begin(), lines.end(), [](const std::string &line) {
-        return line.rfind("subcarriers=", 0U) == 0U || line.rfind("startup_threshold=", 0U) == 0U;
-    }));
 }
 
 void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
@@ -1073,7 +1047,6 @@ int process(void) {
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
     RUN_TEST(test_capture_profile_selection_and_source_constraints);
     RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);
-    RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
     RUN_TEST(test_station_network_traffic_counts_delivery_and_successful_sends);
     RUN_TEST(test_network_rates_wrap_independently_of_generator_resets);

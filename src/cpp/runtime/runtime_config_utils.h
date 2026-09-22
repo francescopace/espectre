@@ -36,11 +36,10 @@ enum class RuntimeConfigError : uint8_t {
   CSI_CAPTURE_PROFILE_TRAFFIC,
 };
 
+/** Whether a threshold is finite and inside the range shared by every detector. */
 bool validate_runtime_threshold(float threshold);
+/** Whether a threshold is finite and inside the range of one detector. */
 bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorithm algorithm);
-bool validate_runtime_float(float value, float min_value, float max_value);
-bool validate_runtime_uint32(uint32_t value, uint32_t min_value, uint32_t max_value);
-bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value);
 /** Whether this build target supports the internal traffic source; host builds accept every valid mode. */
 bool runtime_traffic_mode_supported(RuntimeTrafficMode mode);
 /** Whether a configured CSI profile can be combined with the internal source. */
@@ -54,19 +53,30 @@ const char *runtime_config_error_message(RuntimeConfigError error);
 /** Resolve the internal traffic destination in network byte order; empty uses the gateway, and invalid IPv4 returns zero. */
 uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gateway_addr);
 
+/**
+ * @name Wire names
+ * Stable names used by the protocol, Kconfig, and logs. The `*_name()`
+ * functions never return `nullptr`; the `parse_*()` functions return the
+ * default value for an unknown or `nullptr` name.
+ * @{
+ */
+/** Name of a Wi-Fi band policy: `2g`, `5g`, or `auto`. */
 const char *wifi_band_policy_name(WifiBandPolicy policy);
-
+/** Name of an internal traffic generator packet, such as `ping` or `dns`. */
 const char *traffic_mode_name(RuntimeTrafficMode mode);
+/** Name of a CSI traffic source: `internal` or `external`. */
 const char *csi_traffic_mode_name(CsiTrafficMode mode);
-bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode);
-CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode);
+/** Name of a detector: `lightweight` or `high_accuracy`. */
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
 
+/** Parse a traffic generator packet name. Defaults to `RuntimeTrafficMode::PING`. */
 RuntimeTrafficMode parse_traffic_mode(const char *mode);
+/** Parse a CSI traffic source name. Defaults to `CsiTrafficMode::INTERNAL`. */
 CsiTrafficMode parse_csi_traffic_mode(const char *mode);
+/** Parse a detector name. Defaults to `DetectionAlgorithm::LIGHTWEIGHT`. */
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
+/** Parse a Wi-Fi band policy name. Defaults to `WifiBandPolicy::BAND_2G`. */
 WifiBandPolicy parse_wifi_band_policy(const char *policy);
-
-RuntimeConfig make_runtime_sensing_config();
+/** @} */
 
 }  // namespace espectre
