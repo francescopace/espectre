@@ -146,6 +146,7 @@ constexpr RetiredHaDiscovery kRetiredHaDiscoveries[] = {
     {"select", "detector"},
     {"select", "csi_traffic_mode"},
     {"select", "traffic_generator_mode"},
+    {"select", "csi_traffic_ownership"},
     {"button", "diagnostics"},
     {"sensor", "csi_missing_rate"},
     {"sensor", "csi_occupancy"},
@@ -302,27 +303,6 @@ std::string build_detector_discovery_payload(const FrontendHaMqttSettings &setti
   return out;
 }
 
-std::string build_csi_traffic_mode_discovery_payload(const FrontendHaMqttSettings &settings,
-                                                     const EspectreDeviceInfo &info) {
-  std::string out = "{";
-  append_json_pair(&out, "name", "CSI Traffic Ownership", true);
-  append_json_pair(&out, "unique_id", settings.csi_traffic_mode_object_id.c_str());
-  append_json_pair(&out, "object_id", settings.csi_traffic_mode_object_id.c_str());
-  append_json_pair(&out, "state_topic", settings.csi_traffic_mode_state_topic.c_str());
-  append_json_pair(&out, "command_topic", settings.csi_traffic_mode_command_topic.c_str());
-  append_discovery_availability(&out, settings);
-  out.append(",\"options\":[");
-  append_json_string(&out, "internal");
-  out.push_back(',');
-  append_json_string(&out, "external");
-  out.push_back(']');
-  append_json_pair(&out, "entity_category", "config");
-  append_json_pair(&out, "icon", "mdi:wifi-cog");
-  append_discovery_device(&out, settings, info);
-  out.push_back('}');
-  return out;
-}
-
 std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttSettings &settings,
                                                            const EspectreDeviceInfo &info) {
   std::string out = "{";
@@ -342,6 +322,8 @@ std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttS
     out.push_back(',');
     append_json_string(&out, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME);
   }
+  out.push_back(',');
+  append_json_string(&out, RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME);
   out.push_back(']');
   append_json_pair(&out, "entity_category", "config");
   append_json_pair(&out, "icon", "mdi:swap-horizontal");
@@ -387,8 +369,6 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.calibrate_command_topic = ha_entity_base_topic(config, "calibrate/set");
   settings.detector_state_topic = ha_entity_base_topic(config, "detector/state");
   settings.detector_command_topic = ha_entity_base_topic(config, "detector/set");
-  settings.csi_traffic_mode_state_topic = ha_entity_base_topic(config, "csi_traffic_mode/state");
-  settings.csi_traffic_mode_command_topic = ha_entity_base_topic(config, "csi_traffic_mode/set");
   settings.traffic_generator_mode_state_topic = ha_entity_base_topic(config, "traffic_generator_mode/state");
   settings.traffic_generator_mode_command_topic = ha_entity_base_topic(config, "traffic_generator_mode/set");
   settings.diagnostics_command_topic = ha_entity_base_topic(config, "diagnostics/set");
@@ -401,7 +381,6 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.recalibrate_object_id = device_key + "_recalibrate";
   settings.calibration_active_object_id = device_key + "_calibration_active";
   settings.detector_object_id = device_key + "_detection_profile";
-  settings.csi_traffic_mode_object_id = device_key + "_csi_traffic_ownership";
   settings.traffic_generator_mode_object_id = device_key + "_csi_traffic_source";
   settings.diagnostics_object_id = device_key + "_refresh_diagnostics";
   settings.diagnostic_sensors.clear();
@@ -494,13 +473,6 @@ bool build_frontend_ha_discovery_message(
     }
   }
   if (supports_traffic_control) {
-    if (index-- == 0U) {
-      *message = FrontendHaDiscoveryMessage{
-          build_discovery_topic("select", settings.discovery_prefix, settings.csi_traffic_mode_object_id),
-          build_csi_traffic_mode_discovery_payload(settings, info),
-      };
-      return true;
-    }
     if (index-- == 0U) {
       *message = FrontendHaDiscoveryMessage{
           build_discovery_topic("select", settings.discovery_prefix, settings.traffic_generator_mode_object_id),

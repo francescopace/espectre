@@ -101,8 +101,7 @@ Clients must ignore resources, operations, events, and fields they do not know.
 | `detector` | string | `lightweight` or `high_accuracy` |
 | `threshold` | number | Current detector threshold in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integer | Consecutive evaluations required for each state transition |
-| `csi_traffic_mode` | string | `internal` or `external` |
-| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) |
+| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) for the device's own traffic, or `external` when another host sends it |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
@@ -226,8 +225,7 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `detector` | `lightweight` or `high_accuracy` |
 | `threshold` | finite number in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integers from `1` through `20`; both must be present together |
-| `csi_traffic_mode` | `internal` or `external` |
-| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)), or `external` |
 
 All fields are checked before anything changes: either the whole request applies or none of it does. Success returns HTTP `200` and publishes `sensing`.
 
@@ -399,4 +397,4 @@ Direct HTTP is meant for a trusted local network. The firmware accepts only list
 
 Clients check `capabilities.protocol_version` once. Version `1.0` can gain resources, fields, operations, and events; clients must ignore what they do not know. After the stable release, a breaking change needs a new base path and discovery protocol version.
 
-During the 3.0.0 release candidates the version stays `1.0` (`/espectre/v1`, MQTT prefix `espectre/v1/devices`, `protovers=1.0`). Diagnostics changed within this phase: a request without fields now returns the catalog, and `["*"]` returns all values. Use matching firmware and clients.
+During the 3.0.0 release candidates the version stays `1.0` (`/espectre/v1`, MQTT prefix `espectre/v1/devices`, `protovers=1.0`). Diagnostics changed within this phase: a request without fields now returns the catalog, and `["*"]` returns all values. The `csi_traffic_mode` field was removed in 3.0.0-rc3: `traffic_generator_mode: external` replaces `csi_traffic_mode: external`. Use matching firmware and clients.

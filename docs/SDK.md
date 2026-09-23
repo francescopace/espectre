@@ -250,9 +250,8 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 | `window_size_ms` | `uint32_t` | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | `uint32_t` | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_capture_policy` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Set before setup; no runtime setter. `HT_VHT` resolves HT20 or VHT20 from chip and band; `WIFI_RAW` requires `AUTO` or `LLTF` |
-| `csi_traffic_source` | `CsiTrafficSource`: `INTERNAL` or `EXTERNAL` | `INTERNAL` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps` |
-| `csi_traffic_multicast_group` | `std::string`: IPv4 multicast address, or empty | `"239.255.0.1"` | Joined by the UDP listener in `EXTERNAL`. Empty disables the join. Unicast to the device IP still works |
-| `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, or `WIFI_RAW` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP |
+| `csi_traffic_multicast_group` | `std::string`: IPv4 multicast address, or empty | `"239.255.0.1"` | Joined by the UDP listener with `EXTERNAL` traffic. Empty disables the join. Unicast to the device IP still works |
+| `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, `WIFI_RAW`, or `EXTERNAL` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP. `EXTERNAL` sends nothing and listens for UDP markers and ICMP Echo Requests from another host, independently from `csi_target_pps` |
 | `traffic_generator_target_ip` | `std::string`: unicast IPv4 address, or empty | empty | Destination for internal `PING`, `DNS`, and `DNS_TCP`; empty uses the Wi-Fi default gateway. Ignored by `WIFI_RAW` and external traffic |
 | `evaluation_interval_ms` | `uint32_t` | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | `uint8_t` | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
@@ -262,13 +261,13 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 | `hampel_enabled` | `bool` | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | `uint8_t` | `7` | `3-11` samples |
 | `hampel_threshold` | `float` | `5.0` | `1.0-10.0` MAD units |
-| `persist_runtime_overrides` | `bool` | `true` | Restores and saves the traffic source, generator packet, motion hits, and selectable detector across reboots. `false` makes this config the only source of truth |
+| `persist_runtime_overrides` | `bool` | `true` | Restores and saves the traffic generator mode, motion hits, and selectable detector across reboots. `false` makes this config the only source of truth |
 
 The transmit rate is a build-time Kconfig string, not a `RuntimeConfig` field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="0"` (automatic), `"6"`, or `"6.5"`. Keep the quotes. See [transmit rate](CSI.md#transmit-rate) for defaults and requirements.
 
 Only some settings can change at runtime. Check the advertised capabilities, then use the runtime setters or the [sensing operations](API.md#sensing-update-and-calibration). See [tuning essentials](TROUBLESHOOTING.md#tuning-essentials) for when to change a setting.
 
-Migrating from an early v3 snapshot? Move `traffic_generator_rate` to `csi_target_pps` and set `csi_traffic_source` to `CsiTrafficSource::INTERNAL`. Saved `pacing` and `disabled` values become `internal` automatically. An integer `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` must be quoted or removed.
+Migrating from an early v3 snapshot? Move `traffic_generator_rate` to `csi_target_pps` and pick an internal `traffic_generator_mode`. Saved `pacing` and `disabled` values keep the saved generator mode automatically. An integer `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` must be quoted or removed.
 
 ### Traffic destination
 

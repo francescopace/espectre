@@ -112,7 +112,6 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendDeviceLabelCallback device_label_callback,
     FrontendThresholdCallback threshold_callback,
     FrontendMotionHitsCallback motion_hits_callback,
-    FrontendCsiTrafficModeCallback csi_traffic_mode_callback,
     FrontendTrafficGeneratorModeCallback traffic_generator_mode_callback,
     FrontendDetectorCallback detector_callback,
     FrontendRecalibrateCallback recalibrate_callback,
@@ -251,10 +250,6 @@ FrontendCommandResult FrontendCommandEngine::execute(
     if (command.has_detector && (!supports(EspectreDirectMethod::SET_DETECTOR) || !detector_callback)) {
       return reject("unsupported", "detector update is unsupported");
     }
-    if (command.has_csi_traffic_mode &&
-        (!supports(EspectreDirectMethod::SET_CSI_TRAFFIC_MODE) || !csi_traffic_mode_callback)) {
-      return reject("unsupported", "CSI traffic mode update is unsupported");
-    }
     if (command.has_traffic_generator_mode &&
         (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE) || !traffic_generator_mode_callback)) {
       return reject("unsupported", "traffic generator update is unsupported");
@@ -272,10 +267,6 @@ FrontendCommandResult FrontendCommandEngine::execute(
     }
     if (result.accepted && command.has_motion_hits) {
       result.accepted = motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
-    }
-    if (result.accepted && command.has_csi_traffic_mode) {
-      result.accepted = csi_traffic_mode_callback(
-          parse_csi_traffic_source(command.csi_traffic_mode.c_str()), &result.message);
     }
     if (result.accepted && command.has_traffic_generator_mode) {
       result.accepted = traffic_generator_mode_callback(

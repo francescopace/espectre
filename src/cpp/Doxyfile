@@ -57,7 +57,6 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/runtime_diagnostics_protocol.h \
                          src/cpp/runtime/esp_idf/network_traffic.h \
                          src/cpp/runtime/diagnostic_fields.h \
-                         src/cpp/runtime/csi_traffic_types.h \
                          src/cpp/runtime/espectre_protocol.h \
                          src/cpp/runtime/protocol_json.h \
                          src/cpp/runtime/mqtt_transport.h \

@@ -479,20 +479,12 @@
         document.getElementById('sense-motion-on').addEventListener('change', applyMotionHits);
         document.getElementById('sense-motion-off').addEventListener('change', applyMotionHits);
         $('.js-sense-recalibrate').addEventListener('click', beginCalibration);
-        document.getElementById('sense-csi-mode').addEventListener('change', () => {
-            const csiTrafficMode = document.getElementById('sense-csi-mode').value;
-            runSensingCommand(
-                { command: 'update_sensing', csi_traffic_mode: csiTrafficMode },
-                'Changing the Wi-Fi traffic source…',
-                'Wi-Fi traffic source updated.'
-            );
-        });
         document.getElementById('sense-generator-mode').addEventListener('change', () => {
             const trafficGeneratorMode = document.getElementById('sense-generator-mode').value;
             runSensingCommand(
                 { command: 'update_sensing', traffic_generator_mode: trafficGeneratorMode },
-                'Changing the built-in traffic type…',
-                'Built-in traffic type updated.'
+                'Changing the Wi-Fi traffic source…',
+                'Wi-Fi traffic source updated.'
             );
         });
         window.addEventListener('resize', monitorResizeChart);

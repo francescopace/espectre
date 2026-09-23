@@ -585,7 +585,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_segmentation_window_size_ms(1500);
   component.set_direct_api(false);
   component.set_csi_target_pps(94);
-  component.set_csi_traffic_mode("external");
+  component.set_traffic_generator_mode("external");
+  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
   component.set_traffic_generator_mode("dns_tcp");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
   component.set_traffic_generator_mode("ping");
@@ -618,7 +619,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
                           component.runtime_.config().threshold);
   TEST_ASSERT_EQUAL(1500U, component.runtime_.config().window_size_ms);
   TEST_ASSERT_EQUAL(94, component.runtime_.config().csi_target_pps);
-  TEST_ASSERT_TRUE(component.runtime_.config().csi_traffic_source == CsiTrafficSource::EXTERNAL);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
@@ -808,27 +808,20 @@ void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
   ESpectreComponentProbe component;
   component.setup();
 
-  TrafficModeSelectProbe csi_mode_select;
-  csi_mode_select.set_parent(&component);
-  csi_mode_select.set_csi_traffic_mode(true);
-  component.set_csi_traffic_mode_select(&csi_mode_select);
-
   TrafficModeSelectProbe generator_mode_select;
   generator_mode_select.set_parent(&component);
-  generator_mode_select.set_csi_traffic_mode(false);
   component.set_traffic_generator_mode_select(&generator_mode_select);
 
-  csi_mode_select.control("external");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::EXTERNAL);
+  generator_mode_select.control("external");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  generator_mode_select.republish_state();
+  TEST_ASSERT_EQUAL_STRING("external", generator_mode_select.get_state().c_str());
 
   generator_mode_select.control("dns_tcp");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
-
-  csi_mode_select.republish_state();
   generator_mode_select.republish_state();
-  TEST_ASSERT_EQUAL_STRING("external", csi_mode_select.get_state().c_str());
   TEST_ASSERT_EQUAL_STRING("dns_tcp", generator_mode_select.get_state().c_str());
 }
 

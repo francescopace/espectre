@@ -37,7 +37,7 @@ function loadFlashCore(globals = {}) {
 
 describe('Monitor traffic source availability', () => {
     it('disables wifi_raw on C6 and restores it when the connected chip changes', () => {
-        const options = ['ping', 'dns', 'dns_tcp', 'wifi_raw'].map((value) => ({ value }));
+        const options = ['ping', 'dns', 'dns_tcp', 'wifi_raw', 'external'].map((value) => ({ value }));
         const context = vm.createContext({
             window: {}, HTMLElement: class {}, customElements: { get: () => true },
             document: { getElementById: (id) => id === 'sense-generator-mode' ? { options } : null },
@@ -48,7 +48,7 @@ describe('Monitor traffic source availability', () => {
             const unsupported = chip.toUpperCase().replaceAll('-', '') === 'ESP32C6';
             assert.equal(options[3].hidden, unsupported);
             assert.equal(options[3].disabled, unsupported);
-            for (const option of options.slice(0, 3)) {
+            for (const option of [...options.slice(0, 3), options[4]]) {
                 assert.ok(!option.hidden && !option.disabled);
             }
         }

@@ -639,9 +639,6 @@ void ESpectreComponent::sync_direct_config_() {
   if (this->motion_off_hits_number_ != nullptr) {
     this->motion_off_hits_number_->publish_state(this->runtime_.config().motion_off_hits);
   }
-  if (this->csi_traffic_mode_select_ != nullptr) {
-    this->csi_traffic_mode_select_->publish_state(csi_traffic_source_name(this->runtime_.config().csi_traffic_source));
-  }
   if (this->traffic_generator_mode_select_ != nullptr) {
     this->traffic_generator_mode_select_->publish_state(
         traffic_generator_mode_name(this->runtime_.config().traffic_generator_mode));
@@ -735,7 +732,6 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
   capabilities.set(Method::SET_MOTION_HITS, runtime_capabilities.supports_runtime_motion_hits_updates);
   capabilities.set(Method::SET_DETECTOR, runtime_capabilities.supports_runtime_detector_selection);
   capabilities.set(Method::RECALIBRATE, runtime_capabilities.supports_manual_recalibration);
-  capabilities.set(Method::SET_CSI_TRAFFIC_MODE, runtime_capabilities.supports_traffic_control);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
   capabilities.set(EspectreConfigSection::RUNTIME);
   FrontendCommandResult result = this->command_engine_.execute(
@@ -755,8 +751,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
         info.supports_runtime_motion_hits = capabilities.supports(Method::SET_MOTION_HITS);
         info.supports_runtime_detector = capabilities.supports(Method::SET_DETECTOR);
         info.supports_manual_recalibration = capabilities.supports(Method::RECALIBRATE);
-        info.supports_traffic_control = capabilities.supports(Method::SET_CSI_TRAFFIC_MODE) &&
-                                        capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE);
+        info.supports_traffic_control = capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE);
         info = normalize_protocol_device_info(
             info, &this->runtime_.snapshot(), "esphome", CONFIG_IDF_TARGET);
         if (read.command == "capabilities") {
@@ -794,7 +789,6 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
           append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
           out += ",\"motion_on_hits\":" + std::to_string(config.motion_on_hits);
           out += ",\"motion_off_hits\":" + std::to_string(config.motion_off_hits);
-          append_json_pair(&out, "csi_traffic_mode", csi_traffic_source_name(config.csi_traffic_source));
           append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
           out += "}";
           return out;
@@ -804,7 +798,6 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
       {},
       [this](float value, std::string *) { return this->runtime_.set_threshold(value); },
       [this](uint8_t on, uint8_t off, std::string *) { return this->runtime_.set_motion_hits(on, off); },
-      [this](CsiTrafficSource mode, std::string *) { return this->runtime_.set_csi_traffic_source(mode); },
       [this](TrafficGeneratorMode mode, std::string *) {
         return this->runtime_.set_traffic_generator_mode(mode);
       },
@@ -857,15 +850,6 @@ bool ESpectreComponent::set_detection_algorithm_runtime(const std::string &algor
 bool ESpectreComponent::set_sensing_runtime(bool enabled) {
   const FrontendCommandResult result = this->execute_entity_command_(
       "update_sensing", enabled ? "{\"enabled\":true}" : "{\"enabled\":false}");
-  if (!result.accepted) this->sync_direct_config_();
-  return result.accepted;
-}
-
-bool ESpectreComponent::set_csi_traffic_mode_runtime(const std::string &mode) {
-  std::string parameters{"{"};
-  append_json_pair(&parameters, "csi_traffic_mode", mode.c_str(), true);
-  parameters += "}";
-  const FrontendCommandResult result = this->execute_entity_command_("update_sensing", parameters);
   if (!result.accepted) this->sync_direct_config_();
   return result.accepted;
 }
@@ -927,14 +911,8 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     }
     this->motion_hits_republished_ = true;
   }
-  if (!this->traffic_mode_republished_ &&
-      (this->csi_traffic_mode_select_ != nullptr || this->traffic_generator_mode_select_ != nullptr)) {
-    if (this->csi_traffic_mode_select_ != nullptr) {
-      static_cast<ESpectreTrafficModeSelect *>(this->csi_traffic_mode_select_)->republish_state();
-    }
-    if (this->traffic_generator_mode_select_ != nullptr) {
-      static_cast<ESpectreTrafficModeSelect *>(this->traffic_generator_mode_select_)->republish_state();
-    }
+  if (!this->traffic_mode_republished_ && this->traffic_generator_mode_select_ != nullptr) {
+    static_cast<ESpectreTrafficModeSelect *>(this->traffic_generator_mode_select_)->republish_state();
     this->traffic_mode_republished_ = true;
   }
 
@@ -1077,7 +1055,6 @@ void ESpectreComponent::dump_config() {
                                                           : config.traffic_generator_target_ip.c_str());
   ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
                 static_cast<unsigned>(config.csi_target_pps));
-  ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_source_name(config.csi_traffic_source));
   ESP_LOGCONFIG(TAG, " ├─ Multicast join ..... %s",
                 config.csi_traffic_multicast_group.empty() ? "[disabled]"
                                                           : config.csi_traffic_multicast_group.c_str());

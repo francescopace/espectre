@@ -506,7 +506,6 @@ def test_direct_facade_starts_and_publishes_canonical_motion(monkeypatch):
     assert info["firmware"] == "2.8.0-356-gfa155f8"
     assert info["chip"] == "esp32c3"
     assert info["csi_profile"] == "ht20"
-    assert facade._config()["csi_traffic_mode"] == "internal"
     assert facade._config()["traffic_generator_mode"] == "dns"
     assert facade._wifi()["band"] == "2g"
     wlan_values["channel"] = 36
@@ -514,7 +513,7 @@ def test_direct_facade_starts_and_publishes_canonical_motion(monkeypatch):
     wlan_values["channel"] = 0
     assert facade._wifi()["band"] == ""
     traffic.is_running.return_value = False
-    assert facade._config()["csi_traffic_mode"] == "external"
+    assert facade._config()["traffic_generator_mode"] == "external"
     event_name, motion = native.publish.call_args.args
     assert event_name == "motion"
     assert motion == {"timestamp_ms": facade.started_ms + 1000, "state": "motion", "score": 0.75}

@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <string>
 
-#include "csi_traffic_types.h"
 #include "runtime_config.h"
 #include "udp_datagram_socket.h"
 
@@ -22,9 +21,8 @@ namespace espectre {
 using csi_traffic_packet_callback_t = void (*)(void *, const UdpDatagramPeer &, uint64_t);
 
 struct CsiTrafficServiceConfig {
-  CsiTrafficSource mode{CsiTrafficSource::INTERNAL};
+  TrafficGeneratorMode mode{TrafficGeneratorMode::PING};
   uint32_t rate_pps{100U};
-  TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint16_t udp_port{5555U};
   std::string multicast_group;
 };
@@ -81,10 +79,10 @@ class CsiTrafficService {
   /** Successful internal generator sends; zero in external mode. */
   uint32_t get_generator_packets_total() const;
   uint16_t internal_icmp_identifier() const;
-  CsiTrafficSource mode() const { return mode_; }
+  TrafficGeneratorMode mode() const { return mode_; }
 
  private:
-  CsiTrafficSource mode_{CsiTrafficSource::INTERNAL};
+  TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   ICsiTrafficGenerator &traffic_generator_;
   ICsiTrafficIngress &traffic_ingress_;
 };

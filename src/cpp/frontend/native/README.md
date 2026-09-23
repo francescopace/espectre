@@ -72,7 +72,7 @@ Home Assistant discovery is enabled in published firmware and can be disabled wi
 | Movement Score | Each detector evaluation |
 | Threshold and hit counts | Retained state and writable control |
 | Detection Profile | `lightweight` or `high_accuracy` |
-| CSI Traffic Ownership and Source | Runtime traffic controls |
+| CSI Traffic Source | Runtime traffic control: `ping`, `dns`, `dns_tcp`, `wifi_raw`, or `external` |
 | Recalibrate | Configuration button that starts recalibration |
 | Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
 | Generator, network, CSI, and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |

@@ -59,7 +59,6 @@ enum class EspectreDirectMethod : uint8_t {
   RECALIBRATE,
   START_RAW_STREAM,
   STOP_RAW_STREAM,
-  SET_CSI_TRAFFIC_MODE,
   SET_TRAFFIC_GENERATOR_MODE,
   WIFI_ACCESS_POINTS,
   SCAN_WIFI_ACCESS_POINTS,
@@ -259,13 +258,7 @@ struct EspectreDeviceInfo {
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
   /**
-   * CSI traffic ownership mode: `"internal"` or `"external"`.
-   *
-   * Omitted from `info` when empty. Sensing MQTT frontends that own traffic control fill it.
-   */
-  std::string csi_traffic_mode;
-  /**
-   * Internal traffic generator mode: `"ping"`, `"dns"`, `"dns_tcp"`, or `"wifi_raw"`.
+   * Traffic generator mode: `"ping"`, `"dns"`, `"dns_tcp"`, `"wifi_raw"`, or `"external"`.
    *
    * Omitted from `info` when empty.
    */
@@ -315,8 +308,6 @@ struct EspectreCommand {
   uint8_t motion_on_hits{0U};
   uint8_t motion_off_hits{0U};
   bool has_motion_hits{false};
-  std::string csi_traffic_mode;
-  bool has_csi_traffic_mode{false};
   std::string traffic_generator_mode;
   bool has_traffic_generator_mode{false};
   std::string detector;

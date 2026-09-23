@@ -16,29 +16,21 @@ namespace esphome {
 namespace espectre_component {
 
 void ESpectreTrafficModeSelect::dump_config() {
-  LOG_SELECT("", this->csi_traffic_mode_ ? "ESPectre CSI Traffic Mode" : "ESPectre Traffic Generator Mode", this);
+  LOG_SELECT("", "ESPectre Traffic Generator Mode", this);
 }
 
 void ESpectreTrafficModeSelect::control(const std::string &value) {
   if (this->parent_ == nullptr) {
     return;
   }
-  if (this->csi_traffic_mode_) {
-    if (!this->parent_->set_csi_traffic_mode_runtime(value)) this->republish_state();
-  } else {
-    if (!this->parent_->set_traffic_generator_mode_runtime(value)) this->republish_state();
-  }
+  if (!this->parent_->set_traffic_generator_mode_runtime(value)) this->republish_state();
 }
 
 void ESpectreTrafficModeSelect::republish_state() {
   if (this->parent_ == nullptr) {
     return;
   }
-  if (this->csi_traffic_mode_) {
-    this->publish_state(::espectre::csi_traffic_source_name(this->parent_->runtime_.config().csi_traffic_source));
-  } else {
-    this->publish_state(::espectre::traffic_generator_mode_name(this->parent_->runtime_.config().traffic_generator_mode));
-  }
+  this->publish_state(::espectre::traffic_generator_mode_name(this->parent_->runtime_.config().traffic_generator_mode));
 }
 
 }  // namespace espectre_component

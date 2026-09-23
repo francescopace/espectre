@@ -100,7 +100,7 @@
         motion: false,
         evaluationIntervalMs: 0,
         csiTargetPps: 0,
-        csiTrafficMode: '',
+        trafficGeneratorMode: '',
         deviceName: '',
         deviceId: '',
         generatedName: '',
@@ -271,17 +271,6 @@
         syncDiagnosticsPolling();
     }
 
-    function applyCsiTrafficModeSelect(value) {
-        const select = document.getElementById('sense-csi-mode');
-        if (!select || !value) {
-            return;
-        }
-        const normalized = value;
-        if (Array.from(select.options).some((option) => option.value === normalized)) {
-            select.value = normalized;
-        }
-    }
-
     function applySensingSnapshot(snapshot) {
         const detection = snapshot.detection || {};
         const detector = snapshot.detector || detection.algorithm;
@@ -308,12 +297,12 @@
         if (snapshot.motion_off_hits !== undefined && motionOffInput) {
             motionOffInput.value = snapshot.motion_off_hits;
         }
-        if (snapshot.csi_traffic_mode) {
-            conn.csiTrafficMode = snapshot.csi_traffic_mode;
-            applyCsiTrafficModeSelect(snapshot.csi_traffic_mode);
-        }
-        if ((snapshot.traffic_mode || snapshot.traffic_generator_mode) && trafficGeneratorSelect) {
-            trafficGeneratorSelect.value = snapshot.traffic_mode || snapshot.traffic_generator_mode;
+        const trafficGeneratorMode = snapshot.traffic_mode || snapshot.traffic_generator_mode;
+        if (trafficGeneratorMode) {
+            conn.trafficGeneratorMode = trafficGeneratorMode;
+            if (trafficGeneratorSelect) {
+                trafficGeneratorSelect.value = trafficGeneratorMode;
+            }
         }
         applySensingCadence(snapshot);
     }
@@ -922,7 +911,6 @@
                 hampel: 'on',
                 hampel_window: '5',
                 hampel_threshold: '3.0',
-                csi_traffic_mode: 'internal',
                 traffic_mode: 'ping',
                 csi_target_pps: '98',
                 evaluation_interval_ms: '250',

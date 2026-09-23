@@ -284,23 +284,6 @@ bool NativeFrontend::handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t m
   return true;
 }
 
-bool NativeFrontend::handle_csi_traffic_mode_write_(CsiTrafficSource mode) {
-  if (!runtime_.capabilities().supports_traffic_control) {
-    ESP_LOGW(TAG, "Runtime traffic control is not supported");
-    return false;
-  }
-  if (!runtime_csi_traffic_source_valid(mode)) {
-    ESP_LOGW(TAG, "CSI traffic mode is not selectable");
-    return false;
-  }
-  if (!runtime_.set_csi_traffic_source(mode)) {
-    return false;
-  }
-  mqtt_frontend_->home_assistant().publish_traffic_control(runtime_.config().csi_traffic_source,
-                                                           runtime_.config().traffic_generator_mode);
-  return true;
-}
-
 bool NativeFrontend::handle_traffic_generator_mode_write_(TrafficGeneratorMode mode) {
   if (!runtime_.capabilities().supports_traffic_control) {
     ESP_LOGW(TAG, "Runtime traffic control is not supported");
@@ -309,8 +292,7 @@ bool NativeFrontend::handle_traffic_generator_mode_write_(TrafficGeneratorMode m
   if (!runtime_.set_traffic_generator_mode(mode)) {
     return false;
   }
-  mqtt_frontend_->home_assistant().publish_traffic_control(runtime_.config().csi_traffic_source,
-                                                           runtime_.config().traffic_generator_mode);
+  mqtt_frontend_->home_assistant().publish_traffic_control(runtime_.config().traffic_generator_mode);
   return true;
 }
 
@@ -374,7 +356,6 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
   info.supports_manual_recalibration = runtime_.capabilities().supports_manual_recalibration;
   info.supports_traffic_control = runtime_.capabilities().supports_traffic_control;
-  info.csi_traffic_mode = csi_traffic_source_name(runtime_.config().csi_traffic_source);
   info.traffic_mode = traffic_generator_mode_name(runtime_.config().traffic_generator_mode);
   info.csi_target_pps = runtime_.config().csi_target_pps;
   info.csi_traffic_udp_port = runtime_.config().csi_traffic_udp_port;

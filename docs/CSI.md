@@ -6,7 +6,7 @@ For settings and defaults, see [shared sensing options](SDK.md#shared-sensing-op
 
 ## Traffic sources
 
-`csi_traffic_mode` chooses who sends the traffic: the device (`internal`) or another host (`external`). `csi_target_pps` sets the packet rate and the detector timing in both cases.
+`traffic_generator_mode` chooses who sends the traffic: the device, with one of the packet types below, or another host (`external`). `csi_target_pps` sets the packet rate and the detector timing in both cases.
 
 The runtime never switches source on its own. Low occupancy is reported as a diagnostic; it does not change the rate or the source.
 

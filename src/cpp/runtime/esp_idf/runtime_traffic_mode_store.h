@@ -10,9 +10,13 @@
 
 namespace espectre {
 
-esp_err_t load_runtime_csi_traffic_mode(CsiTrafficSource *mode, bool *has_saved_value);
+/**
+ * Load the saved traffic generator mode.
+ *
+ * Migrates the legacy `csi_traffic` key once: a saved `external` becomes
+ * `TrafficGeneratorMode::EXTERNAL`, and the legacy key is erased.
+ */
 esp_err_t load_runtime_traffic_generator_mode(TrafficGeneratorMode *mode, bool *has_saved_value);
-esp_err_t save_runtime_csi_traffic_mode(CsiTrafficSource mode);
 esp_err_t save_runtime_traffic_generator_mode(TrafficGeneratorMode mode);
 
 }  // namespace espectre

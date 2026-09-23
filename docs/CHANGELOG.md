@@ -30,7 +30,8 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** `IEspectreRuntime` is now internal. `RuntimeConfig` and `WifiBandPolicy` moved to `runtime/runtime_config.h`, which replaces `runtime/runtime_interface.h`. Drive the runtime through `RuntimeFrontendController`.
 - **Breaking:** `espectre_sdk.h` no longer includes the ESPectre Protocol. Include `espectre_protocol_sdk.h` for protocol messages, JSON, diagnostic fields, and the Direct HTTP and MQTT transport contracts; the services and MQTT headers include it for you. Diagnostic JSON and field helpers moved from `runtime/runtime_diagnostics.h` to `runtime/runtime_diagnostics_protocol.h`, and diagnostic profiles have named constants such as `ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE`.
 - **Breaking:** `RuntimeDiagnosticsSnapshot` groups its fields as `link`, `traffic`, `csi`, `platform`, and `performance`, and drops the prefix the group already names: `csi_accepted_total` becomes `csi.accepted_total`, `wifi_rssi_dbm` becomes `link.rssi_dbm`, and `performance_window_ready` becomes `performance.window_ready`. Wire field names are unchanged. `diagnostics_sample()` is now the recommended way to read diagnostics.
-- **Breaking:** Renamed SDK symbols so each name says what it controls: `CsiTrafficMode` is `CsiTrafficSource`, `RuntimeTrafficMode` is `TrafficGeneratorMode`, and the `RuntimeConfig` fields `csi_traffic_mode`, `csi_capture_profile`, `segmentation_threshold`, and `segmentation_window_size_ms` are `csi_traffic_source`, `csi_capture_policy`, `threshold`, and `window_size_ms`. The controller setters drop the `_runtime` suffix, for example `set_threshold()` and `set_traffic_generator_mode()`, and the CSI traffic setter becomes `set_csi_traffic_source()`. The name and parse helpers follow the new type names, and `RUNTIME_SEGMENTATION_*` constants are `RUNTIME_THRESHOLD_DEFAULT` and `RUNTIME_WINDOW_SIZE_MS_*`. Wire names, returned strings, Kconfig options, ESPHome YAML keys, and saved settings are unchanged.
+- **Breaking:** Renamed SDK symbols so each name says what it controls: `RuntimeTrafficMode` is `TrafficGeneratorMode`, and the `RuntimeConfig` fields `csi_capture_profile`, `segmentation_threshold`, and `segmentation_window_size_ms` are `csi_capture_policy`, `threshold`, and `window_size_ms`. The controller setters drop the `_runtime` suffix, for example `set_threshold()` and `set_traffic_generator_mode()`. The name and parse helpers follow the new type names, and `RUNTIME_SEGMENTATION_*` constants are `RUNTIME_THRESHOLD_DEFAULT` and `RUNTIME_WINDOW_SIZE_MS_*`. Wire names, returned strings, ESPHome YAML keys, and saved settings are unchanged.
+- **Breaking:** `traffic_generator_mode` now also takes `external`, and replaces `csi_traffic_mode` everywhere: in the protocol (`sensing` and its update), ESPHome YAML (`traffic_generator_mode: external`), Kconfig (`CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL`), and the SDK (`TrafficGeneratorMode::EXTERNAL`). ESPHome rejects the old `csi_traffic_mode` and `csi_traffic_mode_select` keys with a message. The Home Assistant "CSI Traffic Ownership" select is gone; "CSI Traffic Source" gains the `external` option. Devices that saved `external` at runtime keep it after the update. Update clients and firmware together.
 - Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately. Micro-ESPectre needs rebuilt firmware for station rates (#182).
 - The SDK requires MQTT and mDNS only when their service is enabled, and no longer requires the HTTP server.
 - CLI discovery waits six seconds by default and asks devices to reply directly.
@@ -62,13 +63,13 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed `wifi_tx_rate.h` from the services facade; call `apply_station_tx_rate()` from `network_traffic.h`.
 - **Breaking:** Removed `ESPECTRE_CORE_INCLUDE_DIRS` and `ESPECTRE_RUNTIME_INCLUDE_DIRS`.
 - **Breaking:** Removed CSI V7 binary record support. Existing NPZ datasets still load.
-- **Breaking:** Removed `RuntimeProfile`, `RuntimeConfig::runtime_profile`, `RuntimeConfigError::RUNTIME_PROFILE`, `runtime_profile_name()`, and `runtime_csi_traffic_mode_valid_for_profile()`. The runtime has one profile; use `runtime_csi_traffic_mode_valid()`.
+- **Breaking:** Removed `RuntimeProfile`, `RuntimeConfig::runtime_profile`, `RuntimeConfigError::RUNTIME_PROFILE`, `runtime_profile_name()`, and `runtime_csi_traffic_mode_valid_for_profile()`. The runtime has one profile; set `traffic_generator_mode` instead.
 - **Breaking:** Removed `RuntimeSubcarrierSource`, `subcarrier_source_name()`, and the `subcarrier_source` and `fixed_subcarriers` snapshot fields. Read the fixed subcarrier set once from `RuntimeFrontendController::subcarriers()`.
-- **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `runtime_csi_traffic_mode_valid()` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
+- **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `traffic_generator_mode` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
 
 ### SDK source migration
 
-Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only where noted, and nothing changes on the wire, in Kconfig, in ESPHome YAML, or in saved settings.
+Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only where noted. The external traffic setting also changes on the wire, in Kconfig, and in ESPHome YAML; saved settings migrate on their own.
 
 | rc2 | rc3 |
 |-----|-----|
@@ -77,21 +78,20 @@ Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only 
 | Protocol, JSON, and transport contracts from `espectre_sdk.h` | `#include "espectre_protocol_sdk.h"`; the services and MQTT headers include it |
 | Diagnostic JSON and field helpers in `runtime/runtime_diagnostics.h` | `runtime/runtime_diagnostics_protocol.h` |
 | Profile masks `1U`, `2U`, `4U`, `7U` | `ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE`, `_BRIDGE`, `_MICRO`, `_ALL` |
-| `CsiTrafficMode` | `CsiTrafficSource` |
+| `CsiTrafficMode`, `config.csi_traffic_mode = EXTERNAL` | `config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL` |
 | `RuntimeTrafficMode` | `TrafficGeneratorMode` |
-| `config.csi_traffic_mode` | `config.csi_traffic_source` |
 | `config.csi_capture_profile` | `config.csi_capture_policy` |
 | `config.segmentation_threshold` | `config.threshold` |
 | `config.segmentation_window_size_ms` | `config.window_size_ms` |
 | `RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT` | `RUNTIME_THRESHOLD_DEFAULT` |
 | `RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_*` | `RUNTIME_WINDOW_SIZE_MS_*` |
 | `set_threshold_runtime()`, `set_motion_hits_runtime()`, `set_detection_algorithm_runtime()` | `set_threshold()`, `set_motion_hits()`, `set_detection_algorithm()` |
-| `set_csi_traffic_mode_runtime()` | `set_csi_traffic_source()` |
+| `set_csi_traffic_mode_runtime(EXTERNAL)` | `set_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL)` |
 | `set_traffic_generator_mode_runtime()` | `set_traffic_generator_mode()` |
 | `traffic_mode_name()`, `parse_traffic_mode()` | `traffic_generator_mode_name()`, `parse_traffic_generator_mode()` |
-| `csi_traffic_mode_name()`, `parse_csi_traffic_mode()` | `csi_traffic_source_name()`, `parse_csi_traffic_source()` |
 | `runtime_traffic_mode_valid()`, `runtime_traffic_mode_supported()` | `runtime_traffic_generator_mode_valid()`, `runtime_traffic_generator_mode_supported()` |
-| `runtime_csi_traffic_mode_valid()`, `csi_traffic_mode_is_sensing_control()` | `runtime_csi_traffic_source_valid()` |
+| `csi_traffic_mode_name()`, `parse_csi_traffic_mode()`, `runtime_csi_traffic_mode_valid()`, `csi_traffic_mode_is_sensing_control()` | Removed; `traffic_generator_mode_name()` returns `external` |
+| `csi_traffic_mode:` (ESPHome YAML), `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL`, `csi_traffic_mode` (protocol) | `traffic_generator_mode: external`, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL`, `traffic_generator_mode: "external"` |
 | `make_runtime_sensing_config()` | `RuntimeConfig{}` |
 | `snapshot.fixed_subcarriers` | `controller.subcarriers()` |
 | `diagnostics.csi_accepted_total`, `diagnostics.wifi_rssi_dbm` | `diagnostics.csi.accepted_total`, `diagnostics.link.rssi_dbm`; see the grouping entry above |

@@ -13,7 +13,6 @@
 #include <string>
 
 #include "csi_capture_profile.h"
-#include "csi_traffic_types.h"
 #include "runtime_sensing_schema.h"
 
 /**
@@ -91,17 +90,18 @@ struct RuntimeConfig {
    * Target CSI sensing cadence, in packets per second.
    *
    * This value is always positive and defines detector temporal slots as well
-   * as the target for managed traffic. `csi_traffic_source` alone selects who
+   * as the target for managed traffic. `traffic_generator_mode` alone selects who
    * supplies traffic. The detector coefficients are fitted at 100 pps; see
    * `docs/ALGORITHMS.md` before moving far from it.
    */
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
-  /** Which packet the internal generator sends to solicit CSI. */
+  /**
+   * How the device gets CSI-bearing traffic: an internal generator packet, or
+   * `EXTERNAL` to listen for another host.
+   */
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
   std::string traffic_generator_target_ip;
-  /** Where the CSI-bearing traffic comes from. See `csi_traffic_types.h`. */
-  CsiTrafficSource csi_traffic_source{CsiTrafficSource::INTERNAL};
   /** UDP port used by the external CSI traffic mode. */
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
   /**

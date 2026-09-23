@@ -52,23 +52,8 @@ config ESPECTRE_CSI_TARGET_PPS
     default 100
     help
         Defines the detector's temporal sampling grid and the target used by
-        managed traffic. Select the CSI traffic mode separately; zero is not a
+        managed traffic. Select the traffic generator mode separately; zero is not a
         disable sentinel.
-
-choice ESPECTRE_CSI_TRAFFIC_MODE
-    prompt "CSI traffic ownership"
-    default ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
-    help
-        Select who supplies CSI-bearing traffic. This is independent of the
-        positive sensing target configured above.
-
-    config ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
-        bool "Internal generator"
-
-    config ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
-        bool "External source"
-
-endchoice
 
 config ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
     string "External traffic multicast group"
@@ -110,6 +95,9 @@ endchoice
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
+    help
+        Select how the device gets the traffic that produces CSI: an internal
+        generator packet type, or an external source.
 
     config ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
         bool "PING"
@@ -129,6 +117,12 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
             Selects LLTF20 capture for ACKs and legacy OFDM 6 Mbps injection,
             independently of the station TX rate selected below.
             Unavailable on ESP32-C6 because ACK CSI is not usable.
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL
+        bool "External source"
+        help
+            Do not generate traffic. Another host sends exact UDP markers or
+            unicast ICMP Echo Requests, and the device listens for them.
 endchoice
 
 config ESPECTRE_WIFI_TX_RATE_MBPS

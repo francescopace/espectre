@@ -157,8 +157,7 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
     espectre::test::FakeCsiTrafficIngress ingress;
     CsiTrafficService service(generator, ingress);
     CsiTrafficServiceConfig config;
-    config.mode = CsiTrafficSource::INTERNAL;
-    config.traffic_mode = TrafficGeneratorMode::PING;
+    config.mode = TrafficGeneratorMode::PING;
     config.rate_pps = 100U;
     service.init(config);
     TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
@@ -166,7 +165,7 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
     TEST_ASSERT_FALSE(generator.is_running());
     TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
 
-    config.mode = CsiTrafficSource::EXTERNAL;
+    config.mode = TrafficGeneratorMode::EXTERNAL;
     service.init(config);
     TEST_ASSERT_TRUE(service.start());
     TEST_ASSERT_FALSE(generator.is_running());

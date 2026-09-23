@@ -121,16 +121,17 @@ class DirectApi:
     def _device_hostname(self):
         return "espectre-" + self.device_id
 
+    def _traffic_generator_mode(self):
+        return self.traffic_generator.get_mode() if self.traffic_generator.is_running() else "external"
+
     def _info(self):
-        csi_traffic_mode = "internal" if self.traffic_generator.is_running() else "external"
         return build_info_payload(
             self.config,
             "lightweight",
             self.wlan,
             global_state=self.global_state,
             device_id=self.device_id,
-            csi_traffic_mode=csi_traffic_mode,
-            traffic_mode=self.traffic_generator.get_mode(),
+            traffic_mode=self._traffic_generator_mode(),
             firmware_version=self.firmware_version,
             chip=self.chip,
         )
@@ -154,8 +155,7 @@ class DirectApi:
             "detector": "lightweight",
             "motion_on_hits": self.runtime_policy.motion_on_hits,
             "motion_off_hits": self.runtime_policy.motion_off_hits,
-            "csi_traffic_mode": "internal" if self.traffic_generator.is_running() else "external",
-            "traffic_generator_mode": self.traffic_generator.get_mode(),
+            "traffic_generator_mode": self._traffic_generator_mode(),
             "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
         }
 

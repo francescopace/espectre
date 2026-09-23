@@ -698,14 +698,16 @@ def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monk
     }]
 
 
-def _ha_panel_inventory(platform="esphome", version=3):
+def _ha_panel_inventory(platform="esphome", version=3, unified=False, source="ping"):
     devices = [{"id": "sensor-a", "name": "ESPectre kitchen", "name_by_user": "Kitchen",
                 "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
     entities, states = [], []
-    values = {"ownership": "internal", "source": "ping", "refresh": "unknown",
+    values = {"ownership": "internal", "source": source, "refresh": "unknown",
               "generator": "0", "traffic": "5", "traffic_rx": "100",
               "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
     for role, (domain, suffix) in ha_client.ENTITY_ROLES.items():
+        if unified and role == "ownership":
+            continue
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
             unique_id = "espectre_0123456789abcdef_" + suffix
@@ -716,8 +718,11 @@ def _ha_panel_inventory(platform="esphome", version=3):
         entity_id = domain + ".renamed_" + role
         entities.append({"entity_id": entity_id, "device_id": "sensor-a", "platform": platform,
                          "unique_id": unique_id, "name": "A custom HA name", "disabled_by": None})
+        options = {"ownership": ["internal", "external"]}
+        if unified:
+            options["source"] = ["ping", "dns", "dns_tcp", "wifi_raw", "external"]
         states.append({"entity_id": entity_id, "state": values[role],
-                       "attributes": {"options": ["internal", "external"]} if role == "ownership" else {},
+                       "attributes": {"options": options[role]} if role in options else {},
                        "last_updated": "2026-09-19T10:00:00+00:00"})
     return devices, entities, states, [{"area_id": "kitchen", "name": "Kitchen"}]
 
@@ -734,6 +739,16 @@ def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, versio
     assert row["fields"]["traffic_rx"]["value"] == 100
     assert row["fields"]["accepted"]["value"] == 99.5
     assert row["fields"]["occupancy"]["value"] == 98
+
+
+@pytest.mark.parametrize("source,ownership,internal_mode", [
+    ("dns", "internal", "dns"), ("external", "external", None)])
+def test_ha_panel_derives_ownership_from_the_single_traffic_source_select(source, ownership, internal_mode):
+    row, = ha_client.build_inventory(*_ha_panel_inventory(unified=True, source=source))
+    assert row["can_control"] and row["unified_source"]
+    assert row["fields"]["ownership"]["value"] == ownership
+    assert row["fields"]["ownership"]["entity_id"] == "select.renamed_source"
+    assert row["internal_mode"] == internal_mode
 
 
 @pytest.mark.parametrize("manufacturer", ["ESPectre", "https://espectre.dev"])
@@ -978,6 +993,26 @@ def test_ha_panel_actions_use_internal_services_and_check_returned_state(outcome
                 assert (await ha.act(["sensor-a"], "refresh"))["results"][0]["status"] == "requested"
                 button = [call for call in fake.calls if call.get("domain") == "button"]
                 assert len(button) == 1 and button[0]["service"] == "press"
+    asyncio.run(exercise())
+
+
+def test_ha_panel_single_source_select_restores_the_previous_internal_packet():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.inventory = _ha_panel_inventory(unified=True, source="dns")
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
+                                         confirmation_timeout=0)
+            assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "confirmed"
+            assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_source"}] * 2
+            assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "dns"}]
     asyncio.run(exercise())
 
 

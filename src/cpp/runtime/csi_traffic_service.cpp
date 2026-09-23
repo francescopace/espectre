@@ -13,9 +13,8 @@ namespace espectre {
 
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
   CsiTrafficServiceConfig traffic_config;
-  traffic_config.mode = config.csi_traffic_source;
+  traffic_config.mode = config.traffic_generator_mode;
   traffic_config.rate_pps = config.csi_target_pps;
-  traffic_config.traffic_mode = config.traffic_generator_mode;
   traffic_config.udp_port = config.csi_traffic_udp_port;
   traffic_config.multicast_group = config.csi_traffic_multicast_group;
   return traffic_config;
@@ -23,7 +22,9 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
 
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
-  traffic_generator_.init(config.rate_pps, config.traffic_mode);
+  if (mode_ != TrafficGeneratorMode::EXTERNAL) {
+    traffic_generator_.init(config.rate_pps, mode_);
+  }
   traffic_ingress_.init(config.udp_port);
   traffic_ingress_.set_multicast_group(config.multicast_group.empty()
                                            ? nullptr
@@ -33,14 +34,10 @@ void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
 }
 
 bool CsiTrafficService::start(uint32_t target_addr) {
-  switch (mode_) {
-    case CsiTrafficSource::INTERNAL:
-      return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
-    case CsiTrafficSource::EXTERNAL:
-      return traffic_ingress_.is_running() || traffic_ingress_.start();
-    default:
-      return false;
+  if (mode_ == TrafficGeneratorMode::EXTERNAL) {
+    return traffic_ingress_.is_running() || traffic_ingress_.start();
   }
+  return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
 }
 
 void CsiTrafficService::stop() {
@@ -67,14 +64,8 @@ void CsiTrafficService::set_packet_callback(csi_traffic_packet_callback_t callba
 }
 
 bool CsiTrafficService::is_running() const {
-  switch (mode_) {
-    case CsiTrafficSource::INTERNAL:
-      return traffic_generator_.is_running();
-    case CsiTrafficSource::EXTERNAL:
-      return traffic_ingress_.is_running();
-    default:
-      return false;
-  }
+  return mode_ == TrafficGeneratorMode::EXTERNAL ? traffic_ingress_.is_running()
+                                                  : traffic_generator_.is_running();
 }
 
 bool CsiTrafficService::get_last_sender(UdpDatagramPeer *out_peer) const {
@@ -86,7 +77,7 @@ uint64_t CsiTrafficService::get_packets_received() const {
 }
 
 uint32_t CsiTrafficService::get_generator_packets_total() const {
-  return mode_ == CsiTrafficSource::INTERNAL
+  return mode_ != TrafficGeneratorMode::EXTERNAL
              ? traffic_generator_.send_success_count()
              : 0U;
 }

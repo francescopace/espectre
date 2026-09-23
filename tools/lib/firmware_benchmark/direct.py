@@ -341,8 +341,6 @@ def prepare_direct_runtime(
         detector = runtime_config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
         if detector != case.detector:
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
-        if runtime_config.get("csi_traffic_mode") != "internal":
-            raise RuntimeError("Direct endpoint did not retain default internal CSI traffic")
         expected_traffic_mode = configured_traffic_generator_mode(case.frontend, chip)
         if runtime_config.get("traffic_generator_mode") != expected_traffic_mode:
             raise RuntimeError(
@@ -380,8 +378,6 @@ def prepare_micro_direct_runtime(
     detector = runtime_config.get("detector") or detection.get("algorithm")
     if detector != case.detector:
         raise RuntimeError(f"Micro Direct endpoint did not confirm detector {case.detector}")
-    if runtime_config.get("csi_traffic_mode") != "internal":
-        raise RuntimeError("Micro Direct endpoint did not confirm internal CSI traffic")
     expected_traffic_mode = configured_traffic_generator_mode("micro", chip)
     if runtime_config.get("traffic_generator_mode") != expected_traffic_mode:
         raise RuntimeError(
@@ -1067,7 +1063,6 @@ def _verify_default_runtime_baseline(
     runtime = handshake["sensing"]
     expected = {
         "detector": "lightweight",
-        "csi_traffic_mode": "internal",
         "traffic_generator_mode": expected_traffic_mode,
         "csi_target_pps": 100,
     }

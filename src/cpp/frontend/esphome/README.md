@@ -45,7 +45,6 @@ Set the capture profile in YAML and rebuild to change it:
 ```yaml
 espectre:
   csi_capture_profile: lltf # auto (default), lltf, or ht-vht
-  csi_traffic_mode: external
 ```
 
 The profile cannot be changed from Home Assistant or Direct. The `wifi_raw` source needs `auto` or `lltf`. See [capture profiles](../../../../docs/CSI.md#capture-profiles) for what each value selects.
@@ -80,8 +79,7 @@ On ESP32-C5, `wifi.band_mode` accepts `2.4GHz`, `5GHz`, or `AUTO` (default). Oth
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
-| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` selection |
-| `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` selection |
+| `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` / `external` selection |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine; publishes the runtime state at startup |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Whether calibration is running (read-only) |
@@ -176,12 +174,11 @@ Traffic settings go under `espectre:`. See [traffic sources](../../../../docs/CS
 ```yaml
 espectre:
   csi_target_pps: 100
-  csi_traffic_mode: internal
   traffic_generator_mode: ping
   traffic_generator_target_ip: "" # Empty uses the gateway; set an IPv4 address to override
 ```
 
-The `traffic_generator_mode_select` and `csi_traffic_mode_select` entities change the source and mode at runtime, and the device remembers them. ESP32-C6 does not offer `wifi_raw`; see [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
+The `traffic_generator_mode_select` entity changes the source at runtime, including `external`, and the device remembers it. ESP32-C6 does not offer `wifi_raw`; see [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
 
 ### External traffic mode
 
@@ -192,7 +189,7 @@ To use external traffic in YAML:
 ```yaml
 espectre:
   csi_target_pps: 100
-  csi_traffic_mode: external
+  traffic_generator_mode: external
   csi_traffic_multicast_group: "239.255.0.1"
 ```
 
@@ -291,7 +288,6 @@ esp32_ble_tracker:
     continuous: true
 
 espectre:
-  csi_traffic_mode: internal
   traffic_generator_mode: wifi_raw
 ```
 
@@ -344,5 +340,5 @@ This section is for component maintainers. `sensing_schema.py` is generated from
 - [`detector_select.cpp`](components/espectre/detector_select.cpp): persisted runtime detector selection
 - [`sensing_switch.cpp`](components/espectre/sensing_switch.cpp): sensing lifecycle control
 - [`recalibrate_button.cpp`](components/espectre/recalibrate_button.cpp): runtime recalibration action
-- [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime CSI traffic ownership and generator control
+- [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime traffic generator mode control
 - [`examples/`](examples/): production and local-development configurations for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, plus the Home Assistant dashboard

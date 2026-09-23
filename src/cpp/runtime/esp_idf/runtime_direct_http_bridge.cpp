@@ -244,7 +244,6 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
       config_.device_label_setter,
       [this](float value, std::string *) { return runtime_->set_threshold(value); },
       [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits(on, off); },
-      [this](CsiTrafficSource mode, std::string *) { return runtime_->set_csi_traffic_source(mode); },
       [this](TrafficGeneratorMode mode, std::string *) { return runtime_->set_traffic_generator_mode(mode); },
       [this](DetectionAlgorithm algorithm, std::string *) {
         return runtime_->set_detection_algorithm(algorithm);
@@ -403,7 +402,6 @@ EspectreCapabilityProfile RuntimeDirectHttpBridge::capability_profile_() const {
   profile.set(Method::SET_MOTION_HITS, runtime_capabilities.supports_runtime_motion_hits_updates);
   profile.set(Method::SET_DETECTOR, runtime_capabilities.supports_runtime_detector_selection);
   profile.set(Method::RECALIBRATE, runtime_capabilities.supports_manual_recalibration);
-  profile.set(Method::SET_CSI_TRAFFIC_MODE, runtime_capabilities.supports_traffic_control);
   profile.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
   profile.set(Method::WIFI_ACCESS_POINTS);
   profile.set(Method::SCAN_WIFI_ACCESS_POINTS);
@@ -686,7 +684,6 @@ std::string RuntimeDirectHttpBridge::sensing_payload_() const {
   append_float(&out, "threshold", snapshot.threshold);
   append_uint(&out, "motion_on_hits", config.motion_on_hits);
   append_uint(&out, "motion_off_hits", config.motion_off_hits);
-  append_json_pair(&out, "csi_traffic_mode", csi_traffic_source_name(config.csi_traffic_source));
   append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
   append_uint(&out, "csi_target_pps", config.csi_target_pps);
   append_uint(&out, "csi_traffic_udp_port", config.csi_traffic_udp_port);

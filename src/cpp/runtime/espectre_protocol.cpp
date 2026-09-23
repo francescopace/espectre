@@ -516,8 +516,7 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
     if (name == "command_id" || name == "command") return true;
     if (parsed.command == "update_sensing") {
       return name == "enabled" || name == "threshold" || name == "motion_on_hits" ||
-             name == "motion_off_hits" || name == "detector" ||
-             name == "csi_traffic_mode" || name == "traffic_generator_mode";
+             name == "motion_off_hits" || name == "detector" || name == "traffic_generator_mode";
     }
     if (parsed.command == "read_diagnostics") return name == "fields";
     if (parsed.command == "update_device") return name == "label";
@@ -579,26 +578,19 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
       }
       parsed.has_detector = true;
     }
-    if (find_json_object_field(fields, "csi_traffic_mode") != nullptr) {
-      if (!string_field("csi_traffic_mode", &parsed.csi_traffic_mode) ||
-          (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
-           parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME)) {
-        return reject("invalid csi traffic mode (accepted: internal and external)");
-      }
-      parsed.has_csi_traffic_mode = true;
-    }
     if (find_json_object_field(fields, "traffic_generator_mode") != nullptr) {
       if (!string_field("traffic_generator_mode", &parsed.traffic_generator_mode) ||
           (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
            parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME &&
            parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME &&
-           parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME)) {
-        return reject("invalid traffic generator mode (accepted: ping, dns, dns_tcp, and wifi_raw)");
+           parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME &&
+           parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME)) {
+        return reject("invalid traffic generator mode (accepted: ping, dns, dns_tcp, wifi_raw, and external)");
       }
       parsed.has_traffic_generator_mode = true;
     }
     if (!parsed.has_sensing_enabled && !parsed.has_threshold && !parsed.has_motion_hits &&
-        !parsed.has_detector && !parsed.has_csi_traffic_mode && !parsed.has_traffic_generator_mode) {
+        !parsed.has_detector && !parsed.has_traffic_generator_mode) {
       return reject("sensing update is empty");
     }
   } else if (parsed.command == "update_device") {
@@ -870,7 +862,7 @@ std::string espectre_device_payload(const EspectreDeviceConfig &config, const Es
   out.reserve(192U + device_id.size() + device_name.size() + device_label.size() +
               info.frontend.size() + info.firmware_version.size() + info.chip.size() +
               info.detector.size() + info.csi_profile.size() +
-              info.csi_traffic_mode.size() + info.traffic_mode.size());
+              info.traffic_mode.size());
   out = "{";
   append_json_pair(&out, "device_id", device_id.c_str(), true);
   append_json_pair(&out, "name", device_label.empty() ? device_name.c_str() : device_label.c_str());
@@ -989,7 +981,6 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   capabilities.set(Method::SET_MOTION_HITS, info.supports_runtime_motion_hits);
   capabilities.set(Method::SET_DETECTOR, info.supports_runtime_detector);
   capabilities.set(Method::RECALIBRATE, info.supports_manual_recalibration);
-  capabilities.set(Method::SET_CSI_TRAFFIC_MODE, info.supports_traffic_control);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, info.supports_traffic_control);
   capabilities.set(Method::WIFI_ACCESS_POINTS, supports_wifi_bssid);
   capabilities.set(Method::SCAN_WIFI_ACCESS_POINTS, supports_wifi_bssid);

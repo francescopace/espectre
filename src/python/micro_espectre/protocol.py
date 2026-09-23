@@ -239,7 +239,6 @@ def build_info_payload(
     wlan,
     global_state=None,
     device_id=None,
-    csi_traffic_mode="internal",
     traffic_mode="ping",
     firmware_version="unknown",
     chip=None,

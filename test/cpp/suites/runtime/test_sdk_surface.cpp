@@ -166,7 +166,7 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
                     static_cast<int>(config.wifi_band_policy));
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::LIGHTWEIGHT),
                     static_cast<int>(config.detection_algorithm));
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficSource::INTERNAL), static_cast<int>(config.csi_traffic_source));
+  TEST_ASSERT_EQUAL(static_cast<int>(TrafficGeneratorMode::PING), static_cast<int>(config.traffic_generator_mode));
   TEST_ASSERT_TRUE(runtime_detection_algorithm_valid(config.detection_algorithm));
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, config.threshold);
 

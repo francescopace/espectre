@@ -45,8 +45,6 @@ struct FrontendHaMqttSettings {
   std::string calibrate_command_topic;
   std::string detector_state_topic;
   std::string detector_command_topic;
-  std::string csi_traffic_mode_state_topic;
-  std::string csi_traffic_mode_command_topic;
   std::string traffic_generator_mode_state_topic;
   std::string traffic_generator_mode_command_topic;
   std::string diagnostics_command_topic;
@@ -58,7 +56,6 @@ struct FrontendHaMqttSettings {
   std::string recalibrate_object_id;
   std::string calibration_active_object_id;
   std::string detector_object_id;
-  std::string csi_traffic_mode_object_id;
   std::string traffic_generator_mode_object_id;
   std::string diagnostics_object_id;
   std::string ha_object_prefix;

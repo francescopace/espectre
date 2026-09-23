@@ -200,9 +200,9 @@
             && rawCapability?.protocol_version === 1
             && rawCapability?.marker === '👻';
         rawCsiSetAvailable(available);
-        if (externalHint) externalHint.hidden = !available || conn.csiTrafficMode !== 'external';
+        if (externalHint) externalHint.hidden = !available || conn.trafficGeneratorMode !== 'external';
         if (available) {
-            rawCsiStatus(conn.csiTrafficMode === 'external'
+            rawCsiStatus(conn.trafficGeneratorMode === 'external'
                 ? 'Connected. This device is waiting for its external Wi-Fi traffic source before data appears.'
                 : 'Connected. Start the temporary signal stream when you are ready. Nothing is uploaded or stored.');
         }

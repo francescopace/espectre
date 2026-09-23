@@ -61,9 +61,7 @@ class IEspectreRuntime {
   virtual bool set_threshold(float threshold) = 0;
   /** Retune the hit filter. False when a count is out of range or not applied. */
   virtual bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) = 0;
-  /** Switch who owns the CSI-bearing traffic. False when not applied. */
-  virtual bool set_csi_traffic_source(CsiTrafficSource mode) = 0;
-  /** Change the internal traffic generator packet. False when not applied. */
+  /** Change how CSI traffic is produced, including `EXTERNAL`. False when not applied. */
   virtual bool set_traffic_generator_mode(TrafficGeneratorMode mode) = 0;
   /** Switch detector, rebuilding detector state. False when not applied. */
   virtual bool set_detection_algorithm(DetectionAlgorithm algorithm) = 0;

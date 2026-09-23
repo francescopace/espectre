@@ -561,7 +561,6 @@ def test_default_runtime_baseline_requires_production_values():
         {
             "sensing": {
                 "detector": "lightweight",
-                "csi_traffic_mode": "internal",
                 "traffic_generator_mode": "ping",
                 "csi_target_pps": 100,
             }
@@ -575,8 +574,7 @@ def test_default_runtime_baseline_rejects_nondefault_traffic():
             {
                 "sensing": {
                     "detector": "lightweight",
-                    "csi_traffic_mode": "external",
-                    "traffic_generator_mode": "ping",
+                    "traffic_generator_mode": "external",
                     "csi_target_pps": 100,
                 }
             }
@@ -641,7 +639,6 @@ def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
         "sensing": {
             "enabled": True,
             "detector": "lightweight",
-            "csi_traffic_mode": "internal",
             "traffic_generator_mode": "dns",
         },
         "wifi": {"connected": True},
@@ -1035,7 +1032,6 @@ def test_direct_preparation_reuses_identity_and_limits_requests(monkeypatch, nee
     sensing = {
         "enabled": not needs_update,
         "detector": "high_accuracy" if needs_update else "lightweight",
-        "csi_traffic_mode": "internal",
         "traffic_generator_mode": "ping",
     }
     calls = []

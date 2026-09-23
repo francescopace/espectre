@@ -355,7 +355,6 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.supports_runtime_detector = true;
   info.supports_manual_recalibration = true;
   info.supports_traffic_control = true;
-  info.csi_traffic_mode = "internal";
   info.traffic_mode = "ping";
   info.csi_target_pps = 100U;
   info.evaluation_interval_ms = 250U;
@@ -432,7 +431,6 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"unknown\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"detection\":{") == std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"csi_traffic_mode\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"traffic_mode\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\"") == std::string::npos);
@@ -579,11 +577,11 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_STRING("recalibrate", command.command.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x6\",\"command\":\"update_sensing\",\"csi_traffic_mode\":\"external\"}",
+      "{\"command_id\":\"x6\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"external\"}",
       &command,
       &error, &frontend_ota_protocol()));
-  TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
-  TEST_ASSERT_EQUAL_STRING("external", command.csi_traffic_mode.c_str());
+  TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
+  TEST_ASSERT_EQUAL_STRING("external", command.traffic_generator_mode.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
       "{\"command_id\":\"x7\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"dns\"}",
@@ -642,16 +640,12 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_EQUAL_STRING("invalid detector (accepted: lightweight and high_accuracy)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"csi_traffic_mode\":\"bogus\"}", &command, &error, &frontend_ota_protocol()));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
-
-  TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"csi_traffic_mode\":\"pacing\"}", &command, &error, &frontend_ota_protocol()));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
+      "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"internal\"}", &command, &error, &frontend_ota_protocol()));
+  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping, dns, dns_tcp, wifi_raw, and external)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"udp\"}", &command, &error, &frontend_ota_protocol()));
-  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping, dns, dns_tcp, and wifi_raw)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping, dns, dns_tcp, wifi_raw, and external)", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"test\",\"command\":\"check_ota\"}", &command, &error, &frontend_ota_protocol()));
 
@@ -996,8 +990,8 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
       "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"motion_on_hits\":6,\"motion_off_hits\":4}", &command, &error, &frontend_ota_protocol()));
   TEST_ASSERT_TRUE(command.has_motion_hits);
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"csi_traffic_mode\":\"external\"}", &command, &error, &frontend_ota_protocol()));
-  TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
+      "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"external\"}", &command, &error, &frontend_ota_protocol()));
+  TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
   TEST_ASSERT_TRUE(parse_espectre_command(
       "{\"command_id\":\"test\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"dns_tcp\"}", &command, &error, &frontend_ota_protocol()));
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);

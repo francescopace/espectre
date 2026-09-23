@@ -14,15 +14,13 @@
 #include <cstdint>
 
 #include "runtime/csi_capture_profile.h"
-#include "runtime/csi_traffic_types.h"
 #include "esp_wifi.h"
 #include "runtime/runtime_sensing_schema.h"
 
 namespace espectre {
 
 struct CsiFrameFilterConfig {
-  CsiTrafficSource traffic_mode{CsiTrafficSource::INTERNAL};
-  TrafficGeneratorMode internal_mode{TrafficGeneratorMode::PING};
+  TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint32_t local_ip_addr{0U};
   uint32_t internal_target_ip_addr{0U};
   uint32_t multicast_ip_addr{0U};

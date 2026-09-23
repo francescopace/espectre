@@ -23,7 +23,6 @@ enum class RuntimeConfigError : uint8_t {
   SEGMENTATION_WINDOW_SIZE_MS,
   CSI_TARGET_PPS,
   TRAFFIC_GENERATOR_MODE,
-  CSI_TRAFFIC_MODE,
   CSI_TRAFFIC_UDP_PORT,
   CSI_TRAFFIC_MULTICAST_GROUP,
   EVALUATION_INTERVAL_MS,
@@ -62,17 +61,13 @@ uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gatew
  */
 /** Name of a Wi-Fi band policy: `2g`, `5g`, or `auto`. */
 const char *wifi_band_policy_name(WifiBandPolicy policy);
-/** Name of an internal traffic generator packet, such as `ping` or `dns`. */
+/** Name of a traffic generator mode, such as `ping`, `dns`, or `external`. */
 const char *traffic_generator_mode_name(TrafficGeneratorMode mode);
-/** Name of a CSI traffic source: `internal` or `external`. */
-const char *csi_traffic_source_name(CsiTrafficSource mode);
 /** Name of a detector: `lightweight` or `high_accuracy`. */
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
 
-/** Parse a traffic generator packet name. Defaults to `TrafficGeneratorMode::PING`. */
+/** Parse a traffic generator mode name. Defaults to `TrafficGeneratorMode::PING`. */
 TrafficGeneratorMode parse_traffic_generator_mode(const char *mode);
-/** Parse a CSI traffic source name. Defaults to `CsiTrafficSource::INTERNAL`. */
-CsiTrafficSource parse_csi_traffic_source(const char *mode);
 /** Parse a detector name. Defaults to `DetectionAlgorithm::LIGHTWEIGHT`. */
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
 /** Parse a Wi-Fi band policy name. Defaults to `WifiBandPolicy::BAND_2G`. */

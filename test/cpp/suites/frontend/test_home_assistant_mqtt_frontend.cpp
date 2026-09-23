@@ -63,12 +63,6 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0000111122223333/ha/csi_traffic_mode/set";
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
-                               mqtt_transport_mock::state.subscriptions.end(),
-                               [](const mqtt_transport_mock::Subscription &subscription) {
-                                 return subscription.topic ==
                                         "espectre/v1/devices/0000111122223333/ha/traffic_generator_mode/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
@@ -201,11 +195,10 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
+                                 // The former ownership select is retired with an empty retained config.
                                  return publish.topic ==
                                             "homeassistant/select/native_0000111122223333_csi_traffic_ownership/config" &&
-                                        publish.retain &&
-                                        publish.payload.find("\"name\":\"CSI Traffic Ownership\"") !=
-                                            std::string::npos;
+                                        publish.retain && publish.payload.empty();
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
@@ -220,19 +213,17 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                             RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME + "\",\"" +
                                             RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME + "\",\"" +
                                             RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME + "\",\"" +
-                                            RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME + "\"]") !=
+                                            RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME + "\",\"" +
+                                            RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME + "\"]") !=
                                             std::string::npos;
                                }));
-  const int csi_traffic_discovery = mqtt_publish_index(
-      "homeassistant/select/native_0000111122223333_csi_traffic_ownership/config");
   const int traffic_generator_discovery = mqtt_publish_index(
       "homeassistant/select/native_0000111122223333_csi_traffic_source/config");
   const int recalibrate_discovery =
       mqtt_publish_index("homeassistant/button/native_0000111122223333_recalibrate/config");
   const int calibration_active_discovery =
       mqtt_publish_index("homeassistant/binary_sensor/native_0000111122223333_calibration_active/config");
-  TEST_ASSERT_TRUE(csi_traffic_discovery >= 0);
-  TEST_ASSERT_TRUE(csi_traffic_discovery < traffic_generator_discovery);
+  TEST_ASSERT_TRUE(traffic_generator_discovery >= 0);
   TEST_ASSERT_TRUE(traffic_generator_discovery < recalibrate_discovery);
   TEST_ASSERT_TRUE(recalibrate_discovery < calibration_active_discovery);
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
@@ -275,7 +266,6 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                             "espectre/v1/devices/0000111122223333/ha/calibrate/state" &&
                                         publish.payload == "OFF";
                                }));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/csi_traffic_mode/state", "internal"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/traffic_generator_mode/state", "ping"));
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/traffic_tx_rate/state"));
 
@@ -423,7 +413,7 @@ void test_native_frontend_defers_initial_ha_state_until_sensing_is_ready(void) {
   frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
   frontend.loop();
   for (const char *suffix : {"motion", "movement", "threshold", "motion_on_hits", "motion_off_hits",
-                             "calibrate", "detector", "csi_traffic_mode", "traffic_generator_mode"}) {
+                             "calibrate", "detector", "traffic_generator_mode"}) {
     TEST_ASSERT_TRUE(has_mqtt_publish(std::string("espectre/v1/devices/0000111122223333/ha/") + suffix + "/state"));
   }
   mqtt_transport_mock::state.publishes.clear();
@@ -623,25 +613,23 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "external");
-  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "dns_tcp");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "external");
 
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::EXTERNAL);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "external"));
+  TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/sensing",
+                                               "\"traffic_generator_mode\":\"external\""));
+
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "dns_tcp");
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/state", "external"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "dns_tcp"));
-  TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/sensing",
-                                               "\"csi_traffic_mode\":\"external\""));
-  TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/sensing",
-                                               "\"traffic_generator_mode\":\"dns_tcp\""));
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "pacing");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficSource::EXTERNAL);
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/state", "pacing"));
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "pacing");
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "pacing"));
 }
 
 void test_native_frontend_ha_detector_command_updates_canonical_config(void) {

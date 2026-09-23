@@ -512,7 +512,7 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
                 }
             if resource == "sensing":
                 return {
-                    "csi_traffic_mode": "external",
+                    "traffic_generator_mode": "external",
                     "csi_traffic_udp_port": 6123,
                 }
             return {}
@@ -542,7 +542,7 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
     assert calls == [
         ("open", args.direct_endpoint),
         ("get", "capabilities", None),
-        ("patch", "sensing", {"csi_traffic_mode": "external"}),
+        ("patch", "sensing", {"traffic_generator_mode": "external"}),
         ("get", "sensing", None),
         ("close", None),
     ]
@@ -573,7 +573,7 @@ def test_prepare_raw_collection_rejects_unconfirmed_persistent_mode() -> None:
                     }
                 }
             if resource == "sensing" and verb == "get":
-                return {"csi_traffic_mode": "internal"}
+                return {"traffic_generator_mode": "ping"}
             return {}
 
     args = SimpleNamespace(

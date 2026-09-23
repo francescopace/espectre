@@ -137,9 +137,6 @@ void HomeAssistantMqttFrontend::setup() {
         });
   }
   if (owner_.runtime_.capabilities().supports_traffic_control) {
-    (void)transport_->subscribe(
-        settings_.csi_traffic_mode_command_topic,
-        [this](const std::string &, const std::string &payload) { this->handle_csi_traffic_mode_command_(payload); });
     (void)transport_->subscribe(settings_.traffic_generator_mode_command_topic,
                                 [this](const std::string &, const std::string &payload) {
                                   this->handle_traffic_generator_mode_command_(payload);
@@ -247,12 +244,10 @@ void HomeAssistantMqttFrontend::publish_detector(const char *detector_name) {
   (void)transport_->publish(settings_.detector_state_topic, detector_name, false);
 }
 
-void HomeAssistantMqttFrontend::publish_traffic_control(CsiTrafficSource csi_traffic_mode,
-                                                        TrafficGeneratorMode traffic_generator_mode) {
+void HomeAssistantMqttFrontend::publish_traffic_control(TrafficGeneratorMode traffic_generator_mode) {
   if (!ready_() || !owner_.runtime_.capabilities().supports_traffic_control) {
     return;
   }
-  (void)transport_->publish(settings_.csi_traffic_mode_state_topic, csi_traffic_source_name(csi_traffic_mode), false);
   (void)transport_->publish(settings_.traffic_generator_mode_state_topic, traffic_generator_mode_name(traffic_generator_mode),
                             false);
 }
@@ -283,7 +278,7 @@ void HomeAssistantMqttFrontend::publish_state(const RuntimeSnapshot &snapshot) {
   publish_motion_hits(owner_.runtime_.config().motion_on_hits, owner_.runtime_.config().motion_off_hits);
   publish_calibrate(owner_.runtime_.is_calibrating() || snapshot.calibrating);
   publish_detector(snapshot.detector_name);
-  publish_traffic_control(owner_.runtime_.config().csi_traffic_source, owner_.runtime_.config().traffic_generator_mode);
+  publish_traffic_control(owner_.runtime_.config().traffic_generator_mode);
 }
 
 void HomeAssistantMqttFrontend::publish_current_state() { publish_state(owner_.runtime_.snapshot()); }
@@ -348,22 +343,12 @@ void HomeAssistantMqttFrontend::handle_calibrate_command_(const std::string &pay
   }
 }
 
-void HomeAssistantMqttFrontend::handle_csi_traffic_mode_command_(const std::string &payload) {
-  const std::string mode = normalize_text_token(payload);
-  if (mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME && mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME) {
-    ESP_LOGW(TAG, "Invalid HA CSI traffic mode command: %s", payload.c_str());
-    return;
-  }
-  if (owner_.handle_csi_traffic_mode_write_(parse_csi_traffic_source(mode.c_str()))) {
-    owner_.publish_runtime_config_state_();
-  }
-}
-
 void HomeAssistantMqttFrontend::handle_traffic_generator_mode_command_(const std::string &payload) {
   const std::string mode = normalize_text_token(payload);
   if (mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME && mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME &&
       mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME &&
-      mode != RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME) {
+      mode != RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME &&
+      mode != RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME) {
     ESP_LOGW(TAG, "Invalid HA traffic generator mode command: %s", payload.c_str());
     return;
   }

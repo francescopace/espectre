@@ -64,6 +64,9 @@
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_WIFI_RAW
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_WIFI_RAW 0
 #endif
+#ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL
+#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL 0
+#endif
 #ifndef CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS
 #define CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS 250
 #endif
@@ -145,7 +148,7 @@ uint8_t clamp_uint8_or_default_(uint32_t value, uint8_t default_value, uint8_t m
 
 std::string multicast_group_or_default_(const char *value, const char *key) {
   RuntimeConfig probe = RuntimeConfig{};
-  probe.csi_traffic_source = CsiTrafficSource::EXTERNAL;
+  probe.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
   probe.csi_traffic_multicast_group = value != nullptr ? value : "";
   if (validate_runtime_config(probe) != RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP) {
     return probe.csi_traffic_multicast_group;
@@ -189,11 +192,6 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                                RUNTIME_CSI_TARGET_PPS_MIN,
                                RUNTIME_CSI_TARGET_PPS_MAX,
                                "CONFIG_ESPECTRE_CSI_TARGET_PPS");
-#if CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
-  config.csi_traffic_source = CsiTrafficSource::EXTERNAL;
-#else
-  config.csi_traffic_source = CsiTrafficSource::INTERNAL;
-#endif
   config.csi_traffic_multicast_group = multicast_group_or_default_(
       CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP,
       "CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP");
@@ -211,6 +209,8 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
   config.traffic_generator_mode = TrafficGeneratorMode::WIFI_RAW;
 #elif CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP
   config.traffic_generator_mode = TrafficGeneratorMode::DNS_TCP;
+#elif CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL
+  config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
 #else
   config.traffic_generator_mode = TrafficGeneratorMode::PING;
 #endif

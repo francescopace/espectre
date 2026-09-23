@@ -1682,7 +1682,7 @@ void test_csi_pipeline_filters_unicast_frames_for_other_device(void) {
     const uint8_t local_mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
     const uint8_t other_mac[6] = {0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
     CsiFrameFilterConfig filter;
-    filter.traffic_mode = CsiTrafficSource::EXTERNAL;
+    filter.traffic_mode = TrafficGeneratorMode::EXTERNAL;
     filter.local_ip_addr = inet_addr("192.168.1.17");
     filter.external_udp_port = 5555U;
     std::memcpy(filter.local_mac_addr, local_mac, sizeof(local_mac));

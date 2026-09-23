@@ -101,13 +101,6 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         }
         return accepted;
       },
-      [this](CsiTrafficSource mode, std::string *message) {
-        const bool accepted = this->owner_.handle_csi_traffic_mode_write_(mode);
-        if (message != nullptr && message->empty()) {
-          *message = accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
-        }
-        return accepted;
-      },
       [this](TrafficGeneratorMode mode, std::string *message) {
         const bool accepted = this->owner_.handle_traffic_generator_mode_write_(mode);
         if (message != nullptr && message->empty()) {
@@ -252,7 +245,6 @@ EspectreCapabilityProfile NativeCommandBindings::capability_profile(bool allow_l
   profile.set(Method::SET_MOTION_HITS, owner_.runtime_.capabilities().supports_runtime_motion_hits_updates);
   profile.set(Method::SET_DETECTOR, owner_.runtime_.capabilities().supports_runtime_detector_selection);
   profile.set(Method::RECALIBRATE, owner_.runtime_.capabilities().supports_manual_recalibration);
-  profile.set(Method::SET_CSI_TRAFFIC_MODE, owner_.runtime_.capabilities().supports_traffic_control);
   profile.set(Method::SET_TRAFFIC_GENERATOR_MODE, owner_.runtime_.capabilities().supports_traffic_control);
   profile.set(Method::WIFI_ACCESS_POINTS, allow_local_config);
   profile.set(Method::SCAN_WIFI_ACCESS_POINTS, allow_local_config);

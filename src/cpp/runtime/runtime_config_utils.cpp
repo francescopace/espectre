@@ -117,10 +117,7 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
   }
-  if (!runtime_csi_traffic_source_valid(config.csi_traffic_source)) {
-    return RuntimeConfigError::CSI_TRAFFIC_MODE;
-  }
-  if (config.csi_traffic_source == CsiTrafficSource::EXTERNAL) {
+  if (config.traffic_generator_mode == TrafficGeneratorMode::EXTERNAL) {
     if (config.csi_traffic_udp_port < RUNTIME_NETWORK_PORT_MIN) {
       return RuntimeConfigError::CSI_TRAFFIC_UDP_PORT;
     }
@@ -184,7 +181,6 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::CSI_TARGET_PPS: return "invalid CSI target PPS";
     case RuntimeConfigError::TRAFFIC_GENERATOR_MODE: return "invalid traffic generator mode";
     case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP: return "invalid traffic generator target IPv4 address";
-    case RuntimeConfigError::CSI_TRAFFIC_MODE: return "invalid CSI traffic mode for runtime profile";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";
     case RuntimeConfigError::EVALUATION_INTERVAL_MS: return "invalid evaluation interval";
@@ -218,18 +214,10 @@ const char *traffic_generator_mode_name(TrafficGeneratorMode mode) {
       return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME;
     case TrafficGeneratorMode::WIFI_RAW:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME;
+    case TrafficGeneratorMode::EXTERNAL:
+      return RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME;
     default:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
-  }
-}
-
-const char *csi_traffic_source_name(CsiTrafficSource mode) {
-  switch (mode) {
-    case CsiTrafficSource::EXTERNAL:
-      return RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME;
-    case CsiTrafficSource::INTERNAL:
-    default:
-      return RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME;
   }
 }
 
@@ -244,6 +232,9 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
 }
 
 TrafficGeneratorMode parse_traffic_generator_mode(const char *mode) {
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME) == 0) {
+    return TrafficGeneratorMode::EXTERNAL;
+  }
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME) == 0) {
     return TrafficGeneratorMode::WIFI_RAW;
   }
@@ -254,13 +245,6 @@ TrafficGeneratorMode parse_traffic_generator_mode(const char *mode) {
     return TrafficGeneratorMode::DNS_TCP;
   }
   return TrafficGeneratorMode::PING;
-}
-
-CsiTrafficSource parse_csi_traffic_source(const char *mode) {
-  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME) == 0) {
-    return CsiTrafficSource::EXTERNAL;
-  }
-  return CsiTrafficSource::INTERNAL;
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {

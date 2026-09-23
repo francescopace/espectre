@@ -68,7 +68,7 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
 
 const ANALYTICS_CATEGORY_VALUES = Object.freeze({
     action: new Set([
-        'clear_mqtt', 'clear_wifi', 'clear_wifi_bssid', 'recalibrate', 'set_csi_traffic_mode',
+        'clear_mqtt', 'clear_wifi', 'clear_wifi_bssid', 'recalibrate',
         'update_device', 'update_sensing', 'update_mqtt',
         'set_traffic_generator_mode', 'set_wifi_bssid'
     ]),

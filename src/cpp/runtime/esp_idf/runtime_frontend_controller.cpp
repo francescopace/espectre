@@ -214,24 +214,6 @@ bool RuntimeFrontendController::set_motion_hits(uint8_t motion_on_hits, uint8_t 
   return true;
 }
 
-bool RuntimeFrontendController::set_csi_traffic_source(CsiTrafficSource mode) {
-  if (!runtime_csi_traffic_source_valid(mode)) {
-    return false;
-  }
-  const bool staged_for_next_setup =
-      runtime_ && config_.csi_traffic_source != active_config_.csi_traffic_source;
-  if (runtime_) {
-    if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_source(mode)) {
-      apply_deferred_shutdown_();
-      return false;
-    }
-  }
-  if (!staged_for_next_setup) config_.csi_traffic_source = mode;
-  if (runtime_) active_config_.csi_traffic_source = mode;
-  apply_deferred_shutdown_();
-  return true;
-}
-
 bool RuntimeFrontendController::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
   if (!runtime_capture_profile_supports_traffic(effective_config.csi_capture_policy, mode)) {

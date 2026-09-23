@@ -21,13 +21,11 @@ class ESpectreTrafficModeSelect : public select::Select, public Component {
  public:
   void dump_config() override;
   void set_parent(ESpectreComponent *parent) { this->parent_ = parent; }
-  void set_csi_traffic_mode(bool value) { this->csi_traffic_mode_ = value; }
   void republish_state();
 
  protected:
   void control(const std::string &value) override;
   ESpectreComponent *parent_{nullptr};
-  bool csi_traffic_mode_{false};
 };
 
 }  // namespace espectre_component

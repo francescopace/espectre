@@ -119,21 +119,6 @@ void EspIdfRuntime::load_persisted_overrides_() {
     }
   }
 
-  bool has_saved_csi_traffic_mode = false;
-  CsiTrafficSource saved_csi_traffic_mode = config_.csi_traffic_source;
-  const esp_err_t csi_traffic_err =
-      load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
-  if (csi_traffic_err != ESP_OK) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
-  } else if (has_saved_csi_traffic_mode) {
-    if (saved_csi_traffic_mode != config_.csi_traffic_source) {
-      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted CSI traffic mode override: configured=%s saved=%s",
-                    csi_traffic_source_name(config_.csi_traffic_source),
-                    csi_traffic_source_name(saved_csi_traffic_mode));
-    }
-    config_.csi_traffic_source = saved_csi_traffic_mode;
-  }
-
   bool has_saved_generator_mode = false;
   TrafficGeneratorMode saved_generator_mode = config_.traffic_generator_mode;
   const esp_err_t generator_err =
@@ -197,8 +182,8 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  // Traffic ownership is explicit in csi_traffic_mode; the positive target
-  // only defines cadence.
+  // Traffic ownership is explicit in traffic_generator_mode; the positive
+  // target only defines cadence.
   csi_traffic_service_.init(to_csi_traffic_config(config_));
 
   csi_pipeline_.init(detector_.get());
@@ -422,37 +407,6 @@ bool EspIdfRuntime::set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_h
   return true;
 }
 
-bool EspIdfRuntime::set_csi_traffic_source(CsiTrafficSource mode) {
-  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    return false;
-  }
-  if (!runtime_csi_traffic_source_valid(mode)) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
-    return false;
-  }
-  if (mode == config_.csi_traffic_source) {
-    return true;
-  }
-  const RuntimeConfig previous_config = config_;
-  config_.csi_traffic_source = mode;
-  if (!apply_traffic_runtime_config_(true, false)) {
-    restore_traffic_runtime_config_(previous_config);
-    return false;
-  }
-  const esp_err_t persist_err =
-      config_.persist_runtime_overrides ? save_runtime_csi_traffic_mode(mode) : ESP_OK;
-  if (persist_err != ESP_OK) {
-    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
-    restore_traffic_runtime_config_(previous_config);
-    return false;
-  }
-  if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
-    (void) trigger_recalibration();
-  }
-  ESPECTRE_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_source_name(mode));
-  return true;
-}
-
 bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   if (!runtime_capture_profile_supports_traffic(config_.csi_capture_policy, mode)) {
     ESPECTRE_LOGW(RUNTIME_TAG, "wifi_raw requires auto or lltf CSI capture profile");
@@ -470,8 +424,7 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   }
   const RuntimeConfig previous_config = config_;
   config_.traffic_generator_mode = mode;
-  const bool generator_active = config_.csi_traffic_source == CsiTrafficSource::INTERNAL;
-  if (generator_active && !apply_traffic_runtime_config_(true, false)) {
+  if (!apply_traffic_runtime_config_(true, false)) {
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
@@ -482,7 +435,7 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  if (generator_active && config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+  if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
     (void) trigger_recalibration();
   }
   ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_generator_mode_name(mode));
@@ -641,8 +594,7 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
 }
 
 CsiCaptureProfile EspIdfRuntime::sensing_capture_profile_() const {
-  const bool requires_lltf = config_.csi_traffic_source == CsiTrafficSource::INTERNAL &&
-                             config_.traffic_generator_mode == TrafficGeneratorMode::WIFI_RAW;
+  const bool requires_lltf = config_.traffic_generator_mode == TrafficGeneratorMode::WIFI_RAW;
   return select_csi_capture_profile(wifi_channel_, requires_lltf, config_.csi_capture_policy);
 }
 
@@ -807,7 +759,7 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
   csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
   csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.is_running();
-  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() == CsiTrafficSource::INTERNAL
+  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
   csi_receive_path_traffic_seen_ = false;
@@ -825,7 +777,7 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
 
-  const uint64_t traffic = (csi_traffic_service_.mode() == CsiTrafficSource::INTERNAL
+  const uint64_t traffic = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
   const uint32_t now = monotonic_now_ms();
@@ -1199,8 +1151,7 @@ void EspIdfRuntime::reset_periodic_status_logger_() {
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
   CsiFrameFilterConfig filter;
-  filter.traffic_mode = config_.csi_traffic_source;
-  filter.internal_mode = config_.traffic_generator_mode;
+  filter.traffic_mode = config_.traffic_generator_mode;
   filter.local_ip_addr = local_ip_addr;
   filter.internal_target_ip_addr = runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr);
   filter.multicast_ip_addr = config_.csi_traffic_multicast_group.empty()

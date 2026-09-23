@@ -145,7 +145,6 @@ CSI_CAPTURE_PROFILE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_CAPTURE_PROFILE_DEFAU
 CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
 CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
-CSI_TRAFFIC_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME"]
 CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
 EVALUATION_INTERVAL_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT"]
@@ -205,21 +204,21 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE_MS, default=SEGMENTATION_WINDOW_SIZE_MS_DEFAULT): cv.int_range(
         min=SEGMENTATION_WINDOW_SIZE_MS_MIN, max=SEGMENTATION_WINDOW_SIZE_MS_MAX
     ),
-    # Positive temporal CSI target; traffic ownership is configured separately.
+    # Positive temporal CSI target; traffic_generator_mode selects who sends the traffic.
     cv.Optional(CONF_CSI_TARGET_PPS, default=CSI_TARGET_PPS_DEFAULT): cv.int_range(
         min=CSI_TARGET_PPS_MIN, max=CSI_TARGET_PPS_MAX
     ),
-    cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
-        "internal", "external", lower=True
+    cv.Optional(CONF_CSI_TRAFFIC_MODE): cv.invalid(
+        "csi_traffic_mode was removed; use traffic_generator_mode: external for an external traffic source"
     ),
     cv.Optional(CONF_CSI_CAPTURE_PROFILE, default=CSI_CAPTURE_PROFILE_DEFAULT): cv.one_of(
         "auto", "lltf", "ht-vht", lower=True
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MULTICAST_GROUP, default=CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT): validate_csi_traffic_multicast_group,
     
-    # Traffic generator mode: ping (default), DNS over UDP, or DNS over TCP.
+    # Traffic generator mode: ping (default), DNS over UDP or TCP, raw Wi-Fi, or external.
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
-        "ping", "dns", "dns_tcp", "wifi_raw", lower=True
+        "ping", "dns", "dns_tcp", "wifi_raw", "external", lower=True
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_IP, default=""): validate_traffic_generator_target_ip,
     
@@ -395,9 +394,8 @@ CONFIG_SCHEMA = cv.Schema({
         ESpectreDetectorSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
-    cv.Optional(CONF_CSI_TRAFFIC_MODE_SELECT, default={"name": "CSI Traffic Ownership"}): select.select_schema(
-        ESpectreTrafficModeSelect,
-        entity_category=ENTITY_CATEGORY_CONFIG,
+    cv.Optional(CONF_CSI_TRAFFIC_MODE_SELECT): cv.invalid(
+        "csi_traffic_mode_select was removed; traffic_generator_mode_select offers the external option"
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE_SELECT, default={"name": "CSI Traffic Source"}): select.select_schema(
         ESpectreTrafficModeSelect,
@@ -429,12 +427,13 @@ def _traffic_generator_modes():
     modes = ["ping", "dns", "dns_tcp"]
     if get_esp32_variant() != esp32_const.VARIANT_ESP32C6:
         modes.append("wifi_raw")
+    modes.append("external")
     return modes
 
 
 def _validate_capture_profile(config):
     if config[CONF_TRAFFIC_GENERATOR_MODE] not in _traffic_generator_modes():
-        raise cv.Invalid("wifi_raw is not supported on ESP32-C6; use ping, dns, or dns_tcp")
+        raise cv.Invalid("wifi_raw is not supported on ESP32-C6; use ping, dns, dns_tcp, or external")
     profile = config[CONF_CSI_CAPTURE_PROFILE]
     if config[CONF_TRAFFIC_GENERATOR_MODE] == "wifi_raw" and profile not in ("auto", "lltf"):
         raise cv.Invalid("wifi_raw requires csi_capture_profile: auto or lltf")
@@ -562,7 +561,6 @@ async def to_code(config):
     cg.add(var.set_csi_capture_profile(cg.RawExpression(
         "::espectre::CsiCapturePolicy::" + config[CONF_CSI_CAPTURE_PROFILE].upper().replace("-", "_")
     )))
-    cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
     cg.add(var.set_csi_traffic_multicast_group(config[CONF_CSI_TRAFFIC_MULTICAST_GROUP]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_traffic_generator_target_ip(config[CONF_TRAFFIC_GENERATOR_TARGET_IP]))
@@ -654,20 +652,11 @@ async def to_code(config):
     cg.add(detector.set_parent(var))
     cg.add(var.set_detector_select(detector))
 
-    csi_traffic_mode = await select.new_select(
-        config[CONF_CSI_TRAFFIC_MODE_SELECT],
-        options=["internal", "external"],
-    )
-    cg.add(csi_traffic_mode.set_parent(var))
-    cg.add(csi_traffic_mode.set_csi_traffic_mode(True))
-    cg.add(var.set_csi_traffic_mode_select(csi_traffic_mode))
-
     traffic_generator_mode = await select.new_select(
         config[CONF_TRAFFIC_GENERATOR_MODE_SELECT],
         options=_traffic_generator_modes(),
     )
     cg.add(traffic_generator_mode.set_parent(var))
-    cg.add(traffic_generator_mode.set_csi_traffic_mode(False))
     cg.add(var.set_traffic_generator_mode_select(traffic_generator_mode))
     
     sensing = await switch.new_switch(config[CONF_SENSING_SWITCH])

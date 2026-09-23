@@ -79,9 +79,6 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void set_csi_capture_profile(CsiCapturePolicy profile) {
     this->runtime_.config().csi_capture_policy = profile;
   }
-  void set_csi_traffic_mode(const std::string &mode) {
-    this->runtime_.config().csi_traffic_source = parse_csi_traffic_source(mode.c_str());
-  }
   void set_csi_traffic_multicast_group(const std::string &group) {
     this->runtime_.config().csi_traffic_multicast_group = group;
   }
@@ -152,9 +149,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   
   void set_sensing_switch(switch_::Switch *value) { this->sensing_switch_ = value; }
   void set_detector_select(select::Select *value) { this->detector_select_ = value; }
-  void set_csi_traffic_mode_select(select::Select *value) { this->csi_traffic_mode_select_ = value; }
   void set_traffic_generator_mode_select(select::Select *value) { this->traffic_generator_mode_select_ = value; }
-  bool set_csi_traffic_mode_runtime(const std::string &mode);
   bool set_traffic_generator_mode_runtime(const std::string &mode);
   
  protected:
@@ -255,7 +250,6 @@ class ESpectreComponent : public Component, public IRuntimeListener
   
   switch_::Switch *sensing_switch_{nullptr};
   select::Select *detector_select_{nullptr};
-  select::Select *csi_traffic_mode_select_{nullptr};
   select::Select *traffic_generator_mode_select_{nullptr};
 
   sensor::Sensor *generator_rate_sensor_{nullptr};

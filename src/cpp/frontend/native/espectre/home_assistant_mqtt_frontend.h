@@ -31,7 +31,7 @@ class HomeAssistantMqttFrontend {
   void publish_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits);
   void publish_calibrate(bool calibrating);
   void publish_detector(const char *detector_name);
-  void publish_traffic_control(CsiTrafficSource csi_traffic_mode, TrafficGeneratorMode traffic_generator_mode);
+  void publish_traffic_control(TrafficGeneratorMode traffic_generator_mode);
   void publish_diagnostics();
   void publish_state(const RuntimeSnapshot &snapshot);
   void publish_current_state();
@@ -42,7 +42,6 @@ class HomeAssistantMqttFrontend {
   void handle_threshold_command_(const std::string &payload);
   void handle_motion_hits_command_(bool motion_on, const std::string &payload);
   void handle_calibrate_command_(const std::string &payload);
-  void handle_csi_traffic_mode_command_(const std::string &payload);
   void handle_traffic_generator_mode_command_(const std::string &payload);
 
   NativeFrontend &owner_;

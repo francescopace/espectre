@@ -51,7 +51,6 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
 
   bool set_threshold(float threshold) override;
   bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) override;
-  bool set_csi_traffic_source(CsiTrafficSource mode) override;
   bool set_traffic_generator_mode(TrafficGeneratorMode mode) override;
   bool set_detection_algorithm(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;

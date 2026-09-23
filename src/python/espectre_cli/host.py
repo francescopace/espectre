@@ -159,10 +159,10 @@ def _prepare_raw_http_collection(args, direct_client_cls, receiver_cls, generato
             raise RuntimeError("target does not advertise raw HTTP v1")
         if raw_capability.get("marker") != generator_cls.TRAFFIC_MARKER:
             raise RuntimeError("target does not advertise the canonical external traffic marker")
-        control.request("patch", "sensing", {"csi_traffic_mode": "external"})
+        control.request("patch", "sensing", {"traffic_generator_mode": "external"})
         runtime_config = control.request("get", "sensing")
-    if not isinstance(runtime_config, dict) or runtime_config.get("csi_traffic_mode") != "external":
-        raise RuntimeError("device did not persist external CSI traffic mode")
+    if not isinstance(runtime_config, dict) or runtime_config.get("traffic_generator_mode") != "external":
+        raise RuntimeError("device did not persist the external traffic generator mode")
     traffic_port = int(raw_capability.get("traffic_udp_port", runtime_config.get("csi_traffic_udp_port", 5555)))
     receiver = receiver_cls(direct_endpoint, buffer_size=4000, derive_complex=False)
     receiver.requested_pps = requested_pps

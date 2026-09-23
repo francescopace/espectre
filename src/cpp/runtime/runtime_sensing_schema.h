@@ -14,7 +14,6 @@
 
 #include "core/detector_limits.h"
 #include "core/detector_types.h"
-#include "csi_traffic_types.h"
 #include "core/filter_config.h"
 
 /**
@@ -44,27 +43,35 @@ enum class DetectionAlgorithm {
   HIGH_ACCURACY,
 };
 
-/** Which packet the internal generator sends to solicit CSI from the AP. */
+/**
+ * How the device gets the traffic that produces CSI.
+ *
+ * CSI is only produced when packets arrive, so something has to keep the link
+ * busy. The first four modes run the internal generator at `csi_target_pps`
+ * with the given packet; `EXTERNAL` leaves it to another host.
+ */
 enum class TrafficGeneratorMode {
-  /** ICMP echo. Default. */
+  /** Internal generator, ICMP echo. Default. */
   PING,
-  /** DNS queries over connectionless UDP. */
+  /** Internal generator, DNS queries over connectionless UDP. */
   DNS,
-  /** Length-prefixed DNS queries over a persistent TCP connection. */
+  /** Internal generator, length-prefixed DNS queries over a persistent TCP connection. */
   DNS_TCP,
-  /** Raw Wi-Fi Null Data frames addressed to the associated AP. */
+  /** Internal generator, raw Wi-Fi Null Data frames addressed to the associated AP. */
   WIFI_RAW,
+  /**
+   * No internal generator: another host sends exact UDP markers or unicast
+   * ICMP Echo Requests, and the runtime listens for them.
+   */
+  EXTERNAL,
 };
 
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME = "dns_tcp";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME = "wifi_raw";
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME = "external";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
-
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME = "internal";
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME = "external";
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME = "internal";
 
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME = "lightweight";
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME = "high_accuracy";
@@ -134,11 +141,8 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
 
 constexpr bool runtime_traffic_generator_mode_valid(TrafficGeneratorMode mode) {
   return mode == TrafficGeneratorMode::PING || mode == TrafficGeneratorMode::DNS ||
-         mode == TrafficGeneratorMode::DNS_TCP || mode == TrafficGeneratorMode::WIFI_RAW;
-}
-
-constexpr bool runtime_csi_traffic_source_valid(CsiTrafficSource mode) {
-  return mode == CsiTrafficSource::INTERNAL || mode == CsiTrafficSource::EXTERNAL;
+         mode == TrafficGeneratorMode::DNS_TCP || mode == TrafficGeneratorMode::WIFI_RAW ||
+         mode == TrafficGeneratorMode::EXTERNAL;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
