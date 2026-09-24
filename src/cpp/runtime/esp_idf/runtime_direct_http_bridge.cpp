@@ -261,13 +261,13 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
         }
         return applied;
       },
-      [this](const EspectreCommand &raw,
-             const FrontendCommandContext &context,
-             std::string *code,
-             std::string *message,
-             std::string *data_json) {
-        return handle_raw_stream_(raw, context, code, message, data_json);
+      [this](const RuntimeControlUpdate &update, std::string *message) {
+        return runtime_->validate_control_update(update, message);
       });
+  if (result.changes != FrontendCommandChange::NONE) {
+    (void) publish_changes(result.changes);
+    notify_config_changed_();
+  }
   if (!result.accepted) {
     return espectre_command_result_payload(device,
                                            result.command,
@@ -275,10 +275,6 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
                                            result.code.c_str(),
                                            result.message.c_str(),
                                            result.data_json);
-  }
-  if (result.changes != FrontendCommandChange::NONE) {
-    (void) publish_changes(result.changes);
-    notify_config_changed_();
   }
   if (request.http_method == "GET") {
     return result.data_json;
@@ -634,19 +630,6 @@ std::string RuntimeDirectHttpBridge::capabilities_payload_() const {
   info.csi_traffic_udp_port = runtime_->config().csi_traffic_udp_port;
   info.csi_traffic_multicast_group = runtime_->config().csi_traffic_multicast_group;
   return espectre_capabilities_payload(device, info, capability_profile_());
-}
-
-bool RuntimeDirectHttpBridge::handle_raw_stream_(const EspectreCommand &command,
-                                                  const FrontendCommandContext &context,
-                                                  std::string *code,
-                                                  std::string *message,
-                                                  std::string *data_json) {
-  if (!config_.raw_csi) {
-    if (code != nullptr) *code = "unsupported";
-    if (message != nullptr) *message = "raw CSI collection is unavailable";
-    return false;
-  }
-  return raw_session_controller_.handle_command(command, context, code, message, data_json);
 }
 
 std::string RuntimeDirectHttpBridge::device_payload_() const {

@@ -10,12 +10,14 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "core/csi_types.h"
 #include "runtime/raw_csi.h"
 #include "runtime/runtime_capabilities.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_config.h"
+#include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_snapshot.h"
 
 namespace espectre {
@@ -218,6 +220,23 @@ class RuntimeFrontendController : private IRuntimeListener {
    *         `RuntimeCapabilities::supports_runtime_detector_selection`.
    */
   bool set_detection_algorithm(DetectionAlgorithm algorithm);
+  /**
+   * Check a combined change before applying any of it.
+   *
+   * Applies `update` to a copy of the active configuration and validates the
+   * result, so a threshold is checked against the detector the same update
+   * selects, and a traffic generator mode against this chip and the CSI
+   * capture policy. Once the runtime is up, it also rejects fields whose
+   * capability is not advertised and any change during raw collection. Call
+   * it before the individual setters to apply a request completely or not at
+   * all; a setter can still fail afterwards when the backend refuses, for
+   * example on an allocation or NVS failure.
+   *
+   * @param update Fields to change.
+   * @param message Receives the reason on failure. May be `nullptr`.
+   * @return true when every setter in `update` is expected to succeed.
+   */
+  bool validate_control_update(const RuntimeControlUpdate &update, std::string *message = nullptr) const;
   /**
    * Restart startup calibration.
    *

@@ -97,6 +97,20 @@ bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, TrafficG
          profile == CsiCapturePolicy::LLTF;
 }
 
+RuntimeConfig apply_runtime_control_update(RuntimeConfig config, const RuntimeControlUpdate &update) {
+  if (update.has_detection_algorithm && update.detection_algorithm != config.detection_algorithm) {
+    config.detection_algorithm = update.detection_algorithm;
+    config.threshold = runtime_default_threshold(update.detection_algorithm);
+  }
+  if (update.has_threshold) config.threshold = update.threshold;
+  if (update.has_motion_hits) {
+    config.motion_on_hits = update.motion_on_hits;
+    config.motion_off_hits = update.motion_off_hits;
+  }
+  if (update.has_traffic_generator_mode) config.traffic_generator_mode = update.traffic_generator_mode;
+  return config;
+}
+
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!wifi_band_policy_valid(config.wifi_band_policy)) return RuntimeConfigError::WIFI_BAND_POLICY;
   if (config.csi_capture_policy != CsiCapturePolicy::AUTO &&

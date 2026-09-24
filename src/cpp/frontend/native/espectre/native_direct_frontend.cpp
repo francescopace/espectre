@@ -505,16 +505,4 @@ void NativeDirectFrontend::refresh_peer_candidate_() {
   peer_discovery_->set_local_candidate(std::move(candidate));
 }
 
-bool NativeDirectFrontend::handle_raw_stream_command(const EspectreCommand &command,
-                                                     const FrontendCommandContext &context, std::string *code,
-                                                     std::string *message, std::string *data_json) {
-  uint64_t device_id = 0U;
-  if (!parse_espectre_device_id(espectre_effective_device_id(owner_.device_config_), &device_id)) {
-    if (code != nullptr) *code = "internal_error";
-    if (message != nullptr) *message = "device identity is unavailable";
-    return false;
-  }
-  return raw_session_controller_.handle_command(command, context, code, message, data_json);
-}
-
 }  // namespace espectre

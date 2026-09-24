@@ -94,11 +94,6 @@ class RuntimeDirectHttpBridge {
   std::string diagnostics_payload_(const std::vector<std::string> &fields) const;
   std::string wifi_access_points_payload_() const;
   bool handle_wifi_control_(const EspectreCommand &command, std::string *message);
-  bool handle_raw_stream_(const EspectreCommand &command,
-                          const FrontendCommandContext &context,
-                          std::string *code,
-                          std::string *message,
-                          std::string *data_json);
   void refresh_peer_candidate_();
   void notify_config_changed_();
 

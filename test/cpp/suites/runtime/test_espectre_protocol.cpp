@@ -12,6 +12,7 @@
 
 #include "direct_http_protocol.h"
 #include "espectre_protocol.h"
+#include "frontend_command_engine.h"
 #include "frontend/ota_protocol.h"
 #include "frontend/ota_version.h"
 #include "protocol_json.h"
@@ -1222,6 +1223,107 @@ void test_diagnostics_selection_catalog_and_transport_parity(void) {
   TEST_ASSERT_FALSE(parse_direct_http_request("GET", "/espectre/v1/diagnostics?fields=[]", "{}", &direct, &error));
 }
 
+void test_update_sensing_reports_fields_applied_before_a_rejection(void) {
+  EspectreCapabilityProfile capabilities;
+  capabilities.set(EspectreDirectMethod::SET_DETECTOR);
+  capabilities.set(EspectreDirectMethod::SET_THRESHOLD);
+  capabilities.set(EspectreDirectMethod::SET_MOTION_HITS);
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "partial", "update_sensing",
+      R"({"detector":"high_accuracy","threshold":0.5,"motion_on_hits":3,"motion_off_hits":2})",
+      &command, &error));
+
+  int detector_calls = 0;
+  int motion_hits_calls = 0;
+  const FrontendCommandEngine engine;
+  const auto run = [&](bool threshold_accepted) {
+    return engine.execute(
+        command, FrontendCommandContext{}, capabilities, {}, {},
+        [threshold_accepted](float, std::string *) { return threshold_accepted; },
+        [&](uint8_t, uint8_t, std::string *) { return ++motion_hits_calls > 0; },
+        {},
+        [&](DetectionAlgorithm, std::string *) { return ++detector_calls > 0; });
+  };
+
+  const FrontendCommandResult rejected = run(false);
+  TEST_ASSERT_FALSE(rejected.accepted);
+  TEST_ASSERT_EQUAL_STRING("unavailable", rejected.code.c_str());
+  TEST_ASSERT_EQUAL(1, detector_calls);
+  TEST_ASSERT_EQUAL(0, motion_hits_calls);
+  TEST_ASSERT_TRUE(rejected.changes == FrontendCommandChange::SENSING);
+
+  const FrontendCommandResult accepted = run(true);
+  TEST_ASSERT_TRUE(accepted.accepted);
+  TEST_ASSERT_EQUAL(1, motion_hits_calls);
+  TEST_ASSERT_TRUE(accepted.changes == FrontendCommandChange::SENSING);
+}
+
+void test_update_sensing_rejection_without_applied_fields_reports_no_change(void) {
+  EspectreCapabilityProfile capabilities;
+  capabilities.set(EspectreDirectMethod::SET_DETECTOR);
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "rejected", "update_sensing", R"({"detector":"high_accuracy"})", &command, &error));
+  const FrontendCommandEngine engine;
+  const FrontendCommandResult result = engine.execute(
+      command, FrontendCommandContext{}, capabilities, {}, {}, {}, {}, {},
+      [](DetectionAlgorithm, std::string *) { return false; });
+  TEST_ASSERT_FALSE(result.accepted);
+  TEST_ASSERT_TRUE(result.changes == FrontendCommandChange::NONE);
+}
+
+void test_update_sensing_preflight_rejects_the_whole_request(void) {
+  EspectreCapabilityProfile capabilities;
+  capabilities.set(EspectreDirectMethod::SET_DETECTOR);
+  capabilities.set(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE);
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "preflight", "update_sensing", R"({"detector":"high_accuracy","traffic_generator_mode":"wifi_raw"})",
+      &command, &error));
+
+  int applied = 0;
+  RuntimeControlUpdate seen;
+  const FrontendCommandEngine engine;
+  const FrontendCommandResult result = engine.execute(
+      command, FrontendCommandContext{}, capabilities, {}, {}, {}, {},
+      [&](TrafficGeneratorMode, std::string *) { return ++applied > 0; },
+      [&](DetectionAlgorithm, std::string *) { return ++applied > 0; },
+      {}, {}, {}, {},
+      [&](const RuntimeControlUpdate &update, std::string *message) {
+        seen = update;
+        *message = "wifi_raw is not available here";
+        return false;
+      });
+  TEST_ASSERT_FALSE(result.accepted);
+  TEST_ASSERT_EQUAL_STRING("invalid_params", result.code.c_str());
+  TEST_ASSERT_EQUAL_STRING("wifi_raw is not available here", result.message.c_str());
+  TEST_ASSERT_EQUAL(0, applied);
+  TEST_ASSERT_TRUE(result.changes == FrontendCommandChange::NONE);
+  TEST_ASSERT_TRUE(seen.has_detection_algorithm);
+  TEST_ASSERT_TRUE(seen.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_TRUE(seen.has_traffic_generator_mode);
+  TEST_ASSERT_TRUE(seen.traffic_generator_mode == TrafficGeneratorMode::WIFI_RAW);
+  TEST_ASSERT_FALSE(seen.has_threshold);
+}
+
+void test_update_sensing_rejects_unadvertised_fields_as_unsupported(void) {
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "unsupported", "update_sensing", R"({"threshold":0.5})", &command, &error));
+  const FrontendCommandEngine engine;
+  const FrontendCommandResult result = engine.execute(
+      command, FrontendCommandContext{}, EspectreCapabilityProfile{}, {}, {},
+      [](float, std::string *) { return true; });
+  TEST_ASSERT_FALSE(result.accepted);
+  TEST_ASSERT_EQUAL_STRING("unsupported", result.code.c_str());
+  TEST_ASSERT_TRUE(result.changes == FrontendCommandChange::NONE);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_frontend_protocol_extensions_share_capabilities_routing_and_validation);
@@ -1253,6 +1355,10 @@ int process(void) {
   RUN_TEST(test_direct_http_preserves_embedded_nuls_for_canonical_validation);
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
   RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);
+  RUN_TEST(test_update_sensing_reports_fields_applied_before_a_rejection);
+  RUN_TEST(test_update_sensing_rejection_without_applied_fields_reports_no_change);
+  RUN_TEST(test_update_sensing_preflight_rejects_the_whole_request);
+  RUN_TEST(test_update_sensing_rejects_unadvertised_fields_as_unsupported);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
   RUN_TEST(test_protocol_json_writers_and_extractors_cover_edge_cases);
   RUN_TEST(test_protocol_json_url_encoding_validates_tokens);

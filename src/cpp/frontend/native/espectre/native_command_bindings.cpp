@@ -29,6 +29,14 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
     busy.message = "mutation is unavailable during raw CSI collection";
     return busy;
   }
+  if (command.command == "update_sensing" && command.has_sensing_enabled && owner_.ota_frontend_quiesced_) {
+    FrontendCommandResult rejected;
+    rejected.handled = true;
+    rejected.command = command;
+    rejected.code = "unavailable";
+    rejected.message = "sensing is unavailable during OTA";
+    return rejected;
+  }
   if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE)) {
     FrontendCommandResult rejected;
     rejected.handled = true;
@@ -202,12 +210,11 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
         }
         return true;
       },
-      [this](const EspectreCommand &raw_command, const FrontendCommandContext &context, std::string *code,
-             std::string *message, std::string *data_json) {
-        return this->owner_.direct_frontend_->handle_raw_stream_command(raw_command, context, code, message, data_json);
+      [this](const RuntimeControlUpdate &update, std::string *message) {
+        return this->owner_.runtime_.validate_control_update(update, message);
       });
 
-  if (result.accepted) {
+  if (result.changes != FrontendCommandChange::NONE) {
     if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::HEALTH)) != 0U) {
       owner_.publish_runtime_status_state_();
     }

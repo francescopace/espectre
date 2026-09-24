@@ -13,7 +13,6 @@
 #include <string>
 
 #include "runtime/direct_http_service.h"
-#include "runtime/frontend_command_engine.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -29,11 +28,6 @@ class RawCsiSessionController {
                  std::string chip,
                  StoppedCallback stopped_callback = {},
                  StartedCallback started_callback = {});
-  bool handle_command(const EspectreCommand &command,
-                      const FrontendCommandContext &context,
-                      std::string *code,
-                      std::string *message,
-                      std::string *data_json);
   bool begin(std::string *message = nullptr);
   void ensure_runtime_consistency();
   void shutdown(RawCsiStopReason reason = RawCsiStopReason::SHUTDOWN);

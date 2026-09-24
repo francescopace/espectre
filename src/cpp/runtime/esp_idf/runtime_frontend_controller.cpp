@@ -264,6 +264,34 @@ bool RuntimeFrontendController::set_detection_algorithm(DetectionAlgorithm algor
   return true;
 }
 
+bool RuntimeFrontendController::validate_control_update(const RuntimeControlUpdate &update,
+                                                        std::string *message) const {
+  const auto reject = [message](const char *reason) {
+    if (message != nullptr) *message = reason;
+    return false;
+  };
+  if (runtime_) {
+    if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+      return reject("mutation is unavailable during raw CSI collection");
+    }
+    if ((update.has_detection_algorithm && !capabilities_.supports_runtime_detector_selection) ||
+        (update.has_threshold && !capabilities_.supports_runtime_threshold_updates) ||
+        (update.has_motion_hits && !capabilities_.supports_runtime_motion_hits_updates) ||
+        (update.has_traffic_generator_mode && !capabilities_.supports_traffic_control)) {
+      return reject("sensing control is unsupported by the active runtime");
+    }
+  }
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  const RuntimeConfigError error =
+      validate_runtime_config(apply_runtime_control_update(effective_config, update));
+  // A staged configuration can already be invalid before setup; report only
+  // errors this update introduces, and let the setters check the rest.
+  if (error == RuntimeConfigError::NONE || error == validate_runtime_config(effective_config)) {
+    return true;
+  }
+  return reject(runtime_config_error_message(error));
+}
+
 bool RuntimeFrontendController::trigger_recalibration() {
   if (!capabilities_.supports_manual_recalibration || !runtime_) {
     return false;

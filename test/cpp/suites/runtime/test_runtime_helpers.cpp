@@ -687,6 +687,45 @@ void test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addre
     }
 }
 
+void test_runtime_control_update_applies_fields_as_the_setters_do(void) {
+    RuntimeConfig base;
+    base.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+    base.threshold = 0.42f;
+
+    RuntimeControlUpdate detector_only;
+    detector_only.has_detection_algorithm = true;
+    detector_only.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+    RuntimeConfig switched = apply_runtime_control_update(base, detector_only);
+    TEST_ASSERT_TRUE(switched.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+    TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY), switched.threshold);
+
+    RuntimeControlUpdate same_detector = detector_only;
+    same_detector.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+    TEST_ASSERT_EQUAL_FLOAT(0.42f, apply_runtime_control_update(base, same_detector).threshold);
+
+    RuntimeControlUpdate combined = detector_only;
+    combined.has_threshold = true;
+    combined.threshold = 0.3f;
+    combined.has_motion_hits = true;
+    combined.motion_on_hits = 4U;
+    combined.motion_off_hits = 2U;
+    combined.has_traffic_generator_mode = true;
+    combined.traffic_generator_mode = TrafficGeneratorMode::DNS;
+    const RuntimeConfig updated = apply_runtime_control_update(base, combined);
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, updated.threshold);
+    TEST_ASSERT_EQUAL_UINT8(4U, updated.motion_on_hits);
+    TEST_ASSERT_EQUAL_UINT8(2U, updated.motion_off_hits);
+    TEST_ASSERT_TRUE(updated.traffic_generator_mode == TrafficGeneratorMode::DNS);
+    TEST_ASSERT_TRUE(validate_runtime_config(updated) == RuntimeConfigError::NONE);
+
+    base.csi_capture_policy = CsiCapturePolicy::HT_VHT;
+    RuntimeControlUpdate raw_traffic;
+    raw_traffic.has_traffic_generator_mode = true;
+    raw_traffic.traffic_generator_mode = TrafficGeneratorMode::WIFI_RAW;
+    TEST_ASSERT_TRUE(validate_runtime_config(apply_runtime_control_update(base, raw_traffic)) ==
+                     RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC);
+}
+
 void test_runtime_config_validator_covers_the_public_schema(void) {
     RuntimeConfig config;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
@@ -1094,6 +1133,7 @@ int process(void) {
     RUN_TEST(test_csi_capture_service_zero_fills_lltf_after_layout_detection);
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
+    RUN_TEST(test_runtime_control_update_applies_fields_as_the_setters_do);
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
     RUN_TEST(test_capture_profile_selection_and_source_constraints);
     RUN_TEST(test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses);

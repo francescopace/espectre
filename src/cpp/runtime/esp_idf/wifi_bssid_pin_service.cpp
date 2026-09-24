@@ -112,7 +112,7 @@ bool WifiBssidPinService::request_update(const std::string &bssid,
   }
   const WifiBssidPinStationState station = config_.station_state_getter();
   if (!station.configured || station.ssid.empty()) {
-    if (message != nullptr) *message = "provision Wi-Fi through Matter before selecting a BSSID";
+    if (message != nullptr) *message = "provision Wi-Fi before selecting a BSSID";
     return false;
   }
 

@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `RuntimeFrontendController::validate_control_update()` checks a combined sensing change before any of it applies, and `FrontendCommandEngine::execute()` takes it as a new, optional last argument. Custom frontends should pass it to keep `update_sensing` all-or-nothing.
 - **Breaking:** Official ESPHome images use MAC-suffixed hostnames such as `espectre-a1b2c3.local`, so one image can serve several devices. After the first update, use the new hostname for OTA and add the suffix to dashboard entity IDs (#179).
 - **Breaking:** The SDK exports only its root include directory. Use layer-prefixed includes such as `#include "runtime/runtime_config.h"`; the facades are unchanged.
 - **Breaking:** `IEspectreRuntime` is now internal. `RuntimeConfig` and `WifiBandPolicy` moved to `runtime/runtime_config.h`, which replaces `runtime/runtime_interface.h`. Drive the runtime through `RuntimeFrontendController`.
@@ -39,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - ESPHome devices no longer run ESPHome's periodic roaming scans, which took the radio off-channel for up to about 12 seconds every 5 minutes. Losing the access point still triggers a normal reconnect.
 - Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
 - One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
+- `update_sensing` with a threshold on a device that cannot change it now returns `unsupported`, like the other sensing fields, instead of `invalid_params`.
 - **Breaking:** `RuntimeConfig::wifi_band_policy` and the Kconfig band option default to `AUTO` on every target. `AUTO` uses the bands the radio has, so single-band chips now accept it and stay on 2.4 GHz. A `RuntimeConfig{}` built by hand on ESP32-C5 now selects the band automatically; set `BAND_2G` to keep the old behavior.
 
 ### Fixed
@@ -61,6 +63,7 @@ All notable changes to this project will be documented in this file.
 - Fixed `RuntimeFrontendController::shutdown()` leaving availability reported as ready.
 - Fixed standalone Wi-Fi leaking resources after shutdown, truncating full-length credentials, and giving up on reconnection; it now retries every 30 seconds.
 - Fixed Preview snapshots replacing the Release firmware on the home badge.
+- Fixed `update_sensing` applying some fields before rejecting another, for example switching the detector and then refusing `wifi_raw` under the `HT_VHT` capture policy. Every field is now checked first, as the API specifies. If the device fails while applying, it republishes `sensing` so clients see the values it actually uses.
 
 ### Removed
 
@@ -72,6 +75,8 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed `RuntimeProfile`, `RuntimeConfig::runtime_profile`, `RuntimeConfigError::RUNTIME_PROFILE`, `runtime_profile_name()`, and `runtime_csi_traffic_mode_valid_for_profile()`. The runtime has one profile; set `traffic_generator_mode` instead.
 - **Breaking:** Removed `RuntimeSubcarrierSource`, `subcarrier_source_name()`, and the `subcarrier_source` and `fixed_subcarriers` snapshot fields. Read the fixed subcarrier set once from `RuntimeFrontendController::subcarriers()`.
 - **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `traffic_generator_mode` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
+- **Breaking:** Removed the unused raw stream command path: `FrontendRawStreamCallback`, the last `FrontendCommandEngine::execute()` argument, and `RawCsiSessionController::handle_command()`. Raw CSI collection opens with `GET /csi`.
+- **Breaking:** Removed `handle_device_config_command()`, `DeviceConfigCommandResult`, `DeviceConfigClearHandler`, and `DeviceConfigUpdateHandler`, which nothing used. Parse legacy commands with `parse_espectre_config_command()` and `parse_espectre_mqtt_config_command()`.
 
 ### SDK source migration
 
@@ -103,6 +108,8 @@ Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only 
 | `diagnostics.csi_accepted_total`, `diagnostics.wifi_rssi_dbm` | `diagnostics.csi.accepted_total`, `diagnostics.link.rssi_dbm`; see the grouping entry above |
 | `on_periodic_update(snapshot, packets_received)` | `on_periodic_update(snapshot, csi_accepted)`; same signature |
 | `RuntimeProfile`, `RuntimeSubcarrierSource`, `visit_runtime_diagnostics()` | Removed |
+| `FrontendCommandEngine::execute(..., raw_stream_callback)` | Drop the last argument; raw CSI collection opens with `GET /csi` |
+| `handle_device_config_command()` | `parse_espectre_config_command()`, `parse_espectre_mqtt_config_command()` |
 
 Two behavior changes need a decision:
 

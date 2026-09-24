@@ -811,8 +811,11 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
       [this](bool enabled, std::string *) {
         this->runtime_.set_services_armed(enabled);
         return true;
+      },
+      [this](const RuntimeControlUpdate &update, std::string *message) {
+        return this->runtime_.validate_control_update(update, message);
       });
-  if (result.accepted && result.changes != FrontendCommandChange::NONE) {
+  if (result.changes != FrontendCommandChange::NONE) {
     (void) this->direct_bridge_.publish_changes(result.changes);
     this->sync_direct_config_();
     this->threshold_republished_ = true;

@@ -1,8 +1,7 @@
 /*
  * ESPectre - Frontend Command Engine
  *
- * Parses frontend control commands that update stored device
- * configuration.
+ * Dispatches parsed protocol commands to frontend callbacks.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -26,84 +25,6 @@ bool frontend_command_allowed_during_raw_collection(const std::string &command,
          command == "update_mqtt" || command == "clear_mqtt";
 }
 
-DeviceConfigCommandResult handle_device_config_command(const std::string &command,
-                                                       const EspectreDeviceConfig &current_config,
-                                                       DeviceConfigClearHandler clear_handler,
-                                                       DeviceConfigUpdateHandler update_handler) {
-  DeviceConfigCommandResult result;
-
-  if (command == "CLEAR_DEVICE_CONFIG") {
-    result.handled = true;
-    EspectreDeviceConfig cleared_config{};
-    if (clear_handler) {
-      result.accepted = clear_handler(&cleared_config, &result.message);
-    }
-    if (result.accepted) {
-      result.config_changed = true;
-      result.config = std::move(cleared_config);
-    }
-    return result;
-  }
-
-  if (command == "CLEAR_MQTT_CONFIG") {
-    result.handled = true;
-    EspectreDeviceConfig updated_config = current_config;
-    clear_espectre_mqtt_config(&updated_config);
-    if (update_handler) {
-      result.accepted = update_handler(&updated_config, &result.message);
-    }
-    if (result.accepted) {
-      result.config_changed = true;
-      result.config = std::move(updated_config);
-      if (result.message.empty()) {
-        result.message = "mqtt settings cleared";
-      }
-    }
-    return result;
-  }
-
-  if (command.rfind("SET_MQTT_CONFIG:", 0) == 0) {
-    result.handled = true;
-    EspectreDeviceConfig updated_config = current_config;
-    std::string error;
-    if (!parse_espectre_mqtt_config_command(command, &updated_config, &error)) {
-      result.message = error.empty() ? "invalid mqtt config" : error;
-      return result;
-    }
-    if (update_handler) {
-      result.accepted = update_handler(&updated_config, &result.message);
-    }
-    if (result.accepted) {
-      result.config_changed = true;
-      result.config = std::move(updated_config);
-      if (result.message.empty()) {
-        result.message = "mqtt settings saved";
-      }
-    }
-    return result;
-  }
-
-  if (command.rfind("SET_DEVICE_CONFIG:", 0) == 0) {
-    result.handled = true;
-    EspectreDeviceConfig updated_config = current_config;
-    std::string error;
-    if (!parse_espectre_config_command(command, &updated_config, &error)) {
-      result.message = error.empty() ? "unsupported device config field" : error;
-      return result;
-    }
-    if (update_handler) {
-      result.accepted = update_handler(&updated_config, &result.message);
-    }
-    if (result.accepted) {
-      result.config_changed = true;
-      result.config = std::move(updated_config);
-    }
-    return result;
-  }
-
-  return result;
-}
-
 FrontendCommandResult FrontendCommandEngine::execute(
     const EspectreCommand &command,
     const FrontendCommandContext &context,
@@ -118,7 +39,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendWifiBssidCallback wifi_bssid_callback,
     FrontendMqttConfigCallback mqtt_config_callback,
     FrontendSensingControlCallback sensing_control_callback,
-    FrontendRawStreamCallback raw_stream_callback) const {
+    FrontendSensingPreflightCallback sensing_preflight_callback) const {
   FrontendCommandResult result;
   result.handled = true;
   result.command = command;
@@ -242,7 +163,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   if (command.command == "update_sensing") {
     if (command.has_threshold && (!supports(EspectreDirectMethod::SET_THRESHOLD) ||
                                   !threshold_callback)) {
-      return reject("invalid_params", "invalid threshold (accepted: 0.0-1.0)");
+      return reject("unsupported", "threshold update is unsupported");
     }
     if (command.has_motion_hits && (!supports(EspectreDirectMethod::SET_MOTION_HITS) || !motion_hits_callback)) {
       return reject("unsupported", "motion hits update is unsupported");
@@ -258,26 +179,57 @@ FrontendCommandResult FrontendCommandEngine::execute(
         (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback)) {
       return reject("unsupported", "sensing state update is unsupported");
     }
-    result.accepted = true;
-    if (command.has_detector) {
-      result.accepted = detector_callback(parse_detection_algorithm(command.detector.c_str()), &result.message);
+    if (sensing_preflight_callback) {
+      RuntimeControlUpdate update;
+      update.has_detection_algorithm = command.has_detector;
+      update.detection_algorithm = parse_detection_algorithm(command.detector.c_str());
+      update.has_threshold = command.has_threshold;
+      update.threshold = command.threshold;
+      update.has_motion_hits = command.has_motion_hits;
+      update.motion_on_hits = command.motion_on_hits;
+      update.motion_off_hits = command.motion_off_hits;
+      update.has_traffic_generator_mode = command.has_traffic_generator_mode;
+      update.traffic_generator_mode = parse_traffic_generator_mode(command.traffic_generator_mode.c_str());
+      std::string preflight_message;
+      if (!sensing_preflight_callback(update, &preflight_message)) {
+        return reject("invalid_params",
+                      preflight_message.empty() ? "sensing update is invalid" : preflight_message.c_str());
+      }
     }
-    if (result.accepted && command.has_threshold) {
-      result.accepted = threshold_callback(command.threshold, &result.message);
-    }
-    if (result.accepted && command.has_motion_hits) {
-      result.accepted = motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
-    }
-    if (result.accepted && command.has_traffic_generator_mode) {
-      result.accepted = traffic_generator_mode_callback(
+    // Fields apply one at a time and cannot be rolled back. A backend refusal
+    // after an applied field still reports SENSING so transports republish
+    // the state the device actually reached.
+    bool applied_any = false;
+    const char *rejected_field = nullptr;
+    const auto apply = [&](bool present, const char *field, const auto &callback) {
+      if (!present || rejected_field != nullptr) return;
+      if (callback()) {
+        applied_any = true;
+      } else {
+        rejected_field = field;
+      }
+    };
+    apply(command.has_detector, "detector", [&] {
+      return detector_callback(parse_detection_algorithm(command.detector.c_str()), &result.message);
+    });
+    apply(command.has_threshold, "threshold",
+          [&] { return threshold_callback(command.threshold, &result.message); });
+    apply(command.has_motion_hits, "motion hits", [&] {
+      return motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
+    });
+    apply(command.has_traffic_generator_mode, "traffic generator mode", [&] {
+      return traffic_generator_mode_callback(
           parse_traffic_generator_mode(command.traffic_generator_mode.c_str()), &result.message);
-    }
-    if (result.accepted && command.has_sensing_enabled) {
-      result.accepted = sensing_control_callback(command.sensing_enabled, &result.message);
-    }
+    });
+    apply(command.has_sensing_enabled, "sensing state",
+          [&] { return sensing_control_callback(command.sensing_enabled, &result.message); });
+    result.accepted = rejected_field == nullptr;
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::SENSING;
-    if (result.message.empty()) result.message = result.accepted ? "sensing updated" : "sensing update rejected";
+    if (applied_any) result.changes = FrontendCommandChange::SENSING;
+    if (result.message.empty()) {
+      result.message = result.accepted ? "sensing updated"
+                                       : std::string(rejected_field) + " update rejected";
+    }
     return result;
   }
 

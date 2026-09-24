@@ -227,7 +227,7 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `motion_on_hits`, `motion_off_hits` | integers from `1` through `20`; both must be present together |
 | `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)), or `external` |
 
-All fields are checked before anything changes: either the whole request applies or none of it does. Success returns HTTP `200` and publishes `sensing`.
+All fields are checked before anything changes: either the whole request applies or none of it does. If the device itself fails while applying, for example when it cannot save a setting, the fields applied so far stay applied and the device publishes `sensing` with the resulting state. Success returns HTTP `200` and publishes `sensing`.
 
 `POST /sensing/calibrations` takes no parameters. It returns `202` when calibration starts, or `409` with code `busy` if one is already running.
 

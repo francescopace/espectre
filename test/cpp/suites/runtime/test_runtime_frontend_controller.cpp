@@ -222,6 +222,35 @@ void test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot(vo
   TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().threshold);
 }
 
+void test_runtime_frontend_controller_validates_a_combined_control_update(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig config;
+  config.csi_capture_policy = CsiCapturePolicy::HT_VHT;
+  controller.set_config(config);
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  RuntimeControlUpdate update;
+  update.has_threshold = true;
+  update.threshold = 0.4f;
+  update.has_motion_hits = true;
+  update.motion_on_hits = 3U;
+  update.motion_off_hits = 3U;
+  std::string message;
+  TEST_ASSERT_TRUE(controller.validate_control_update(update, &message));
+
+  update.has_traffic_generator_mode = true;
+  update.traffic_generator_mode = TrafficGeneratorMode::WIFI_RAW;
+  TEST_ASSERT_FALSE(controller.validate_control_update(update, &message));
+  TEST_ASSERT_EQUAL_STRING(
+      runtime_config_error_message(RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC), message.c_str());
+
+  RuntimeControlUpdate detector;
+  detector.has_detection_algorithm = true;
+  detector.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  TEST_ASSERT_FALSE(controller.validate_control_update(detector, &message));
+}
+
 void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
@@ -633,6 +662,7 @@ int process(void) {
   RUN_TEST(test_frontend_bootstrap_sets_up_wifi_and_propagates_start_failure);
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
+  RUN_TEST(test_runtime_frontend_controller_validates_a_combined_control_update);
   RUN_TEST(test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks);

@@ -98,25 +98,6 @@ bool RawCsiSessionController::begin(std::string *message) {
   return true;
 }
 
-bool RawCsiSessionController::handle_command(const EspectreCommand &command,
-                                             const FrontendCommandContext &context,
-                                             std::string *code,
-                                             std::string *message,
-                                             std::string *data_json) {
-  if (service_ == nullptr || runtime_ == nullptr || device_id_ == 0U ||
-      !runtime_->capabilities().supports_raw_csi) {
-    if (code != nullptr) *code = "unsupported";
-    if (message != nullptr) *message = "raw CSI collection is unavailable";
-    return false;
-  }
-  (void) command;
-  (void) context;
-  (void) data_json;
-  if (code != nullptr) *code = "unsupported";
-  if (message != nullptr) *message = "CSI collection is opened with GET /csi";
-  return false;
-}
-
 void RawCsiSessionController::ensure_runtime_consistency() {
   if (active_ && runtime_ != nullptr && service_ != nullptr &&
       runtime_->operation_state() != RuntimeOperationState::RAW_COLLECTION) {

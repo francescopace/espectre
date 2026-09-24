@@ -49,6 +49,35 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);
 /** Stable diagnostic label for a configuration error. Never returns `nullptr`. */
 const char *runtime_config_error_message(RuntimeConfigError error);
 
+/**
+ * A partial change to the live sensing controls.
+ *
+ * Each `has_*` flag marks a field to change; the others keep their value.
+ * Validate the whole change before applying any field, so a request either
+ * applies completely or not at all.
+ */
+struct RuntimeControlUpdate {
+  bool has_detection_algorithm{false};
+  DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
+  bool has_threshold{false};
+  float threshold{0.0f};
+  bool has_motion_hits{false};
+  uint8_t motion_on_hits{0U};
+  uint8_t motion_off_hits{0U};
+  bool has_traffic_generator_mode{false};
+  TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
+};
+
+/**
+ * Return `config` with `update` applied, as the controller setters apply it.
+ *
+ * Fields apply in the order detector, threshold, motion hits, then traffic
+ * generator mode. Switching to a different detector also adopts that
+ * detector's default threshold unless the update sets one. Pass the result to
+ * validate_runtime_config() to check the change before applying it.
+ */
+RuntimeConfig apply_runtime_control_update(RuntimeConfig config, const RuntimeControlUpdate &update);
+
 /** Resolve the internal traffic destination in network byte order; empty uses the gateway, and invalid IPv4 returns zero. */
 uint32_t runtime_traffic_target_addr(const RuntimeConfig &config, uint32_t gateway_addr);
 
