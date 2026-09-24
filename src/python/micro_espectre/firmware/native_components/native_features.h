@@ -48,6 +48,8 @@ float espectre_native_detector_get_metric(void *handle);
 uint32_t espectre_native_detector_get_total_packets(void *handle);
 bool espectre_native_detector_calibration_begin(void *handle);
 bool espectre_native_detector_calibration_complete(void *handle);
+bool espectre_native_detector_calibration_abandon(void *handle);
+bool espectre_native_detector_calibration_conclusive(void *handle);
 bool espectre_native_detector_apply_adaptive_threshold(void *handle, float threshold);
 
 void *espectre_native_sampler_create(uint32_t target_pps, uint32_t window_size_ms);

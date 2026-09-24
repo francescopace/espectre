@@ -218,6 +218,20 @@ extern "C" bool espectre_native_detector_calibration_complete(void *handle) {
   return true;
 }
 
+extern "C" bool espectre_native_detector_calibration_abandon(void *handle) {
+  auto *resolved = as_detector(handle);
+  if (resolved == nullptr) {
+    return false;
+  }
+  resolved->detector->on_startup_calibration_abandoned();
+  return true;
+}
+
+extern "C" bool espectre_native_detector_calibration_conclusive(void *handle) {
+  auto *resolved = as_detector(handle);
+  return resolved == nullptr || resolved->detector->startup_calibration_conclusive();
+}
+
 extern "C" bool espectre_native_detector_apply_adaptive_threshold(
     void *handle,
     float threshold) {

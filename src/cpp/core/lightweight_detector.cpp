@@ -26,6 +26,7 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
       current_turb_autocorr_(0.0f),
       current_turb_iqr_over_mean_aggr_(0.0f),
       startup_logit_count_(0U),
+      calibrating_(false),
       adapted_threshold_(LIGHTWEIGHT_DEFAULT_THRESHOLD),
       adapted_threshold_ready_(false),
       manual_threshold_override_(false),
@@ -166,7 +167,8 @@ void LightweightDetector::update_state() {
   current_logit_ = calculate_logit_(current_turb_autocorr_,
                                     current_turb_iqr_over_mean_aggr_);
   current_metric_ = sigmoid_(current_logit_);
-  if (!adapted_threshold_ready_ && startup_logit_count_ < LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT) {
+  if ((calibrating_ || !adapted_threshold_ready_) &&
+      startup_logit_count_ < LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT) {
     startup_logits_[startup_logit_count_] = current_logit_;
     startup_logit_count_++;
   }
@@ -194,6 +196,68 @@ float LightweightDetector::startup_quantile_() const {
              : quantile_(startup_logits_, startup_logit_count_, LIGHTWEIGHT_STARTUP_QUANTILE);
 }
 
+/**
+ * Copy `values` without the contiguous run of `run` samples whose removal
+ * lowers the q95 most, keeping the first such run on ties. Mirrors
+ * LightweightDetector._trim_burst in lightweight_detector.py.
+ */
+uint8_t LightweightDetector::trim_burst_(const float* values, uint8_t count, uint8_t run,
+                                         float* out) {
+  if (count <= run + 2U) {
+    std::copy(values, values + count, out);
+    return count;
+  }
+  float candidate[LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT];
+  const uint8_t kept = static_cast<uint8_t>(count - run);
+  float best = 0.0f;
+  uint8_t best_start = 0U;
+  for (uint8_t start = 0U; start + run <= count; ++start) {
+    std::copy(values, values + start, candidate);
+    std::copy(values + start + run, values + count, candidate + start);
+    const float q95 = quantile_(candidate, kept, LIGHTWEIGHT_STARTUP_QUANTILE);
+    if (start == 0U || q95 < best) {
+      best = q95;
+      best_start = start;
+    }
+  }
+  std::copy(values, values + best_start, out);
+  std::copy(values + best_start + run, values + count, out + best_start);
+  return kept;
+}
+
+bool LightweightDetector::has_burst_(const float* values, uint8_t count, uint8_t run) {
+  if (count <= run + 2U) {
+    return false;
+  }
+  float rest[LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT];
+  const uint8_t kept = trim_burst_(values, count, run, rest);
+  return quantile_(values, count, LIGHTWEIGHT_STARTUP_QUANTILE) -
+             quantile_(rest, kept, LIGHTWEIGHT_STARTUP_QUANTILE) >
+         LIGHTWEIGHT_STARTUP_BURST_LOGITS;
+}
+
+// The startup q95, read without the window's burst when it has one.
+float LightweightDetector::startup_level_() const {
+  if (!has_burst_(startup_logits_, startup_logit_count_, LIGHTWEIGHT_STARTUP_BURST_SAMPLES)) {
+    return startup_quantile_();
+  }
+  float rest[LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT];
+  const uint8_t kept = trim_burst_(startup_logits_, startup_logit_count_,
+                                   LIGHTWEIGHT_STARTUP_BURST_SAMPLES, rest);
+  return quantile_(rest, kept, LIGHTWEIGHT_STARTUP_QUANTILE);
+}
+
+bool LightweightDetector::startup_calibration_conclusive() const {
+  if (!has_burst_(startup_logits_, startup_logit_count_, LIGHTWEIGHT_STARTUP_BURST_SAMPLES)) {
+    return true;
+  }
+  float rest[LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT];
+  const uint8_t kept = trim_burst_(startup_logits_, startup_logit_count_,
+                                   LIGHTWEIGHT_STARTUP_BURST_SAMPLES, rest);
+  return kept >= LIGHTWEIGHT_STARTUP_BASE_SAMPLES &&
+         !has_burst_(rest, kept, LIGHTWEIGHT_STARTUP_RECHECK_SAMPLES);
+}
+
 void LightweightDetector::reset_settled_level_() {
   settle_block_max_ = -1e9f;
   settle_block_evaluations_ = 0U;
@@ -215,7 +279,7 @@ void LightweightDetector::reset_settled_level_() {
  * LightweightDetector._observe_settled_level in lightweight_detector.py.
  */
 void LightweightDetector::observe_settled_level_() {
-  if (!adapted_threshold_ready_ || manual_threshold_override_) {
+  if (calibrating_ || !adapted_threshold_ready_ || manual_threshold_override_) {
     return;
   }
   if (current_logit_ > settle_block_max_) {
@@ -241,28 +305,61 @@ void LightweightDetector::observe_settled_level_() {
   std::copy(settle_blocks_, settle_blocks_ + LIGHTWEIGHT_SETTLE_BLOCKS, ordered);
   std::sort(ordered, ordered + LIGHTWEIGHT_SETTLE_BLOCKS);
   const float settled = ordered[LIGHTWEIGHT_SETTLE_BLOCKS / 2];
-  const float candidate = sigmoid_(settled + LIGHTWEIGHT_SETTLE_MARGIN_LOGITS);
+  const float candidate = sigmoid_(std::max(settled + LIGHTWEIGHT_SETTLE_MARGIN_LOGITS,
+                                            LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT));
   if (candidate < threshold_) {
     threshold_ = clamp_threshold(candidate, LIGHTWEIGHT_MIN_THRESHOLD, LIGHTWEIGHT_MAX_THRESHOLD);
   }
 }
 
+// A calibration keeps the adapted and manual state it replaces until it
+// completes, so an abandoned one resumes the adaptation already in force.
 void LightweightDetector::on_startup_calibration_begin() {
   reset_settled_level_();
-  manual_threshold_override_ = false;
   startup_logit_count_ = 0U;
-  adapted_threshold_ready_ = false;
+  calibrating_ = true;
 }
 
+// The startup q95 skips a burst the window can explain, evidence above the
+// calibration motion logit counts at that logit, too few
+// samples keep the default, and the result never drops below the training
+// idle q95. Mirrors LightweightDetector.set_adaptive_threshold.
 void LightweightDetector::on_startup_calibration_complete() {
   const float base_logit = std::log(LIGHTWEIGHT_DEFAULT_THRESHOLD /
                                     (1.0f - LIGHTWEIGHT_DEFAULT_THRESHOLD));
-  const float adapted_logit = base_logit + LIGHTWEIGHT_STARTUP_STRENGTH *
-      (startup_quantile_() - LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT);
-  adapted_threshold_ = sigmoid_(adapted_logit);
+  float adapted_logit = base_logit;
+  if (startup_logit_count_ >= LIGHTWEIGHT_STARTUP_MIN_SAMPLES) {
+    const float q95 = std::min(startup_level_(), LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT);
+    adapted_logit += LIGHTWEIGHT_STARTUP_STRENGTH * (q95 - LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT);
+  }
+  adapted_threshold_ = sigmoid_(std::max(adapted_logit, LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT));
   adapted_threshold_ready_ = true;
+  calibrating_ = false;
   ESPECTRE_LOGD(TAG, "Startup threshold prepared: %.6f (%u samples)",
            adapted_threshold_, static_cast<unsigned>(startup_logit_count_));
+  if (adapted_threshold_ > LIGHTWEIGHT_NOISY_LINK_THRESHOLD) {
+    ESPECTRE_LOGW(TAG,
+                  "Noisy link: startup threshold %.3f. Lightweight precision is limited "
+                  "here; High Accuracy is recommended",
+                  adapted_threshold_);
+  }
+}
+
+void LightweightDetector::on_startup_calibration_abandoned() {
+  reset_settled_level_();
+  startup_logit_count_ = 0U;
+  calibrating_ = false;
+  // With no calibration behind it, the threshold in force becomes the adapted
+  // baseline, so the settled-level rule can still lower it once the room is
+  // quiet.
+  if (!adapted_threshold_ready_) {
+    adapted_threshold_ = threshold_;
+    adapted_threshold_ready_ = true;
+  }
+}
+
+float LightweightDetector::calibration_motion_ceiling() const {
+  return sigmoid_(LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT);
 }
 
 bool LightweightDetector::set_adaptive_threshold(float) {

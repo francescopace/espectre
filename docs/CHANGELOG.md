@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
 - Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
 - Added the SDK API reference to the website, with its version and commit.
+- Added three `BaseDetector` calibration hooks: `on_startup_calibration_abandoned()` when a calibration ends without a result, `startup_calibration_conclusive()` to extend a calibration whose evidence is not yet readable, and `calibration_motion_ceiling()` for the metric that counts as motion during calibration. Their defaults keep the previous behavior.
 - Added `RuntimeConfig::persist_runtime_overrides`. Set it to false when your firmware owns configuration: the runtime then neither restores nor saves live control changes. The runtime now logs each saved value that overrides the config.
 
 ### Changed
@@ -46,6 +47,8 @@ All notable changes to this project will be documented in this file.
 - Fixed the WiFi Channel sensor showing decimals (#181).
 - Fixed sensing and network services not resuming after roaming with a retained IPv4 address.
 - Fixed startup waiting on a Wi-Fi scan; a single scan now runs only when CSI does not start, after one second of traffic without CSI callbacks instead of five.
+- Fixed movement during a Lightweight calibration, at startup or on recalibration, setting the threshold close to 1.0 and hiding motion for minutes. Calibration now leaves out a short movement, extending from 10 up to 30 seconds, and restarts on strong movement; if the room stays busy for about 30 seconds, it keeps the threshold in force. A threshold above 0.89 logs a noisy-link warning that recommends High Accuracy.
+- Fixed the Lightweight threshold adapting down to about 0.01 in very quiet rooms, where rest noise crossed it. It now stays between 0.095 and 0.987.
 - Fixed sensing availability dropping for a fraction of a second when window coverage briefly fell under the 70% valid-slot floor. Readiness now holds through dips shorter than one detector window, and the runtime logs every readiness change with its reason.
 - Fixed evaluations made while the detector is not ready counting as IDLE in motion-hit filtering, which could switch MOTION off during a coverage dip. They now keep the current state and the last movement score on every frontend, as replay already did.
 - Fixed mDNS replies to several common query types on all four frontends, keeping compatibility with rc1 and rc2. See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/DISCOVERY.md#limits).

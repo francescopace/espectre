@@ -541,6 +541,36 @@ void test_startup_threshold_calibrator_weighted_observation_matches_repeated(voi
     TEST_ASSERT_EQUAL_STRING(repeated.statistic_name(), weighted.statistic_name());
 }
 
+void test_calibration_motion_guard_restarts_then_rejects_within_budget(void) {
+    using Verdict = CalibrationMotionGuard::Verdict;
+    CalibrationMotionGuard guard;
+    TEST_ASSERT_TRUE(guard.observe(1.0f, 25U) == Verdict::CONTINUE);
+
+    guard.begin(0.3f, 100U, 300U);
+    // Only an evaluation above the reference counts as motion.
+    TEST_ASSERT_TRUE(guard.observe(0.3f, 25U) == Verdict::CONTINUE);
+    for (int i = 0; i < 3; ++i) {
+        TEST_ASSERT_TRUE(guard.observe(0.1f, 25U) == Verdict::CONTINUE);
+    }
+    // 125 of 300 packets used: a full window still fits, so restart.
+    TEST_ASSERT_TRUE(guard.observe(0.9f, 25U) == Verdict::RESTART);
+    TEST_ASSERT_EQUAL(1, guard.restarts());
+    // Evaluations the refilling window cannot score still spend budget.
+    for (int i = 0; i < 3; ++i) {
+        guard.skip(25U);
+    }
+    // 225 of 300 used: the next window no longer fits, so reject.
+    TEST_ASSERT_TRUE(guard.observe(0.9f, 25U) == Verdict::REJECT);
+    TEST_ASSERT_TRUE(guard.rejected());
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, guard.reference_threshold());
+
+    guard.disable();
+    TEST_ASSERT_FALSE(guard.active());
+    TEST_ASSERT_FALSE(guard.rejected());
+    TEST_ASSERT_EQUAL(0, guard.restarts());
+    TEST_ASSERT_TRUE(guard.observe(1.0f, 25U) == Verdict::CONTINUE);
+}
+
 void test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget(void) {
     StartupThresholdCalibrator calibrator;
     calibrator.begin(200, true);
@@ -627,10 +657,37 @@ void test_motion_first_accepts_after_a_long_quiet_prefix(void) {
     TEST_ASSERT_EQUAL_STRING("motion gap midpoint", calibrator.statistic_name());
 }
 
+void test_startup_calibrator_extends_inconclusive_evidence_in_steps(void) {
+    StartupThresholdCalibrator calibrator;
+    calibrator.begin(100U, false);
+    TEST_ASSERT_FALSE(calibrator.extend_if_inconclusive(false));  // budget not spent
+    for (int i = 0; i < 100; ++i) {
+        calibrator.observe(true, 0.1f);
+    }
+    TEST_ASSERT_TRUE(calibrator.is_complete());
+    TEST_ASSERT_FALSE(calibrator.extend_if_inconclusive(true));
+    // Half a base budget per step, up to three base budgets.
+    uint16_t targets[4] = {};
+    for (int step = 0; step < 4; ++step) {
+        TEST_ASSERT_TRUE(calibrator.extend_if_inconclusive(false));
+        TEST_ASSERT_FALSE(calibrator.is_complete());
+        targets[step] = calibrator.target_packets();
+        while (!calibrator.is_complete()) {
+            calibrator.observe(true, 0.1f);
+        }
+    }
+    TEST_ASSERT_EQUAL(150, targets[0]);
+    TEST_ASSERT_EQUAL(300, targets[3]);
+    TEST_ASSERT_FALSE(calibrator.extend_if_inconclusive(false));
+    TEST_ASSERT_EQUAL(100, calibrator.base_target_packets());
+}
+
 void test_detector_startup_gate_traits(void) {
+    // Lightweight reads its q95 over the whole budget, so the gate's
+    // motion-first early exit stays off for every shipped detector.
     LightweightDetector classic;
     HighAccuracyDetector ml;
-    TEST_ASSERT_TRUE(classic.startup_gate_enabled());
+    TEST_ASSERT_FALSE(classic.startup_gate_enabled());
     TEST_ASSERT_FALSE(ml.startup_gate_enabled());
 }
 
@@ -792,10 +849,12 @@ int process(void) {
     RUN_TEST(test_startup_threshold_calibrator_gate_accepts_clean_startup);
     RUN_TEST(test_startup_threshold_calibrator_weighted_observation_matches_repeated);
     RUN_TEST(test_motion_first_calibrator_accepts_quiet_motion_quiet_before_budget);
+    RUN_TEST(test_calibration_motion_guard_restarts_then_rejects_within_budget);
     RUN_TEST(test_motion_first_short_spike_falls_back_to_quiet_first);
     RUN_TEST(test_motion_without_return_uses_fallback_inside_budget);
     RUN_TEST(test_motion_without_return_is_stable_at_budget_boundary);
     RUN_TEST(test_motion_first_accepts_after_a_long_quiet_prefix);
+    RUN_TEST(test_startup_calibrator_extends_inconclusive_evidence_in_steps);
     RUN_TEST(test_detector_startup_gate_traits);
     RUN_TEST(test_ml_feature_helpers_cover_guard_paths);
     RUN_TEST(test_required_amplitudes_preserve_selected_and_aggregated_bands);

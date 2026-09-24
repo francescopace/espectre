@@ -67,7 +67,7 @@ Open [Monitor](https://espectre.dev/tools/monitor/) at the chosen spot and check
 
 ## Check the first detection
 
-The default Lightweight profile calibrates at startup. If you moved the device after the first boot, restart it or press recalibrate in its final position. Keep the room quiet until Monitor shows that calibration is complete and the detector is ready.
+The default Lightweight profile calibrates at startup. If you moved the device after the first boot, restart it in its final position. Keep the room quiet until Monitor shows that calibration is complete and the detector is ready.
 
 High Accuracy skips calibration but still needs a few seconds of valid CSI before it is ready. See [detection profile](TROUBLESHOOTING.md#detection-profile) to choose between the two.
 

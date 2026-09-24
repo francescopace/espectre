@@ -284,7 +284,9 @@ inline bool calibrate_lightweight_detector(
           cadence.packet_weight());
     }
     cadence.after_evaluation();
-    if (calibrator.is_complete()) {
+    // Production extends an inconclusive calibration in steps.
+    if (calibrator.is_complete() &&
+        !calibrator.extend_if_inconclusive(detector.startup_calibration_conclusive())) {
       break;
     }
   }

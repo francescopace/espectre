@@ -10,6 +10,7 @@
 #include "test_harness.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -648,6 +649,123 @@ void test_runtime_calibration_consumes_evaluations_resets_on_gaps_and_finishes(v
   TEST_ASSERT_FALSE(runtime.handle_threshold_calibration_packet_(csi, sizeof(csi), -50, true, 1U, false));
   runtime.loop();
   TEST_ASSERT_EQUAL(1, listener.calibration_finishes);
+  runtime.shutdown();
+}
+
+// One calibration evaluation of `kCalibrationStep` packets: flat CSI is a quiet
+// room, and a slowly swinging spread across subcarriers is someone moving.
+constexpr uint32_t kCalibrationStep = 25U;
+
+void feed_calibration_evaluation(EspIdfRuntime &runtime, bool motion, uint32_t &packet_index) {
+  int8_t csi[HT20_CSI_LEN];
+  for (uint32_t step = 0U; step < kCalibrationStep; ++step, ++packet_index) {
+    const float swing = motion ? 10.0f * (1.0f + std::sin(0.15f * static_cast<float>(packet_index))) : 0.0f;
+    for (size_t index = 0U; index < sizeof(csi); ++index) {
+      const float spread = ((index / 2U) % 2U == 0U) ? swing : -swing;
+      csi[index] = static_cast<int8_t>(index % 2U == 0U ? 40.0f + spread : 0.0f);
+    }
+    (void) runtime.handle_threshold_calibration_packet_(
+        csi, sizeof(csi), -50, step + 1U == kCalibrationStep, kCalibrationStep, false);
+  }
+}
+
+float run_quiet_startup_calibration(EspIdfRuntime &runtime, uint32_t &packet_index) {
+  for (uint32_t guard = 0U; guard < 400U && runtime.threshold_calibration_active_.load(); ++guard) {
+    feed_calibration_evaluation(runtime, false, packet_index);
+  }
+  runtime.loop();
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  return runtime.detector_->get_threshold();
+}
+
+void test_runtime_recalibration_during_motion_keeps_the_live_threshold(void) {
+  RuntimeConfig config;
+  config.runtime_detector_selection_enabled = true;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  FakeCsiTrafficGenerator traffic_generator;
+  FakeCsiTrafficIngress traffic_ingress;
+  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
+  ip_info.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip_info);
+  // Startup calibration has no trusted threshold; the detector ceiling guards it.
+  TEST_ASSERT_TRUE(runtime.calibration_motion_guard_.active());
+  TEST_ASSERT_EQUAL_FLOAT(runtime.detector_->calibration_motion_ceiling(),
+                          runtime.calibration_motion_guard_.reference_threshold());
+  uint32_t packet_index = 0U;
+  const float live_threshold = run_quiet_startup_calibration(runtime, packet_index);
+  TEST_ASSERT_TRUE(listener.last_calibration_success);
+  TEST_ASSERT_TRUE(live_threshold < 0.5f);
+
+  // Someone keeps moving after pressing Recalibrate: every window restarts
+  // until no full window fits in the budget, then the live threshold stays.
+  TEST_ASSERT_TRUE(runtime.trigger_recalibration());
+  const uint32_t target = runtime.get_snapshot().calibration_target_packets;
+  uint32_t evaluations = 0U;
+  for (; evaluations < 1000U && runtime.threshold_calibration_active_.load(); ++evaluations) {
+    feed_calibration_evaluation(runtime, true, packet_index);
+  }
+  runtime.loop();
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  TEST_ASSERT_EQUAL_FLOAT(live_threshold, runtime.detector_->get_threshold());
+  TEST_ASSERT_FALSE(listener.last_calibration_success);
+  TEST_ASSERT_TRUE(evaluations * kCalibrationStep <= CALIBRATION_MOTION_BUDGET_WINDOWS * target);
+  TEST_ASSERT_EQUAL_FLOAT(live_threshold, runtime.get_snapshot().threshold);
+
+  // Motion at the start restarts the window; the quiet remainder calibrates.
+  TEST_ASSERT_TRUE(runtime.trigger_recalibration());
+  for (uint32_t index = 0U; index < 12U; ++index) {
+    feed_calibration_evaluation(runtime, true, packet_index);
+  }
+  TEST_ASSERT_TRUE(runtime.calibration_motion_guard_.restarts() > 0U);
+  const float recalibrated = run_quiet_startup_calibration(runtime, packet_index);
+  TEST_ASSERT_TRUE(listener.last_calibration_success);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, live_threshold, recalibrated);
+  TEST_ASSERT_FALSE(runtime.calibration_motion_guard_.active());
+
+  // A detector switch drops the live reference; the ceiling still guards.
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_TRUE(runtime.set_detection_algorithm(DetectionAlgorithm::LIGHTWEIGHT));
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+  TEST_ASSERT_EQUAL_FLOAT(runtime.detector_->calibration_motion_ceiling(),
+                          runtime.calibration_motion_guard_.reference_threshold());
+  runtime.shutdown();
+}
+
+void test_runtime_startup_calibration_during_motion_keeps_the_default(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  FakeCsiTrafficGenerator traffic_generator;
+  FakeCsiTrafficIngress traffic_ingress;
+  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
+  ip_info.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip_info);
+  const float default_threshold = runtime.detector_->get_threshold();
+  const uint32_t target = runtime.get_snapshot().calibration_target_packets;
+
+  // Someone keeps moving through boot: no window stays under the ceiling, so
+  // the calibration fails instead of learning a threshold near 1.0.
+  uint32_t packet_index = 0U;
+  uint32_t evaluations = 0U;
+  for (; evaluations < 1000U && runtime.threshold_calibration_active_.load(); ++evaluations) {
+    feed_calibration_evaluation(runtime, true, packet_index);
+  }
+  runtime.loop();
+  TEST_ASSERT_FALSE(runtime.is_calibrating());
+  TEST_ASSERT_FALSE(listener.last_calibration_success);
+  TEST_ASSERT_TRUE(evaluations * kCalibrationStep <=
+                   CALIBRATION_MOTION_BUDGET_WINDOWS * target);
+  TEST_ASSERT_EQUAL_FLOAT(default_threshold, runtime.detector_->get_threshold());
+  TEST_ASSERT_EQUAL_FLOAT(default_threshold, runtime.get_snapshot().threshold);
   runtime.shutdown();
 }
 
@@ -1325,6 +1443,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change);
   RUN_TEST(test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_only);
   RUN_TEST(test_runtime_calibration_consumes_evaluations_resets_on_gaps_and_finishes);
+  RUN_TEST(test_runtime_recalibration_during_motion_keeps_the_live_threshold);
+  RUN_TEST(test_runtime_startup_calibration_during_motion_keeps_the_default);
   RUN_TEST(test_runtime_rejects_invalid_detector_geometry_before_starting_services);
   RUN_TEST(test_runtime_rejects_invalid_or_unpersisted_controls_without_changing_config);
   RUN_TEST(test_runtime_restores_internal_traffic_when_external_source_cannot_start);

@@ -52,6 +52,11 @@ class GlobalState:
         self.csi_phy_metadata_missing = False  # C5/C6 RX metadata omits legacy PHY fields
         self.csi_capture_profile = "ht20"  # Runtime-owned, read-only CSI profile
         self.current_channel = 0  # Track WiFi channel for change detection
+        # The last calibration failed only because motion kept crossing its
+        # reference; the threshold in force stays and sensing continues.
+        self.calibration_rejected = False
+        # (channel, capture profile) of the last successful calibration.
+        self.calibrated_setup = None
 
 
 g_state = GlobalState()
@@ -69,6 +74,16 @@ def refresh_csi_capture_context(wlan):
         g_state.chip_type, active_channel
     )
     return previous_profile != g_state.csi_capture_profile
+
+
+def recalibration_reference_threshold(detector):
+    """Return the live threshold if the setup that produced it still holds.
+
+    Mirrors the calibrated-setup check in EspIdfRuntime::start_calibration_.
+    """
+    if g_state.calibrated_setup != (g_state.current_channel, g_state.csi_capture_profile):
+        return None
+    return detector.get_threshold()
 
 
 def print_heap(label):
@@ -137,7 +152,7 @@ def create_detector(detection_algorithm, window_packets):
     return detector
 
 
-def run_startup_calibration(wlan, detector, traffic_gen):
+def run_startup_calibration(wlan, detector, traffic_gen, reference_threshold=None):
     """
     Run startup calibration with fixed subcarriers.
 
@@ -145,11 +160,18 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         wlan: WLAN instance
         detector: IDetector instance
         traffic_gen: TrafficGenerator instance
+        reference_threshold: Live threshold a recalibration replaces. Every
+            evaluation above it, or above the detector's calibration motion
+            ceiling, restarts the window; a calibration that cannot find a
+            quiet window keeps the threshold in force.
     Returns:
-        bool: True if startup calibration completed
+        bool: True if startup calibration completed. On False,
+        ``g_state.calibration_rejected`` tells a motion rejection apart from
+        a CSI failure.
     """
     detector_name = detector.get_name()
     g_state.calibration_mode = True
+    g_state.calibration_rejected = False
 
     gc.collect()
     detector.reset()
@@ -159,11 +181,16 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     print('Startup Threshold Calibration')
     print('='*60)
     print(f'Free memory: {gc.mem_free()} bytes')
-    print('Calibration: stay quiet first, then one short motion is OK.')
+    print('Calibration: keep the room still until it completes.')
 
     from src.threshold import (
+        GUARD_REJECT,
+        GUARD_RESTART,
+        CALIBRATION_MOTION_BUDGET_WINDOWS,
+        CalibrationMotionGuard,
         StartupThresholdCalibrator,
         get_detector_auto_factor,
+        get_detector_calibration_motion_ceiling,
         get_detector_startup_gate,
     )
     from src.temporal_csi_sampler import (
@@ -185,6 +212,22 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     begin_calibration = getattr(detector, "on_startup_calibration_begin", None)
     if callable(begin_calibration):
         begin_calibration()
+    # Mirrors the motion reference in EspIdfRuntime::start_calibration_.
+    motion_reference = get_detector_calibration_motion_ceiling(detector)
+    if reference_threshold is not None:
+        motion_reference = (
+            float(reference_threshold)
+            if motion_reference is None
+            else min(motion_reference, float(reference_threshold))
+        )
+    motion_guard = None
+    if motion_reference is not None:
+        motion_guard = CalibrationMotionGuard(
+            motion_reference,
+            calibration_target_packets,
+            calibration_target_packets * CALIBRATION_MOTION_BUDGET_WINDOWS,
+        )
+    abandon_calibration = getattr(detector, "on_startup_calibration_abandoned", None)
     evaluation_interval_ms = max(1, int(getattr(config, 'EVALUATION_INTERVAL_MS', 250)))
     # Calibration evaluates on the same cadence steady-state detection does.
     # Mirrors the C++ EvaluationCadence shared by CsiPipeline and its
@@ -208,11 +251,17 @@ def run_startup_calibration(wlan, detector, traffic_gen):
 
     max_timeout_ms = 15000
     # Allow warmup and reduced occupancy, but never let arrivals or repeated
-    # sampler resets extend calibration indefinitely.
-    calibration_timeout_ms = max(
-        max_timeout_ms,
-        2 * int(getattr(config, 'CALIBRATION_DURATION_MS', 10_000))
-        + int(getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000)),
+    # sampler resets extend calibration indefinitely. The guard budget counts
+    # packets on both runtimes; this wall-clock backstop is Python-only. Once
+    # motion restarts a window or inconclusive evidence extends it, it grows
+    # to three budgets plus one window and ends such a run only when packets
+    # arrive well under the target.
+    calibration_duration_ms = int(getattr(config, 'CALIBRATION_DURATION_MS', 10_000))
+    window_ms = int(getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000))
+    calibration_timeout_ms = max(max_timeout_ms, 2 * calibration_duration_ms + window_ms)
+    guarded_timeout_ms = max(
+        calibration_timeout_ms,
+        (CALIBRATION_MOTION_BUDGET_WINDOWS + 1) * calibration_duration_ms + window_ms,
     )
     filtered_count = 0
     accepted_packet_count = 0
@@ -243,7 +292,13 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     advance_missing = getattr(detector, "advance_missing_slots", None)
     while not calibration_tracker.is_complete():
         now_ms = time.ticks_ms()
-        if (time.ticks_diff(now_ms, calibration_started_ms) >= calibration_timeout_ms
+        deadline_ms = (
+            guarded_timeout_ms
+            if (motion_guard is not None and motion_guard.restarts)
+            or calibration_tracker.target_packets > calibration_tracker.base_target_packets
+            else calibration_timeout_ms
+        )
+        if (time.ticks_diff(now_ms, calibration_started_ms) >= deadline_ms
                 or time.ticks_diff(now_ms, last_packet_time) >= max_timeout_ms):
             print_log(
                 "WARN",
@@ -252,6 +307,8 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     calibration_progress, calibration_target_packets,
                 ),
             )
+            if callable(abandon_calibration):
+                abandon_calibration()
             detector.reset()
             g_state.calibration_mode = False
             return False
@@ -364,10 +421,34 @@ def run_startup_calibration(wlan, detector, traffic_gen):
 
             detector.update_state()
             if detector.is_ready():
-                calibration_tracker.observe_detector(
-                    detector,
-                    packet_weight=packets_since_evaluation,
+                verdict = (
+                    None
+                    if motion_guard is None
+                    else motion_guard.observe(
+                        detector.get_motion_metric(),
+                        packet_weight=packets_since_evaluation,
+                    )
                 )
+                if verdict == GUARD_REJECT:
+                    break
+                if verdict == GUARD_RESTART:
+                    # The window still holds the motion; refill it before
+                    # collecting quiet evidence again.
+                    calibration_tracker = StartupThresholdCalibrator(
+                        calibration_target_packets,
+                        auto_factor=get_detector_auto_factor(detector),
+                        gate_enabled=get_detector_startup_gate(detector),
+                    )
+                    detector.reset()
+                    if callable(begin_calibration):
+                        begin_calibration()
+                else:
+                    calibration_tracker.observe_detector(
+                        detector,
+                        packet_weight=packets_since_evaluation,
+                    )
+            elif motion_guard is not None:
+                motion_guard.skip(packets_since_evaluation)
             packets_since_evaluation = 0
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress >= next_progress_report:
@@ -407,11 +488,35 @@ def run_startup_calibration(wlan, detector, traffic_gen):
             time.sleep_us(100)
 
     gc.collect()
-    success = calibration_tracker.is_successful()
+    rejected = motion_guard is not None and motion_guard.rejected
+    g_state.calibration_rejected = rejected
+    success = not rejected and calibration_tracker.is_successful()
+    if motion_guard is not None and motion_guard.restarts:
+        print_log(
+            "INFO",
+            "Calibration restarted {} time(s) after motion".format(motion_guard.restarts),
+        )
+    if not success and callable(abandon_calibration):
+        abandon_calibration()
+    if rejected:
+        print_log(
+            "WARN",
+            "Calibration rejected: motion kept crossing {:.6f}; keeping threshold {:.6f}".format(
+                motion_guard.reference_threshold, detector.get_threshold()
+            ),
+        )
     if success:
         startup_threshold, threshold_formula = calibration_tracker.calculate_threshold()
         detector.set_adaptive_threshold(startup_threshold)
         startup_threshold = detector.get_threshold()
+        g_state.calibrated_setup = (g_state.current_channel, g_state.csi_capture_profile)
+        noisy_link_threshold = getattr(detector, "NOISY_LINK_THRESHOLD", None)
+        if noisy_link_threshold is not None and startup_threshold > noisy_link_threshold:
+            print_log(
+                "WARN",
+                "Noisy link: startup threshold {:.3f}. Lightweight precision is limited "
+                "here; High Accuracy is recommended".format(startup_threshold),
+            )
         threshold_source = f"automatic ({threshold_formula})"
         print_log(
             "INFO",
@@ -627,7 +732,10 @@ def main(wlan=None):
         detector,
         traffic_gen,
     )
-    if not calibration_ok:
+    # Motion that never let a quiet window through keeps the default threshold,
+    # which the detector's settled-level rule can still lower; only a CSI
+    # failure stops the runtime.
+    if not calibration_ok and not g_state.calibration_rejected:
         if traffic_gen.is_running():
             traffic_gen.stop()
         cleanup_wifi(wlan)
@@ -757,6 +865,7 @@ def main(wlan=None):
                         wlan,
                         detector,
                         traffic_gen,
+                        reference_threshold=recalibration_reference_threshold(detector),
                     )
                     # The calibration helper is imported only for calibration;
                     # release its module mapping again before steady state.
@@ -1116,7 +1225,18 @@ def main(wlan=None):
                         print_wifi_status(wlan)
                         if traffic_enabled and not traffic_gen.start(target_pps):
                             raise RuntimeError('CSI traffic generator recovery failed')
-                        if not run_startup_calibration(wlan, detector, traffic_gen):
+                        # Under the setup that produced the live threshold,
+                        # recalibrate against it as the C++ runtime does after
+                        # a reconnect. A motion rejection keeps the threshold.
+                        if (
+                            not run_startup_calibration(
+                                wlan,
+                                detector,
+                                traffic_gen,
+                                reference_threshold=recalibration_reference_threshold(detector),
+                            )
+                            and not g_state.calibration_rejected
+                        ):
                             raise RuntimeError('CSI link recovery calibration failed')
                         import sys
                         # Release the calibration-only module mapping again.

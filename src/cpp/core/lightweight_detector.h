@@ -33,7 +33,24 @@ constexpr float LIGHTWEIGHT_INTERCEPT = 1.0776769868761f;
 constexpr float LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT = -2.253902812716911f;
 constexpr float LIGHTWEIGHT_STARTUP_QUANTILE = 0.95f;
 constexpr float LIGHTWEIGHT_STARTUP_STRENGTH = 0.5f;
-constexpr uint8_t LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT = 64U;
+// Startup evidence, in evaluations at the default 250 ms cadence: up to 30 s
+// in all, a 10 s base, a 5 s burst run, and a 3 s recheck run. See
+// "Startup threshold calibration" in docs/ALGORITHMS.md.
+constexpr uint8_t LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT = 120U;
+constexpr uint8_t LIGHTWEIGHT_STARTUP_BASE_SAMPLES = 40U;
+constexpr uint8_t LIGHTWEIGHT_STARTUP_BURST_SAMPLES = 20U;
+constexpr uint8_t LIGHTWEIGHT_STARTUP_RECHECK_SAMPLES = 12U;
+// Removing a burst run must lower the startup q95 by more than this.
+constexpr float LIGHTWEIGHT_STARTUP_BURST_LOGITS = 2.5f;
+// Fewer ready evaluations keep the default threshold: the base budget less
+// the 70% valid-slot floor.
+constexpr uint8_t LIGHTWEIGHT_STARTUP_MIN_SAMPLES = 28U;
+// Calibration evidence above this logit (probability 0.9933) counts as motion.
+// It also caps the startup q95, so the adapted threshold stays below 0.987.
+// The floor is LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT (probability 0.095).
+constexpr float LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT = 5.0f;
+// A calibrated threshold above this signals a link that stays noisy at rest.
+constexpr float LIGHTWEIGHT_NOISY_LINK_THRESHOLD = 0.89f;
 
 // Settled-level rule: how long the stream has to stay quiet before the startup
 // threshold is allowed to come down, and by how much margin above the level it
@@ -128,9 +145,11 @@ class LightweightDetector : public BaseDetector {
   float get_startup_threshold_factor() const override {
     return LIGHTWEIGHT_STARTUP_THRESHOLD_FACTOR;
   }
-  bool startup_gate_enabled() const override { return true; }
+  float calibration_motion_ceiling() const override;
+  bool startup_calibration_conclusive() const override;
   void on_startup_calibration_begin() override;
   void on_startup_calibration_complete() override;
+  void on_startup_calibration_abandoned() override;
 
   float get_turb_autocorr() const { return current_turb_autocorr_; }
   float get_turb_iqr_over_mean_aggr() const { return current_turb_iqr_over_mean_aggr_; }
@@ -144,6 +163,9 @@ class LightweightDetector : public BaseDetector {
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);
   float startup_quantile_() const;
+  static uint8_t trim_burst_(const float* values, uint8_t count, uint8_t run, float* out);
+  static bool has_burst_(const float* values, uint8_t count, uint8_t run);
+  float startup_level_() const;
   void observe_settled_level_();
   void reset_settled_level_();
   void clear_fusion_inputs_();
@@ -154,6 +176,7 @@ class LightweightDetector : public BaseDetector {
   float current_turb_iqr_over_mean_aggr_;
   float startup_logits_[LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT]{};
   uint8_t startup_logit_count_;
+  bool calibrating_;
   float adapted_threshold_;
   bool adapted_threshold_ready_;
   bool manual_threshold_override_;

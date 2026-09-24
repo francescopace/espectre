@@ -7,11 +7,12 @@
  * Startup threshold calibration is automatic. Detectors may apply their own
  * session adaptation to the shared calibration metric.
  *
- * The default Lightweight path is motion-first with an internal quiet-first
- * fallback. Successful motion-first calibration can finish before the nominal
- * budget; otherwise the calibrator falls back to the quiet-first gate on the
- * same observed metrics and still completes within the configured packet
- * budget. Keep the semantics aligned with src/python/micro_espectre/threshold.py.
+ * With the consistency gate enabled, the calibrator is motion-first with an
+ * internal quiet-first fallback: a successful motion-first calibration can
+ * finish before the nominal budget, otherwise it falls back to the quiet-first
+ * gate and still completes within the configured packet budget. Without the
+ * gate, as for Lightweight, a calibration always spends its full budget. Keep
+ * the semantics aligned with src/python/micro_espectre/threshold.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -80,6 +81,101 @@ constexpr float STARTUP_MOTION_GAP_RATIO = 1.35f;
 constexpr float STARTUP_NO_MOTION_FALLBACK_MARGIN = 1.03f;
 constexpr uint8_t STARTUP_MOTION_MAX_LEVELS = 40;
 
+// A calibration may spend up to this many calibration budgets looking for a
+// window its motion reference does not call motion.
+constexpr uint8_t CALIBRATION_MOTION_BUDGET_WINDOWS = 3;
+
+// A calibration whose evidence the detector finds inconclusive grows in steps
+// of half its base budget (5 s by default), up to this many base budgets.
+constexpr uint8_t CALIBRATION_EXTENSION_DIVISOR = 2;
+constexpr uint8_t CALIBRATION_MAX_BUDGETS = 3;
+
+/**
+ * Keep a calibration from learning its quiet baseline while someone moves.
+ *
+ * Every evaluation above the motion reference restarts the calibration window:
+ * the startup q95 reads the top two or three evaluations of a window, so even a
+ * short burst would otherwise set the new threshold. The reference is the
+ * detector's absolute calibration motion ceiling, or the live threshold when a
+ * recalibration runs under the setup that produced it and that threshold is
+ * lower. The guard allows restarts only while a full window still fits inside
+ * the budget; after that it rejects the calibration, and the caller keeps the
+ * threshold in force. Evaluations the detector cannot score yet, such as a
+ * window refilling after a restart, still spend budget through skip().
+ *
+ * Keep aligned with CalibrationMotionGuard in threshold.py.
+ */
+class CalibrationMotionGuard {
+ public:
+  enum class Verdict : uint8_t {
+    CONTINUE,  ///< The evaluation belongs to the current window.
+    RESTART,   ///< Motion seen: discard the window and start a new one.
+    REJECT,    ///< Motion seen and no full window fits in the budget.
+  };
+
+  /** Disable the guard, for a detector without a motion reference, and clear its outcome. */
+  void disable() {
+    active_ = false;
+    rejected_ = false;
+    restarts_ = 0U;
+  }
+
+  /**
+   * @param reference_threshold Motion metric above which an evaluation is motion
+   * @param window_packets Packets one calibration window needs
+   * @param budget_packets Packets the whole calibration may consume
+   */
+  void begin(float reference_threshold, uint32_t window_packets, uint32_t budget_packets) {
+    active_ = true;
+    reference_threshold_ = reference_threshold;
+    window_packets_ = window_packets > 0U ? window_packets : 1U;
+    budget_packets_ = std::max(budget_packets, window_packets_);
+    used_packets_ = 0U;
+    restarts_ = 0U;
+    rejected_ = false;
+  }
+
+  /** Consume one evaluation the detector could not score, as budget only. */
+  void skip(uint32_t packet_weight) {
+    if (active_) {
+      used_packets_ += std::max<uint32_t>(packet_weight, 1U);
+    }
+  }
+
+  /** Consume one ready evaluation representing `packet_weight` packets. */
+  Verdict observe(float motion_metric, uint32_t packet_weight) {
+    if (!active_) {
+      return Verdict::CONTINUE;
+    }
+    used_packets_ += std::max<uint32_t>(packet_weight, 1U);
+    if (!(motion_metric > reference_threshold_)) {
+      return Verdict::CONTINUE;
+    }
+    if (used_packets_ >= budget_packets_ || budget_packets_ - used_packets_ < window_packets_) {
+      rejected_ = true;
+      return Verdict::REJECT;
+    }
+    if (restarts_ < UINT16_MAX) {
+      restarts_++;
+    }
+    return Verdict::RESTART;
+  }
+
+  bool active() const { return active_; }
+  float reference_threshold() const { return reference_threshold_; }
+  uint16_t restarts() const { return restarts_; }
+  bool rejected() const { return rejected_; }
+
+ private:
+  bool active_{false};
+  bool rejected_{false};
+  float reference_threshold_{0.0f};
+  uint32_t window_packets_{1U};
+  uint32_t budget_packets_{1U};
+  uint32_t used_packets_{0U};
+  uint16_t restarts_{0U};
+};
+
 /**
  * Startup threshold calibrator with a motion-first primary path and an
  * internal quiet-first fallback. The fallback keeps the existing gated ring of
@@ -89,6 +185,7 @@ class StartupThresholdCalibrator {
  public:
   void begin(uint16_t target_packets, bool gate_enabled) {
     target_packets_ = target_packets > 0 ? target_packets : 1;
+    base_target_packets_ = target_packets_;
     gate_enabled_ = gate_enabled;
     packet_count_ = 0;
     ready_packet_count_ = 0;
@@ -167,6 +264,27 @@ class StartupThresholdCalibrator {
   bool gate_accepted() const { return gate_accepted_; }
   uint32_t packet_count() const { return packet_count_; }
   uint16_t target_packets() const { return target_packets_; }
+  /// Budget passed to begin(), before any extension.
+  uint16_t base_target_packets() const { return base_target_packets_; }
+
+  /**
+   * Grow a spent budget when the detector finds its evidence inconclusive.
+   *
+   * Each call adds half the base budget, up to CALIBRATION_MAX_BUDGETS base
+   * budgets. Call it once the calibration is complete; it returns true when
+   * the calibration continues. Mirrors extend_if_inconclusive in threshold.py.
+   */
+  bool extend_if_inconclusive(bool conclusive) {
+    const uint32_t max_packets = std::min<uint32_t>(
+        static_cast<uint32_t>(base_target_packets_) * CALIBRATION_MAX_BUDGETS, UINT16_MAX);
+    if (conclusive || motion_accepted_ || packet_count_ < target_packets_ ||
+        target_packets_ >= max_packets) {
+      return false;
+    }
+    const uint32_t step = std::max<uint32_t>(1U, base_target_packets_ / CALIBRATION_EXTENSION_DIVISOR);
+    target_packets_ = static_cast<uint16_t>(std::min<uint32_t>(target_packets_ + step, max_packets));
+    return true;
+  }
   uint32_t ready_packet_count() const { return ready_packet_count_; }
 
   /// Metric the threshold formula (x factor) is applied to.
@@ -522,6 +640,7 @@ class StartupThresholdCalibrator {
   }
 
   uint16_t target_packets_{1};
+  uint16_t base_target_packets_{1};
   bool gate_enabled_{false};
   uint32_t packet_count_{0};
   uint32_t ready_packet_count_{0};

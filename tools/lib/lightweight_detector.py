@@ -33,7 +33,9 @@ class LightweightDetector(IDetector):
     """Weighted ``turb_autocorr + turb_iqr_over_mean_aggr`` detector."""
 
     ALGORITHM = "lightweight"
-    STARTUP_GATE = True
+    # The q95 formula reads the whole calibration budget; the generic gate's
+    # motion-first exit would end it early on a window that holds motion.
+    STARTUP_GATE = False
 
     # Grouped, de-overlapped OOF fit, balanced by class/chip/session.
     FEATURE_CENTER = (0.3919344866784947, 0.24612139211074338)
@@ -45,7 +47,29 @@ class LightweightDetector(IDetector):
     TRAIN_IDLE_Q95_LOGIT = -2.253902812716911
     STARTUP_QUANTILE = 0.95
     STARTUP_STRENGTH = 0.5
-    STARTUP_SAMPLE_LIMIT = 64
+    # Evidence for the longest calibration: 30 s at the default cadence.
+    STARTUP_SAMPLE_LIMIT = 120
+    # Stepped calibration, in evaluations at the default cadence. A burst is
+    # the worst contiguous 5 s run; it is one when removing it lowers the q95
+    # by more than STARTUP_BURST_LOGITS. A window with a burst concludes once
+    # the rest spans the 10 s base budget and holds no 3 s burst of its own.
+    STARTUP_BASE_SAMPLES = 40
+    STARTUP_BURST_SAMPLES = 20
+    STARTUP_RECHECK_SAMPLES = 12
+    STARTUP_BURST_LOGITS = 2.5
+    # A calibrated threshold above this only arises on links whose metric
+    # stays high at rest; Lightweight precision is limited there.
+    NOISY_LINK_THRESHOLD = 0.89
+    # Calibration evidence above this logit (probability 0.9933) is motion,
+    # not a noisy room: no corpus quiet session crosses it inside a
+    # calibration window, and every motion capture does. The calibration guard
+    # restarts on it, and the startup q95 is capped at it.
+    CALIBRATION_MOTION_LOGIT = 5.0
+    # A q95 from fewer ready evaluations rests on the single largest one, so
+    # the adaptation keeps the default. The budget gives 40 at the default
+    # cadence; this accepts losing up to the 70% valid-slot floor of them.
+    STARTUP_MIN_SAMPLES = 28
+    # Adaptation and the settled-level rule never go below TRAIN_IDLE_Q95_LOGIT.
 
     # Settled-level rule: how long the stream has to stay quiet before the
     # startup threshold is allowed to come down, and by how much margin above
@@ -101,6 +125,7 @@ class LightweightDetector(IDetector):
         self._startup_logits = []
         self._adapted_threshold_ready = False
         self._manual_threshold_override = False
+        self._calibrating = False
         self._settle_blocks = []
         self._settle_block_max = _SETTLE_FLOOR
         self._settle_block_count = 0
@@ -380,7 +405,10 @@ class LightweightDetector(IDetector):
                 self._current_turb_iqr_over_mean_aggr,
             )
             self._current_probability = self._sigmoid(self._current_logit)
-            if len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT:
+            if (
+                (self._calibrating or not self._adapted_threshold_ready)
+                and len(self._startup_logits) < self.STARTUP_SAMPLE_LIMIT
+            ):
                 self._startup_logits.append(self._current_logit)
             self._observe_settled_level()
             self._state = (
@@ -412,7 +440,11 @@ class LightweightDetector(IDetector):
         which is what keeps it from chasing the metric downward during activity.
         Blocks rather than a full history keep it to `SETTLE_BLOCKS` floats.
         """
-        if not self._adapted_threshold_ready or self._manual_threshold_override:
+        if (
+            self._calibrating
+            or not self._adapted_threshold_ready
+            or self._manual_threshold_override
+        ):
             return
         if self._current_logit > self._settle_block_max:
             self._settle_block_max = self._current_logit
@@ -430,7 +462,9 @@ class LightweightDetector(IDetector):
 
         ordered = sorted(self._settle_blocks)
         settled = ordered[len(ordered) // 2]
-        candidate = self._sigmoid(settled + self.SETTLE_MARGIN_LOGITS)
+        candidate = self._sigmoid(
+            max(settled + self.SETTLE_MARGIN_LOGITS, self.TRAIN_IDLE_Q95_LOGIT)
+        )
         if candidate < self._threshold:
             self._threshold = self._clamp_probability(candidate)
 
@@ -440,28 +474,91 @@ class LightweightDetector(IDetector):
         self._settle_block_max = _SETTLE_FLOOR
         self._settle_block_count = 0
 
+    @classmethod
+    def _trim_burst(cls, values, run):
+        """Drop the contiguous run whose removal lowers the q95 most (first on ties).
+
+        Mirrors LightweightDetector::trim_burst_ in lightweight_detector.cpp.
+        """
+        values = list(values)
+        if len(values) <= run + 2:
+            return values
+        best = None
+        best_start = 0
+        for start in range(len(values) - run + 1):
+            q95 = cls._quantile(values[:start] + values[start + run:], cls.STARTUP_QUANTILE)
+            if best is None or q95 < best:
+                best = q95
+                best_start = start
+        return values[:best_start] + values[best_start + run:]
+
+    @classmethod
+    def _has_burst(cls, values, run):
+        if len(values) <= run + 2:
+            return False
+        return (
+            cls._quantile(values, cls.STARTUP_QUANTILE)
+            - cls._quantile(cls._trim_burst(values, run), cls.STARTUP_QUANTILE)
+            > cls.STARTUP_BURST_LOGITS
+        )
+
+    def _startup_level(self):
+        """The startup q95, read without the window's burst when it has one."""
+        logits = self._startup_logits
+        if self._has_burst(logits, self.STARTUP_BURST_SAMPLES):
+            logits = self._trim_burst(logits, self.STARTUP_BURST_SAMPLES)
+        return self._quantile(logits, self.STARTUP_QUANTILE)
+
+    def startup_calibration_conclusive(self):
+        """Whether the calibration evidence so far can set a threshold."""
+        if not self._has_burst(self._startup_logits, self.STARTUP_BURST_SAMPLES):
+            return True
+        rest = self._trim_burst(self._startup_logits, self.STARTUP_BURST_SAMPLES)
+        return (
+            len(rest) >= self.STARTUP_BASE_SAMPLES
+            and not self._has_burst(rest, self.STARTUP_RECHECK_SAMPLES)
+        )
+
     def set_adaptive_threshold(self, _shared_threshold):
         self._reset_settled_level()
         self._manual_threshold_override = False
         self._adapted_threshold_ready = True
-        session_q95 = self._quantile(self._startup_logits, self.STARTUP_QUANTILE)
-        if session_q95 is None:
-            self._threshold = self.BASE_THRESHOLD
-            return
-        base_logit = math.log(self.BASE_THRESHOLD / (1.0 - self.BASE_THRESHOLD))
-        adapted_logit = base_logit + self.STARTUP_STRENGTH * (
-            session_q95 - self.TRAIN_IDLE_Q95_LOGIT
+        self._calibrating = False
+        # Mirrors LightweightDetector::on_startup_calibration_complete.
+        adapted_logit = math.log(self.BASE_THRESHOLD / (1.0 - self.BASE_THRESHOLD))
+        if len(self._startup_logits) >= self.STARTUP_MIN_SAMPLES:
+            session_q95 = min(self._startup_level(), self.CALIBRATION_MOTION_LOGIT)
+            adapted_logit += self.STARTUP_STRENGTH * (
+                session_q95 - self.TRAIN_IDLE_Q95_LOGIT
+            )
+        self._threshold = self._sigmoid(
+            max(adapted_logit, self.TRAIN_IDLE_Q95_LOGIT)
         )
-        self._threshold = self._sigmoid(adapted_logit)
 
     def on_startup_calibration_begin(self):
-        """Discard stale runtime logits before a fresh calibration session."""
-        self._manual_threshold_override = False
+        """Discard stale runtime logits before a fresh calibration session.
+
+        The adapted and manual state it replaces stays in force until the
+        calibration completes, so an abandoned one resumes that adaptation.
+        """
         self._startup_logits = []
-        self._adapted_threshold_ready = False
-        self._settle_blocks = []
-        self._settle_block_max = _SETTLE_FLOOR
-        self._settle_block_count = 0
+        self._calibrating = True
+        self._reset_settled_level()
+
+    def on_startup_calibration_abandoned(self):
+        """Drop the evidence of a calibration that ended without a result.
+
+        With no calibration behind it, the threshold in force becomes the
+        adapted baseline, so the settled-level rule can still lower it.
+        """
+        self._startup_logits = []
+        self._calibrating = False
+        self._reset_settled_level()
+        self._adapted_threshold_ready = True
+
+    def calibration_motion_ceiling(self):
+        """Motion metric above which a calibration evaluation counts as motion."""
+        return self._sigmoid(self.CALIBRATION_MOTION_LOGIT)
 
     def set_threshold(self, threshold):
         value = float(threshold)

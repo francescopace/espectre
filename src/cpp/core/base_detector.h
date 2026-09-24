@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <limits>
 #include "detector_types.h"
 #include "detector_limits.h"
 #include "filters.h"
@@ -177,12 +178,34 @@ public:
     virtual float get_startup_threshold_factor() const { return 1.3f; }
 
     /**
-     * Whether startup calibration uses the consistency gate (threshold.h)
+     * Whether startup calibration uses the calibrator's consistency gate.
      *
-     * Enabled only for detectors with a tight quiet floor (l1_delta).
-     * Matches the Python runtime's detector STARTUP_GATE convention.
+     * The gate can end a calibration early on a quiet, motion, quiet pattern.
+     * No shipped detector enables it. Matches the Python runtime's detector
+     * STARTUP_GATE convention.
      */
     virtual bool startup_gate_enabled() const { return false; }
+
+    /**
+     * Whether the calibration evidence collected so far can set a threshold.
+     *
+     * The runtime asks each time the calibration budget is spent. While the
+     * answer is false, the calibration continues in steps of half its initial
+     * budget, up to three times that budget. The default always concludes.
+     */
+    virtual bool startup_calibration_conclusive() const { return true; }
+
+    /**
+     * Motion metric above which a calibration evaluation counts as motion.
+     *
+     * An evaluation above it restarts the calibration window. A recalibration
+     * under the setup of the last successful calibration also restarts above
+     * the live threshold when that is lower. The default, infinity, leaves
+     * calibration without an absolute reference.
+     */
+    virtual float calibration_motion_ceiling() const {
+        return std::numeric_limits<float>::infinity();
+    }
 
     /** Hook called immediately before startup calibration begins. */
     virtual void on_startup_calibration_begin() {}
@@ -194,6 +217,16 @@ public:
      * performs its warm clear between calibration and steady-state detection.
      */
     virtual void on_startup_calibration_complete() {}
+
+    /**
+     * Hook called when a calibration ends without a result.
+     *
+     * The runtime keeps the threshold in force before the calibration began.
+     * Detectors discard the evidence collected since
+     * on_startup_calibration_begin() and resume the adaptation they had, or
+     * start adapting the threshold in force if no calibration has completed.
+     */
+    virtual void on_startup_calibration_abandoned() {}
 
     // ========================================================================
     // FILTER CONFIGURATION

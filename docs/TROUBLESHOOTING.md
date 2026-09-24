@@ -130,6 +130,8 @@ Change one setting at a time and repeat the same test. Each frontend guide shows
 - **Lightweight** uses less CPU and memory. Choose it when sensing shares the chip with other work.
 - **High Accuracy** detects better and skips calibration, but costs more CPU and memory.
 
+A noisy-link warning after calibration means the metric stays high even in a still room, usually because of a weak signal or interference. Lightweight then misses weaker movement. Improve the signal or switch to High Accuracy.
+
 The frontends remember the selected profile across reboots. Measured results are in the [performance report](performance/README.md).
 
 ### Threshold
@@ -144,7 +146,7 @@ Keep the default `1000 ms` window and `100 pps` rate. Other values change detect
 
 ### Recalibration
 
-Recalibrate after moving the device or changing the room layout. Lightweight collects a new quiet-room baseline, so keep the room still. High Accuracy simply restores its trained threshold.
+Recalibrate after changing the room layout. Lightweight collects a new quiet-room baseline in about 10 seconds, so keep the room still. A brief movement extends calibration up to 30 seconds; if the room stays busy, calibration fails and keeps the current threshold. After moving the device, restart it instead: the old threshold no longer describes the room. High Accuracy simply restores its trained threshold.
 
 ## Device not reachable
 

@@ -1189,11 +1189,19 @@ def load_or_compute_classic_replay_rows(
 
 
 class _ClassicCalibrationRowDetector:
-    """Minimal detector view consumed by StartupThresholdCalibrator."""
+    """Minimal detector view consumed by StartupThresholdCalibrator.
 
-    def __init__(self) -> None:
+    Evidence decisions delegate to the Lightweight detector that holds the
+    replayed startup logits, so the report follows its calibration rules.
+    """
+
+    def __init__(self, detector: Any) -> None:
+        self.detector = detector
         self.ready = False
         self.motion_metric = 0.0
+
+    def startup_calibration_conclusive(self) -> bool:
+        return self.detector.startup_calibration_conclusive()
 
     def is_ready(self) -> bool:
         return self.ready
@@ -1228,8 +1236,8 @@ def _calibrate_classic_replay_rows(
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    adapter = _ClassicCalibrationRowDetector()
-    startup_logits: list[float] = []
+    adapter = _ClassicCalibrationRowDetector(detector)
+    detector.on_startup_calibration_begin()
     last_reset: Optional[int] = None
     X = np.asarray(rows.get("X", np.empty((0, 2))), dtype=np.float64)
     ready = np.asarray(rows.get("ready", np.empty(0)), dtype=bool)
@@ -1246,14 +1254,14 @@ def _calibrate_classic_replay_rows(
                 auto_factor=get_detector_auto_factor(detector),
                 gate_enabled=get_detector_startup_gate(detector),
             )
-            startup_logits = []
+            detector.on_startup_calibration_begin()
         last_reset = current_reset
         adapter.ready = bool(row_ready)
         if adapter.ready:
             logit = detector._calculate_logit(float(values[0]), float(values[1]))
             adapter.motion_metric = detector._sigmoid(logit)
-            if len(startup_logits) < LightweightDetector.STARTUP_SAMPLE_LIMIT:
-                startup_logits.append(float(logit))
+            if len(detector._startup_logits) < LightweightDetector.STARTUP_SAMPLE_LIMIT:
+                detector._startup_logits.append(float(logit))
         else:
             adapter.motion_metric = 0.0
         if adapter.ready:
@@ -1264,14 +1272,8 @@ def _calibrate_classic_replay_rows(
     if not calibrator.is_successful():
         return None
     calibrator.calculate_threshold()
-    session_q95 = detector._quantile(startup_logits, detector.STARTUP_QUANTILE)
-    if session_q95 is None:
-        return float(detector.BASE_THRESHOLD)
-    base_logit = np.log(detector.BASE_THRESHOLD / (1.0 - detector.BASE_THRESHOLD))
-    adapted_logit = base_logit + detector.STARTUP_STRENGTH * (
-        session_q95 - detector.TRAIN_IDLE_Q95_LOGIT
-    )
-    return float(detector._sigmoid(float(adapted_logit)))
+    detector.set_adaptive_threshold(0.0)
+    return float(detector.get_threshold())
 
 
 def _score_classic_replay_phase_rows(

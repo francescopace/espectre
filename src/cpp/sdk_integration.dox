@@ -95,6 +95,10 @@ Register an optional `LogSink` before `setup()`. Do not replace or clear it unti
 
 High Accuracy preserves the configured or live threshold when sensing starts, Wi-Fi reconnects, or raw collection ends. Explicit recalibration and switching detectors restore the detector's default threshold. Lightweight continues to derive its threshold through startup calibration.
 
+Every calibration guards itself against motion. An evaluation above `BaseDetector::calibration_motion_ceiling()` restarts the calibration window and returns `calibration_packets` to zero. A recalibration on the channel, capture profile, and traffic generator mode of the last successful calibration also restarts above the live threshold when it is lower. If no full window fits within three calibration budgets, the calibration ends with `on_calibration_finished(snapshot, false)` and the threshold in force stays; after a rejected startup calibration, that is the configured threshold.
+
+A calibration spends at least its base packet budget. While `BaseDetector::startup_calibration_conclusive()` returns false once the budget is spent, the calibration continues in steps of half that budget, up to three budgets, and `calibration_target_packets` grows with each step. Lightweight's rules and bounds are in [startup threshold calibration](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md#startup-threshold-calibration).
+
 `RuntimeSnapshot::ready_to_publish` clears at once while calibrating, when sensing services or the link stop, when the newest detector input is one detector window old, and while the window refills after a history reset. Temporal admission leaves some slots empty even at the nominal packet rate, so window coverage can briefly fall under the detector's valid-slot floor while input keeps arriving. Once sensing is ready, such a dip clears readiness only if it lasts one detector window; shorter dips never reach `on_sensing_readiness_changed()` or `snapshot()`. The runtime logs every readiness transition with its reason.
 
 @section integration_errors Errors
@@ -106,7 +110,7 @@ The control surface reports failure through `bool` returns and never throws. Run
 3. The backend refused the change.
 4. `setup()` could not allocate the runtime's bounded working storage.
 
-Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault()`. Calibration outcome is reported by `on_calibration_finished(snapshot, success)`; a `false` there is not fatal, the runtime keeps sensing with the configured threshold.
+Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault()`. Calibration outcome is reported by `on_calibration_finished(snapshot, success)`; a `false` there is not fatal, the runtime keeps sensing with the threshold that was in force before the calibration.
 
 @section integration_capabilities Capabilities
 

@@ -47,11 +47,31 @@ STARTUP_MOTION_TRIGGER_RATIO = 1.80
 STARTUP_QUIET_RETURN_RATIO = 1.25
 STARTUP_MOTION_GAP_RATIO = 1.35
 STARTUP_NO_MOTION_FALLBACK_MARGIN = 1.03
+# A calibration may spend up to this many calibration budgets looking for a
+# window its motion reference does not call motion.
+CALIBRATION_MOTION_BUDGET_WINDOWS = 3
+# A calibration whose evidence the detector finds inconclusive grows in steps
+# of half its base budget (5 s by default), up to this many base budgets.
+CALIBRATION_EXTENSION_DIVISOR = 2
+CALIBRATION_MAX_BUDGETS = 3
+
+GUARD_CONTINUE = 0
+GUARD_RESTART = 1
+GUARD_REJECT = 2
 
 
 def get_detector_auto_factor(detector):
     """Return the detector-specific automatic startup multiplier."""
     return float(getattr(detector, "STARTUP_THRESHOLD_FACTOR", DEFAULT_ADAPTIVE_FACTOR))
+
+
+def get_detector_calibration_motion_ceiling(detector):
+    """Return the detector's absolute calibration motion reference, or None."""
+    ceiling = getattr(detector, "CALIBRATION_MOTION_CEILING", None)
+    if ceiling is None:
+        method = getattr(detector, "calibration_motion_ceiling", None)
+        ceiling = method() if callable(method) else None
+    return None if ceiling is None else float(ceiling)
 
 
 def get_detector_startup_gate(detector):
@@ -77,6 +97,7 @@ class StartupThresholdCalibrator:
                  gate_spread_ratio=STARTUP_GATE_SPREAD_RATIO,
                  gate_anchor_ratio=STARTUP_GATE_ANCHOR_RATIO):
         self.target_packets = max(1, int(target_packets))
+        self.base_target_packets = self.target_packets
         self.auto_factor = float(auto_factor)
         self.packet_count = 0
         self.ready_packet_count = 0
@@ -143,6 +164,10 @@ class StartupThresholdCalibrator:
                     and self._chunk_count > 0
                     and len(self._chunk_ring) < self.gate_chunks):
                 self._close_gate_chunk()
+        # A detector that cannot read its evidence yet extends the budget.
+        if self.packet_count >= self.target_packets:
+            conclusive = getattr(detector, "startup_calibration_conclusive", None)
+            self.extend_if_inconclusive(conclusive() if callable(conclusive) else True)
         return current_metric
 
     def _observe_gate_metric(self, metric, weight=1, initial_remaining=None):
@@ -311,6 +336,22 @@ class StartupThresholdCalibrator:
             return False
         return True
 
+    def extend_if_inconclusive(self, conclusive):
+        """Grow a spent budget when the detector finds its evidence inconclusive.
+
+        Each call adds half the base budget, up to CALIBRATION_MAX_BUDGETS base
+        budgets, and returns True when the calibration continues. Mirrors
+        StartupThresholdCalibrator::extend_if_inconclusive in threshold.h.
+        """
+        max_packets = min(self.base_target_packets * CALIBRATION_MAX_BUDGETS, 0xFFFF)
+        if (conclusive or self._motion_accepted
+                or self.packet_count < self.target_packets
+                or self.target_packets >= max_packets):
+            return False
+        step = max(1, self.base_target_packets // CALIBRATION_EXTENSION_DIVISOR)
+        self.target_packets = min(self.target_packets + step, max_packets)
+        return True
+
     def is_complete(self):
         """Return True on early motion-first success or once the startup budget is spent."""
         return self._motion_accepted or self.packet_count >= self.target_packets
@@ -378,6 +419,46 @@ class StartupThresholdCalibrator:
         if self.packet_count >= self.target_packets and not self._motion_accepted:
             return "FALLBACK"
         return self._phase
+
+
+class CalibrationMotionGuard:
+    """Keep a calibration from learning its quiet baseline while someone moves.
+
+    Every evaluation above the motion reference restarts the calibration
+    window: the startup q95 reads the top two or three evaluations of a window,
+    so even a short burst would otherwise set the new threshold. The reference
+    is the detector's absolute calibration motion ceiling, or the live
+    threshold when a recalibration runs under the setup that produced it and
+    that threshold is lower. Restarts are allowed only while a full window
+    still fits inside the budget; after that the guard rejects the calibration
+    and the caller keeps the threshold in force. Evaluations the detector
+    cannot score yet, such as a window refilling after a restart, still spend
+    budget through skip(). Mirrors CalibrationMotionGuard in
+    src/cpp/core/threshold.h.
+    """
+
+    def __init__(self, reference_threshold, window_packets, budget_packets):
+        self.reference_threshold = float(reference_threshold)
+        self.window_packets = max(1, int(window_packets))
+        self.budget_packets = max(int(budget_packets), self.window_packets)
+        self.used_packets = 0
+        self.restarts = 0
+        self.rejected = False
+
+    def skip(self, packet_weight=1):
+        """Consume one evaluation the detector could not score, as budget only."""
+        self.used_packets += max(1, int(packet_weight))
+
+    def observe(self, motion_metric, packet_weight=1):
+        """Consume one ready evaluation and return a GUARD_* verdict."""
+        self.used_packets += max(1, int(packet_weight))
+        if not float(motion_metric) > self.reference_threshold:
+            return GUARD_CONTINUE
+        if self.budget_packets - self.used_packets < self.window_packets:
+            self.rejected = True
+            return GUARD_REJECT
+        self.restarts += 1
+        return GUARD_RESTART
 
 
 def calculate_startup_threshold_from_max(

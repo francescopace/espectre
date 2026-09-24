@@ -173,15 +173,17 @@ struct RuntimeSnapshot {
   /**
    * Packets observed by the current Lightweight startup calibrator.
    *
-   * Zero when calibration is not running. Lightweight can finish early once
-   * motion evidence is accepted, so this may stay below `calibration_target_packets`.
+   * Zero when calibration is not running. It returns to zero when motion
+   * restarts the calibration.
    */
   uint32_t calibration_packets{0};
   /**
    * Packet budget for the current Lightweight startup calibrator.
    *
-   * Zero when calibration is not running. `csi:`/`miss:` on the status heartbeat
-   * are last-second pipeline rates, not remaining calibration work.
+   * Zero when calibration is not running. It grows in steps while the detector
+   * needs more evidence, up to three times its starting value. `csi:`/`miss:`
+   * on the status heartbeat are last-second pipeline rates, not remaining
+   * calibration work.
    */
   uint16_t calibration_target_packets{0};
   /**

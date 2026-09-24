@@ -244,9 +244,22 @@ def test_lightweight_allocates_aggregated_turbulence_state() -> None:
     assert detector._aggregated_context.buffer_count == 0
 
 
+def _logit(probability):
+    return math.log(probability / (1.0 - probability))
+
+
+def _adapted_from_constant_evidence(samples, value):
+    detector = LightweightDetector()
+    detector._startup_logits = [value] * samples
+    detector.set_adaptive_threshold(0.01)
+    return detector.get_threshold()
+
+
 def test_startup_q95_adapts_probability_threshold() -> None:
     detector = LightweightDetector()
-    detector._startup_logits = [-1.0, -0.8, -0.6, -0.4]
+    detector._startup_logits = [
+        -1.0 + 0.02 * index for index in range(detector.STARTUP_MIN_SAMPLES)
+    ]
 
     detector.set_adaptive_threshold(0.01)
 
@@ -261,22 +274,88 @@ def test_startup_q95_adapts_probability_threshold() -> None:
     assert detector.get_threshold() == pytest.approx(expected)
 
 
-def test_noisy_startup_still_uses_the_shifted_logit_threshold() -> None:
+def test_startup_evidence_is_bounded() -> None:
+    """Mirror of the C++ bounded startup evidence test."""
     detector = LightweightDetector()
-    detector._startup_logits = [10.0] * 4
-
-    detector.set_adaptive_threshold(0.01)
-
-    q95 = detector._quantile(detector._startup_logits, 0.95)
-    base_logit = math.log(
-        detector.BASE_THRESHOLD / (1.0 - detector.BASE_THRESHOLD)
-    )
-    expected = detector._sigmoid(
+    base_logit = _logit(detector.BASE_THRESHOLD)
+    # Motion evidence counts at the calibration motion logit.
+    motion = _adapted_from_constant_evidence(40, 10.0)
+    assert _logit(motion) == pytest.approx(
         base_logit
-        + detector.STARTUP_STRENGTH * (q95 - detector.TRAIN_IDLE_Q95_LOGIT)
+        + detector.STARTUP_STRENGTH
+        * (detector.CALIBRATION_MOTION_LOGIT - detector.TRAIN_IDLE_Q95_LOGIT)
     )
-    assert detector.get_threshold() == pytest.approx(expected)
-    assert detector.get_threshold() > detector.BASE_THRESHOLD
+    assert motion < detector.calibration_motion_ceiling()
+    # Too few samples keep the default.
+    assert _adapted_from_constant_evidence(
+        detector.STARTUP_MIN_SAMPLES - 1, 10.0
+    ) == pytest.approx(detector.BASE_THRESHOLD)
+    # A very quiet session never adapts below the training idle q95.
+    assert _logit(_adapted_from_constant_evidence(40, -20.0)) == pytest.approx(
+        detector.TRAIN_IDLE_Q95_LOGIT
+    )
+
+
+def test_uncalibrated_abandon_lets_the_default_settle() -> None:
+    """Mirror of the C++ uncalibrated-abandon test."""
+    detector = LightweightDetector()
+    detector._current_logit = -20.0
+    evaluations = detector.SETTLE_BLOCKS * detector.SETTLE_BLOCK_EVALUATIONS
+
+    detector.on_startup_calibration_begin()
+    detector.on_startup_calibration_abandoned()
+    assert detector.get_threshold() == pytest.approx(detector.BASE_THRESHOLD)
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert _logit(detector.get_threshold()) == pytest.approx(
+        detector.TRAIN_IDLE_Q95_LOGIT
+    )
+
+
+def _evidence(count, burst_start=0, burst=0, burst_logit=0.0):
+    return [
+        burst_logit if burst_start <= i < burst_start + burst else -6.0 + 0.01 * (i % 7)
+        for i in range(count)
+    ]
+
+
+def test_calibration_steps_past_a_burst() -> None:
+    """Mirror of the C++ stepped calibration test."""
+    detector = LightweightDetector()
+    base = detector.STARTUP_BASE_SAMPLES
+    detector._startup_logits = _evidence(base)
+    assert detector.startup_calibration_conclusive()
+    detector._startup_logits = _evidence(base, 15, 12, 3.0)
+    assert not detector.startup_calibration_conclusive()
+    detector._startup_logits = _evidence(base + 20, 15, 12, 3.0)
+    assert detector.startup_calibration_conclusive()
+    detector.set_adaptive_threshold(0.0)
+    with_burst = detector.get_threshold()
+    clean = LightweightDetector()
+    clean._startup_logits = _evidence(base + 20)
+    clean.set_adaptive_threshold(0.0)
+    assert with_burst == pytest.approx(clean.get_threshold(), abs=1e-3)
+
+
+def test_recurring_noise_stays_in_the_threshold() -> None:
+    """Mirror of the C++ recurring-noise test."""
+    detector = LightweightDetector()
+    detector._startup_logits = [
+        3.0 if i % 20 < 3 else -6.0 for i in range(detector.STARTUP_SAMPLE_LIMIT)
+    ]
+    assert detector.startup_calibration_conclusive()
+    detector.set_adaptive_threshold(0.0)
+    assert detector.get_threshold() > detector.NOISY_LINK_THRESHOLD
+
+
+def test_micro_facade_mirrors_the_calibration_contract() -> None:
+    reference = LightweightDetector()
+
+    assert MicroLightweightDetector.CALIBRATION_MOTION_CEILING == pytest.approx(
+        reference.calibration_motion_ceiling()
+    )
+    assert MicroLightweightDetector.STARTUP_GATE is reference.STARTUP_GATE is False
+    assert MicroLightweightDetector.NOISY_LINK_THRESHOLD == reference.NOISY_LINK_THRESHOLD
 
 
 def test_manual_threshold_uses_probability_scale() -> None:
@@ -332,6 +411,35 @@ def test_manual_threshold_suspends_settling_until_recalibration() -> None:
     for _ in range(evaluations):
         detector._observe_settled_level()
     assert detector.get_threshold() < calibrated
+
+
+def test_abandoned_calibration_keeps_the_threshold_and_its_adaptation() -> None:
+    """Mirror of the C++ abandoned-calibration test."""
+    detector = LightweightDetector()
+    detector.set_adaptive_threshold(0.5)
+    calibrated = detector.get_threshold()
+    detector._current_logit = -10.0
+    evaluations = detector.SETTLE_BLOCKS * detector.SETTLE_BLOCK_EVALUATIONS
+
+    # Settling waits while a calibration collects evidence...
+    detector.on_startup_calibration_begin()
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert detector.get_threshold() == pytest.approx(calibrated)
+    # ...and resumes once that calibration ends without a result.
+    detector.on_startup_calibration_abandoned()
+    assert detector._startup_logits == []
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert detector.get_threshold() < calibrated
+
+    # A manual threshold survives an abandoned calibration.
+    assert detector.set_threshold(0.9)
+    detector.on_startup_calibration_begin()
+    detector.on_startup_calibration_abandoned()
+    for _ in range(evaluations):
+        detector._observe_settled_level()
+    assert detector.get_threshold() == pytest.approx(0.9)
 
 
 def test_reset_preserves_threshold_and_clears_feature_state() -> None:

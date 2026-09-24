@@ -307,6 +307,23 @@ static MP_DEFINE_CONST_FUN_OBJ_1(
     native_detector_calibration_complete_obj,
     native_detector_calibration_complete);
 
+static mp_obj_t native_detector_calibration_abandon(mp_obj_t self_in) {
+  native_detector_obj_t *self = native_detector_get(self_in);
+  espectre_native_detector_calibration_abandon(self->handle);
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    native_detector_calibration_abandon_obj,
+    native_detector_calibration_abandon);
+
+static mp_obj_t native_detector_calibration_conclusive(mp_obj_t self_in) {
+  native_detector_obj_t *self = native_detector_get(self_in);
+  return mp_obj_new_bool(espectre_native_detector_calibration_conclusive(self->handle));
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    native_detector_calibration_conclusive_obj,
+    native_detector_calibration_conclusive);
+
 static mp_obj_t native_detector_apply_adaptive_threshold(mp_obj_t self_in) {
   native_detector_obj_t *self = native_detector_get(self_in);
   if (!espectre_native_detector_apply_adaptive_threshold(self->handle, 0.0f)) {
@@ -334,6 +351,8 @@ static const mp_rom_map_elem_t native_detector_locals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_get_total_packets), MP_ROM_PTR(&native_detector_get_total_packets_obj)},
     {MP_ROM_QSTR(MP_QSTR_calibration_begin), MP_ROM_PTR(&native_detector_calibration_begin_obj)},
     {MP_ROM_QSTR(MP_QSTR_calibration_complete), MP_ROM_PTR(&native_detector_calibration_complete_obj)},
+    {MP_ROM_QSTR(MP_QSTR_calibration_abandon), MP_ROM_PTR(&native_detector_calibration_abandon_obj)},
+    {MP_ROM_QSTR(MP_QSTR_calibration_conclusive), MP_ROM_PTR(&native_detector_calibration_conclusive_obj)},
     {MP_ROM_QSTR(MP_QSTR_apply_adaptive_threshold), MP_ROM_PTR(&native_detector_apply_adaptive_threshold_obj)},
 };
 static MP_DEFINE_CONST_DICT(native_detector_locals, native_detector_locals_table);

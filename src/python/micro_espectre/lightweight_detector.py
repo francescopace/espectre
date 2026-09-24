@@ -24,9 +24,14 @@ class LightweightDetector(IDetector):
     """Expose the native Lightweight detector through the device interface."""
 
     ALGORITHM = "lightweight"
-    STARTUP_GATE = True
+    # The native q95 formula reads the whole calibration budget.
+    STARTUP_GATE = False
     STARTUP_THRESHOLD_FACTOR = 1.0
     BASE_THRESHOLD = 0.6621854538596202
+    # sigmoid(LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT) in lightweight_detector.h.
+    CALIBRATION_MOTION_CEILING = 0.9933071490757153
+    # LIGHTWEIGHT_NOISY_LINK_THRESHOLD in lightweight_detector.h.
+    NOISY_LINK_THRESHOLD = 0.89
 
     def __init__(self, window_size=100, threshold=BASE_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
@@ -109,6 +114,13 @@ class LightweightDetector(IDetector):
 
     def on_startup_calibration_begin(self):
         self._native_detector_state.calibration_begin()
+
+    def startup_calibration_conclusive(self):
+        return bool(self._native_detector_state.calibration_conclusive())
+
+    def on_startup_calibration_abandoned(self):
+        self._native_detector_state.calibration_abandon()
+        self._threshold = self._native_detector_state.get_threshold()
 
     def set_threshold(self, threshold):
         value = float(threshold)

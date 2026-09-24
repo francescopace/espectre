@@ -114,7 +114,16 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   RuntimeDiagnosticsSampler diagnostics_sampler_{};
   RuntimeDiagnosticsSample latest_diagnostics_{};
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
+  CalibrationMotionGuard calibration_motion_guard_{};
   SensingReadinessGate readiness_gate_{};
+  // Sensing setup of the last successful calibration. A recalibration under
+  // the same setup uses the live threshold as its motion reference.
+  struct CalibratedSetup {
+    bool valid{false};
+    uint8_t channel{0U};
+    CsiCaptureProfile capture_profile{};
+    TrafficGeneratorMode traffic_generator_mode{};
+  } calibrated_setup_{};
   std::atomic<bool> threshold_calibration_active_{false};
   // Posted from the CSI callback with the outcome, completed from the loop.
   PendingEvent<bool> calibration_finished_event_;

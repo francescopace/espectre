@@ -27,8 +27,10 @@
 #include "runtime/runtime_time.h"
 #include "runtime_traffic_mode_store.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 
@@ -523,6 +525,7 @@ bool EspIdfRuntime::set_detection_algorithm(DetectionAlgorithm algorithm) {
 
   cancel_calibration_(true);
   detector_ = std::move(next_detector);
+  calibrated_setup_.valid = false;
   csi_pipeline_.set_detector(detector_.get());
   config_.detection_algorithm = algorithm;
   config_.threshold = threshold;
@@ -739,6 +742,10 @@ void EspIdfRuntime::cancel_calibration_(bool notify_listener) {
   calibration_finished_event_.clear();
   csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   threshold_calibrator_.reset();
+  calibration_motion_guard_.disable();
+  if (was_calibrating && detector_ != nullptr) {
+    detector_->on_startup_calibration_abandoned();
+  }
   snapshot_.calibrating = false;
   snapshot_.calibration_packets = 0U;
   snapshot_.calibration_target_packets = 0U;
@@ -1068,6 +1075,28 @@ bool EspIdfRuntime::start_calibration_(bool reset_high_accuracy_threshold,
   threshold_calibrator_ = std::move(prepared);
   threshold_calibrator_->begin(static_cast<uint16_t>(calibration_target_packets),
                                detector_ != nullptr && detector_->startup_gate_enabled());
+  // No calibration may learn its quiet baseline from motion. The detector's
+  // absolute ceiling guards every calibration; a recalibration under the setup
+  // that produced the live threshold also restarts on what that threshold
+  // would report.
+  float motion_reference =
+      detector_ != nullptr ? detector_->calibration_motion_ceiling()
+                           : std::numeric_limits<float>::infinity();
+  const bool trusted_threshold =
+      detector_ != nullptr && calibrated_setup_.valid &&
+      calibrated_setup_.channel == wifi_channel_ &&
+      calibrated_setup_.capture_profile == csi_pipeline_.capture_profile() &&
+      calibrated_setup_.traffic_generator_mode == config_.traffic_generator_mode;
+  if (trusted_threshold) {
+    motion_reference = std::min(motion_reference, detector_->get_threshold());
+  }
+  if (std::isfinite(motion_reference)) {
+    calibration_motion_guard_.begin(
+        motion_reference, calibration_target_packets,
+        calibration_target_packets * CALIBRATION_MOTION_BUDGET_WINDOWS);
+  } else {
+    calibration_motion_guard_.disable();
+  }
   calibration_finished_event_.clear();
   snapshot_.calibrating = true;
   snapshot_.calibration_packets = 0U;
@@ -1096,7 +1125,7 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   }
 
   if (temporal_reset) {
-    const uint16_t target_packets = threshold_calibrator_->target_packets();
+    const uint16_t target_packets = threshold_calibrator_->base_target_packets();
     threshold_calibrator_->begin(target_packets, detector_->startup_gate_enabled());
     snapshot_.calibration_packets = 0U;
     snapshot_.calibration_target_packets = target_packets;
@@ -1116,13 +1145,39 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
       static_cast<uint16_t>(std::min<uint32_t>(std::max<uint32_t>(packets_in_window, 1U), UINT16_MAX));
   detector_->update_state();
   if (!detector_->is_ready()) {
+    calibration_motion_guard_.skip(packet_weight);
     return true;
+  }
+  switch (calibration_motion_guard_.observe(detector_->get_motion_metric(), packet_weight)) {
+    case CalibrationMotionGuard::Verdict::RESTART:
+      // The window still holds the motion; refill it before collecting
+      // quiet evidence again.
+      threshold_calibrator_->begin(threshold_calibrator_->base_target_packets(),
+                                   detector_->startup_gate_enabled());
+      detector_->clear_buffer();
+      detector_->on_startup_calibration_begin();
+      snapshot_.calibration_packets = 0U;
+      snapshot_.calibration_target_packets = threshold_calibrator_->target_packets();
+      return true;
+    case CalibrationMotionGuard::Verdict::REJECT:
+      threshold_calibration_active_.store(false, std::memory_order_relaxed);
+      calibration_finished_event_.post(false);
+      return true;
+    case CalibrationMotionGuard::Verdict::CONTINUE:
+      break;
   }
   threshold_calibrator_->observe(true, detector_->get_motion_metric(), packet_weight);
 
   snapshot_.calibration_packets = threshold_calibrator_->packet_count();
   snapshot_.calibration_target_packets = threshold_calibrator_->target_packets();
 
+  // Evidence the detector cannot read yet, such as a burst it has not seen
+  // the end of, extends the calibration in steps instead of concluding.
+  if (threshold_calibrator_->is_complete() &&
+      threshold_calibrator_->extend_if_inconclusive(detector_->startup_calibration_conclusive())) {
+    snapshot_.calibration_target_packets = threshold_calibrator_->target_packets();
+    return true;
+  }
   if (threshold_calibrator_->is_complete()) {
     snapshot_.calibration_packets = snapshot_.calibration_target_packets;
     threshold_calibration_active_.store(false, std::memory_order_relaxed);
@@ -1169,12 +1224,29 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
       snapshot_.startup_threshold = applied_threshold;
       snapshot_.threshold = applied_threshold;
       threshold_changed = true;
-      ESPECTRE_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (shared proposal %.6f)",
-               applied_threshold, adaptive_threshold);
+      // A detector that owns its formula ignores the generic calibrator
+      // metric, so only the applied threshold is meaningful.
+      ESPECTRE_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f", applied_threshold);
     }
     csi_pipeline_.clear_detector_buffer();
+    calibrated_setup_.valid = true;
+    calibrated_setup_.channel = wifi_channel_;
+    calibrated_setup_.capture_profile = csi_pipeline_.capture_profile();
+    calibrated_setup_.traffic_generator_mode = config_.traffic_generator_mode;
+  } else if (detector_ != nullptr) {
+    detector_->on_startup_calibration_abandoned();
   }
 
+  if (calibration_motion_guard_.rejected()) {
+    ESPECTRE_LOGW(RUNTIME_TAG,
+                  "Calibration rejected: motion kept crossing %.6f; keeping threshold %.6f",
+                  calibration_motion_guard_.reference_threshold(),
+                  detector_ != nullptr ? detector_->get_threshold() : 0.0f);
+  } else if (calibration_motion_guard_.restarts() > 0U) {
+    ESPECTRE_LOGI(RUNTIME_TAG, "Calibration restarted %u time(s) after motion",
+                  static_cast<unsigned>(calibration_motion_guard_.restarts()));
+  }
+  calibration_motion_guard_.disable();
   ESPECTRE_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
   // Finish this operation before callbacks can start another calibration.
   threshold_calibrator_.reset();

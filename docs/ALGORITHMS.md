@@ -238,9 +238,13 @@ adapted_logit = logit(base_threshold) +
 threshold = sigmoid(adapted_logit)
 ```
 
-Only the first `64` ready evaluations contribute startup evidence. This keeps the learned two-feature boundary intact while letting the threshold follow a session whose quiet baseline starts above or below the training reference. Runtime adjustments stay on the same `0.0-1.0` probability scale and remain active until recalibration or reboot.
+Calibration reads 10 seconds of ready evaluations, about 40 at the default cadence. When dropping the worst contiguous 5 seconds lowers the startup `q95` by more than `2.5` logits, the window holds a burst: calibration continues in 5-second steps, up to 30 seconds, until the rest is clean, and the threshold comes from the rest. A passing person drops out; a noisy link repeats its episodes, so they stay in. This keeps the learned two-feature boundary intact while letting the threshold follow a session whose quiet baseline starts above or below the training reference. Runtime adjustments stay on the same `0.0-1.0` probability scale and remain active until recalibration or reboot.
 
-The settled-level rule cannot create a high threshold. It only ever lowers one after a long quiet dwell, so any threshold that lands near `1.0` came from the startup `q95` shift, not from later recovery.
+The adaptation is bounded. Fewer than `28` ready evaluations keep the base threshold, and the result stays between the training idle `q95` (`0.095`) and `0.987`. Every calibration restarts on an evaluation above the motion ceiling (`0.9933`), or above the live threshold when a recalibration runs under the setup that produced it and that threshold is lower. If no quiet window arrives within about 30 seconds, calibration fails and keeps the threshold in force. The [SDK integration guide](../src/cpp/sdk_integration.dox) documents the conditions.
+
+A threshold above `0.89` only arises on links whose metric stays high at rest. The runtime then logs a noisy-link warning: Lightweight precision is limited there, and High Accuracy is the better profile.
+
+The settled-level rule cannot create a high threshold. It only ever lowers one after a long quiet dwell.
 
 ### Known limits
 
@@ -255,6 +259,7 @@ The recovery has these safeguards:
 - It only lowers the threshold, so recovery cannot hide motion that the calibrated threshold would have caught.
 - Real activity raises the block maxima above the current threshold and prevents a change. A decrease requires a long quiet stretch.
 - The candidate is the median of block maxima. One spike or one quiet block cannot move it.
+- It never lowers the threshold below the training idle `q95` (`0.095`).
 
 The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design and current operating point live in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md). The temporal-admission contract that prompted the `2.7` revalidation is recorded in the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
@@ -335,14 +340,14 @@ The same production feature set is used by:
 
 | Detection profile | Threshold | Startup behavior |
 |----------|-----------|------------------|
-| `lightweight` | automatic, session-adjustable | motion-first completion with quiet-first fallback inside the valid evidence budget; applies session `q95` logit adaptation |
+| `lightweight` | automatic, session-adjustable | 10 s of valid evidence, extended in 5 s steps past a burst; applies bounded session `q95` logit adaptation |
 | `high_accuracy` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
 
-Lightweight calibration uses up to 10 seconds of valid input after the detector becomes ready:
+Lightweight calibration uses 10 seconds of valid input after the detector becomes ready, extended in 5-second steps up to 30 seconds when the window holds a burst:
 
-- Stay quiet right after boot. Movement during this first quiet phase lowers calibration quality.
-- A clean `quiet -> motion -> quiet` pattern can finish calibration early. This is optional; otherwise calibration falls back to a quiet-only estimate within the same 10 seconds.
-- The 10 seconds count valid slots, not wall-clock time. Missing or bursty input makes calibration take longer, and a window-long gap restarts it.
+- Stay quiet right after boot. A short movement extends calibration and drops out of the threshold. Strong movement restarts calibration.
+- If movement keeps restarting it for about 30 seconds, calibration gives up and the detector starts from its base threshold.
+- The seconds count valid slots, not wall-clock time. Missing or bursty input makes calibration take longer, and a window-long gap restarts it.
 
 Both profiles use the same fixed subcarrier set and temporal-admission contract. Their feature extraction, working state, readiness gates, motion metric, and threshold-calibration behavior differ.
 

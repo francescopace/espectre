@@ -87,20 +87,111 @@ void test_filtered_turbulence_ring_skips_large_missing_runs(void) {
   TEST_ASSERT_EQUAL_FLOAT(3.0f, ordered[3]);
 }
 
+namespace {
+
+float logit(float probability) { return std::log(probability / (1.0f - probability)); }
+
+float adapted_from_constant_evidence(uint8_t samples, float value) {
+  LightweightDetector detector;
+  detector.startup_logit_count_ = samples;
+  for (uint8_t i = 0U; i < samples; i++) {
+    detector.startup_logits_[i] = value;
+  }
+  detector.on_startup_calibration_complete();
+  return detector.adapted_threshold_;
+}
+
+}  // namespace
+
 void test_lightweight_detector_startup_q95_adapts_threshold(void) {
   LightweightDetector detector;
-  detector.startup_logit_count_ = 4U;
-  detector.startup_logits_[0] = -1.0f;
-  detector.startup_logits_[1] = -0.8f;
-  detector.startup_logits_[2] = -0.6f;
-  detector.startup_logits_[3] = -0.4f;
+  detector.startup_logit_count_ = LIGHTWEIGHT_STARTUP_MIN_SAMPLES;
+  for (uint8_t i = 0U; i < detector.startup_logit_count_; i++) {
+    detector.startup_logits_[i] = -1.0f + 0.02f * static_cast<float>(i);
+  }
+  const float q95 = detector.startup_quantile_();
 
   detector.on_startup_calibration_complete();
   TEST_ASSERT_TRUE(detector.adapted_threshold_ready_);
+  TEST_ASSERT_FLOAT_WITHIN(
+      1e-5f,
+      logit(LIGHTWEIGHT_DEFAULT_THRESHOLD) +
+          LIGHTWEIGHT_STARTUP_STRENGTH * (q95 - LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT),
+      logit(detector.adapted_threshold_));
   TEST_ASSERT_TRUE(detector.set_adaptive_threshold(0.1f));
   TEST_ASSERT_FLOAT_WITHIN(1e-6f, detector.adapted_threshold_, detector.get_threshold());
-  TEST_ASSERT_TRUE(detector.get_threshold() > 0.0f);
-  TEST_ASSERT_TRUE(detector.get_threshold() < 1.0f);
+}
+
+void test_lightweight_detector_startup_evidence_is_bounded(void) {
+  // Motion evidence counts at the calibration motion logit, so the adapted
+  // threshold stays below the ceiling the calibration guard restarts on.
+  const float motion = adapted_from_constant_evidence(40U, 10.0f);
+  TEST_ASSERT_FLOAT_WITHIN(
+      1e-5f,
+      logit(LIGHTWEIGHT_DEFAULT_THRESHOLD) +
+          LIGHTWEIGHT_STARTUP_STRENGTH *
+              (LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT - LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT),
+      logit(motion));
+  TEST_ASSERT_TRUE(motion < LightweightDetector().calibration_motion_ceiling());
+  // Too few samples keep the default rather than a q95 of one or two values.
+  TEST_ASSERT_FLOAT_WITHIN(
+      1e-6f, LIGHTWEIGHT_DEFAULT_THRESHOLD,
+      adapted_from_constant_evidence(LIGHTWEIGHT_STARTUP_MIN_SAMPLES - 1U, 10.0f));
+  // A very quiet session never adapts below the training idle q95.
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT,
+                           logit(adapted_from_constant_evidence(40U, -20.0f)));
+}
+
+namespace {
+
+// A quiet window of `count` evaluations with an optional run of `burst`
+// evaluations at `burst_logit`, starting at `burst_start`.
+void load_startup_evidence(LightweightDetector& detector, uint8_t count, uint8_t burst_start,
+                           uint8_t burst, float burst_logit) {
+  detector.startup_logit_count_ = count;
+  for (uint8_t i = 0U; i < count; i++) {
+    const bool in_burst = i >= burst_start && i < burst_start + burst;
+    detector.startup_logits_[i] = in_burst ? burst_logit : -6.0f + 0.01f * static_cast<float>(i % 7U);
+  }
+}
+
+}  // namespace
+
+void test_lightweight_detector_steps_calibration_past_a_burst(void) {
+  LightweightDetector detector;
+  // A clean base budget concludes at once.
+  load_startup_evidence(detector, LIGHTWEIGHT_STARTUP_BASE_SAMPLES, 0U, 0U, 0.0f);
+  TEST_ASSERT_TRUE(detector.startup_calibration_conclusive());
+  // A 3 s burst inside it asks for more evidence...
+  load_startup_evidence(detector, LIGHTWEIGHT_STARTUP_BASE_SAMPLES, 15U, 12U, 3.0f);
+  TEST_ASSERT_FALSE(detector.startup_calibration_conclusive());
+  // ...until the rest spans a clean base budget, and the burst never sets
+  // the threshold.
+  load_startup_evidence(detector, LIGHTWEIGHT_STARTUP_BASE_SAMPLES + 20U, 15U, 12U, 3.0f);
+  TEST_ASSERT_TRUE(detector.startup_calibration_conclusive());
+  detector.on_startup_calibration_complete();
+  const float with_burst = detector.adapted_threshold_;
+  load_startup_evidence(detector, LIGHTWEIGHT_STARTUP_BASE_SAMPLES + 20U, 0U, 0U, 0.0f);
+  detector.on_startup_calibration_complete();
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, detector.adapted_threshold_, with_burst);
+}
+
+void test_lightweight_detector_keeps_recurring_noise_in_its_threshold(void) {
+  // A noisy link repeats its episodes, so removing one run leaves the others
+  // and the threshold stays high rather than trusting the quiet stretches.
+  LightweightDetector detector;
+  detector.startup_logit_count_ = LIGHTWEIGHT_STARTUP_SAMPLE_LIMIT;
+  for (uint8_t i = 0U; i < detector.startup_logit_count_; i++) {
+    detector.startup_logits_[i] = (i % 20U) < 3U ? 3.0f : -6.0f;
+  }
+  TEST_ASSERT_TRUE(detector.startup_calibration_conclusive());
+  detector.on_startup_calibration_complete();
+  TEST_ASSERT_TRUE(detector.adapted_threshold_ > LIGHTWEIGHT_NOISY_LINK_THRESHOLD);
+}
+
+void test_lightweight_detector_exposes_its_calibration_motion_ceiling(void) {
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, LIGHTWEIGHT_CALIBRATION_MOTION_LOGIT,
+                           logit(LightweightDetector().calibration_motion_ceiling()));
 }
 
 void test_manual_threshold_suspends_settling_until_recalibration(void) {
@@ -132,16 +223,60 @@ void test_manual_threshold_suspends_settling_until_recalibration(void) {
   TEST_ASSERT_TRUE(detector.get_threshold() < calibrated);
 }
 
-void test_lightweight_detector_noisy_startup_still_uses_shifted_logit_threshold(void) {
+void test_abandoned_calibration_keeps_the_threshold_and_its_adaptation(void) {
+  int8_t packet[HT20_CSI_LEN];
+  std::fill(packet, packet + HT20_CSI_LEN, 20);
   LightweightDetector detector;
-  detector.startup_logit_count_ = 4U;
-  for (uint8_t i = 0U; i < detector.startup_logit_count_; i++) {
-    detector.startup_logits_[i] = 10.0f;
-  }
-
+  const unsigned packets = detector.get_window_size() +
+      LIGHTWEIGHT_SETTLE_BLOCKS * LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS;
+  auto run_quiet = [&]() {
+    for (unsigned i = 0U; i < packets; ++i) {
+      detector.process_packet(packet, sizeof(packet), nullptr, 0U);
+      detector.update_state();
+    }
+  };
   detector.on_startup_calibration_complete();
-  TEST_ASSERT_TRUE(detector.adapted_threshold_ > LIGHTWEIGHT_DEFAULT_THRESHOLD);
-  TEST_ASSERT_TRUE(detector.adapted_threshold_ < 1.0f);
+  detector.set_adaptive_threshold(0.5f);
+  const float calibrated = detector.get_threshold();
+
+  // Settling waits while a calibration collects evidence...
+  detector.on_startup_calibration_begin();
+  run_quiet();
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, calibrated, detector.get_threshold());
+  // ...and resumes once that calibration ends without a result.
+  detector.on_startup_calibration_abandoned();
+  TEST_ASSERT_EQUAL(0, detector.startup_logit_count_);
+  run_quiet();
+  TEST_ASSERT_TRUE(detector.get_threshold() < calibrated);
+
+  // A manual threshold survives an abandoned calibration.
+  TEST_ASSERT_TRUE(detector.set_threshold(0.9f));
+  detector.on_startup_calibration_begin();
+  detector.on_startup_calibration_abandoned();
+  run_quiet();
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.9f, detector.get_threshold());
+}
+
+void test_lightweight_detector_uncalibrated_abandon_lets_the_default_settle(void) {
+  int8_t packet[HT20_CSI_LEN];
+  std::fill(packet, packet + HT20_CSI_LEN, 20);
+  LightweightDetector detector;
+  const unsigned packets = detector.get_window_size() +
+      LIGHTWEIGHT_SETTLE_BLOCKS * LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS;
+
+  // A startup calibration rejected for motion keeps the threshold in force...
+  detector.on_startup_calibration_begin();
+  detector.on_startup_calibration_abandoned();
+  TEST_ASSERT_TRUE(detector.adapted_threshold_ready_);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, LIGHTWEIGHT_DEFAULT_THRESHOLD, detector.get_threshold());
+  // ...and a quiet room still lowers it, never under the training idle q95.
+  for (unsigned i = 0U; i < packets; ++i) {
+    detector.process_packet(packet, sizeof(packet), nullptr, 0U);
+    detector.update_state();
+  }
+  TEST_ASSERT_TRUE(detector.get_threshold() < LIGHTWEIGHT_DEFAULT_THRESHOLD);
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT,
+                           logit(detector.get_threshold()));
 }
 
 void test_lightweight_detector_clear_buffer_resets_feature_state(void) {
@@ -185,8 +320,13 @@ int process(void) {
   RUN_TEST(test_lightweight_detector_owns_aggregated_turbulence_ring);
   RUN_TEST(test_filtered_turbulence_ring_skips_large_missing_runs);
   RUN_TEST(test_lightweight_detector_startup_q95_adapts_threshold);
+  RUN_TEST(test_lightweight_detector_startup_evidence_is_bounded);
+  RUN_TEST(test_lightweight_detector_exposes_its_calibration_motion_ceiling);
+  RUN_TEST(test_lightweight_detector_steps_calibration_past_a_burst);
+  RUN_TEST(test_lightweight_detector_keeps_recurring_noise_in_its_threshold);
   RUN_TEST(test_manual_threshold_suspends_settling_until_recalibration);
-  RUN_TEST(test_lightweight_detector_noisy_startup_still_uses_shifted_logit_threshold);
+  RUN_TEST(test_abandoned_calibration_keeps_the_threshold_and_its_adaptation);
+  RUN_TEST(test_lightweight_detector_uncalibrated_abandon_lets_the_default_settle);
   RUN_TEST(test_lightweight_detector_clear_buffer_resets_feature_state);
   RUN_TEST(test_lightweight_detector_honours_shared_state_contract);
   return UNITY_END();
