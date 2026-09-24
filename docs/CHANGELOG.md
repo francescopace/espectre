@@ -51,6 +51,7 @@ All notable changes to this project will be documented in this file.
 - Fixed the Lightweight threshold adapting down to about 0.01 in very quiet rooms, where rest noise crossed it. It now stays between 0.095 and 0.987.
 - Fixed sensing availability dropping for a fraction of a second when window coverage briefly fell under the 70% valid-slot floor. Readiness now holds through dips shorter than one detector window, and the runtime logs every readiness change with its reason.
 - Fixed evaluations made while the detector is not ready counting as IDLE in motion-hit filtering, which could switch MOTION off during a coverage dip. They now keep the current state and the last movement score on every frontend, as replay already did.
+- Fixed `espectre collect` ignoring its own startup calibration and running at the default Lightweight threshold. It now applies the calibrated threshold and rejects movement during calibration as the firmware does.
 - Fixed mDNS replies to several common query types on all four frontends, keeping compatibility with rc1 and rc2. See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/DISCOVERY.md#limits).
 - Fixed repeated browser discovery running out of HTTP connections, and added one retry for slow devices.
 - Fixed Native rebooting while checking for OTA updates in Device settings.

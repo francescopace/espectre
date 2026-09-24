@@ -388,8 +388,13 @@ def _run_live_collect(args) -> None:
         )
         from runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
         from threshold import (
+            CALIBRATION_MOTION_BUDGET_WINDOWS,
+            GUARD_REJECT,
+            GUARD_RESTART,
+            CalibrationMotionGuard,
             StartupThresholdCalibrator,
             get_detector_auto_factor,
+            get_detector_calibration_motion_ceiling,
             get_detector_startup_gate,
         )
     except ImportError:
@@ -411,8 +416,13 @@ def _run_live_collect(args) -> None:
             )
             from src.runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
             from src.threshold import (
+                CALIBRATION_MOTION_BUDGET_WINDOWS,
+                GUARD_REJECT,
+                GUARD_RESTART,
+                CalibrationMotionGuard,
                 StartupThresholdCalibrator,
                 get_detector_auto_factor,
+                get_detector_calibration_motion_ceiling,
                 get_detector_startup_gate,
             )
         except ImportError as e:
@@ -611,6 +621,18 @@ def _run_live_collect(args) -> None:
             gate_enabled=get_detector_startup_gate(detector),
         )
 
+    def build_calibration_guard(detector, target_packets):
+        # Mirrors the motion reference of a first calibration in
+        # EspIdfRuntime::start_calibration_; no threshold is in force yet.
+        motion_reference = get_detector_calibration_motion_ceiling(detector)
+        if motion_reference is None:
+            return None
+        return CalibrationMotionGuard(
+            motion_reference,
+            target_packets,
+            target_packets * CALIBRATION_MOTION_BUDGET_WINDOWS,
+        )
+
     def build_timing_tracker(nominal_interval_us):
         return PacketTimingTracker(nominal_interval_us)
 
@@ -697,17 +719,9 @@ def _run_live_collect(args) -> None:
             motion_on_hits=config.MOTION_ON_HITS,
             motion_off_hits=config.MOTION_OFF_HITS,
         )
-        calibration_detector = (
-            create_detector(kind, 1.0, window_packets)
-            if needs_calibration
-            else None
-        )
-        if calibration_detector is not None:
-            if hasattr(calibration_detector, "set_minimum_valid_samples"):
-                calibration_detector.set_minimum_valid_samples(
-                    initial_minimum_valid_slots
-                )
-            start_startup_session(calibration_detector)
+        # The firmware calibrates the detector it then runs, so the startup
+        # evidence and the threshold it sets stay on one instance.
+        calibration_detector = detector if needs_calibration else None
         return {
             "kind": kind,
             "detector": detector,
@@ -728,6 +742,11 @@ def _run_live_collect(args) -> None:
                     motion_on_hits=1,
                     motion_off_hits=1,
                 )
+                if calibration_detector is not None
+                else None
+            ),
+            "calibration_guard": (
+                build_calibration_guard(calibration_detector, calibration_target_packets)
                 if calibration_detector is not None
                 else None
             ),
@@ -931,17 +950,21 @@ def _run_live_collect(args) -> None:
             return "WARMUP"
         return "MOTION" if int(slot["effective_state"]) == 1 else "IDLE"
 
-    def finalize_slot_calibration(slot):
+    def finalize_slot_calibration(slot, rejected=False):
         detector = slot["detector"]
         runtime_policy = slot["runtime_policy"]
         calibration_tracker = slot["calibration_tracker"]
         slot["calibration_done"] = True
         if hasattr(runtime_policy, "reset"):
             runtime_policy.reset()
-        if hasattr(detector, "reset"):
-            detector.reset()
 
-        if calibration_tracker is not None and calibration_tracker.is_successful():
+        # The detector reads its startup evidence here, so apply the threshold
+        # before reset() drops that evidence with the window.
+        if (
+            not rejected
+            and calibration_tracker is not None
+            and calibration_tracker.is_successful()
+        ):
             startup_threshold, threshold_formula = calibration_tracker.calculate_threshold()
             if hasattr(detector, "set_adaptive_threshold"):
                 detector.set_adaptive_threshold(startup_threshold)
@@ -950,8 +973,14 @@ def _run_live_collect(args) -> None:
             slot["calibration_threshold_source"] = f"automatic ({threshold_formula})"
             slot["calibration_success"] = True
         else:
+            if hasattr(detector, "on_startup_calibration_abandoned"):
+                detector.on_startup_calibration_abandoned()
             slot["calibration_success"] = False
-            slot["calibration_threshold_source"] = "failed"
+            slot["calibration_threshold_source"] = (
+                "rejected (motion)" if rejected else "failed"
+            )
+        if hasattr(detector, "reset"):
+            detector.reset()
         slot["metric_threshold"] = get_detector_threshold(detector, slot["metric_threshold"])
 
         slot["motion_metric"] = 0.0
@@ -984,15 +1013,36 @@ def _run_live_collect(args) -> None:
                 continue
             calibration_metrics = calibration_detector.update_state()
             evaluated_any = True
+            packet_weight = policy_equivalent_packets(
+                calibration_policy,
+                slot["calibration_packets_since_evaluation"],
+                device_state["nominal_interval_us"],
+            )
+            calibration_guard = slot.get("calibration_guard")
             if calibration_detector.is_ready():
+                verdict = (
+                    None
+                    if calibration_guard is None
+                    else calibration_guard.observe(
+                        calibration_detector.get_motion_metric(),
+                        packet_weight=packet_weight,
+                    )
+                )
+                if verdict == GUARD_REJECT:
+                    finalize_slot_calibration(slot, rejected=True)
+                    finalized_any = True
+                    continue
+                if verdict == GUARD_RESTART:
+                    # The window still holds the motion; refill it before
+                    # collecting quiet evidence again.
+                    restart_calibration_slot(slot, device_state)
+                    continue
                 calibration_tracker.observe_detector(
                     calibration_detector,
-                    packet_weight=policy_equivalent_packets(
-                        calibration_policy,
-                        slot["calibration_packets_since_evaluation"],
-                        device_state["nominal_interval_us"],
-                    ),
+                    packet_weight=packet_weight,
                 )
+            elif calibration_guard is not None:
+                calibration_guard.skip(packet_weight)
             calibration_policy.after_evaluation()
             slot["calibration_packets_since_evaluation"] = 0
             slot["motion_metric"] = extract_motion_metric(calibration_metrics)
@@ -1046,7 +1096,9 @@ def _run_live_collect(args) -> None:
             slot["motion_metric"] = extract_motion_metric(metrics)
             slot["metric_threshold"] = metrics["threshold"]
 
-            effective_state, _ = runtime_policy.apply_state(metrics["state"])
+            effective_state, _ = runtime_policy.apply_state(
+                metrics["state"], ready=detector.is_ready()
+            )
             runtime_policy.after_evaluation()
             slot["effective_state"] = effective_state
             slot["status"] = get_slot_status(slot)

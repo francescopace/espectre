@@ -187,6 +187,78 @@ def test_collect_duration_expires_after_packets_stop(monkeypatch, tmp_path, labe
     assert saved_packets == ([packet] if label else [])
 
 
+@pytest.mark.parametrize("motion", [False, True])
+def test_collect_calibration_applies_quiet_evidence_and_rejects_motion(monkeypatch, motion):
+    from tools.lib.lightweight_detector import LightweightDetector
+
+    clock = [20.0]
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host.signal, "signal", lambda *_args: None)
+    if motion:
+        # Every ready evaluation crosses the motion reference.
+        monkeypatch.setattr("threshold.get_detector_calibration_motion_ceiling", lambda _detector: -1.0)
+    applied_evidence = []
+    abandoned = []
+    set_adaptive_threshold = LightweightDetector.set_adaptive_threshold
+    abandon = LightweightDetector.on_startup_calibration_abandoned
+
+    def spy_set_adaptive_threshold(self, shared_threshold):
+        applied_evidence.append(len(self._startup_logits))
+        set_adaptive_threshold(self, shared_threshold)
+
+    def spy_abandon(self):
+        abandoned.append(True)
+        abandon(self)
+
+    monkeypatch.setattr(LightweightDetector, "set_adaptive_threshold", spy_set_adaptive_threshold)
+    monkeypatch.setattr(LightweightDetector, "on_startup_calibration_abandoned", spy_abandon)
+
+    class Receiver:
+        effective_socket_rcvbuf_bytes = None
+        calls = 0
+
+        def add_callback(self, callback):
+            self.callback = callback
+
+        def run(self, **_kwargs):
+            self.calls += 1
+            if self.calls > 1:
+                clock[0] += 1000.0
+                return
+            # Enough packets for a quiet calibration and for a full motion budget.
+            for seq in range(4500):
+                self.callback(csi_io.CSIPacket(
+                    timestamp=20.0,
+                    seq_num=seq,
+                    num_subcarriers=64,
+                    iq_raw=np.ones(128, dtype=np.int8),
+                    device_id=1,
+                    device_ticks_us=10000 * (seq + 1),
+                    source_ip="192.0.2.1",
+                ))
+
+        def stop(self):
+            pass
+
+    generator = SimpleNamespace(stop=lambda: None)
+    monkeypatch.setattr(host, "_prepare_raw_http_collection", lambda *_args: (Receiver(), generator, 5555))
+    monkeypatch.setattr(host, "_start_raw_http_collection", lambda *_args: None)
+    args = build_parser().parse_args(["collect", "--target", "192.0.2.1", "--duration", "60"])
+    args.label = None
+    args.direct_endpoint = "http://192.0.2.1:8080/espectre/v1"
+    args.traffic_target = "192.0.2.1"
+
+    host._run_live_collect(args)
+
+    if motion:
+        assert applied_evidence == []
+        assert abandoned
+    else:
+        # The threshold reads the evidence the calibration collected.
+        assert len(applied_evidence) == 1 and applied_evidence[0] > 0
+        assert not abandoned
+
+
 def test_discovery_frontends_exclude_streamer() -> None:
     assert device_discovery.SUPPORTED_DISCOVERY_FRONTENDS == ("native", "esphome", "matter", "micro")
 
