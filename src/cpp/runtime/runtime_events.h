@@ -25,13 +25,16 @@ namespace espectre {
  * @par Threading and reentrancy
  * Callbacks are always delivered on the caller's task, never from an interrupt
  * or the Wi-Fi driver:
- * - Sensing events (motion, periodic, live telemetry, calibration completion,
- *   and detector-driven threshold adaptation) originate in the CSI callback
- *   but are deferred through an internal mailbox and dispatched from `loop()`.
- * - Control-driven events (runtime threshold writes and detector selection)
- *   fire inline on whichever task called the corresponding setter.
- *   `on_threshold_changed()` is used for both: a setter, calibration finish,
- *   or Lightweight settled-level recovery.
+ * - Sensing events (motion, readiness, periodic, live telemetry, calibration
+ *   progress, and detector-driven threshold adaptation) originate in the CSI
+ *   callback but are deferred through an internal mailbox and dispatched from
+ *   `loop()`.
+ * - Control-driven events (threshold writes, detector selection, and manual
+ *   recalibration) fire inline on whichever task called the corresponding
+ *   control method.
+ *
+ * `on_threshold_changed()` covers every threshold source: a setter, a
+ * calibration result, or Lightweight settled-level recovery.
  *
  * Keep callbacks bounded and non-blocking. Slow work delays the next `loop()`
  * iteration and can fill the bounded CSI mailbox, causing incoming frames to be
@@ -87,8 +90,10 @@ class IRuntimeListener {
    * through `on_live_telemetry()`.
    *
    * @param snapshot Current sensing state, including the metric and threshold.
-   * @param csi_accepted CSI packets accepted since the previous heartbeat,
-   *        which is the honest measure of the achieved capture rate.
+   * @param csi_accepted CSI packets the detector processed since the previous
+   *        heartbeat, after temporal admission. This is the achieved sensing
+   *        rate, not the capture-validation count in
+   *        `RuntimeDiagnosticsSnapshot::Csi::accepted_total`.
    */
   virtual void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) {}
   /**
@@ -109,7 +114,9 @@ class IRuntimeListener {
   /**
    * Startup calibration began; detection results are not valid yet.
    *
-   * Lightweight only. ML ships a fixed threshold and completes immediately.
+   * Lightweight only. High Accuracy keeps a fixed threshold, so it skips this
+   * callback and reports `on_calibration_finished()` with `success` true at
+   * once.
    */
   virtual void on_calibration_started(const RuntimeSnapshot &snapshot) {}
   /**
@@ -120,8 +127,10 @@ class IRuntimeListener {
    *
    * @param snapshot Sensing state at completion, carrying the applied threshold.
    * @param success false when calibration was cancelled or could not settle on
-   *        a threshold. The runtime keeps sensing with the configured value,
-   *        so treat this as a signal to surface, not a fatal error.
+   *        a threshold. The runtime keeps sensing with the threshold in force
+   *        before this calibration, which after a failed startup calibration
+   *        is the configured value. Treat this as a signal to surface, not a
+   *        fatal error.
    */
   virtual void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {}
   /**

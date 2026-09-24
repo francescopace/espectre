@@ -154,7 +154,8 @@ struct RuntimeSnapshot {
    * Current motion metric, on a 0..1 probability scale for both detectors.
    *
    * Comparable to `threshold`, but not comparable across detectors: Lightweight
-   * and ML produce the number differently even though the scale matches.
+   * and High Accuracy produce the number differently even though the scale
+   * matches.
    */
   float movement_metric{0.0f};
   /** Threshold `movement_metric` is compared against, on the same scale. */
@@ -181,9 +182,7 @@ struct RuntimeSnapshot {
    * Packet budget for the current Lightweight startup calibrator.
    *
    * Zero when calibration is not running. It grows in steps while the detector
-   * needs more evidence, up to three times its starting value. `csi:`/`miss:`
-   * on the status heartbeat are last-second pipeline rates, not remaining
-   * calibration work.
+   * needs more evidence, up to three times its starting value.
    */
   uint16_t calibration_target_packets{0};
   /**

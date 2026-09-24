@@ -22,18 +22,19 @@
 
 namespace espectre {
 
-// Callback types
+/** Receives the station IPv4 configuration; delivered from process_pending_events(). */
 using wifi_connected_callback_t = std::function<void(const esp_netif_ip_info_t &)>;
+/** Station disconnection; delivered from process_pending_events(). */
 using wifi_disconnected_callback_t = std::function<void()>;
+/** Outcome of a CSI receive-path refresh scan, including `ESP_ERR_TIMEOUT`. */
 using wifi_csi_rx_refresh_callback_t = std::function<void(esp_err_t)>;
 
 /**
- * WiFi Lifecycle Manager
+ * Turns Wi-Fi and IP events into connect and disconnect callbacks.
  *
- * Manages WiFi connection events and coordinates service lifecycle.
- * Handles startup sequence: CSI → Traffic Generator → Band Calibration
- * Applies station TX rate policy before connected callbacks, independently
- * of whether sensing uses an internal generator or external traffic.
+ * The runtime starts and stops CSI capture, traffic, and calibration from
+ * those callbacks. The station TX rate policy is applied before the connected
+ * callbacks, whether sensing uses an internal generator or external traffic.
  *
  * The STA-start handler applies the short radio policy synchronously, before
  * association. Connect/disconnect callbacks run from process_pending_events(),
@@ -43,11 +44,11 @@ using wifi_csi_rx_refresh_callback_t = std::function<void(esp_err_t)>;
 class WiFiLifecycleManager {
  public:
   /**
-   * Register WiFi event handlers
+   * Register Wi-Fi event handlers
    * 
-   * @param connected_cb Callback when WiFi obtains or retains an IPv4 configuration;
+   * @param connected_cb Callback when Wi-Fi obtains or retains an IPv4 configuration;
    *        receives the address, netmask, and gateway after GOT_IP or reassociation
-   * @param disconnected_cb Callback when WiFi disconnects
+   * @param disconnected_cb Callback when Wi-Fi disconnects
    * @param band_policy Station band policy used while applying connection settings
    * @return ESP_OK on success. If the default station already has an IPv4
    *         address, its current state is queued for process_pending_events().
@@ -57,7 +58,7 @@ class WiFiLifecycleManager {
                               WifiBandPolicy band_policy = WifiBandPolicy::BAND_2G);
   
   /**
-   * Unregister WiFi event handlers
+   * Unregister Wi-Fi event handlers
    */
   void unregister_handlers();
 

@@ -24,6 +24,12 @@
 
 namespace espectre {
 
+/**
+ * IMqttTransport over the ESP-IDF `esp-mqtt` client.
+ *
+ * Publishes at QoS 0 through a bounded local queue, in which state messages
+ * take precedence over replaceable telemetry. Callbacks run from loop().
+ */
 class EspIdfMqttTransport : public IMqttTransport {
  public:
   bool setup(const EspectreDeviceConfig &config) override;

@@ -31,6 +31,14 @@ struct httpd_req;
 
 namespace espectre {
 
+/**
+ * IDirectHttpService over the ESP-IDF HTTP server.
+ *
+ * Serves the versioned API, the event stream, and raw collection on
+ * `DirectHttpServiceConfig::port`. Server and worker tasks only queue work;
+ * callbacks run from loop() on the owner task. Raw buffers are allocated
+ * while a raw session is open.
+ */
 class EspIdfDirectHttpService final : public IDirectHttpService {
  public:
   EspIdfDirectHttpService();

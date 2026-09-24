@@ -25,17 +25,17 @@
  * a range applies, `_MIN` and `_MAX`. Read them instead of hardcoding limits,
  * so a UI, a provisioning flow, or a config parser stays correct across SDK
  * releases.
- *
- * The `static_assert` block at the end holds these values in lockstep with the
- * detector and filter constants they mirror, so a drift between the runtime
- * schema and `core/` fails the build rather than the device.
  */
 
 namespace espectre {
 
 constexpr const char *const RUNTIME_CSI_CAPTURE_PROFILE_DEFAULT_NAME = "auto";
 
-/** Which detector runs. See `docs/ALGORITHMS.md` for how they differ. */
+/**
+ * Which detector runs. See
+ * [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md)
+ * for how they differ.
+ */
 enum class DetectionAlgorithm {
   /** Lightweight feature fusion. Self-calibrates, and needs no training data. Default. */
   LIGHTWEIGHT,

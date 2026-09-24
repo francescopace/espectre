@@ -15,8 +15,15 @@
 namespace espectre {
 
 constexpr uint32_t TEMPORAL_CSI_MICROSECONDS_PER_SECOND = 1000000U;
+/**
+ * A window is ready when at least this fraction of its slots holds a sample:
+ * `TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR / TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR`,
+ * rounded up.
+ */
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR = 7U;
+/** See `TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR`. */
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR = 10U;
+/** Selected candidates are at least one slot period divided by this apart. */
 constexpr uint8_t TEMPORAL_CSI_SLOT_HALF_DENOMINATOR = 2U;
 
 static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR > 0U);
@@ -81,31 +88,69 @@ class TemporalCsiSampler {
   /** Commit the retained payload when the input stream ends. */
   bool flush();
 
+  /** @name Grid configuration */
+  /** @{ */
   uint32_t target_pps() const { return target_pps_; }
   uint32_t window_size_ms() const { return window_size_ms_; }
+  /** Slots in one window: `target_pps` times the window duration, rounded up. */
   uint32_t window_slots() const { return window_slots_; }
+  /** Occupied slots a window needs to be ready. */
   uint32_t minimum_valid_slots() const { return minimum_valid_slots_; }
+  /** Smallest time between two committed candidates, in microseconds. */
   uint32_t minimum_sample_spacing_us() const {
     return minimum_sample_spacing_us_;
   }
+  /** @} */
+
+  /** @name Window state */
+  /** @{ */
+  /** Slots in the current window that hold a committed sample. */
   uint32_t occupancy_slots() const { return occupancy_slots_; }
+  /** occupancy_slots() divided by window_slots(). */
   float occupancy_ratio() const;
+  /** Whether the window spans all its slots and meets the occupancy floor. */
   bool is_ready() const;
+  /** @} */
 
+  /**
+   * @name Result of the latest admit() or flush()
+   * Each call overwrites these values.
+   * @{
+   */
+  /** Whether the call committed the retained payload; same as the return value. */
   bool accepted() const { return accepted_; }
+  /** Whether the current packet became the retained candidate; store its payload. */
   bool selected_current() const { return selected_current_; }
+  /** Whether a candidate is retained and not yet committed. */
   bool has_pending_candidate() const { return has_pending_candidate_; }
+  /** Whether the committed payload is the first after a gap; clear detector history before it. */
   bool reset_required() const { return reset_required_; }
+  /** Whether this packet followed a gap of at least one window; clear detector history. */
   bool gap_reset_required() const { return gap_reset_required_; }
+  /** Grid slot of the latest committed payload, counted from the timestamp epoch. */
   uint64_t current_slot() const { return last_admitted_slot_; }
+  /** Slots between the previous committed payload and this one. */
   uint64_t slots_advanced() const { return slots_advanced_; }
+  /** Empty slots before the committed payload; pass to `BaseDetector::advance_missing_slots()`. */
   uint64_t missing_slots_before() const { return missing_slots_before_; }
+  /** @} */
 
+  /**
+   * @name Lifetime counters
+   * Cleared by reset(), kept by clear_history().
+   * @{
+   */
+  /** Payloads committed to the grid. */
   uint64_t accepted_packets() const { return accepted_packets_; }
+  /** Packets not kept because their slot already had a better candidate or they came too soon. */
   uint64_t excess_packets() const { return excess_packets_; }
+  /** Packets whose timestamp moved backwards. */
   uint64_t out_of_order_packets() const { return out_of_order_packets_; }
+  /** Packets older than one window when processed; needs `now_us`. */
   uint64_t stale_packets() const { return stale_packets_; }
+  /** Empty slots skipped between committed payloads. */
   uint64_t missing_slots() const { return missing_slots_; }
+  /** @} */
 
  private:
   static constexpr uint32_t kHalfTimestampRange = 0x80000000U;

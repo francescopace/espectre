@@ -122,6 +122,12 @@ EXTRACT_STATIC         = NO
 HIDE_UNDOC_MEMBERS     = NO
 HIDE_UNDOC_CLASSES     = NO
 
+# Reachable from the facades only because public headers need them, and not
+# part of the version contract: the `detail` namespace, and the assembler held
+# by value inside EspIdfMqttTransport.
+EXCLUDE_SYMBOLS        = espectre::detail \
+                         espectre::MqttPayloadAssembler
+
 JAVADOC_AUTOBRIEF      = YES
 MARKDOWN_SUPPORT       = YES
 AUTOLINK_SUPPORT       = YES

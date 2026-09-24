@@ -22,10 +22,15 @@ enum {
   /** Every frontend. */
   ESPECTRE_DIAGNOSTIC_PROFILE_ALL = 7U,
 };
+/** One field of the diagnostic catalog. */
 typedef struct {
+  /** Dotted field path, such as `raw_csi.raw_drop_total`. */
   const char *name;
+  /** JSON type: `integer`, `number`, or `boolean`. */
   const char *type;
+  /** Unit such as `ms`, `pps`, or `count`; empty for flags. */
   const char *unit;
+  /** Bit set of `ESPECTRE_DIAGNOSTIC_PROFILE_*` values. */
   unsigned profiles;
 } espectre_diagnostic_field_t;
 
@@ -113,5 +118,6 @@ static const espectre_diagnostic_field_t espectre_diagnostic_fields[] = {
   {"mqtt.publish_failures", "integer", "count", ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE},
   {"mqtt.reconnects", "integer", "count", ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE},
 };
+/** Number of entries in `espectre_diagnostic_fields`. */
 #define ESPECTRE_DIAGNOSTIC_FIELD_COUNT \
   (sizeof(espectre_diagnostic_fields) / sizeof(espectre_diagnostic_fields[0]))

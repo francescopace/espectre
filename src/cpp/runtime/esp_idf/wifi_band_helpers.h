@@ -23,11 +23,14 @@
 #else
 #define ESPECTRE_WIFI_DUAL_BAND 0
 #endif
+/** @def ESPECTRE_WIFI_DUAL_BAND
+ * 1 when the target radio supports 5 GHz, otherwise 0. */
 
 namespace espectre {
 
-// Channel 0 means "let the station follow the AP", which is the default.
+/** Channel hint meaning no hint: the station follows the access point. */
 constexpr int WIFI_CHANNEL_AUTO = 0;
+/** Highest 2.4 GHz channel number. */
 constexpr int WIFI_CHANNEL_2G_MAX = 14;
 
 /**
@@ -98,6 +101,7 @@ inline const char *wifi_channel_supported_description() {
 #endif
 }
 
+/** Like wifi_channel_supported_description(), limited to the channels `policy` allows. */
 inline const char *wifi_channel_supported_description(WifiBandPolicy policy) {
 #if ESPECTRE_WIFI_DUAL_BAND
   if (policy == WifiBandPolicy::BAND_5G) {

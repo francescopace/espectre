@@ -34,8 +34,8 @@ namespace espectre {
  * - CSI processing and spatial turbulence calculation
  * 
  * Subclasses must implement:
- * - update_state(): detection algorithm logic
- * - get_motion_metric(): primary detection metric
+ * - update_state(): detection algorithm logic; it assigns `current_metric_`,
+ *   which get_motion_metric() returns
  * - get_threshold() / set_threshold(): threshold management
  * - get_name(): detector name for logging
  */
@@ -104,7 +104,10 @@ public:
     }
     
     /**
-     * Check if detector is ready (buffer filled)
+     * Check if detector is ready
+     *
+     * Ready once the window has filled and its valid slots reach the floor set
+     * by set_minimum_valid_samples().
      */
     virtual bool is_ready() const {
         return buffer_count_ >= window_size_ &&
@@ -139,11 +142,9 @@ public:
     /**
      * Get current motion metric value
      *
-     * Not virtual: every detector reported the same member through an identical
-     * accessor, and the two copies drifted on when they cleared it. Subclasses
-     * assign `current_metric_` at the end of their `update_state()` instead.
+     * Subclasses assign `current_metric_` at the end of their `update_state()`.
      *
-     * @return Primary metric (classic motion metric, ML probability, etc.)
+     * @return Primary metric, on the detector's 0..1 probability scale
      */
     float get_motion_metric() const { return current_metric_; }
 
@@ -171,9 +172,8 @@ public:
     /**
      * Get the detector-specific automatic startup multiplier.
      *
-     * threshold = threshold_metric x factor. Matches the Python
-     * runtime's detector STARTUP_THRESHOLD_FACTOR convention, where
-     * `threshold_metric` comes from the shared startup calibrator.
+     * threshold = threshold_metric x factor, where `threshold_metric` comes
+     * from the shared startup calibrator.
      */
     virtual float get_startup_threshold_factor() const { return 1.3f; }
 
@@ -181,8 +181,7 @@ public:
      * Whether startup calibration uses the calibrator's consistency gate.
      *
      * The gate can end a calibration early on a quiet, motion, quiet pattern.
-     * No shipped detector enables it. Matches the Python runtime's detector
-     * STARTUP_GATE convention.
+     * No shipped detector enables it.
      */
     virtual bool startup_gate_enabled() const { return false; }
 
@@ -270,9 +269,10 @@ public:
     const float* get_turbulence_buffer() const { return turbulence_buffer_; }
     
     /**
-     * Get number of valid samples in buffer
+     * Get number of window slots filled, including missing slots
      */
     uint16_t get_buffer_count() const { return buffer_count_; }
+    /** Get number of filled window slots that hold a measured sample. */
     uint16_t get_valid_buffer_count() const { return valid_buffer_count_; }
     
     /**
@@ -301,16 +301,17 @@ protected:
      *
      * Anything that invalidates the window must also invalidate what was
      * derived from it, or the next publish ships a metric computed from
-     * samples the detector no longer holds. Owned here so a detector cannot
-     * clear one half and forget the other.
+     * samples the detector no longer holds.
      */
     void clear_evaluation_state_() {
         current_metric_ = 0.0f;
         state_ = MotionState::IDLE;
     }
 
+    /** Add the spatial turbulence of one amplitude frame to the ring. */
     void process_amplitudes(const float* amplitudes, uint8_t count);
 
+    /** Timestamp set by set_packet_timestamp_us() for this packet, or `fallback`. */
     uint64_t packet_timestamp_us_or(uint64_t fallback) const {
         return has_packet_timestamp_ ? packet_timestamp_us_ : fallback;
     }
@@ -341,26 +342,44 @@ protected:
      */
     const float* ordered_turbulence(uint16_t& count) const;
 
-    // Buffer state
+    /** @name Turbulence ring */
+    /** @{ */
+    /** Circular buffer of filtered turbulence, `window_size_` entries. */
     float* turbulence_buffer_;
+    /** Scratch buffer behind ordered_turbulence(). */
     float* ordered_turbulence_;
+    /** Next write position in `turbulence_buffer_`. */
     uint16_t buffer_index_;
+    /** See get_buffer_count(). */
     uint16_t buffer_count_;
+    /** See get_valid_buffer_count(). */
     uint16_t valid_buffer_count_;
+    /** See set_minimum_valid_samples(). */
     uint16_t minimum_valid_samples_;
     uint16_t window_size_;
-    
-    // Motion state. `current_metric_` is what get_motion_metric() reports and
-    // what the runtime publishes; clear_evaluation_state_() owns dropping both.
+    /** @} */
+
+    /** @name Evaluation state */
+    /** @{ */
+    /** State reported by get_state(); clear_evaluation_state_() resets it. */
     MotionState state_;
+    /**
+     * Metric reported by get_motion_metric() and published by the runtime.
+     * Subclasses assign it at the end of update_state().
+     */
     float current_metric_;
+    /** Packets processed since the last reset(). */
     uint32_t total_packets_;
+    /** Position of the current packet since the last reset(). */
     uint32_t packet_index_;
+    /** See packet_timestamp_us_or(). */
     uint64_t packet_timestamp_us_;
     bool has_packet_timestamp_;
-    
-    // Filters
+    /** @} */
+
+    /** Hampel filter applied before the ring. */
     hampel_filter_state_t hampel_state_;
+    /** Low-pass filter applied before the ring. */
     lowpass_filter_state_t lowpass_state_;
     
 };

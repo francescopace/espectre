@@ -14,7 +14,9 @@
 
 namespace espectre {
 
+/** Monotonic time since boot in microseconds: `esp_timer` on ESP-IDF, `steady_clock` on hosts. */
 uint64_t monotonic_now_us();
+/** monotonic_now_us() in milliseconds, wrapping modulo 2^32. */
 uint32_t monotonic_now_ms();
 
 }  // namespace espectre

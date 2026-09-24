@@ -16,6 +16,7 @@
 
 namespace espectre {
 
+/** Type of a JSON value. */
 enum class JsonValueType : uint8_t {
   STRING = 0,
   NUMBER,
@@ -25,7 +26,9 @@ enum class JsonValueType : uint8_t {
   ARRAY,
 };
 
+/** One field of a parsed JSON object, with its value copied. */
 struct JsonObjectField {
+  /** Decoded field name. */
   std::string name;
   JsonValueType type{JsonValueType::NULL_VALUE};
   /** Decoded contents for strings, or the exact JSON token for every other type. */
@@ -65,13 +68,39 @@ bool parse_json_array_object_views(const JsonInput &input, size_t offset, size_t
 bool parse_json_string_value(const JsonInput &input, size_t offset, size_t length,
                              std::string *value, std::string *error = nullptr);
 
+/** Append `value` as a quoted, escaped JSON string; `nullptr` appends `""`. */
 void append_json_string(std::string *out, const char *value);
+/** Append `"key":"value"`, preceded by a comma unless `first`. */
 void append_json_pair(std::string *out, const char *key, const char *value, bool first = false);
+
+/**
+ * @name Lenient field lookup
+ * Scan text for the first `"key":` without validating the document. They
+ * suit payloads the device produced itself; parse untrusted input with
+ * parse_json_object_fields() instead.
+ * @{
+ */
+/** Whether `"key":` appears in `payload`. */
 bool has_json_key(const std::string &payload, const char *key);
+/** The first string value of `key`, unescaped; empty when absent. */
 std::string extract_json_string(const std::string &payload, const char *key);
+/** The raw numeric token after `key`, unconverted; empty when absent. */
 std::string extract_json_number_token(const std::string &payload, const char *key);
+/** @} */
+
+/**
+ * Decode one `application/x-www-form-urlencoded` component, `+` included.
+ *
+ * @return false for a truncated or invalid `%` escape, with a reason in `error`.
+ */
 bool decode_urlencoded_component(const std::string &encoded, std::string *decoded, std::string *error = nullptr);
+/** Percent-encode every byte except unreserved URI characters. */
 std::string encode_urlencoded_component(const std::string &value);
+/**
+ * Split `key=value&key=value` into decoded pairs, in order.
+ *
+ * @return false for an empty payload, an empty token, or a token without a key.
+ */
 bool parse_urlencoded_key_value_pairs(const std::string &payload,
                                       std::vector<std::pair<std::string, std::string>> *pairs,
                                       std::string *error = nullptr);
@@ -86,6 +115,7 @@ bool parse_json_array_objects(const std::string &payload,
 /** Parse a complete array containing only JSON strings. */
 bool parse_json_array_strings(const std::string &payload, std::vector<std::string> *strings,
                               std::string *error = nullptr);
+/** The field named `name`, or `nullptr`. */
 const JsonObjectField *find_json_object_field(const std::vector<JsonObjectField> &fields, const char *name);
 
 }  // namespace espectre

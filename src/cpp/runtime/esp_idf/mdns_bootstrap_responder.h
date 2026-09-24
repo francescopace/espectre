@@ -16,21 +16,44 @@
 
 namespace espectre {
 
+/**
+ * Answers the browser bootstrap names `espectre-devices-{nonce}.local` with
+ * this device's IPv4 address.
+ *
+ * See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/main/docs/DISCOVERY.md#browser-bootstrap)
+ * for the protocol. Queries reach it through a link-time wrapper around the
+ * ESP-IDF mDNS receive path, which the SDK component adds with the Direct
+ * source group. Only one responder can be set up at a time.
+ *
+ * @par Threading
+ * Call setup(), update(), loop(), and shutdown() from one owner task.
+ */
 class MdnsBootstrapResponder {
  public:
+  /** Length of the random nonce in a bootstrap name, in hexadecimal characters. */
   static constexpr size_t NONCE_HEX_LENGTH = 24U;
+  /** TTL of every answer. */
   static constexpr uint32_t RESPONSE_TTL_SECONDS = 10U;
 
   ~MdnsBootstrapResponder();
 
+  /** Register as the process-wide responder; false when another is active. */
   bool setup();
+  /** Set the address to answer with, in network byte order; zero stops answering. */
   bool update(uint32_t ipv4_address);
+  /** Send pending answers, at most a few per call and eight per second. */
   void loop();
+  /** Unregister and discard pending answers. Safe to repeat. */
   void shutdown();
+  /** Whether the responder is set up and has an address. */
   bool active() const { return configured_.load() && ipv4_address_.load() != 0U; }
 
-  // Called by the mDNS receive wrapper before the Espressif responder filters
-  // questions for hostnames that it owns.
+  /**
+   * Parse one received mDNS packet and queue answers for bootstrap names.
+   *
+   * Called by the mDNS receive wrapper before the Espressif responder filters
+   * questions for host names it owns; firmware does not call it.
+   */
   void ingest_query(const uint8_t *packet,
                     size_t length,
                     size_t interface,

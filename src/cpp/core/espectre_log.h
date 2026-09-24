@@ -37,8 +37,11 @@ using LogWriteCallback = void (*)(void *context, LogLevel level, const char *tag
  * The context and callbacks must remain valid until the sink is cleared.
  */
 struct LogSink {
+  /** Opaque value passed to both callbacks. May be `nullptr`. */
   void *context{nullptr};
+  /** Required filter, asked before a message is formatted. */
   LogEnabledCallback enabled{nullptr};
+  /** Required writer for messages that passed the filter. */
   LogWriteCallback write{nullptr};
 };
 
@@ -80,6 +83,15 @@ void log_printf(LogLevel level, const char *tag, int line, const char *format, .
 
 }  // namespace espectre
 
+/**
+ * @name Logging macros
+ * Log a printf-style message through the registered LogSink. The arguments are
+ * evaluated only when the sink accepts the level and tag, and nothing happens
+ * without a sink.
+ * @{
+ */
+
+/** Log at an explicit `LogLevel`. */
 #define ESPECTRE_LOG_AT_LEVEL(level, tag, format, ...)                                            \
   do {                                                                                            \
     const char *const espectre_log_tag__ = (tag);                                                 \
@@ -89,13 +101,20 @@ void log_printf(LogLevel level, const char *tag, int line, const char *format, .
     }                                                                                             \
   } while (false)
 
+/** Log at `LogLevel::ERROR`. */
 #define ESPECTRE_LOGE(tag, format, ...)                                                           \
   ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
+/** Log at `LogLevel::WARNING`. */
 #define ESPECTRE_LOGW(tag, format, ...)                                                           \
   ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
+/** Log at `LogLevel::INFO`. */
 #define ESPECTRE_LOGI(tag, format, ...)                                                           \
   ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::INFO, tag, format, ##__VA_ARGS__)
+/** Log at `LogLevel::DEBUG`. */
 #define ESPECTRE_LOGD(tag, format, ...)                                                           \
   ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
+/** Log at `LogLevel::VERBOSE`. */
 #define ESPECTRE_LOGV(tag, format, ...)                                                           \
   ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::VERBOSE, tag, format, ##__VA_ARGS__)
+
+/** @} */

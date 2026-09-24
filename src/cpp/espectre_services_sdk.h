@@ -15,8 +15,8 @@
  * provisioning, and bootstrap services. Compile only the capability source
  * groups that your firmware uses; including this facade does not enable them.
  * Requires the ESP-IDF platform headers and declared component dependencies.
- * Firmware retains ownership of networking, service lifetime, and task policy.
- * Concrete service objects retain their existing caller-owned allocation model.
+ * Firmware owns networking, service lifetime, task policy, and the allocation
+ * of each service object.
  */
 #include "espectre_protocol_sdk.h"
 

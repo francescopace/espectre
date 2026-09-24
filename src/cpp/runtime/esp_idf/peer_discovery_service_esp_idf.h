@@ -11,12 +11,20 @@
 
 #include "runtime/peer_discovery.h"
 
+/// @cond INTERNAL
 // Only private members use mDNS handles; consumers need no mDNS headers.
 typedef struct mdns_result_s mdns_result_t;
 typedef struct mdns_search_once_s mdns_search_once_t;
+/// @endcond
 
 namespace espectre {
 
+/**
+ * IPeerDiscoveryService over the ESP-IDF mDNS component, searching for
+ * `_espectre._tcp` services.
+ *
+ * Requires an initialized mDNS responder, such as MdnsDiscoveryService.
+ */
 class EspIdfPeerDiscoveryService final : public IPeerDiscoveryService {
  public:
   ~EspIdfPeerDiscoveryService() override;

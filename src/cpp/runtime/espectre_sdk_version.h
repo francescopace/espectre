@@ -47,6 +47,15 @@
 #define ESPECTRE_SDK_VERSION_STRING "0.0.0"
 #endif
 
+/** @def ESPECTRE_SDK_VERSION_MAJOR
+ * Major component of the SDK version; zero when unknown. */
+/** @def ESPECTRE_SDK_VERSION_MINOR
+ * Minor component of the SDK version; zero when unknown. */
+/** @def ESPECTRE_SDK_VERSION_PATCH
+ * Patch component of the SDK version; zero when unknown. */
+/** @def ESPECTRE_SDK_VERSION_STRING
+ * SDK version as a string literal, such as `"3.0.0"`; `"0.0.0"` when unknown. */
+
 /**
  * Legacy packed numeric identity for the SDK version, as `MMmmpp`.
  *
@@ -61,6 +70,7 @@
  * Compile-time feature guard.
  *
  * Use it to keep one integration compiling against several SDK releases:
+ *
  * @code
  * #if ESPECTRE_SDK_VERSION_AT_LEAST(3, 1, 0)
  *   // Use an API introduced in 3.1.0.

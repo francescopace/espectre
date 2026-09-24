@@ -42,18 +42,31 @@ namespace espectre {
 // The two layouts are told apart by their guard nulls, which the radio reports as
 // exactly zero. Bins 0 and 32 are null under both conventions and carry no
 // information; these are the bins that are null under exactly one of them.
+/** Bins that are null only in the classic layout. */
 constexpr uint8_t HT20_CLASSIC_ONLY_NULL_BINS[] = {29, 30, 31, 33, 34, 35};
+/** Bins that are null only in the centered layout. */
 constexpr uint8_t HT20_CENTERED_ONLY_NULL_BINS[] = {1, 2, 3, 61, 62, 63};
 // LLTF carries physical subcarriers -26..-1 and +1..+26, so the two
 // outer data tones on either side are missing in the centered convention.
+/** Centered bins that an LLTF capture cannot fill: subcarriers -28, -27, +27, and +28. */
 constexpr uint8_t HT20_LLTF_MISSING_BINS[] = {4, 5, 59, 60};
 
+/** Bin ordering of a 64-subcarrier HT20 payload. */
 enum class Ht20BinLayout : uint8_t {
+    /** Not determined. */
     UNKNOWN = 0,
-    CENTERED,  // bin = subcarrier + 32, DC at bin 32
-    CLASSIC,   // bin = subcarrier mod 64, DC at bin 0
+    /** Bin = subcarrier + 32, DC at bin 32. The detectors expect this layout. */
+    CENTERED,
+    /** Bin = subcarrier mod 64, DC at bin 0. */
+    CLASSIC,
 };
 
+/**
+ * Count how many of `bins` carry a nonzero I/Q pair.
+ *
+ * With `first_word_invalid`, bins 0 and 1 are skipped because the hardware
+ * marked those bytes invalid.
+ */
 inline uint8_t ht20_bins_with_energy(const int8_t* csi_data, const uint8_t* bins, uint8_t count,
                                          bool first_word_invalid = false) {
     uint8_t populated = 0;
@@ -185,8 +198,9 @@ inline void rotate_ht20_classic_to_centered(const int8_t* csi_data, int8_t* out)
 /**
  * Calculate spatial turbulence from pre-calculated magnitudes
  *
- * Spatial turbulence is the standard deviation of magnitudes across
- * selected subcarriers. It measures the spatial variability of the
+ * Spatial turbulence is the coefficient of variation (standard deviation
+ * divided by mean) of magnitudes across selected subcarriers, so it does not
+ * depend on the receiver gain. It measures the spatial variability of the
  * Wi-Fi channel - higher values indicate motion/disturbance.
  *
  * @param magnitudes Array of magnitude values (one per subcarrier)
@@ -223,8 +237,6 @@ inline float calculate_spatial_turbulence(const float* magnitudes,
 
 /**
  * Extract subcarrier amplitudes from raw CSI data (I/Q pairs)
- *
- * Mirrors the Python `SegmentationContext._fill_amplitude_buffer` helper.
  *
  * @param csi_data Raw CSI data (interleaved I/Q pairs, Espressif format)
  * @param csi_len Length of CSI data in bytes
@@ -290,6 +302,7 @@ inline uint8_t fill_packet_subcarrier_energies(const int8_t* csi_data,
     return count;
 }
 
+/** Replace squared magnitudes with magnitudes. */
 inline void energies_to_amplitudes_in_place(float* values, uint8_t count) {
     if (values == nullptr) return;
     for (uint8_t i = 0U; i < count; ++i) values[i] = std::sqrt(values[i]);
@@ -396,9 +409,7 @@ inline uint8_t select_adjacent_aggregated_subcarrier_amplitudes(
 /**
  * Extract one mean magnitude per selected tone from adjacent live HT20 bins.
  *
- * Windows are clamped to bins 4..60 and skip the DC null at bin 32. This is
- * the production counterpart of
- * `SegmentationContext._fill_adjacent_aggregated_amplitude_buffer`.
+ * Windows are clamped to bins 4..60 and skip the DC null at bin 32.
  */
 inline uint8_t extract_adjacent_aggregated_subcarrier_amplitudes(
         const int8_t* csi_data,
@@ -447,6 +458,7 @@ inline uint8_t extract_adjacent_aggregated_subcarrier_amplitudes(
     return written;
 }
 
+/** Spatial turbulence, the coefficient of variation, of already selected amplitudes. */
 inline float calculate_spatial_turbulence_from_amplitudes(const float* amplitudes,
                                                           uint8_t count) {
     if (amplitudes == nullptr || count == 0) {
@@ -460,7 +472,8 @@ inline float calculate_spatial_turbulence_from_amplitudes(const float* amplitude
  * Calculate spatial turbulence directly from raw CSI data (I/Q pairs)
  *
  * This is a convenience wrapper that calculates magnitudes internally
- * before computing spatial turbulence.
+ * before computing spatial turbulence, the coefficient of variation of the
+ * selected magnitudes.
  *
  * HT20 only: 64 subcarriers, 128 bytes CSI data.
  *

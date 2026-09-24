@@ -60,18 +60,19 @@ class PendingEventLock {
  *
  * Access is serialized with a lightweight critical section. On ESP-IDF this
  * remains safe from both task and ISR context, including the CSI callback
- * path. On host builds, tests use a regular mutex with the same coalescing
- * semantics.
+ * path. Host builds use a regular mutex with the same coalescing semantics.
  */
 template <typename... Ts>
 class PendingEvent {
  public:
+  /** Record an event, replacing any unconsumed one. */
   void post(Ts... values) {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     store_(std::index_sequence_for<Ts...>{}, values...);
     pending_ = true;
   }
 
+  /** Consume the pending event into `out`; false, with `out` unchanged, when none is pending. */
   bool take(Ts &...out) {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     if (!pending_) {
@@ -82,6 +83,7 @@ class PendingEvent {
     return true;
   }
 
+  /** Discard any pending event. */
   void clear() {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     pending_ = false;

@@ -23,37 +23,94 @@
 
 namespace espectre {
 
+/** Connection-state callback, delivered from StandaloneWifiService::loop(). */
 using standalone_wifi_callback_t = std::function<void()>;
 
+/** One access point reported by StandaloneWifiService::request_scan(). */
 struct StandaloneWifiAccessPoint {
   std::string ssid;
+  /** Upper-case, colon-separated MAC address. */
   std::string bssid;
   int8_t rssi_dbm{0};
+  /** Primary channel. */
   uint8_t channel{0U};
 };
 
+/**
+ * Scan result callback, delivered from StandaloneWifiService::loop().
+ *
+ * Receives `ESP_OK` or the driver error, and at most 32 access points sorted
+ * by descending RSSI.
+ */
 using standalone_wifi_scan_callback_t =
     std::function<void(esp_err_t, const std::vector<StandaloneWifiAccessPoint> &)>;
 
+/**
+ * Station settings for StandaloneWifiService.
+ *
+ * The strings are borrowed, null-terminated values. Keep them alive until
+ * shutdown or until update_station_config() replaces them.
+ */
 struct StandaloneWifiConfig {
-  /** Borrowed, null-terminated credentials. Keep them alive until shutdown or replacement. */
+  /** Network name, up to 32 bytes. Empty leaves the station idle. */
   const char *ssid{""};
+  /** Passphrase, up to 64 bytes. Empty for open networks. */
   const char *password{""};
+  /**
+   * Optional access point to pin, as `AA:BB:CC:DD:EE:FF`.
+   *
+   * Empty lets the driver pick the strongest access point with this SSID.
+   */
   const char *bssid{""};
+  /** Optional channel hint; `WIFI_CHANNEL_AUTO` (0) scans every allowed channel. */
   uint8_t channel{0U};
   /** Immediate retries per burst; exhausted bursts restart after 30 seconds. Zero skips immediate retries. */
   int max_retry{8};
+  /**
+   * Register the WiFiLifecycleManager handlers in this service.
+   *
+   * Leave it false when `RuntimeFrontendController` runs, because the runtime
+   * registers its own. Set it only when this service alone applies the CSI
+   * radio policy and delivers connection callbacks.
+   */
   bool manage_csi_lifecycle{false};
+  /** Band the station may use. Fixed for the life of one setup(). */
   WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
 };
 
+/** Station state reported by StandaloneWifiService::get_info(). */
 struct StandaloneWifiInfo {
+  /** True while associated with a cached IPv4 address. */
   bool connected{false};
+  /** Dotted IPv4 address, or empty without one. */
   char ip_address[16]{};
+  /** Upper-case, colon-separated station MAC address. */
   char mac_address[18]{};
+  /** Primary channel of the association, or zero. */
   uint8_t channel{0U};
 };
 
+/**
+ * Owns the ESP-IDF Wi-Fi station for firmware without its own Wi-Fi stack.
+ *
+ * The service creates the station netif and driver, connects, retries in
+ * bounded bursts, and reports connection changes. Firmware that already owns
+ * Wi-Fi, such as ESPHome, does not use it.
+ *
+ * @code
+ * espectre::StandaloneWifiConfig wifi;
+ * wifi.ssid = ssid;
+ * wifi.password = password;
+ * ESP_ERROR_CHECK(service.setup(wifi, on_connected, on_disconnected));
+ * ESP_ERROR_CHECK(service.start());
+ * // from the owner task's loop:
+ * service.loop();
+ * @endcode
+ *
+ * @par Threading
+ * Call every method from one owner task. Wi-Fi and IP events are queued by
+ * the event handlers, and callbacks run from loop().
+ */
 class StandaloneWifiService {
  public:
   /** Release the station driver, netif, and registered handlers. */
@@ -71,11 +128,32 @@ class StandaloneWifiService {
   esp_err_t setup(const StandaloneWifiConfig &config,
                   standalone_wifi_callback_t connected_cb = {},
                   standalone_wifi_callback_t disconnected_cb = {});
+  /**
+   * Start the station driver after setup().
+   *
+   * Connection proceeds asynchronously; the connected callback reports the
+   * IPv4 address. Returns `ESP_ERR_INVALID_STATE` before setup().
+   */
   esp_err_t start();
+  /**
+   * Replace the station settings while the service is set up.
+   *
+   * An active connection is dropped and re-established with the new settings.
+   * Returns `ESP_ERR_INVALID_ARG` for oversized credentials, a negative retry
+   * count, or an unusable channel, and `ESP_ERR_INVALID_STATE` before setup(),
+   * while another reconfiguration is pending, or for a different band policy.
+   */
   esp_err_t update_station_config(const StandaloneWifiConfig &config);
   /** Scan every allowed channel for the configured SSID and report its bounded snapshot from loop(). */
   esp_err_t request_scan(standalone_wifi_scan_callback_t callback);
+  /** Deliver queued Wi-Fi events and callbacks, and drive reconnection. */
   void loop();
+  /**
+   * Read the station MAC address and, while connected, its IPv4 address and channel.
+   *
+   * Uses the cached address instead of querying an unassociated driver.
+   * Returns false for a null `info` or when nothing is known yet.
+   */
   bool get_info(StandaloneWifiInfo *info) const;
   /** Stop and release owned Wi-Fi resources. Safe to repeat; setup can be called again. */
   void shutdown();

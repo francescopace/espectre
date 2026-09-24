@@ -22,6 +22,7 @@
 
 namespace espectre {
 
+/** Bands the Wi-Fi station may associate on. The PHY stays at 20 MHz. */
 enum class WifiBandPolicy : uint8_t {
   /** Restrict association to 2.4 GHz. */
   BAND_2G = 0,
@@ -54,8 +55,8 @@ struct RuntimeConfig {
   /**
    * Band available to the station while the runtime keeps the PHY at HT20.
    *
-   * `BAND_5G` and `AUTO` require dual-band silicon. Keeping `BAND_2G` as the
-   * default preserves the band covered by the production detector corpus.
+   * The default, `AUTO`, uses every band the radio has, which means 2.4 GHz on
+   * single-band targets. `BAND_5G` requires dual-band silicon.
    */
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::AUTO};
   /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
@@ -92,12 +93,13 @@ struct RuntimeConfig {
    * This value is always positive and defines detector temporal slots as well
    * as the target for managed traffic. `traffic_generator_mode` alone selects who
    * supplies traffic. The detector coefficients are fitted at 100 pps; see
-   * `docs/ALGORITHMS.md` before moving far from it.
+   * [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md)
+   * before moving far from it.
    */
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
   /**
-   * How the device gets CSI-bearing traffic: an internal generator packet, or
-   * `EXTERNAL` to listen for another host.
+   * How the device gets CSI-bearing traffic: one of the internal generator
+   * modes, or `EXTERNAL` to listen for another host.
    */
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
@@ -146,8 +148,8 @@ struct RuntimeConfig {
   /**
    * Remember runtime control changes across reboots.
    *
-   * When true, `setup()` restores the CSI traffic source, generator packet,
-   * and motion hits saved by earlier control calls, plus the detector when
+   * When true, `setup()` restores the traffic generator mode and motion hits
+   * saved by earlier control calls, plus the detector when
    * `runtime_detector_selection_enabled` is set, and those calls save their
    * new values. Set it to false when your firmware owns configuration, for
    * example from YAML or a cloud service: this config is then the only source

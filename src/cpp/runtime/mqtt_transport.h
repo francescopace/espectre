@@ -18,12 +18,19 @@
 
 namespace espectre {
 
+/** Publish queue and connection counters of an IMqttTransport. */
 struct MqttTransportDiagnostics {
+  /** Publishes the local queue can hold. */
   size_t queue_capacity{0U};
+  /** Byte limit of the MQTT client's outbox. */
   size_t outbox_capacity_bytes{0U};
+  /** Publishes waiting in the local queue. */
   size_t queued_publishes{0U};
+  /** Publishes discarded because the queue was full or the client rejected them. */
   uint32_t dropped_publishes{0U};
+  /** Attempts to hand a publish to the client that failed. */
   uint32_t publish_failures{0U};
+  /** Broker reconnections since setup. */
   uint32_t reconnects{0U};
 };
 
@@ -32,10 +39,10 @@ struct MqttTransportDiagnostics {
  *
  * Implement it to carry ESPectre Protocol messages over an MQTT stack you
  * already own, then hand the instance to a frontend. `EspIdfMqttTransport`
- * (`mqtt_transport_esp_idf.h`) is the shipped implementation over `esp-mqtt`,
- * and `test/cpp/support/mqtt_transport_mock.h` is the host double.
+ * (`mqtt_transport_esp_idf.h`) is the shipped implementation over `esp-mqtt`.
  *
- * Topic layout and payload schemas live in `docs/API.md`, and
+ * Topic layout and payload schemas live in
+ * [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md), and
  * `espectre_protocol.h` builds the payloads, so an implementation only has to
  * move bytes.
  *
@@ -62,7 +69,7 @@ class IMqttTransport {
    *
    * Asynchronous: true means the client started, not that it reached the
    * broker. Wait for the connection callback before expecting publishes to
-   * land. Calling it again reconfigures and tears down the previous client.
+   * land. Calling it again tears down the previous client and reconfigures.
    *
    * @return false when the configuration cannot produce a client, such as an
    *         empty `EspectreDeviceConfig::mqtt_host`.

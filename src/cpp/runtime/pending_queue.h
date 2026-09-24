@@ -34,6 +34,7 @@ class PendingQueue {
   static_assert(std::is_trivially_copyable<T>::value,
                 "PendingQueue records must be trivially copyable");
 
+  /** Append a record; false, without blocking, when the queue is full. */
   bool post(const T &value) {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     if (count_ == Capacity) {
@@ -63,6 +64,7 @@ class PendingQueue {
     return retained_all;
   }
 
+  /** Remove the oldest record into `value`; false when the queue is empty. */
   bool take(T &value) {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     if (count_ == 0U) {
@@ -74,6 +76,7 @@ class PendingQueue {
     return true;
   }
 
+  /** Discard every record. */
   void clear() {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     read_index_ = 0U;
@@ -81,6 +84,7 @@ class PendingQueue {
     count_ = 0U;
   }
 
+  /** Records currently queued. */
   size_t size() const {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     return count_;

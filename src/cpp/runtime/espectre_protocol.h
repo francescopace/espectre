@@ -25,8 +25,9 @@
  *
  * The protocol is the contract between a device and whatever consumes it:
  * MQTT topics, Direct HTTP messages, JSON payloads, and frontend extensions.
- * It is specified in `docs/API.md`; this header is the C++ view
- * of that specification.
+ * It is specified in
+ * [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md);
+ * this header is the C++ view of that specification.
  *
  * Use it whenever your integration should stay interoperable with the shipped
  * clients — the CLI, Home Assistant discovery, and the web portal all
@@ -34,8 +35,9 @@
  * payload, so your transport only moves bytes and never formats them.
  *
  * The parsers never throw: they validate and report failure through an out
- * parameter. They do not all roll back cleanly on rejection, so parse into a
- * copy of your live configuration and commit it only on success.
+ * parameter. On failure the command parsers reset their output, keeping at
+ * most the identifiers needed for the result payload. The device
+ * configuration parsers leave their output unchanged.
  */
 
 namespace espectre {
@@ -45,100 +47,167 @@ inline constexpr size_t ESPECTRE_DEVICE_LABEL_MAX_LENGTH = 32U;
 /** Maximum serialized command-request size accepted by every transport. */
 inline constexpr size_t ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE = 2048U;
 
+/**
+ * A capability a frontend advertises in `EspectreCapabilityProfile`.
+ *
+ * Each value gates the commands and routes named after it; the route
+ * registry returned by espectre_api_routes() lists the exact mapping.
+ */
 enum class EspectreDirectMethod : uint8_t {
+  /** `capabilities`. */
   CAPABILITIES = 0,
+  /** `device`. */
   INFO,
+  /** `health` and the event stream. */
   STATUS,
+  /** `sensing`, `wifi`, and `mqtt` reads. */
   CONFIG,
+  /** `read_diagnostics`. */
   DIAGNOSTICS,
+  /** The `sensing_enabled` field of `update_sensing`. */
   SET_SENSING,
+  /** `update_device`. */
   SET_DEVICE_LABEL,
+  /** The `threshold` field of `update_sensing`. */
   SET_THRESHOLD,
+  /** The motion hit fields of `update_sensing`. */
   SET_MOTION_HITS,
+  /** The `detector` field of `update_sensing`. */
   SET_DETECTOR,
+  /** `recalibrate`. */
   RECALIBRATE,
+  /** Opening raw collection with `GET /csi`; advertise it with `STOP_RAW_STREAM`. */
   START_RAW_STREAM,
+  /** Ending raw collection; advertise it with `START_RAW_STREAM`. */
   STOP_RAW_STREAM,
+  /** The `traffic_generator_mode` field of `update_sensing`. */
   SET_TRAFFIC_GENERATOR_MODE,
+  /** `wifi_access_points`. */
   WIFI_ACCESS_POINTS,
+  /** `scan_wifi`. */
   SCAN_WIFI_ACCESS_POINTS,
+  /** `set_wifi_bssid`. */
   SET_WIFI_BSSID,
+  /** `clear_wifi_bssid`. */
   CLEAR_WIFI_BSSID,
+  /** `clear_wifi_credentials`. */
   CLEAR_WIFI_CONFIG,
+  /** `update_mqtt`. */
   SET_MQTT_CONFIG,
+  /** `clear_mqtt`. */
   CLEAR_MQTT_CONFIG,
+  /** `devices`, the peer discovery result. */
   DISCOVER_PEERS,
+  /** Number of values; not a capability. */
   COUNT,
 };
 
+/** A readable configuration section of the `capabilities` catalog. */
 enum class EspectreConfigSection : uint8_t {
+  /** Sensing configuration. */
   RUNTIME = 0,
+  /** Device label. */
   DEVICE,
+  /** Wi-Fi station settings. */
   WIFI,
+  /** Broker settings. */
   MQTT,
+  /** Number of values; not a section. */
   COUNT,
 };
 
+/** A family of events a frontend publishes. */
 enum class EspectreEvent : uint8_t {
+  /** `motion` telemetry. */
   TELEMETRY = 0,
+  /** `health`. */
   STATUS,
+  /** `device`. */
   INFO,
+  /** `sensing` and `wifi`. */
   CONFIG,
+  /** `fault`. */
   FAULT,
+  /** Number of values; not an event. */
   COUNT,
 };
 
+/** How a route behaves. */
 enum class EspectreApiRouteKind : uint8_t {
+  /** Reads a resource. */
   RESOURCE = 0,
+  /** Changes state or starts an action. */
   OPERATION,
+  /** Opens a long-lived stream, such as events or raw CSI. */
   STREAM,
 };
 
 struct EspectreCommand;
 
 /** Validate decoded parameters and populate the command before dispatch.
- * The parser supplies valid JSON fields and the command identity. MQTT fields
- * also contain its envelope. Validators must not execute commands or change
- * device state. Ignore command output after a rejected validation.
+ * The parser supplies valid JSON fields and the command identity. Fields from
+ * parse_espectre_command() also include the request's `command_id` and
+ * `command`. Validators must not execute commands or change device state.
+ * Ignore command output after a rejected validation.
  */
 using EspectreCommandValidator = bool (*)(const std::vector<JsonObjectField> &fields,
                                         EspectreCommand *command, std::string *error);
 
 /** One canonical HTTP/resource mapping used by routing and capability output. */
 struct EspectreApiRoute {
+  /** HTTP method, such as `GET` or `PATCH`. */
   const char *http_method;
+  /** Absolute path, such as `/espectre/v1/sensing`. */
   const char *path;
+  /** Resource or operation name in the `capabilities` catalog. */
   const char *name;
+  /** Canonical command name; empty for streams. */
   const char *command;
+  /** Capability that must be advertised for the route to exist. */
   EspectreDirectMethod capability;
   EspectreApiRouteKind kind;
+  /** Whether the operation completes after the response. */
   bool asynchronous;
+  /** Parameter validator; `nullptr` for streams. */
   EspectreCommandValidator validate{nullptr};
 };
 
+/** One canonical event and the capability that gates it. */
 struct EspectreApiEventDescriptor {
+  /** Event name on the wire, such as `motion`. */
   const char *name;
+  /** Family the event belongs to. */
   EspectreEvent event;
+  /** Capability that must be advertised for the event to be published. */
   EspectreDirectMethod capability;
 };
 
 /** One frontend-owned route, shared by capability output and both transports. */
 struct EspectreExtensionRoute {
+  /** HTTP method, such as `POST`. */
   const char *http_method;
+  /** Absolute path under `/espectre/v1`. */
   const char *path;
+  /** Resource or operation name in the `capabilities` catalog. */
   const char *name;
+  /** Command name; must not collide with an SDK command. */
   const char *command;
   EspectreApiRouteKind kind;
+  /** Whether the operation completes after the response. */
   bool asynchronous{false};
   /** Whether the frontend command binding permits invocation over MQTT. */
   bool mqtt{false};
+  /** Whether the command may run while raw CSI collection is active. */
   bool allowed_during_raw_collection{false};
+  /** Parameter validator. Required. */
   EspectreCommandValidator validate{nullptr};
 };
 
 /** Immutable frontend additions. Keep this object alive while adapters use it. */
 struct EspectreProtocolExtension {
+  /** Extra routes and their commands. */
   std::vector<EspectreExtensionRoute> routes;
+  /** Extra event names the application publishes. */
   std::vector<std::string> events;
 };
 
@@ -150,34 +219,45 @@ const EspectreExtensionRoute *find_extension_route(const EspectreProtocolExtensi
 
 /** Return the immutable v1 resource registry and its entry count. */
 const EspectreApiRoute *espectre_api_routes(size_t *count);
+/** Return the immutable canonical event registry and its entry count. */
 const EspectreApiEventDescriptor *espectre_api_events(size_t *count);
 
 /** Exact Direct command, event, and readable-configuration surface advertised by a frontend. */
 struct EspectreCapabilityProfile {
+  /** Advertised capabilities, indexed by `EspectreDirectMethod`. All off by default. */
   std::array<bool, static_cast<size_t>(EspectreDirectMethod::COUNT)> methods{};
+  /** Readable sections, indexed by `EspectreConfigSection`. All off by default. */
   std::array<bool, static_cast<size_t>(EspectreConfigSection::COUNT)> config_sections{};
+  /** Published event families, indexed by `EspectreEvent`. All on by default. */
   std::array<bool, static_cast<size_t>(EspectreEvent::COUNT)> events{{true, true, true, true, true}};
   /** Optional frontend-owned catalog, shared with its transport parsers. */
   const EspectreProtocolExtension *extension{nullptr};
 
+  /** Whether a capability is advertised. */
   bool supports(EspectreDirectMethod method) const {
     return methods[static_cast<size_t>(method)];
   }
+  /** Advertise or withdraw a capability. */
   void set(EspectreDirectMethod method, bool enabled = true) {
     methods[static_cast<size_t>(method)] = enabled;
   }
+  /** Whether a configuration section is readable. */
   bool has(EspectreConfigSection section) const {
     return config_sections[static_cast<size_t>(section)];
   }
+  /** Expose or hide a configuration section. */
   void set(EspectreConfigSection section, bool enabled = true) {
     config_sections[static_cast<size_t>(section)] = enabled;
   }
+  /** Whether an event family is published. */
   bool publishes(EspectreEvent event) const {
     return events[static_cast<size_t>(event)];
   }
+  /** Publish or suppress an event family. */
   void set(EspectreEvent event, bool enabled = true) {
     events[static_cast<size_t>(event)] = enabled;
   }
+  /** Suppress every event family. */
   void clear_events() {
     events.fill(false);
   }
@@ -215,8 +295,9 @@ struct EspectreDeviceConfig {
   std::string mqtt_host;
   /** Broker port. Zero means MQTT is not configured. */
   uint16_t mqtt_port{0U};
-  /** Broker credentials. Leave empty for anonymous brokers. */
+  /** Broker user name. Leave empty for anonymous brokers. */
   std::string mqtt_username;
+  /** Broker password. Never published by the protocol. */
   std::string mqtt_password;
   /** Topic root. Change it only if you also change every consumer. */
   std::string topic_prefix{ESPECTRE_TOPIC_PREFIX};
@@ -224,7 +305,9 @@ struct EspectreDeviceConfig {
 
 /** Link details available to frontends. Canonical MQTT info publishes only the channel. */
 struct EspectreNetworkInfo {
+  /** Dotted IPv4 address, or empty. */
   std::string ip_address;
+  /** Station MAC address, or empty. */
   std::string mac_address;
   /** Wi-Fi channel in use. Zero when unknown. */
   uint8_t channel{0U};
@@ -248,6 +331,12 @@ struct EspectreDeviceInfo {
   std::string detector;
   /** Automatically selected CSI capture profile. Left empty, it is filled from the snapshot. */
   std::string csi_profile;
+  /**
+   * @name Capability flags for the flag-per-section catalog
+   * Read only by the flag-per-section espectre_capabilities_payload()
+   * overload; each flag enables the `EspectreDirectMethod` of the same name.
+   * @{
+   */
   bool supports_info{true};
   bool supports_diagnostics{false};
   /** `update_device` is honored and persists the user-facing label. */
@@ -257,6 +346,7 @@ struct EspectreDeviceInfo {
   bool supports_runtime_detector{false};
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
+  /** @} */
   /**
    * Traffic generator mode: `"ping"`, `"dns"`, `"dns_tcp"`, `"wifi_raw"`, or `"external"`.
    *
@@ -279,6 +369,7 @@ struct EspectreDeviceInfo {
    * Omitted from `info` when zero. Canonical MQTT telemetry follows this interval.
    */
   uint32_t evaluation_interval_ms{0U};
+  /** Current link details. */
   EspectreNetworkInfo network{};
 };
 
@@ -303,20 +394,30 @@ struct EspectreCommand {
   std::string device_label;
   /** Whether the command carried a valid string-valued `device_label`. */
   bool has_device_label{false};
+  /** `update_sensing` threshold, on the 0..1 scale. */
   float threshold{0.0f};
   bool has_threshold{false};
+  /** `update_sensing` hit counts, 1..20 each; sent together. */
   uint8_t motion_on_hits{0U};
   uint8_t motion_off_hits{0U};
   bool has_motion_hits{false};
+  /** `update_sensing` mode name; see parse_traffic_generator_mode(). */
   std::string traffic_generator_mode;
   bool has_traffic_generator_mode{false};
+  /** `update_sensing` detector name; see parse_detection_algorithm(). */
   std::string detector;
   bool has_detector{false};
+  /** `set_wifi_bssid` target, as `AA:BB:CC:DD:EE:FF`. */
   std::string wifi_bssid;
   bool has_wifi_bssid{false};
   /** Force reassociation even when `wifi_bssid` is already active. */
   bool wifi_bssid_force{false};
   bool has_wifi_bssid_force{false};
+  /**
+   * @name update_mqtt fields
+   * Same meaning as the matching `EspectreDeviceConfig` fields.
+   * @{
+   */
   std::string mqtt_scheme;
   std::string mqtt_host;
   std::string mqtt_username;
@@ -329,8 +430,10 @@ struct EspectreCommand {
   bool has_mqtt_password{false};
   bool has_mqtt_topic_prefix{false};
   bool has_mqtt_port{false};
-  /** JSON parameters for a frontend extension command. Initially the original
-   * request (including the MQTT envelope); its validator may normalize them.
+  /** @} */
+  /** JSON parameters for a frontend extension command. Initially the whole
+   * request from parse_espectre_command(), or the parameter object from
+   * parse_espectre_command_request(); its validator may normalize them.
    */
   std::string extension_parameters;
 };
@@ -423,9 +526,9 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreDeviceInfo &info,
                                           const EspectreCapabilityProfile &capabilities);
 /**
- * Compatibility overload for existing SDK consumers. New code should pass an
- * `EspectreCapabilityProfile` so readable sections and individual commands are
- * represented independently.
+ * Flag-per-section form of the capability catalog. Prefer the
+ * `EspectreCapabilityProfile` overload, which represents readable sections and
+ * individual commands independently.
  */
 std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreDeviceInfo &info,
@@ -476,7 +579,7 @@ std::string espectre_command_request_payload(const std::string &command_id,
 std::string espectre_fault_payload(const EspectreDeviceConfig &config,
                                    const char *message,
                                    uint32_t timestamp_ms);
-/** Executable transport-neutral message samples used by the C++/Python parity gate. */
+/** One sample of every canonical message, for protocol inspection and conformance tests. */
 std::string espectre_message_catalog_payload(const EspectreProtocolExtension *extension = nullptr);
 /** @} */
 
@@ -487,14 +590,17 @@ std::string espectre_message_catalog_payload(const EspectreProtocolExtension *ex
  */
 
 /**
- * Parse a JSON command payload from the MQTT command topic.
+ * Parse a canonical flat command request, as received on the MQTT command topic.
  *
  * @param payload Raw message body as received.
- * @param command Populated only on success. Check the `has_*` flags to see
- *        which fields the peer actually sent.
+ * @param command Populated on success. Check the `has_*` flags to see which
+ *        fields the peer actually sent. On failure it is reset and may keep
+ *        the `command_id` for the result payload.
  * @param error Receives a human-readable reason on failure. May be `nullptr`.
  * @param extension Optional frontend routes and their parameter validators.
- * @return false on malformed input or an unknown command.
+ * @return false on malformed input or invalid parameters. An unknown command
+ *         name parses successfully; FrontendCommandEngine rejects it with the
+ *         `unsupported` result code.
  */
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error,
                             const EspectreProtocolExtension *extension = nullptr);

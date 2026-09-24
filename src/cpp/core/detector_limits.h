@@ -15,30 +15,49 @@ namespace espectre {
 
 // The public contract is temporal. These packet counts are only the resolved
 // storage bounds used after the runtime has measured the CSI cadence.
+/** @name Detector window */
+/** @{ */
+/** Shortest supported detector window, in milliseconds. */
 constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MIN = 1000U;
+/** Longest supported detector window, in milliseconds. */
 constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MAX = 2000U;
 constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_DEFAULT = 1000U;
+/** Default window in packets: the default duration at 100 pps. */
 constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 100;
 // A target-rate/window pair may resolve to a single slot. Readiness is governed
 // by the derived temporal occupancy floor, never by an absolute packet count.
+/** Smallest window in packets a detector accepts. */
 constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 1;
 // Bounded by measurement, not stack: detector working buffers are allocated
 // to the resolved window, and the ceiling limits drift away from the feature
 // geometry used during fitting.
+/** Largest window in packets a detector accepts. */
 constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 1000;
+/** @} */
 
+/** Detector windows in one startup calibration budget. */
 constexpr uint16_t CALIBRATION_NUM_WINDOWS = 10;
+/** Calibration budget in packets at the default window. */
 constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE =
     DETECTOR_DEFAULT_WINDOW_SIZE * CALIBRATION_NUM_WINDOWS;
+
+/** @name Detector timing, in microseconds */
+/** @{ */
 
 // Detector timing contract, in microseconds. The packet counts above and in
 // csi_features.h are what these durations resolve to at the nominal 100 pps; on
 // a stream that runs faster or slower they are re-derived from the measured
 // cadence. Keep aligned with src/python/micro_espectre/config.py.
-constexpr uint32_t EVALUATION_INTERVAL_US = 250000U; // Time between evaluations
-constexpr uint32_t L1_DELTA_LAG_US = 100000U;        // Profile-displacement lag
-constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;    // Autocorrelation lag
+/** Time between detector evaluations. */
+constexpr uint32_t EVALUATION_INTERVAL_US = 250000U;
+/** High Accuracy profile-displacement lag. */
+constexpr uint32_t L1_DELTA_LAG_US = 100000U;
+/** Lightweight turbulence autocorrelation lag. */
+constexpr uint32_t TURB_AUTOCORR_LAG_US = 10000U;
+/** @} */
+/** `L1_DELTA_LAG_US` in packets at 100 pps. */
 constexpr uint16_t DETECTOR_L1_DELTA_LAG_DEFAULT = 10U;
+/** `TURB_AUTOCORR_LAG_US` in packets at 100 pps. */
 constexpr uint16_t DETECTOR_AUTOCORR_LAG_DEFAULT = 1U;
 // The L1 profile ring is allocated for the configured displacement lag,
 // capped to bound firmware memory. 32 packets covers the 100 ms contract up to ~320 pps, well
@@ -49,12 +68,14 @@ constexpr uint16_t DETECTOR_AUTOCORR_LAG_DEFAULT = 1U;
 //
 // Profile payload costs lag x HT20_SELECTED_BAND_SIZE floats: 480 bytes
 // at the default lag of 10, or 1536 bytes at the maximum lag of 32.
+/** Largest profile-displacement lag in packets; longer lags saturate. */
 constexpr uint16_t L1_DELTA_LAG_MAX = 32;
 // A cadence faster than this is not a CSI stream, it is a batch delivered
 // faster than real time. The packet-rate estimator ignores it when deriving
 // feature geometry; evaluation cadence still follows the packet timestamps.
 // There is no upper bound because a stream slower than one window is already
 // handled as a hole by the configured detector window duration.
-constexpr uint32_t MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200U;    // 5000 pps
+/** Packets closer than this (5000 pps) are treated as a batch, not a stream. */
+constexpr uint32_t MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200U;
 
 }  // namespace espectre

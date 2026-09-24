@@ -98,9 +98,11 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
   bool is_running() const override { return running_.load(std::memory_order_relaxed); }
   /** Suspend sends without destroying the worker. */
   void pause();
+  /** Resume sends after pause(). */
   void resume();
   bool is_paused() const { return paused_.load(std::memory_order_relaxed); }
 
+  /** Rate requested by init(), in packets per second. */
   uint32_t target_rate_pps() const { return target_pps_; }
   /** Send rate used by the worker, in packets per second. */
   uint32_t current_rate_pps() const { return current_rate_pps_.load(std::memory_order_relaxed); }

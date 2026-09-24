@@ -22,6 +22,13 @@
 
 namespace espectre {
 
+/**
+ * @name Fitted model and calibration constants
+ * Fixed by the training and validation workflow, not configuration. See
+ * [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md)
+ * for what they control.
+ * @{
+ */
 constexpr float LIGHTWEIGHT_AUTOCORR_CENTER = 0.3919344866784947f;
 constexpr float LIGHTWEIGHT_AUTOCORR_SCALE = 0.3798648330757351f;
 constexpr float LIGHTWEIGHT_AUTOCORR_WEIGHT = 5.083034533668216f;
@@ -61,6 +68,7 @@ constexpr float LIGHTWEIGHT_NOISY_LINK_THRESHOLD = 0.89f;
 constexpr uint8_t LIGHTWEIGHT_SETTLE_BLOCKS = 12U;
 constexpr uint8_t LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS = 20U;
 constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
+/** @} */
 
 /**
  * The default detector: self-calibrating, no training data required.
@@ -94,7 +102,8 @@ constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
  * `is_ready()` is false until the window fills; results before that are not
  * meaningful. See `runtime/esp_idf/csi_pipeline.cpp` for the reference
  * normalization, cadence, and hit filtering around these calls, and
- * `docs/ALGORITHMS.md` for the algorithm itself.
+ * [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md)
+ * for the algorithm itself.
  *
  * @par Threading
  * Not thread-safe. `process_packet()` and `update_state()` must not run
@@ -103,13 +112,15 @@ constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
 class LightweightDetector : public BaseDetector {
  public:
   /**
+   * Constructor.
+   *
    * @param window_size Detector window in packets
    * @param threshold Motion probability threshold
    * @param autocorr_lag Turbulence autocorrelation distance in packets
    *
    * Production uses the nominal-rate default. Alternate lags are exposed for
    * replay experiments only: changing the feature offset requires validating
-   * the fitted coefficients before deployment. See detector_timing.h.
+   * the fitted coefficients before deployment. See `core/detector_timing.h`.
    */
   LightweightDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
                       float threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD,
@@ -151,9 +162,15 @@ class LightweightDetector : public BaseDetector {
   void on_startup_calibration_complete() override;
   void on_startup_calibration_abandoned() override;
 
+  /** @name Last evaluation's features, for diagnostics */
+  /** @{ */
+  /** Turbulence autocorrelation at the configured lag. */
   float get_turb_autocorr() const { return current_turb_autocorr_; }
+  /** Interquartile range over mean of the aggregated turbulence stream. */
   float get_turb_iqr_over_mean_aggr() const { return current_turb_iqr_over_mean_aggr_; }
+  /** Logit of the motion probability that get_motion_metric() reports. */
   float get_logit() const { return current_logit_; }
+  /** @} */
 
  private:
   float calculate_turb_autocorr_() const;

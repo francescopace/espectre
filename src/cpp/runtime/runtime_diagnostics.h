@@ -69,10 +69,10 @@ struct RuntimeDiagnosticsSample {
  * network counters wrap modulo 2^32 and are never reset by sensing restarts.
  *
  * @code
- * // once, when the runtime starts sensing:
- * sampler.reset(runtime.get_diagnostics(), now_ms);
+ * // once, after controller.setup() succeeds:
+ * sampler.reset(controller.diagnostics(), now_ms);
  * // on the runtime's existing sensing heartbeat:
- * latest = sampler.sample(runtime.get_diagnostics(), now_ms);
+ * latest = sampler.sample(controller.diagnostics(), now_ms);
  * @endcode
  *
  * @par Threading

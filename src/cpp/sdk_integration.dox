@@ -36,7 +36,9 @@ Set `RuntimeConfig::csi_capture_policy` before setup to choose `CsiCapturePolicy
 
 @section integration_runtime_contract Runtime contract
 
-@section integration_threading Threading
+These sections describe how the full runtime behaves once your firmware owns a `RuntimeFrontendController`.
+
+@subsection integration_threading Threading
 
 The control surface is single-owner. Internal bounded mailboxes protect callback-to-loop handoff, but they do not make control calls thread-safe.
 
@@ -48,7 +50,7 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 
 Stopping raw collection synchronizes with any packet callback already in progress before releasing its context. The caller can reclaim that context after `stop_raw_collection()` succeeds. Raw callbacks must follow the owner-task rule for runtime controls; they must not stop collection themselves.
 
-@section integration_advanced_task_scheduling Advanced task scheduling
+@subsection integration_advanced_task_scheduling Advanced task scheduling
 
 Full-runtime ESP-IDF integrations expose ESPectre-owned FreeRTOS priorities under the `Advanced task scheduling` menu. These settings are compile-time policies, not runtime controls. Values range from `1` to `10`; higher-priority tasks preempt lower-priority work. Change them only with workload-specific validation because an unsuitable priority can starve sensing, Direct delivery, managed traffic, or system networking. ESP-IDF continues to own the internal Wi-Fi and lwIP task priorities.
 
@@ -65,11 +67,9 @@ Your application owns the task that calls `RuntimeFrontendController::loop()`. S
 
 The Direct HTTP server defaults to priority `1` on every target. Custom integrations can override it after workload-specific validation. Existing `sdkconfig` files retain explicitly saved priorities; set `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1` to adopt the shared default in those builds.
 
-See [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
+@subsection integration_raw_csi_storage Raw CSI storage
 
-@section integration_raw_csi_storage Raw CSI storage
-
-`prepare_ht20_detector_input` prepares a private centered buffer after the raw branch: it handles both LLTF edge tones and hardware-invalid classic +1, using explicit source metadata. The existing `impute_ht20_lltf_detector_bins` helper remains a compatible LLTF-only wrapper. See [CSI.md](https://github.com/francescopace/espectre/blob/main/docs/CSI.md#detector-input-and-raw-collection) for the shared preparation policy.
+`prepare_ht20_detector_input` prepares a private centered buffer after the raw branch: it handles both LLTF edge tones and hardware-invalid classic +1, using explicit source metadata. `impute_ht20_lltf_detector_bins` is an older wrapper that handles only the LLTF edge tones. See [CSI.md](https://github.com/francescopace/espectre/blob/main/docs/CSI.md#detector-input-and-raw-collection) for the shared preparation policy.
 
 The built-in capture pipeline normalizes LLTF, HT, and VHT samples to `HT20_CSI_LEN`: 128 bytes containing 64 complex subcarriers. `RawCsiPacketView` exposes this normalized view. Size capture queues for the normalized payload. `RAW_CSI_MAX_PAYLOAD_BYTES` defines the separate 512-byte payload limit for stored and transmitted records.
 
@@ -77,11 +77,11 @@ The built-in capture pipeline normalizes LLTF, HT, and VHT samples to `HT20_CSI_
 
 The queue can overflow during a stalled send, regardless of each slot's payload capacity. Inspect `raw_csi.raw_drop_total` separately from capture-quality rejections; see [CSI.md](https://github.com/francescopace/espectre/blob/main/docs/CSI.md#capture-quality).
 
-@section integration_lifecycle Lifecycle
+@subsection integration_lifecycle Lifecycle
 
 `set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`. Create the default station interface and ESP event loop before `setup()`. Prefer setup before association so the CSI radio policy is applied at `WIFI_EVENT_STA_START`; setup after association is also supported and restores the station's current IPv4 state. The controller is reusable after `shutdown()`: the configuration survives and `set_config()` becomes effective again. `setup()` is idempotent, and a failed `setup()` leaves the controller un-setup so you can fix the config and retry.
 
-By default the runtime remembers live control changes across reboots. `setup()` restores the CSI traffic source, generator packet, and motion hits saved in NVS, plus the detector when `RuntimeConfig::runtime_detector_selection_enabled` is set, and each controller setter saves its new value. The threshold is never saved. The runtime logs at INFO each saved value that differs from the config. Set `RuntimeConfig::persist_runtime_overrides` to false when your firmware owns configuration, for example from YAML or a cloud service: the config you pass is then the only source of truth, and the runtime neither reads nor writes saved controls.
+By default the runtime remembers live control changes across reboots. `setup()` restores the traffic generator mode and motion hits saved in NVS, plus the detector when `RuntimeConfig::runtime_detector_selection_enabled` is set, and each controller setter saves its new value. The threshold is never saved. The runtime logs at INFO each saved value that differs from the config. Set `RuntimeConfig::persist_runtime_overrides` to false when your firmware owns configuration, for example from YAML or a cloud service: the config you pass is then the only source of truth, and the runtime neither reads nor writes saved controls.
 
 The ESP-IDF runtime starts capture, traffic, and calibration immediately after connection or rearming. It observes startup traffic and attempts a receive-path refresh only if traffic continues for one second without any CSI callback. One second without observed traffic progress resets that observation. A callback suppresses recovery even when the packet is rejected by the detector; an absent or stopped external sender does not trigger recovery. This startup check is not a continuous watchdog for later traffic loss.
 
@@ -101,44 +101,47 @@ A calibration spends at least its base packet budget. While `BaseDetector::start
 
 `RuntimeSnapshot::ready_to_publish` clears at once while calibrating, when sensing services or the link stop, when the newest detector input is one detector window old, and while the window refills after a history reset. Temporal admission leaves some slots empty even at the nominal packet rate, so window coverage can briefly fall under the detector's valid-slot floor while input keeps arriving. Once sensing is ready, such a dip clears readiness only if it lasts one detector window; shorter dips never reach `on_sensing_readiness_changed()` or `snapshot()`. The runtime logs every readiness transition with its reason.
 
-@section integration_errors Errors
+See [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md#motion-hit-filtering) for how evaluation cadence and hit filtering determine publish delay.
 
-The control surface reports failure through `bool` returns and never throws. Runtime-backend, temporal-sampler, and detector storage allocations are non-throwing; an allocation failure makes `setup()` return false and reports the fault synchronously to the listener. A `false` means the call was rejected or could not be applied, and the runtime is unchanged. There are four reasons a control call returns false:
+@subsection integration_errors Errors
+
+The control surface reports failure through `bool` returns and never throws. Runtime-backend, temporal-sampler, and detector storage allocations are non-throwing; an allocation failure makes `setup()` return false and reports the fault synchronously to the listener. A `false` means the call was rejected or could not be applied, and the runtime is unchanged. A call returns false for one of these reasons:
 
 1. The value is outside the range published in `runtime_sensing_schema.h`.
 2. The active runtime does not advertise the matching capability.
-3. The backend refused the change.
-4. `setup()` could not allocate the runtime's bounded working storage.
+3. The runtime is not in a state that allows the call: for example, recalibration before `setup()` or while a calibration or raw collection is active, or raw collection without a Wi-Fi link.
+4. The backend refused the change.
+5. `setup()` could not allocate the runtime's bounded working storage.
+
+Each method's documentation lists the cases that apply to it.
 
 Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault()`. Calibration outcome is reported by `on_calibration_finished(snapshot, success)`; a `false` there is not fatal, the runtime keeps sensing with the threshold that was in force before the calibration.
 
-@section integration_capabilities Capabilities
+@subsection integration_capabilities Capabilities
 
 `RuntimeCapabilities` defaults every flag to false, so a runtime declares what it offers rather than inheriting a permissive default. Read `controller.capabilities()` after `setup()` and expose only what it advertises. The controller already refuses capability-gated calls; this check keeps unsupported controls out of the product interface.
 
-@section integration_diagnostics Diagnostics
+@subsection integration_diagnostics Diagnostics
 
 Read `RuntimeFrontendController::diagnostics_sample()` for diagnostics. It returns the runtime's shared one-second `RuntimeDiagnosticsSample`: traffic and CSI rates plus the current link. Read the same sample across your transport adapters so their observation windows agree. It is `nullptr` before `setup()`.
 
-`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) owns the corresponding wire field names, units, and optionality.
+`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the rate accepted by capture validation, before admission. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) owns the corresponding wire field names, units, and optionality.
 
-@subsection integration_diagnostics_advanced Advanced: cumulative counters
+@subsubsection integration_diagnostics_advanced Advanced: cumulative counters
 
 `RuntimeFrontendController::diagnostics()` returns the cumulative `RuntimeDiagnosticsSnapshot` behind the sample, grouped as `link`, `traffic`, `csi`, `platform`, and `performance`. The `csi` group also carries the callback queue's drop counter, occupancy, and capacity. Use it when you need totals, or a sampling interval other than one second. `RuntimeDiagnosticsSampler` turns two reads into rates without requiring a separate timer:
 
 ```cpp
-// once, at application startup
+// once, after runtime_.setup() succeeds
 sampler_.reset(runtime_.diagnostics(), now_ms);
 
 // whenever the existing periodic sensing callback runs
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#contract-principles) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement.
+The ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap and CPU frequency in `platform`, loop load and detector timing in `performance`, and CSI provenance rejection in `csi`. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) defines their transport representation.
 
-The ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap and CPU frequency in `platform`, loop load and detector timing in `performance`, and CSI provenance rejection in `csi`. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#diagnostics) defines their transport representation; the sampling contract follows below.
-
-@section integration_performance_sampling Performance sampling
+@subsection integration_performance_sampling Performance sampling
 
 The runtime aggregates loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot::performance` holds the latest complete window, and `platform` holds current, minimum, and largest-block heap values and configured CPU frequency. Collection is unconditional and does not emit a periodic debug log.
 
@@ -146,13 +149,15 @@ The runtime aggregates loop load and timing plus sampled detector evaluation tim
 
 @section integration_transport_adapters Transport adapters
 
+SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [API.md](https://github.com/francescopace/espectre/blob/main/docs/API.md#contract-principles) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](https://github.com/francescopace/espectre/blob/main/docs/ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement. Pass `RuntimeFrontendController::validate_control_update()` as the engine's sensing preflight, so an `update_sensing` request applies completely or not at all.
+
 `RuntimeDirectHttpBridgeConfig::loop_time_ms_getter` optionally supplies the latest complete application loop duration in milliseconds. Measure the loop body that calls the runtime and processes application events; exclude work on other tasks and time between loop calls. If you omit the callback, selecting `loop_time_ms` returns `null`. This measurement is independent of the runtime performance-window average exposed as `loop_avg_us`.
 
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
 @section integration_protocol_extensions Protocol extensions
 
-All command parameters use `EspectreCommandValidator`: the parser checks JSON syntax and request structure, then invokes the callback registered on the SDK or application route. The callback receives decoded `JsonObjectField` values, validates parameters, and fills the command before dispatch. It must not change device state. For extension commands, `extension_parameters` initially contains the original request, including the MQTT envelope; the validator may replace it with normalized JSON built from the decoded fields. The SDK validator checks parameter types and ranges, including thresholds in `0–1` and motion hit counts in `1–20`.
+All command parameters use `EspectreCommandValidator`: the parser checks JSON syntax and request structure, then invokes the callback registered on the SDK or application route. The callback receives decoded `JsonObjectField` values, validates parameters, and fills the command before dispatch. It must not change device state. For extension commands, `extension_parameters` initially contains the whole request from `parse_espectre_command()`, or the parameter object from `parse_espectre_command_request()`; the validator may replace it with normalized JSON built from the decoded fields. The SDK validator checks parameter types and ranges, including thresholds in `0–1` and motion hit counts in `1–20`.
 
 `FrontendCommandEngine::execute()` and application extension handlers require a successfully parsed command. They check capabilities and operational state without repeating parameter validation. Direct runtime and service APIs retain their own argument checks because integrators can call them without a protocol parser.
 
@@ -187,15 +192,15 @@ Integrators can stamp the same header or override all four macros together: `ESP
 
 Without a complete identity, the SDK uses `"0.0.0"` and zero for all numeric version components. Incomplete overrides also fall back to these values rather than mixing metadata from different sources or failing compilation. `espectre_sdk_version()` always returns a non-null string; `"0.0.0"` means the SDK version is unknown, and version guards for newer releases evaluate to false. A source checkout without stamped metadata therefore reports `"0.0.0"`, even if it has Git tags.
 
-The SDK manifest exposes the packaged identity once as `version`; `release_tag` names the GitHub release that carries the assets and may differ for rolling channels. The generated API index uses `sdk_version` to identify the source revision used to build that reference. Official release tooling still requires and validates the published version. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from the application version supplied by the integrator and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
+The SDK manifest exposes the packaged identity once as `version`; `release_tag` names the GitHub release that carries the assets and may differ for rolling channels. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from the application version supplied by the integrator and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
 
 
 
 @section integration_advanced_integrations Advanced integrations
 
-The core-only path and source-list builds let an application supply more of the capture and build infrastructure. The following sections distinguish component-relative paths from repository and bundle commands.
+The core-only path and source-list builds let an application supply more of the capture and build infrastructure.
 
-@section integration_core_only Core-only
+@subsection integration_core_only Core-only
 
 If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
 
@@ -212,9 +217,9 @@ At the end of a finite stream, call `flush()` and consume the stored payload if 
 
 After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
 
-A core-only integration that captures LLTF owns the same two-view boundary. Normalize the payload into the centered HT20 convention, call `zero_ht20_lltf_missing_bins()` on the raw view, copy that payload into the detector buffer, and call `impute_ht20_lltf_detector_bins()` only on the detector copy.
+A core-only integration owns the same two-view boundary between raw and detector input. Normalize the payload into the centered HT20 convention. For LLTF captures, call `zero_ht20_lltf_missing_bins()` on the raw view. Then copy the payload into a private detector buffer and call `prepare_ht20_detector_input()` only on that copy, passing the capture profile and the source metadata.
 
-@section integration_build_integration Build integration
+@subsection integration_build_integration Build integration
 
 Component Manager configures the registered component automatically. The following alternatives apply when you vendor SDK sources or maintain your own CMake target. Set the SDK root to the directory containing `espectre_sources.cmake`: the root of the registry archive, or `src/cpp/` in a GitHub/web bundle.
 

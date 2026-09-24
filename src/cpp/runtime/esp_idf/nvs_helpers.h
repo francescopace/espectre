@@ -14,8 +14,14 @@
 
 namespace espectre {
 
-// Initializes NVS, erasing and retrying once when the partition has no
-// free pages or holds data from a newer format version.
+/**
+ * Initialize NVS, erasing it and retrying once when the partition has no free
+ * pages or holds data from a newer format version.
+ *
+ * The erase discards every saved setting, including Wi-Fi credentials.
+ *
+ * @return The result of the final `nvs_flash_init()`, or the erase error.
+ */
 esp_err_t nvs_init_with_erase_fallback();
 
 }  // namespace espectre

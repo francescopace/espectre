@@ -20,6 +20,12 @@
 
 namespace espectre {
 
+/**
+ * Settings for an IDirectHttpService.
+ *
+ * setup() rejects a configuration without allowed origins unless
+ * `allow_missing_origin` is set, and zero limits.
+ */
 struct DirectHttpServiceConfig {
   /** Configuration for ESPectre's production and validation portals. */
   static DirectHttpServiceConfig for_first_party_portals() {
@@ -32,48 +38,77 @@ struct DirectHttpServiceConfig {
     return config;
   }
 
+  /** Browser origins allowed to call the API, matched exactly, such as `https://espectre.dev`. */
   std::vector<std::string> allowed_origins;
+  /** Device identity used in error payloads the service builds itself. */
   uint64_t device_id{0U};
   uint16_t port{ESPECTRE_DIRECT_HTTP_PORT};
+  /** Concurrent event stream clients, 1 or 2. */
   size_t max_event_clients{2U};
+  /** Requests received but not yet answered, across all clients. */
   size_t max_pending_requests{4U};
+  /** Events queued per event stream client. */
   size_t outbound_queue_depth{8U};
+  /** Requests accepted per second, reads included. */
   uint16_t max_requests_per_second{20U};
+  /** State-changing requests accepted per minute. */
   uint16_t max_mutations_per_minute{60U};
+  /** Accept requests without an `Origin` header, such as those from the CLI. */
   bool allow_missing_origin{false};
+  /** Also accept `http://localhost` and loopback addresses as origins, for local development. */
   bool allow_http_loopback_origins{false};
   /** Optional frontend routes. The immutable catalog must outlive this service. */
   const EspectreProtocolExtension *protocol_extension{nullptr};
 };
 
+/** Counters of an IDirectHttpService since its last setup(). */
 struct DirectHttpServiceDiagnostics {
+  /** `DirectHttpServiceConfig::max_event_clients`. */
   size_t event_client_limit{0U};
+  /** `DirectHttpServiceConfig::outbound_queue_depth`. */
   size_t queue_capacity{0U};
+  /** Event stream connections accepted. */
   uint32_t accepted_connections{0U};
+  /** Event stream connections refused, usually because the client limit was reached. */
   uint32_t rejected_connections{0U};
+  /** Requests with an invalid route, query, or body. */
   uint32_t malformed_requests{0U};
+  /** Requests larger than `ESPECTRE_DIRECT_MAX_REQUEST_SIZE`. */
   uint32_t oversized_requests{0U};
+  /** Requests refused by the per-second or per-minute limits. */
   uint32_t rate_limited_requests{0U};
+  /** Replaceable telemetry events dropped because a client queue was full. */
   uint32_t dropped_motion_events{0U};
+  /** Failed sends to event stream clients. */
   uint32_t send_failures{0U};
+  /** Events currently queued across clients. */
   size_t queued_messages{0U};
 };
 
 /** Local HTTP endpoints shared by ESPectre firmware frontends. */
 class IDirectHttpService {
  public:
+  /** Answer a request synchronously with a canonical JSON response. Runs from loop(). */
   using RequestHandler = std::function<std::string(const DirectRequest &request)>;
+  /** Reports whether the response reached the client. */
   using ResponseSentCallback = std::function<void(bool sent)>;
+  /** What a DeferredRequestHandler decided for one request. */
   struct DeferredRequestResult {
+    /** True to answer later with complete_deferred_response(); `response` is then ignored. */
     bool deferred{false};
+    /** Immediate response when `deferred` is false. */
     std::string response;
     /** Runs on the frontend task after the response send attempt completes. */
     ResponseSentCallback response_sent_callback{};
   };
+  /** Answer now or later; keep `request_token` to complete the request. Runs from loop(). */
   using DeferredRequestHandler =
       std::function<DeferredRequestResult(uint64_t request_token, const DirectRequest &request)>;
+  /** Reports the number of connected event stream clients after it changes. */
   using ClientCountCallback = std::function<void(size_t event_client_count)>;
+  /** Open raw collection for `GET /csi`; return false with a reason to refuse it. */
   using RawSessionRequestedCallback = std::function<bool(std::string *message)>;
+  /** Reports why a raw session ended. */
   using RawSessionStoppedCallback = std::function<void(RawCsiStopReason reason)>;
 
   virtual ~IDirectHttpService() = default;
@@ -111,7 +146,9 @@ class IDirectHttpService {
   virtual void loop() = 0;
   /** Stop accepting clients, close sockets, and release queued messages. */
   virtual void shutdown() = 0;
+  /** True between a successful setup and shutdown(). */
   virtual bool running() const = 0;
+  /** Connected event stream clients. */
   virtual size_t event_client_count() const = 0;
 
   /**
@@ -124,6 +161,7 @@ class IDirectHttpService {
   virtual bool publish_event(const std::string &event_name,
                              const std::string &data_json,
                              bool replaceable_telemetry) = 0;
+  /** Current counters. */
   virtual DirectHttpServiceDiagnostics diagnostics() const = 0;
 
   /** Register the frontend-task callback that opens collection for GET /csi. */
@@ -153,6 +191,7 @@ class IDirectHttpService {
     (void) packet;
     return false;
   }
+  /** Counters of the current or last raw session; zeros when unsupported. */
   virtual RawCsiSessionDiagnostics raw_diagnostics() const { return {}; }
 };
 

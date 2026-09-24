@@ -201,8 +201,8 @@ class RuntimeFrontendController : private IRuntimeListener {
    */
   bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits);
   /**
-   * Change how the device gets CSI traffic: an internal generator packet, or
-   * `TrafficGeneratorMode::EXTERNAL` to listen for another host.
+   * Change how the device gets CSI traffic: one of the internal generator
+   * modes, or `TrafficGeneratorMode::EXTERNAL` to listen for another host.
    *
    * @return false when the mode is invalid or unsupported on this target, or
    *         when the runtime is up and does not advertise

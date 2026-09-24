@@ -14,19 +14,27 @@
 
 namespace espectre {
 
+/** Training field and PHY the runtime captures CSI from, always at 20 MHz. */
 enum class CsiCaptureProfile : uint8_t {
+  /** HT long training field. */
   HT20 = 0,
+  /** Legacy long training field; lacks the edge tones. */
   LLTF20 = 1,
+  /** VHT long training field, on supported 5 GHz links. */
   VHT20 = 2,
 };
 
 /** Build-time policy resolved to a physical capture profile after association. */
 enum class CsiCapturePolicy : uint8_t {
+  /** LLTF20 for internal `wifi_raw` traffic, otherwise as `HT_VHT`. */
   AUTO = 0,
+  /** Always LLTF20. */
   LLTF = 1,
+  /** VHT20 on a supported 5 GHz link, HT20 otherwise. */
   HT_VHT = 2,
 };
 
+/** Protocol name of a profile: `ht20`, `lltf20`, or `vht20`. */
 constexpr const char *csi_capture_profile_name(CsiCaptureProfile profile) {
   switch (profile) {
     case CsiCaptureProfile::LLTF20:
@@ -39,6 +47,7 @@ constexpr const char *csi_capture_profile_name(CsiCaptureProfile profile) {
   }
 }
 
+/** Whether the profile captures the legacy training field. */
 constexpr bool csi_capture_profile_uses_lltf(CsiCaptureProfile profile) {
   return profile == CsiCaptureProfile::LLTF20;
 }
