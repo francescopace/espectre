@@ -35,7 +35,7 @@ All notable changes to this project will be documented in this file.
 - Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately. Micro-ESPectre needs rebuilt firmware for station rates (#182).
 - The SDK requires MQTT and mDNS only when their service is enabled, and no longer requires the HTTP server.
 - CLI discovery waits six seconds by default and asks devices to reply directly.
-- A saved BSSID pin disables ESPHome's periodic roaming scans, including after restart.
+- ESPHome devices no longer run ESPHome's periodic roaming scans, which took the radio off-channel for up to about 12 seconds every 5 minutes. Losing the access point still triggers a normal reconnect.
 - Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
 - One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
 - **Breaking:** `RuntimeConfig::wifi_band_policy` and the Kconfig band option default to `AUTO` on every target. `AUTO` uses the bands the radio has, so single-band chips now accept it and stay on 2.4 GHz. A `RuntimeConfig{}` built by hand on ESP32-C5 now selects the band automatically; set `BAND_2G` to keep the old behavior.

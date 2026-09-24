@@ -15,7 +15,7 @@ The examples keep the SSID, password, and BSSID out of YAML. After provisioning,
 
 Once Wi-Fi is set up, Home Assistant discovers the device through ESPHome.
 
-If the device roams between access points, you can pin it to one without editing YAML or rebooting; see [mesh Wi-Fi instability](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). The pin survives restarts and stops roaming scans. If a new pin fails, the device goes back to the previous one. The requests are in [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection).
+If the device roams between access points, you can pin it to one without editing YAML or rebooting; see [mesh Wi-Fi instability](../../../../docs/TROUBLESHOOTING.md#mesh-wi-fi-instability). The pin survives restarts. The component always stops ESPHome's periodic roaming scans, because each one takes the radio off-channel for seconds and interrupts sensing; losing the access point still triggers a normal reconnect. If a new pin fails, the device goes back to the previous one. The requests are in [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection).
 
 Official images add the last three MAC bytes to the ESPHome hostname, for example `espectre-a1b2c3.local`. This lets one image serve multiple devices on the same network. The Home Assistant device and entity IDs use the same suffix.
 

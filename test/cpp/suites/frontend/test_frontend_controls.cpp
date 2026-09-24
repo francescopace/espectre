@@ -1057,79 +1057,45 @@ void test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails(void) {
   TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", reboot.wifi_bssid_pin_.c_str());
 }
 
-void test_esphome_pinned_station_does_not_roam_and_clear_restores_roaming(void) {
-  esphome::wifi::WiFiComponent wifi;
-  esphome::wifi::global_wifi_component = &wifi;
-  esphome::ESPPreferences preferences;
-  esphome::global_preferences = &preferences;
-  ESpectreComponentProbe component;
-  component.setup();
-  component.wifi_associated_bssid_ = "AA:BB:CC:DD:EE:FF";
-  component.wifi_has_ipv4_ = true;
-  std::string message;
-
-  TEST_ASSERT_TRUE(wifi.roaming_allowed());
-  TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_(
-      "AA:BB:CC:DD:EE:FF", false, &message));
-  TEST_ASSERT_FALSE(wifi.roaming_allowed());
-  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
-
-  TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("", false, &message));
-  complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
-  TEST_ASSERT_TRUE(component.wifi_bssid_pin_.empty());
-  TEST_ASSERT_TRUE(wifi.roaming_allowed());
-}
-
-void test_esphome_restores_saved_pin_roaming_policy_and_preserves_other_owners(void) {
+void test_esphome_component_suppresses_roaming_scans_with_or_without_a_pin(void) {
   esphome::wifi::WiFiComponent wifi;
   esphome::wifi::global_wifi_component = &wifi;
   esphome::ESPPreferences preferences;
   esphome::global_preferences = &preferences;
   std::string message;
+  TEST_ASSERT_TRUE(wifi.roaming_allowed());
   {
     ESpectreComponentProbe component;
     component.setup();
+    TEST_ASSERT_FALSE(wifi.roaming_allowed());
     component.wifi_associated_bssid_ = "AA:BB:CC:DD:EE:FF";
-    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_(
-        "AA:BB:CC:DD:EE:FF", false, &message));
+    component.wifi_has_ipv4_ = true;
     TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_(
         "AA:BB:CC:DD:EE:FF", false, &message));
     TEST_ASSERT_FALSE(wifi.roaming_allowed());
+    TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("", false, &message));
+    complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
+    TEST_ASSERT_TRUE(component.wifi_bssid_pin_.empty());
+    TEST_ASSERT_FALSE(wifi.roaming_allowed());
+    // A failed pin write leaves the suppression in place.
+    esphome::g_esphome_preference_save_success = false;
+    TEST_ASSERT_FALSE(component.persist_wifi_bssid_pin_("AA:BB:CC:DD:EE:FF", &message));
+    esphome::g_esphome_preference_save_success = true;
+    TEST_ASSERT_FALSE(wifi.roaming_allowed());
   }
   TEST_ASSERT_TRUE(wifi.roaming_allowed());
+
+  // Another owner's suppression outlives the component's own.
   wifi.request_roaming_suppression();
   {
     ESpectreComponentProbe reboot;
     reboot.setup();
     TEST_ASSERT_FALSE(wifi.roaming_allowed());
-    wifi.release_roaming_suppression();
-    TEST_ASSERT_FALSE(wifi.roaming_allowed());
-    wifi.request_roaming_suppression();
   }
   TEST_ASSERT_FALSE(wifi.roaming_allowed());
   wifi.release_roaming_suppression();
   TEST_ASSERT_TRUE(wifi.roaming_allowed());
-}
-
-void test_esphome_failed_pin_persistence_keeps_existing_roaming_policy(void) {
-  esphome::wifi::WiFiComponent wifi;
-  esphome::wifi::global_wifi_component = &wifi;
-  esphome::ESPPreferences preferences;
-  esphome::global_preferences = &preferences;
-  ESpectreComponentProbe component;
-  component.setup();
-  component.wifi_associated_bssid_ = "AA:BB:CC:DD:EE:FF";
-  std::string message;
-  esphome::g_esphome_preference_save_success = false;
-  TEST_ASSERT_FALSE(component.begin_wifi_bssid_pin_update_(
-      "AA:BB:CC:DD:EE:FF", false, &message));
-  TEST_ASSERT_TRUE(wifi.roaming_allowed());
-  esphome::g_esphome_preference_save_success = true;
-  TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_(
-      "AA:BB:CC:DD:EE:FF", false, &message));
-  esphome::g_esphome_preference_save_success = false;
-  TEST_ASSERT_FALSE(component.persist_wifi_bssid_pin_("", &message));
-  TEST_ASSERT_FALSE(wifi.roaming_allowed());
 }
 
 int process(void) {
@@ -1155,9 +1121,7 @@ int process(void) {
   RUN_TEST(test_esphome_bssid_force_controls_reassociation_and_ack_reports_current_bssid);
   RUN_TEST(test_esphome_wifi_bssid_pin_rolls_back_once_after_enforcement_failure);
   RUN_TEST(test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails);
-  RUN_TEST(test_esphome_pinned_station_does_not_roam_and_clear_restores_roaming);
-  RUN_TEST(test_esphome_restores_saved_pin_roaming_policy_and_preserves_other_owners);
-  RUN_TEST(test_esphome_failed_pin_persistence_keeps_existing_roaming_policy);
+  RUN_TEST(test_esphome_component_suppresses_roaming_scans_with_or_without_a_pin);
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);

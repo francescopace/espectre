@@ -8,7 +8,7 @@
 | **v3.0.0-rc2** | Released | September 16, 2026 | Validate signed firmware, sensing fixes, and SDK packaging |
 | **v3.0.0-rc3** | In progress | `rc2` is published | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
 | **v3.0.0** | Planned | `rc3` is published | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
-| **v3.1.0** | Planned | v3.0.x triage is complete | Validate Matter with more controllers and define its production path |
+| **v3.1.0** | Planned | v3.0.0 is published and no v3.0.x release blockers remain open | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Apple Home over Matter leaves a documented product gap | Add a dedicated Apple Home frontend when HomeKit solves that gap |
 | **v3.4.0** | Research-gated | Stationary presence passes its sensing and product gates | Add stationary presence as a distinct sensing output |
@@ -18,15 +18,18 @@
 | **v4.2.0** | Demand-gated | Multi-node deployments need managed operations | Add optional fleet, history, update, and alert workflows |
 | **v5.0.0** | Exploratory | Practical sensing hardware exposes suitable measurements | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
+Demand-gated and research-gated releases do not block later ones: `v4.0.0` does not wait for `v3.2.0` to `v3.5.0`.
+
 ## v3.0.0 - Stable release
 
-**Product outcome**: release the stable v3 platform once the release candidates are validated and the remaining security and dataset work is done.
+**Product outcome**: release the stable v3 platform once the release candidates are validated, the remaining dataset work is done, and the rc-era compatibility code is gone.
 
-**Scope**: fix what `rc2` found, pass the gates below, and freeze the API and SDK. New sensing features and frontends wait for later versions.
+**Scope**: fix what `rc2` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. New sensing features and frontends wait for later versions.
 
 **Remaining release gates**:
 
-- [ ] Complete the dataset collection backlog and pass dataset-quality, training, and C++/Python parity gates on the final corpus. See the [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md).
+- [ ] Declare the final v3 corpus: list the missing captures by chip, environment, and label in the data collection guide, collect them, and pass dataset-quality, training, and C++/Python parity gates on the result. See the [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md).
+- [ ] Remove the backward-compatibility code added during the release candidates, such as saved-setting migrations, guards for removed configuration keys, and cleanup of retired Home Assistant entities, together with its tests and documentation. v3.0.0 carries no rc-era compatibility paths.
 
 **Exit criteria**:
 
@@ -57,9 +60,9 @@
 
 **Scope**:
 
-- Add an Arduino-facing runtime adapter that reuses `RuntimeFrontendController`, `EspIdfRuntime`, and the shared detector implementation
+- Add an Arduino-facing runtime adapter that reuses the SDK's runtime controller, the ESP-IDF runtime, and the shared detector
 - Keep Wi-Fi startup, reconnect policy, and product integration under the consuming sketch's control
-- Reassess whether `RuntimeEventMailbox` should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
+- Reassess whether the runtime event mailbox should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
 
 **Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK.
@@ -87,6 +90,7 @@
 
 **Scope**:
 
+- Ship the capture profile, CSI rate, and window changes that the presence detector depends on (R1 to R3 in the [research pipeline](#research-pipeline)), with C++/Python parity
 - Validate stationary presence across representative hardware and environments using paired same-session evidence
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state
@@ -121,18 +125,6 @@
 - Coordinate traffic generation or derived events only when measurements show a benefit without weakening sensing quality, latency, standalone operation, or recovery
 
 **Exit criteria**: working together measurably improves multi-device setups or reduces airtime. A device keeps sensing when its peers or management software go away, and the protocol documents every shared field and failure.
-
-### Hardware acceleration track
-
-Hardware acceleration is a separate track that starts only with evidence, and does not block `v4.0.0`. ESP32-S3 is the first candidate.
-
-- Profile the pipeline at declared CSI rates, and optimize only measured compute or memory bottlenecks
-- Compare optimized and portable paths with the same captures, detector gates, traffic profiles, and benchmark method
-- Preserve detector semantics, calibration, protocol and frontend compatibility, and a supported fallback path
-- Keep accelerated backends within the existing dual-distribution model, without proprietary-only modules or chip-specific protocol variants
-- Claim processing or airtime gains only when end-to-end measurements support them
-
-**Track exit criteria**: the accelerated version is reproducibly faster or leaves more headroom, and passes the same sensing, compatibility, and reliability gates. If it fails, record why and keep the portable version.
 
 ## v4.1.0 - Self-hostable relay
 
@@ -185,6 +177,18 @@ Hardware acceleration is a separate track that starts only with evidence, and do
 
 **Exit criteria**: the hardware and APIs are available, the new backend passes its sensing and compatibility gates, and existing integrations can switch to it without a second control path.
 
+## Hardware acceleration track
+
+Hardware acceleration is a separate track that starts only with evidence, and does not block any release. ESP32-S3 is the first candidate.
+
+- Profile the pipeline at declared CSI rates, and optimize only measured compute or memory bottlenecks
+- Compare optimized and portable paths with the same captures, detector gates, traffic profiles, and benchmark method
+- Preserve detector semantics, calibration, protocol and frontend compatibility, and a supported fallback path
+- Keep accelerated backends within the existing dual-distribution model, without proprietary-only modules or chip-specific protocol variants
+- Claim processing or airtime gains only when end-to-end measurements support them
+
+**Track exit criteria**: the accelerated version is reproducibly faster or leaves more headroom, and passes the same sensing, compatibility, and reliability gates. If it fails, record why and keep the portable version.
+
 ## Research pipeline
 
 Research runs in steps. A first small study on today's HT20 capture decides whether presence research is worth pursuing. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the real presence gate. Stopping or postponing is a valid outcome. Experiments are recorded in the [feature ledger](FEATURES.md), published research in the [literature review](LITERATURE.md).
@@ -201,8 +205,8 @@ Research runs in steps. A first small study on today's HT20 capture decides whet
 
 Order:
 
-- R0 can run during v3 and may stop the presence track early.
-- R1 to R3 come before R4. R4 uses the best capture profile found.
+- R0 can run during v3, starting from existing `static_presence` captures that have a same-session `empty` reference, and may stop the presence track early.
+- R1 to R3 come before R4. R4 uses the best capture profile found, and the changes it needs ship with `v3.4.0`.
 - R5 also needs validated presence (R4) and longer windows (R3).
 - R6 can start once R2 is stable.
 

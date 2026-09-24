@@ -115,7 +115,10 @@ void ESpectreComponent::setup() {
     }
   }
 
-  this->update_wifi_roaming_suppression_(!this->wifi_bssid_pin_.empty());
+  // A sensor stays in one place, and each periodic roaming scan takes the radio
+  // off-channel for seconds, collapsing CSI coverage. Losing the access point
+  // still triggers ESPHome's normal reconnect scan.
+  this->update_wifi_roaming_suppression_(true);
   this->update_live_telemetry_enabled_();
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
@@ -284,7 +287,6 @@ void ESpectreComponent::update_wifi_roaming_suppression_(bool suppress) {
 #ifdef USE_WIFI
   auto *wifi = wifi::global_wifi_component;
   if (wifi == nullptr || suppress == this->wifi_roaming_suppressed_) return;
-  // Automatic roaming scans take a pinned station off-channel unnecessarily.
   if (suppress) {
     wifi->request_roaming_suppression();
   } else {
@@ -309,7 +311,6 @@ bool ESpectreComponent::persist_wifi_bssid_pin_(const std::string &bssid, std::s
     return false;
   }
   this->wifi_bssid_pin_ = bssid;
-  this->update_wifi_roaming_suppression_(!bssid.empty());
   this->wifi_bssid_pending_loaded_ = false;
   this->wifi_bssid_pending_target_.clear();
   if (message != nullptr) {
