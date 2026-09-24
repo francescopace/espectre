@@ -163,8 +163,8 @@ void test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeo
     runtime.on_wifi_connected_(ip);
     generator.send_successes = 1U;
     runtime.check_csi_receive_path_();
-    generator.send_successes = 400U;
-    esp_timer_mock::advance(4999000);
+    generator.send_successes = 100U;
+    esp_timer_mock::advance(999000);
     runtime.check_csi_receive_path_();
     TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
     TEST_ASSERT_TRUE(generator.is_running());
@@ -217,13 +217,13 @@ void test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh(void) {
     generator.send_successes = 20U;
     ingress.packets_received = 20U;
     runtime.check_csi_receive_path_();
-    esp_timer_mock::advance(4500000);
+    esp_timer_mock::advance(1000000);
     runtime.check_csi_receive_path_();
     TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
     generator.send_successes++;
     ingress.packets_received++;
     runtime.check_csi_receive_path_();
-    esp_timer_mock::advance(5000000);
+    esp_timer_mock::advance(1000000);
     generator.send_successes++;
     ingress.packets_received++;
     runtime.check_csi_receive_path_();
@@ -483,6 +483,85 @@ void test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality
   feed(125);
   TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
   TEST_ASSERT_TRUE(listener.live_updates > live_updates);
+}
+
+void test_runtime_readiness_holds_brief_coverage_dips_and_drops_on_real_loss(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = ip_info.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip_info);
+  runtime.csi_pipeline_.traffic_filter_configured_ = false;
+  int8_t payload[128];
+  std::fill_n(payload, 128, int8_t{20});
+  for (uint8_t bin : HT20_CENTERED_ONLY_NULL_BINS) {
+    payload[bin * 2] = payload[bin * 2 + 1] = 0;
+  }
+  wifi_csi_info_t info{};
+  info.buf = payload;
+  info.len = sizeof(payload);
+  info.rx_ctrl.sig_mode = 1;
+  info.rx_ctrl.channel = 1;
+  info.rx_ctrl.rssi = -40;
+  esp_timer_mock::reset(10000000, 0);
+  unsigned unready_loops = 0U;
+  unsigned held_heartbeats = 0U;
+  const auto feed = [&](unsigned count, uint32_t spacing_us) {
+    for (unsigned i = 0; i < count; ++i) {
+      esp_timer_mock::advance(spacing_us);
+      info.rx_ctrl.timestamp = static_cast<uint32_t>(esp_timer_mock::time_us);
+      const uint32_t heartbeat_ms = runtime.csi_pipeline_.last_heartbeat_ms_;
+      const float metric = runtime.snapshot_.movement_metric;
+      runtime.csi_pipeline_.capture_service_.process_packet(&info);
+      runtime.loop();
+      const RuntimeSnapshot snapshot = runtime.get_snapshot();
+      if (!snapshot.ready_to_publish) {
+        unready_loops++;
+      } else if (!runtime.detector_->is_ready() &&
+                 runtime.csi_pipeline_.last_heartbeat_ms_ != heartbeat_ms) {
+        // A heartbeat inside a held dip keeps the last metric instead of
+        // publishing the one the detector cleared.
+        held_heartbeats++;
+        TEST_ASSERT_EQUAL_FLOAT(metric, snapshot.movement_metric);
+      }
+    }
+  };
+  feed(125, 10000U);
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+
+  // A 400 ms hole leaves the window at 60% valid slots, under the 70% floor,
+  // for most of a second while input keeps arriving: readiness holds.
+  unready_loops = 0U;
+  esp_timer_mock::advance(400000);
+  runtime.loop();
+  // Stand in for the last published metric, which this flat input keeps at 0.
+  runtime.snapshot_.movement_metric = 0.5f;
+  feed(120, 10000U);
+  TEST_ASSERT_EQUAL(0, unready_loops);
+  TEST_ASSERT_TRUE(held_heartbeats > 0U);
+  TEST_ASSERT_TRUE(runtime.detector_->is_ready());
+
+  // Coverage that stays under the floor clears readiness one window after it
+  // first dips: half rate reaches the floor after 600 ms, then 1 s of grace.
+  unready_loops = 0U;
+  feed(90, 20000U);
+  TEST_ASSERT_TRUE(unready_loops > 0U && unready_loops <= 15U);
+  TEST_ASSERT_FALSE(runtime.detector_->is_ready());
+  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_TRUE(runtime.readiness_gate_.reason() == SensingReadinessReason::LOW_COVERAGE);
+  feed(125, 10000U);
+  TEST_ASSERT_TRUE(runtime.get_snapshot().ready_to_publish);
+
+  // Input that stops clears readiness once it is one window old.
+  esp_timer_mock::advance(1000000);
+  runtime.loop();
+  TEST_ASSERT_FALSE(runtime.get_snapshot().ready_to_publish);
+  TEST_ASSERT_TRUE(runtime.readiness_gate_.reason() == SensingReadinessReason::INPUT_STALE);
+  runtime.shutdown();
 }
 
 void test_runtime_detector_configuration_preserves_the_requested_threshold(void) {
@@ -1242,6 +1321,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_traffic_source_target_support_applies_to_config_controls_persistence_and_discovery);
   RUN_TEST(test_runtime_traffic_destination_tracks_config_across_restarts_and_gateway_changes);
   RUN_TEST(test_runtime_readiness_requires_valid_recent_csi_and_recovers_after_quality_gap);
+  RUN_TEST(test_runtime_readiness_holds_brief_coverage_dips_and_drops_on_real_loss);
   RUN_TEST(test_runtime_reassociation_restarts_traffic_without_ip_or_channel_change);
   RUN_TEST(test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_only);
   RUN_TEST(test_runtime_calibration_consumes_evaluations_resets_on_gaps_and_finishes);

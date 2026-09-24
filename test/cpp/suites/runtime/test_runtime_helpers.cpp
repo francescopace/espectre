@@ -20,6 +20,7 @@
 #include "runtime_diagnostics_protocol.h"
 #include "runtime_performance_diagnostics.h"
 #include "runtime_time.h"
+#include "sensing_readiness_gate.h"
 #include "sta_socket_helpers.h"
 #include "wifi_csi_interface.h"
 
@@ -1020,9 +1021,66 @@ void test_sta_socket_binding_uses_resolved_interface(void) {
 
 #endif
 
+void test_sensing_readiness_gate_holds_only_brief_coverage_dips(void) {
+    using Edge = SensingReadinessGate::Edge;
+    SensingReadinessGate gate;
+    SensingReadinessInputs inputs;
+    TEST_ASSERT_TRUE(gate.update(inputs, 0U, 1000U) == Edge::NONE);
+    TEST_ASSERT_TRUE(gate.reason() == SensingReadinessReason::SENSING_STOPPED);
+    inputs = {true, false, true, true, true, false};
+    // Coverage below the floor never makes sensing ready in the first place.
+    TEST_ASSERT_TRUE(gate.update(inputs, 10U, 1000U) == Edge::NONE);
+    TEST_ASSERT_FALSE(gate.ready());
+    inputs.detector_ready = true;
+    TEST_ASSERT_TRUE(gate.update(inputs, 20U, 1000U) == Edge::READY);
+
+    // A dip shorter than the grace period stays invisible.
+    inputs.detector_ready = false;
+    TEST_ASSERT_TRUE(gate.update(inputs, 100U, 1000U) == Edge::NONE);
+    TEST_ASSERT_TRUE(gate.update(inputs, 1099U, 1000U) == Edge::NONE);
+    TEST_ASSERT_TRUE(gate.ready());
+    TEST_ASSERT_TRUE(gate.reason() == SensingReadinessReason::LOW_COVERAGE);
+    inputs.detector_ready = true;
+    TEST_ASSERT_TRUE(gate.update(inputs, 1099U, 1000U) == Edge::DIP_ABSORBED);
+    TEST_ASSERT_EQUAL(999, gate.last_dip_ms());
+
+    // A dip that outlasts the grace period clears readiness.
+    inputs.detector_ready = false;
+    TEST_ASSERT_TRUE(gate.update(inputs, 2000U, 1000U) == Edge::NONE);
+    TEST_ASSERT_TRUE(gate.update(inputs, 3000U, 1000U) == Edge::UNREADY);
+    TEST_ASSERT_TRUE(gate.reason() == SensingReadinessReason::LOW_COVERAGE);
+    inputs.detector_ready = true;
+    TEST_ASSERT_TRUE(gate.update(inputs, 3100U, 1000U) == Edge::READY);
+
+    // Every other condition clears readiness at once, even mid-dip.
+    const struct {
+        SensingReadinessInputs inputs;
+        SensingReadinessReason reason;
+    } immediate[] = {
+        {{false, false, true, true, true, false}, SensingReadinessReason::SENSING_STOPPED},
+        {{true, true, true, true, true, false}, SensingReadinessReason::CALIBRATING},
+        {{true, false, false, true, true, false}, SensingReadinessReason::NO_DETECTOR},
+        {{true, false, true, false, true, false}, SensingReadinessReason::INPUT_STALE},
+        {{true, false, true, true, false, false}, SensingReadinessReason::WINDOW_FILLING},
+    };
+    uint32_t now_ms = 4000U;
+    for (const auto &item : immediate) {
+        inputs = {true, false, true, true, true, true};
+        (void) gate.update(inputs, now_ms, 1000U);
+        TEST_ASSERT_TRUE(gate.ready());
+        inputs.detector_ready = false;
+        TEST_ASSERT_TRUE(gate.update(inputs, now_ms + 10U, 1000U) == Edge::NONE);
+        TEST_ASSERT_TRUE(gate.update(item.inputs, now_ms + 20U, 1000U) == Edge::UNREADY);
+        TEST_ASSERT_TRUE(gate.reason() == item.reason);
+        TEST_ASSERT_NOT_NULL(sensing_readiness_reason_name(item.reason));
+        now_ms += 100U;
+    }
+}
+
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_csi_quality_rejects_hardware_errors_and_preserves_valid_tones);
+    RUN_TEST(test_sensing_readiness_gate_holds_only_brief_coverage_dips);
 #if !CONFIG_SOC_WIFI_HE_SUPPORT
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_lltf_preference_and_vht_capability_resolve_capture_profile);

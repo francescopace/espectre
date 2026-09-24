@@ -77,7 +77,7 @@ The runtime divides time into fixed slots derived from `csi_target_pps`, not fro
 - Duplicate, stale, and out-of-order timestamps are rejected. Wall-clock time is used only to reject packets that waited too long in the processing queue.
 - Missing slots stay empty. Window statistics use the valid samples; lagged features need valid samples at the exact slot offsets.
 - A gap as long as the window clears detector history at once.
-- Detection is ready after one full window with at least 70% valid slots.
+- Detection is ready after one full window with at least 70% valid slots. Once ready, the runtime keeps reporting it through coverage dips below 70% that last less than one window; stale input or a cleared history ends readiness at once.
 
 Changing the detector or starting calibration clears the window but keeps the slot grid. Only a real break in the CSI session starts a new grid. Changing the target rate or window rebuilds the detector; the measured rate never does.
 
@@ -100,6 +100,7 @@ The detector processes every admitted packet but evaluates only every `evaluatio
 - `motion_on_hits` consecutive `MOTION` readings switch the state to `MOTION`.
 - `motion_off_hits` consecutive `IDLE` readings switch it back.
 - One reading that agrees with the current state resets the count.
+- An evaluation made while the detector is not ready gives no reading. It keeps the current state and the count, so a brief coverage dip cannot switch `MOTION` off.
 
 Hits count evaluations, not windows. With the default 250 ms interval:
 

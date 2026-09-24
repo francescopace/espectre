@@ -98,8 +98,14 @@ class RuntimeMotionPolicy:
             fallback_packets=self.packets_since_evaluation,
         )
 
-    def apply_state(self, detector_state):
-        """Apply hit filtering and return ``(effective_state, changed)``."""
+    def apply_state(self, detector_state, ready=True):
+        """Apply hit filtering and return ``(effective_state, changed)``.
+
+        An evaluation from a detector that is not ready carries no evidence, so
+        it holds the debounced state instead of counting as an IDLE hit.
+        """
+        if not ready:
+            return self.effective_state, False
         previous_state = self.effective_state
 
         if detector_state == self.effective_state:

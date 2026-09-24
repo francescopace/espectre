@@ -1053,17 +1053,24 @@ def main(wlan=None):
                     performance_diagnostics.record_detection_duration(
                         time.ticks_diff(time.ticks_us(), detection_start),
                     )
-                    effective_state, _ = runtime_policy.apply_state(metrics['state'])
+                    detector_ready = detector.is_ready()
+                    effective_state, _ = runtime_policy.apply_state(
+                        metrics['state'], ready=detector_ready,
+                    )
                     runtime_policy.after_evaluation()
-                    latest_motion_metric = metrics.get('motion_metric', 0.0)
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
-                    direct_api.publish_motion(
-                        latest_motion_metric,
-                        latest_effective_state,
-                        latest_threshold,
-                        current_time,
-                    )
+                    # A detector that is not ready clears its metric. Keep the
+                    # last one alongside the held state and skip the event,
+                    # as CsiPipeline does for live telemetry.
+                    if detector_ready:
+                        latest_motion_metric = metrics.get('motion_metric', 0.0)
+                        direct_api.publish_motion(
+                            latest_motion_metric,
+                            latest_effective_state,
+                            latest_threshold,
+                            current_time,
+                        )
 
                 if measure_loop:
                     latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)

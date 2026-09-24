@@ -85,6 +85,27 @@ class WindowedTransitionDetectorMock : public BaseDetector {
   float threshold_{0.0f};
 };
 
+class ReadinessDipDetectorMock : public BaseDetector {
+ public:
+  ReadinessDipDetectorMock() : BaseDetector(10) {}
+
+  bool is_ready() const override { return ready && BaseDetector::is_ready(); }
+  void update_state() override {
+    if (!is_ready()) {
+      clear_evaluation_state_();
+      return;
+    }
+    state_ = motion ? MotionState::MOTION : MotionState::IDLE;
+    current_metric_ = motion ? 1.0f : 0.0f;
+  }
+  bool set_threshold(float) override { return true; }
+  float get_threshold() const override { return 0.5f; }
+  const char* get_name() const override { return "ReadinessDipMock"; }
+
+  bool ready{true};
+  bool motion{true};
+};
+
 static void fill_valid_csi_info_(wifi_csi_info_t* csi_info, int8_t* csi_buf, uint8_t channel = 6) {
   for (int i = 0; i < 128; i++) {
     csi_buf[i] = static_cast<int8_t>(i % 64 - 32);
@@ -253,7 +274,10 @@ void test_csi_pipeline_disable(void) {
 }
 
 void test_csi_pipeline_disable_preserves_stable_callbacks_for_reenable(void) {
-    TransitionDetectorMock detector;
+    // Two packets never fill a window; this test is about callback wiring.
+    struct ReadyTransitionDetectorMock : TransitionDetectorMock {
+        bool is_ready() const override { return true; }
+    } detector;
     CsiPipeline manager;
     manager.init(&detector, &g_wifi_mock);
     manager.set_evaluation_interval_ms(10);
@@ -627,6 +651,54 @@ void test_csi_pipeline_motion_state_callback_honors_motion_off_hits(void) {
     uint32_t arrival_us = 1000000U;
     process_timed_packets_(manager, csi_info, arrival_us, 176U);
 
+    TEST_ASSERT_EQUAL(2, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
+}
+
+void test_csi_pipeline_not_ready_evaluations_hold_the_motion_state(void) {
+    ReadinessDipDetectorMock detector;
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+    manager.set_motion_on_hits(1);
+    manager.set_motion_off_hits(3);
+
+    int motion_callback_count = 0;
+    MotionState last_motion_state = MotionState::IDLE;
+    int telemetry_count = 0;
+    float last_metric = -1.0f;
+    manager.set_live_telemetry_callback([&](float metric, float) {
+        telemetry_count++;
+        last_metric = metric;
+    });
+    manager.set_motion_state_callback([&](MotionState state) {
+        motion_callback_count++;
+        last_motion_state = state;
+    });
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    uint32_t arrival_us = 1000000U;
+    process_timed_packets_(manager, csi_info, arrival_us, TEST_FIRST_EVALUATION_PACKET);
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+    TEST_ASSERT_EQUAL(MotionState::MOTION, last_motion_state);
+    const int ready_telemetry_count = telemetry_count;
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, last_metric);
+
+    // Five evaluations without a ready detector must not clear MOTION, nor
+    // publish the metric the detector clears.
+    detector.ready = false;
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           5U * TEST_PACKETS_PER_EVALUATION_AT_100_PPS);
+    TEST_ASSERT_EQUAL(1, motion_callback_count);
+    TEST_ASSERT_EQUAL(ready_telemetry_count, telemetry_count);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, last_metric);
+
+    // Ready IDLE evaluations still clear it after motion_off_hits.
+    detector.ready = true;
+    detector.motion = false;
+    process_timed_packets_(manager, csi_info, arrival_us,
+                           3U * TEST_PACKETS_PER_EVALUATION_AT_100_PPS);
     TEST_ASSERT_EQUAL(2, motion_callback_count);
     TEST_ASSERT_EQUAL(MotionState::IDLE, last_motion_state);
 }
@@ -1736,6 +1808,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_motion_state_callback_does_not_repeat_without_new_edge);
     RUN_TEST(test_csi_pipeline_clear_detector_buffer_publishes_idle_edge);
     RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_on_hits);
+    RUN_TEST(test_csi_pipeline_not_ready_evaluations_hold_the_motion_state);
     RUN_TEST(test_csi_pipeline_motion_state_callback_honors_motion_off_hits);
     RUN_TEST(test_csi_pipeline_periodic_callback_uses_filtered_motion_state);
     RUN_TEST(test_csi_pipeline_periodic_callback_reports_zero_packets_when_idle);

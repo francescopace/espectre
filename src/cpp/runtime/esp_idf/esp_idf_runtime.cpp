@@ -38,7 +38,13 @@ namespace {
 
 static const char *const RUNTIME_TAG = "espectre.runtime";
 static constexpr uint32_t CSI_ENABLE_SETTLE_MS = 100U;
-static constexpr uint32_t CSI_STARTUP_OBSERVATION_MS = 5000U;
+// A working receive path reports the first managed packets within tens of
+// milliseconds of arming. On S3 and C5 under ESPHome the first arm after
+// association stays silent on every boot, also with fast_connect. Disabling and
+// re-arming CSI does not recover it; the single-channel scan does. Waiting
+// longer than one detector window before that scan only delays sensing, so the
+// observation lasts one window and never less than this floor.
+static constexpr uint32_t CSI_STARTUP_OBSERVATION_MS = 1000U;
 static constexpr uint32_t CSI_STARTUP_TRAFFIC_IDLE_MS = 1000U;
 static constexpr uint32_t CSI_REFRESH_RETRY_INTERVAL_MS = 500U;
 static constexpr uint32_t CSI_REFRESH_REQUEST_WINDOW_MS = 15000U;
@@ -242,6 +248,9 @@ void EspIdfRuntime::loop() {
   if (calibration_finished_event_.take(calibration_success)) {
     finish_threshold_calibration_(calibration_success);
   }
+  // Settle readiness before dispatching pipeline events, so their snapshots
+  // agree with the one the frontend controller caches after this loop.
+  update_sensing_readiness_();
   csi_pipeline_.loop();
   refresh_wifi_association_from_csi_();
   // Detector-owned adaptation is a control-plane change, so keep the runtime
@@ -272,11 +281,46 @@ void EspIdfRuntime::loop() {
 RuntimeSnapshot EspIdfRuntime::get_snapshot() const {
   RuntimeSnapshot result = snapshot_;
   // The internal publishing gate also serves calibration and lifecycle work.
-  // Public readiness additionally requires a current, valid detector window.
+  // Public readiness additionally requires a current, valid detector window;
+  // loop() folds brief coverage dips into readiness_gate_. The window check
+  // stays live, so a detector cleared since the last loop() is never ready.
   result.ready_to_publish = result.ready_to_publish && !result.calibrating &&
-      detector_ != nullptr && detector_->is_ready() &&
+      detector_ != nullptr && readiness_gate_.ready() &&
+      detector_->get_buffer_count() >= detector_->get_window_size() &&
       csi_pipeline_.has_current_detector_input(static_cast<int64_t>(monotonic_now_us()));
   return result;
+}
+
+void EspIdfRuntime::update_sensing_readiness_() {
+  SensingReadinessInputs inputs;
+  inputs.sensing_active = snapshot_.ready_to_publish;
+  inputs.calibrating = snapshot_.calibrating;
+  inputs.has_detector = detector_ != nullptr;
+  inputs.input_current =
+      csi_pipeline_.has_current_detector_input(static_cast<int64_t>(monotonic_now_us()));
+  inputs.window_full =
+      detector_ != nullptr && detector_->get_buffer_count() >= detector_->get_window_size();
+  inputs.detector_ready = detector_ != nullptr && detector_->is_ready();
+  const SensingReadinessGate::Edge edge =
+      readiness_gate_.update(inputs, monotonic_now_ms(), config_.window_size_ms);
+  const unsigned valid_slots = detector_ != nullptr ? detector_->get_valid_buffer_count() : 0U;
+  const unsigned window_slots = detector_ != nullptr ? detector_->get_window_size() : 0U;
+  switch (edge) {
+    case SensingReadinessGate::Edge::READY:
+      ESPECTRE_LOGI(RUNTIME_TAG, "Sensing ready (%u/%u valid slots)", valid_slots, window_slots);
+      break;
+    case SensingReadinessGate::Edge::UNREADY:
+      ESPECTRE_LOGI(RUNTIME_TAG, "Sensing not ready: %s (%u/%u valid slots)",
+                    sensing_readiness_reason_name(readiness_gate_.reason()), valid_slots,
+                    window_slots);
+      break;
+    case SensingReadinessGate::Edge::DIP_ABSORBED:
+      ESPECTRE_LOGD(RUNTIME_TAG, "Held readiness through a %u ms coverage dip",
+                    static_cast<unsigned>(readiness_gate_.last_dip_ms()));
+      break;
+    case SensingReadinessGate::Edge::NONE:
+      break;
+  }
 }
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
@@ -809,7 +853,7 @@ void EspIdfRuntime::check_csi_receive_path_() {
     csi_receive_path_traffic_seen_ = false;
     return;
   }
-  if (elapsed < CSI_STARTUP_OBSERVATION_MS) return;
+  if (elapsed < std::max(CSI_STARTUP_OBSERVATION_MS, config_.window_size_ms)) return;
   if (now - csi_receive_path_last_attempt_ms_ < CSI_REFRESH_RETRY_INTERVAL_MS) return;
   csi_receive_path_last_attempt_ms_ = now;
 
@@ -828,7 +872,9 @@ void EspIdfRuntime::check_csi_receive_path_() {
   }
   csi_receive_path_refresh_in_progress_ = true;
   stop_sensing_services_();
-  ESPECTRE_LOGW(RUNTIME_TAG, "No CSI callbacks despite traffic; refreshing the receive path");
+  ESPECTRE_LOGW(RUNTIME_TAG,
+                "No CSI callbacks after %u ms of traffic; refreshing the receive path",
+                static_cast<unsigned>(elapsed));
 }
 
 void EspIdfRuntime::finish_csi_receive_path_refresh_(esp_err_t result) {
@@ -880,7 +926,13 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     snapshot_.csi_capture_profile = profile;
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
       snapshot_.motion_state = state;
-      snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
+      // A detector that is not ready has cleared its metric. Keep the last
+      // one alongside the held state, as live telemetry does.
+      if (detector_ == nullptr) {
+        snapshot_.movement_metric = 0.0f;
+      } else if (detector_->is_ready()) {
+        snapshot_.movement_metric = detector_->get_motion_metric();
+      }
       if (detector_ != nullptr) {
         notify_threshold_if_changed_(detector_->get_threshold());
       }

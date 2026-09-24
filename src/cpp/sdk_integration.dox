@@ -83,7 +83,7 @@ The queue can overflow during a stalled send, regardless of each slot's payload 
 
 By default the runtime remembers live control changes across reboots. `setup()` restores the CSI traffic source, generator packet, and motion hits saved in NVS, plus the detector when `RuntimeConfig::runtime_detector_selection_enabled` is set, and each controller setter saves its new value. The threshold is never saved. The runtime logs at INFO each saved value that differs from the config. Set `RuntimeConfig::persist_runtime_overrides` to false when your firmware owns configuration, for example from YAML or a cloud service: the config you pass is then the only source of truth, and the runtime neither reads nor writes saved controls.
 
-The ESP-IDF runtime starts capture, traffic, and calibration immediately after connection or rearming. It observes startup traffic and attempts a receive-path refresh only if traffic continues for five seconds without any CSI callback. One second without observed traffic progress resets that observation. A callback suppresses recovery even when the packet is rejected by the detector; an absent or stopped external sender does not trigger recovery. This startup check is not a continuous watchdog for later traffic loss.
+The ESP-IDF runtime starts capture, traffic, and calibration immediately after connection or rearming. It observes startup traffic and attempts a receive-path refresh only if traffic continues for one second without any CSI callback. One second without observed traffic progress resets that observation. A callback suppresses recovery even when the packet is rejected by the detector; an absent or stopped external sender does not trigger recovery. This startup check is not a continuous watchdog for later traffic loss.
 
 Recovery uses at most one asynchronous scan per sensing activation. Busy scan or connection state, or unconsumed scan results, defer the request in 500-ms intervals within a 15-second observation window. An accepted scan has a 30-second timeout. Success, failure, and timeout resume capture without repeating recovery in that activation. Disconnection, shutdown, and disarming cancel pending recovery; raw collection is not interrupted by it. Keep calling `loop()` throughout recovery.
 
@@ -94,6 +94,8 @@ For Wi-Fi stacks that scan autonomously and consume scan results, set `RuntimeCo
 Register an optional `LogSink` before `setup()`. Do not replace or clear it until every runtime and callback source using it has shut down.
 
 High Accuracy preserves the configured or live threshold when sensing starts, Wi-Fi reconnects, or raw collection ends. Explicit recalibration and switching detectors restore the detector's default threshold. Lightweight continues to derive its threshold through startup calibration.
+
+`RuntimeSnapshot::ready_to_publish` clears at once while calibrating, when sensing services or the link stop, when the newest detector input is one detector window old, and while the window refills after a history reset. Temporal admission leaves some slots empty even at the nominal packet rate, so window coverage can briefly fall under the detector's valid-slot floor while input keeps arriving. Once sensing is ready, such a dip clears readiness only if it lasts one detector window; shorter dips never reach `on_sensing_readiness_changed()` or `snapshot()`. The runtime logs every readiness transition with its reason.
 
 @section integration_errors Errors
 

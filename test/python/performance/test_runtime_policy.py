@@ -394,6 +394,22 @@ class TestRuntimeMotionPolicy:
         assert state == MotionState.IDLE
         assert changed
 
+    def test_not_ready_evaluations_hold_the_debounced_state(self):
+        policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=1, motion_off_hits=3)
+        policy.apply_state(MotionState.MOTION)
+        policy.apply_state(MotionState.IDLE)
+
+        for _ in range(5):
+            state, changed = policy.apply_state(MotionState.IDLE, ready=False)
+            assert state == MotionState.MOTION
+            assert not changed
+
+        # The IDLE hit counted before the dip still counts after it.
+        policy.apply_state(MotionState.IDLE)
+        state, changed = policy.apply_state(MotionState.IDLE)
+        assert state == MotionState.IDLE
+        assert changed
+
     def test_reset_clears_pending_state(self):
         policy = RuntimeMotionPolicy(evaluation_interval_ms=250, motion_on_hits=3, motion_off_hits=3)
 

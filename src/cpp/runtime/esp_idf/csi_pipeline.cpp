@@ -354,7 +354,11 @@ void CsiPipeline::process_admitted_candidate_() {
     // Update detector state on the internal cadence.
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
-    MotionState current_state = update_effective_motion_state_(detector_->get_state());
+    // A detector that is not ready reports IDLE without evidence. Hold the
+    // debounced state instead of counting that as an IDLE hit, as replay does.
+    MotionState current_state = detector_->is_ready()
+                                    ? update_effective_motion_state_(detector_->get_state())
+                                    : effective_motion_state_;
     heartbeat_motion_state_.store(current_state, std::memory_order_relaxed);
     request_motion_state_callback_(previous_state, current_state);
     cadence_.after_evaluation();
@@ -362,8 +366,10 @@ void CsiPipeline::process_admitted_candidate_() {
     const int64_t elapsed_us = esp_timer_get_time() - start_us;
     detection_timing_.record(static_cast<uint32_t>(elapsed_us));
 
-    // Emit live telemetry on each detector evaluation tick.
-    if (live_telemetry_callback_) {
+    // Emit live telemetry on each ready evaluation tick. A detector that is not
+    // ready clears its metric, so skipping it keeps the last metric in force
+    // alongside the held state.
+    if (live_telemetry_callback_ && detector_->is_ready()) {
       live_telemetry_event_.post(detector_->get_motion_metric(), detector_->get_threshold());
     }
   }

@@ -22,6 +22,7 @@
 #include "runtime/periodic_sensing_status_logger.h"
 #include "runtime/runtime_diagnostics.h"
 #include "runtime/runtime_config.h"
+#include "runtime/sensing_readiness_gate.h"
 #include "runtime/csi_traffic_service.h"
 #include "core/threshold.h"
 #include "traffic_generator_manager.h"
@@ -94,6 +95,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
                                                      bool temporal_reset);
   void finish_threshold_calibration_(bool success);
   void refresh_csi_local_identity_(uint32_t local_ip_addr);
+  void update_sensing_readiness_();
   void log_periodic_status_(uint32_t packets_received);
   void reset_periodic_status_logger_();
   void initialize_runtime_state_();
@@ -112,6 +114,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   RuntimeDiagnosticsSampler diagnostics_sampler_{};
   RuntimeDiagnosticsSample latest_diagnostics_{};
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
+  SensingReadinessGate readiness_gate_{};
   std::atomic<bool> threshold_calibration_active_{false};
   // Posted from the CSI callback with the outcome, completed from the loop.
   PendingEvent<bool> calibration_finished_event_;

@@ -188,7 +188,9 @@ struct RuntimeSnapshot {
    * The runtime is calibrated, linked, and its output is safe to act on.
    *
    * Gate every user-visible publication on this. It goes false again when the
-   * Wi-Fi link drops.
+   * Wi-Fi link drops, while calibrating, and when detector input is one window
+   * old. Window coverage under the valid-slot floor clears it only after it
+   * lasts one detector window.
    */
   bool ready_to_publish{false};
   /** Threshold startup calibration settled on. Zero before it completes. */
