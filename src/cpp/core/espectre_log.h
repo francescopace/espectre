@@ -78,6 +78,20 @@ void log_printf(LogLevel level, const char *tag, int line, const char *format, .
 #endif
     ;
 
+// Time the calling thread spent inside the sink's write callback, so a runtime
+// loop can tell a blocking frontend logger apart from its own work.
+struct LogSinkTiming {
+  uint64_t total_us{0U};
+  uint32_t writes{0U};
+  uint32_t maximum_us{0U};
+};
+
+// Return and clear the calling thread's sink timing since the previous call.
+LogSinkTiming take_log_sink_timing();
+
+// Accumulated sink time on this thread since the previous take. Does not clear.
+uint64_t log_sink_total_us();
+
 }  // namespace detail
 /** @endcond */
 

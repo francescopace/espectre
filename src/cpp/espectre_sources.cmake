@@ -34,6 +34,8 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS
+    "LINKER:--wrap=esp_netif_new"
+    "LINKER:--wrap=esp_netif_destroy"
     "LINKER:--wrap=esp_netif_receive"
     "LINKER:--wrap=esp_netif_transmit_wrap"
 )

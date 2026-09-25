@@ -404,6 +404,18 @@ void test_pacing_deadline_handles_invalid_interval(void) {
     TEST_ASSERT_TRUE(next_traffic_send_deadline_us(120000, 123456, 0) == 123456);
 }
 
+void test_send_delay_report_is_rate_limited(void) {
+    int64_t last_report_us = -1;
+    TEST_ASSERT_FALSE(should_report_traffic_send_delay(0, last_report_us, 99999, -1, 100000, 1000000));
+    TEST_ASSERT_EQUAL(-1, last_report_us);
+    TEST_ASSERT_TRUE(should_report_traffic_send_delay(0, last_report_us, 100000, 0, 100000, 1000000));
+    TEST_ASSERT_EQUAL(0, last_report_us);
+    TEST_ASSERT_FALSE(should_report_traffic_send_delay(999999, last_report_us, 250000, 250000, 100000, 1000000));
+    TEST_ASSERT_EQUAL(0, last_report_us);
+    TEST_ASSERT_TRUE(should_report_traffic_send_delay(1000000, last_report_us, 0, 100000, 100000, 1000000));
+    TEST_ASSERT_EQUAL(1000000, last_report_us);
+}
+
 void test_dns_tcp_query_frame_adds_length_and_transaction_id(void) {
     uint8_t frame[TRAFFIC_DNS_TCP_FRAME_SIZE] = {};
 
@@ -492,6 +504,7 @@ int process(void) {
     RUN_TEST(test_pacing_deadline_preserves_phase_across_small_jitter);
     RUN_TEST(test_pacing_deadline_resets_instead_of_catching_up);
     RUN_TEST(test_pacing_deadline_handles_invalid_interval);
+    RUN_TEST(test_send_delay_report_is_rate_limited);
     RUN_TEST(test_dns_tcp_query_frame_adds_length_and_transaction_id);
     RUN_TEST(test_dns_tcp_query_frame_rejects_small_buffer);
     RUN_TEST(test_dns_udp_query_payload_sets_transaction_id_without_tcp_length);

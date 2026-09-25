@@ -20,6 +20,9 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
+
+#include "esp_timer.h"
 
 using namespace espectre;
 
@@ -42,6 +45,7 @@ struct CapturedLog {
   std::string accepted_tag;
   int enabled_calls{0};
   int write_calls{0};
+  int64_t write_delay_us{0};
   LogLevel level{LogLevel::ERROR};
   std::string tag;
   int line{0};
@@ -61,6 +65,7 @@ void capture_log_write(void *context, LogLevel level, const char *tag, int line,
   auto *capture = static_cast<CapturedLog *>(context);
   char message[128];
   std::vsnprintf(message, sizeof(message), format, args);
+  esp_timer_mock::advance(capture->write_delay_us);
   capture->write_calls++;
   capture->level = level;
   capture->tag = tag != nullptr ? tag : "";
@@ -111,6 +116,27 @@ void test_log_sink_filters_before_arguments_and_forwards_message_metadata(void) 
   TEST_ASSERT_TRUE(capture.line > 0);
   TEST_ASSERT_EQUAL_STRING("value=%d", capture.format.c_str());
   TEST_ASSERT_EQUAL_STRING("value=1", capture.message.c_str());
+}
+
+void test_log_sink_timing_belongs_to_the_writing_thread(void) {
+  esp_timer_mock::reset(1000, 0);
+  CapturedLog capture;
+  TEST_ASSERT_TRUE(set_log_sink({&capture, &capture_log_enabled, &capture_log_write}));
+  (void) detail::take_log_sink_timing();
+
+  capture.write_delay_us = 7000;
+  ESPECTRE_LOGI("sdk.timing", "first");
+  capture.write_delay_us = 2000;
+  ESPECTRE_LOGI("sdk.timing", "second");
+  std::thread other([] { ESPECTRE_LOGI("sdk.timing", "other thread"); });
+  other.join();
+
+  const detail::LogSinkTiming timing = detail::take_log_sink_timing();
+  TEST_ASSERT_EQUAL(3, capture.write_calls);
+  TEST_ASSERT_EQUAL(2U, timing.writes);
+  TEST_ASSERT_TRUE(timing.total_us == 9000U);
+  TEST_ASSERT_EQUAL(7000U, timing.maximum_us);
+  TEST_ASSERT_EQUAL(0U, detail::take_log_sink_timing().writes);
 }
 
 void test_invalid_log_sink_preserves_registration_and_valid_sink_can_be_replaced(void) {
@@ -315,6 +341,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_log_sink_is_silent_until_registered_and_after_clear);
   RUN_TEST(test_log_sink_filters_before_arguments_and_forwards_message_metadata);
+  RUN_TEST(test_log_sink_timing_belongs_to_the_writing_thread);
   RUN_TEST(test_invalid_log_sink_preserves_registration_and_valid_sink_can_be_replaced);
   RUN_TEST(test_sdk_version_macros_agree_with_each_other);
   RUN_TEST(test_default_runtime_config_is_a_working_sensing_config);

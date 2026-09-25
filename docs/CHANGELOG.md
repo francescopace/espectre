@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Added registry packages with a Wi-Fi sensing example and the API reference for their version. Twelve consumer builds validate each package before and after publication.
 - Added the Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel to control traffic and view live diagnostics. It also controls ESPHome devices built with the `espectre` component (#168).
 - Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
+- Added a warning when one runtime loop iteration, or the wait before it, reaches 100 ms. It names the slow steps and separates frontend log-sink time from listener time, without counting a log inside a callback twice. The summary includes that wait. The traffic generator warns when a send blocks or starts at least 100 ms late, at most once per second.
 - Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
 - Added the SDK API reference to the website, with its version and commit.
 - Added three `BaseDetector` calibration hooks: `on_startup_calibration_abandoned()` when a calibration ends without a result, `startup_calibration_conclusive()` to extend a calibration whose evidence is not yet readable, and `calibration_motion_ceiling()` for the metric that counts as motion during calibration. Their defaults keep the previous behavior.
@@ -50,6 +51,7 @@ All notable changes to this project will be documented in this file.
 
 - Fixed source-list builds of the Direct sources having no way to add the mDNS link wrapper they need. `espectre_sources.cmake` now provides `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS`, and [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#optional-capability-groups) lists it with the mDNS private include directory.
 - Fixed the generator rate counting station traffic; it now reads zero when no internal generator runs (#182).
+- Fixed the runtime loop taking the lwIP core lock once per second to read the station traffic counters, so a busy network stack could stall it. The counters are read without a lock, and the station is recognized when its netif is created or recreated.
 - Fixed the WiFi Channel sensor showing decimals (#181).
 - Fixed sensing and network services not resuming after roaming with a retained IPv4 address.
 - Fixed startup waiting on a Wi-Fi scan; a single scan now runs only when CSI does not start, after one second of traffic without CSI callbacks instead of five.

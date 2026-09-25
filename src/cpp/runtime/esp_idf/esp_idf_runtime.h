@@ -113,6 +113,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   PeriodicSensingStatusLogger status_logger_{};
   RuntimeDiagnosticsSampler diagnostics_sampler_{};
   RuntimeDiagnosticsSample latest_diagnostics_{};
+  RuntimeLoopStepTimer loop_step_timer_;
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   CalibrationMotionGuard calibration_motion_guard_{};
   SensingReadinessGate readiness_gate_{};

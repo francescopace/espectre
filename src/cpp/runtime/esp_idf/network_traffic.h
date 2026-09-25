@@ -17,12 +17,15 @@ struct NetworkTrafficSnapshot {
 };
 
 /**
- * Read cumulative station counters and refresh the tracked WIFI_STA_DEF handle.
+ * Read cumulative counters for the WIFI_STA_DEF station interface.
  *
- * Call once after creating the station to start tracking and establish a rate
- * baseline, then on each diagnostic interval. Counters persist across sensing
- * restarts and wrap modulo 2^32. Reads and packet updates are thread-safe;
- * the two counters are sampled independently. No payload is inspected.
+ * Call once to establish a rate baseline, then on each diagnostic interval.
+ * The station is recognized when the WIFI_STA_DEF netif is created or
+ * recreated, so a read never takes the lwIP lock. The packet hooks only
+ * compare that pointer, which keeps the per-packet cost minimal. Counters persist across sensing restarts
+ * and wrap modulo 2^32. Reads are lock-free and packet updates are
+ * thread-safe; the two counters are sampled independently. No payload is
+ * inspected.
  *
  * Compile ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES and link with
  * ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS when consuming the source groups

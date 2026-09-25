@@ -66,6 +66,23 @@ inline int64_t next_traffic_send_deadline_us(int64_t previous_deadline_us,
   return phase_deadline_us;
 }
 
+// Report a blocked or late send at most once per min_interval_us. The log of
+// one stall must not become a warning on every following packet.
+// `last_report_us` stays negative until the first report.
+inline bool should_report_traffic_send_delay(int64_t now_us, int64_t &last_report_us,
+                                             int64_t blocked_us, int64_t late_us,
+                                             int64_t report_after_us, int64_t min_interval_us) {
+  if (blocked_us < report_after_us && late_us < report_after_us) {
+    return false;
+  }
+  // A negative stamp means no report yet, so a report at time zero still counts.
+  if (last_report_us >= 0 && now_us - last_report_us < min_interval_us) {
+    return false;
+  }
+  last_report_us = now_us;
+  return true;
+}
+
 constexpr size_t TRAFFIC_DNS_QUERY_PAYLOAD_SIZE = 17U;
 constexpr size_t TRAFFIC_DNS_TCP_FRAME_SIZE = TRAFFIC_DNS_QUERY_PAYLOAD_SIZE + 2U;
 constexpr size_t TRAFFIC_NULL_DATA_FRAME_SIZE = 24U;
@@ -138,6 +155,12 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
 
   static constexpr int64_t HEALTH_CHECK_INTERVAL_US = 1000000;
   static constexpr int64_t SEND_STALL_TIMEOUT_US = 5000000;
+  // A send that blocks or starts this late is reported, so a stall can be told
+  // apart as a blocked socket or TX path versus a task that did not run.
+  // The warning itself is limited to one per interval, so a slow log cannot
+  // turn one stall into a warning on every later packet.
+  static constexpr int64_t SEND_DELAY_REPORT_US = 100000;
+  static constexpr int64_t SEND_DELAY_REPORT_INTERVAL_US = 1000000;
   static constexpr uint32_t CONSECUTIVE_ERROR_REOPEN_THRESHOLD = 32U;
 };
 

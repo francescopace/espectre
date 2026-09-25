@@ -25,8 +25,12 @@
 #include "wifi_csi_interface.h"
 
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 #include <string>
 #include <vector>
+
+#include "espectre_log.h"
 
 #include "esp_timer.h"
 #include "esp_netif.h"
@@ -828,11 +832,21 @@ void test_capture_profile_selection_and_source_constraints(void) {
 void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
     esp_netif_mock_reset();
     const NetworkTrafficSnapshot baseline = read_network_traffic();
-    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    esp_netif_t other = nullptr;
+    const int lookups = g_esp_netif_mock.get_handle_call_count;
+    esp_netif_inherent_config_t station_key{};
+    station_key.if_key = "WIFI_STA_DEF";
+    esp_netif_config_t station_config{};
+    station_config.base = &station_key;
+    esp_netif_t *sta = __wrap_esp_netif_new(&station_config);
+    esp_netif_inherent_config_t other_key{};
+    other_key.if_key = "WIFI_AP_DEF";
+    esp_netif_config_t other_config{};
+    other_config.base = &other_key;
+    esp_netif_t *other = __wrap_esp_netif_new(&other_config);
     uint8_t buffer[] = {1U, 2U, 3U};
     int extra = 42;
-    const int lookups = g_esp_netif_mock.get_handle_call_count;
+    TEST_ASSERT_NOT_NULL(sta);
+    TEST_ASSERT_NOT_NULL(other);
 
     TEST_ASSERT_EQUAL(ESP_OK, __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), &extra));
     TEST_ASSERT_TRUE(sta == g_esp_netif_mock.last_netif);
@@ -841,7 +855,7 @@ void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
     TEST_ASSERT_EQUAL(sizeof(buffer), g_esp_netif_mock.last_len);
     g_esp_netif_mock.receive_result = ESP_FAIL;
     TEST_ASSERT_EQUAL(ESP_FAIL, __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), &extra));
-    __wrap_esp_netif_receive(&other, buffer, sizeof(buffer), nullptr);
+    __wrap_esp_netif_receive(other, buffer, sizeof(buffer), nullptr);
     __wrap_esp_netif_receive(nullptr, buffer, sizeof(buffer), nullptr);
 
     TEST_ASSERT_EQUAL(ESP_OK, __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), &extra));
@@ -849,7 +863,7 @@ void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
     TEST_ASSERT_TRUE(buffer == g_esp_netif_mock.last_buffer);
     TEST_ASSERT_TRUE(&extra == g_esp_netif_mock.last_extra);
     TEST_ASSERT_EQUAL(sizeof(buffer), g_esp_netif_mock.last_len);
-    __wrap_esp_netif_transmit_wrap(&other, buffer, sizeof(buffer), nullptr);
+    __wrap_esp_netif_transmit_wrap(other, buffer, sizeof(buffer), nullptr);
     __wrap_esp_netif_transmit_wrap(nullptr, buffer, sizeof(buffer), nullptr);
     g_esp_netif_mock.transmit_result = ESP_FAIL;
     TEST_ASSERT_EQUAL(ESP_FAIL, __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), &extra));
@@ -859,15 +873,21 @@ void test_station_network_traffic_counts_delivery_and_successful_sends(void) {
     const NetworkTrafficSnapshot after = read_network_traffic();
     TEST_ASSERT_EQUAL(2U, after.rx_packets - baseline.rx_packets);
     TEST_ASSERT_EQUAL(1U, after.tx_packets - baseline.tx_packets);
+    // The runtime loop reads these counters, so a read must never resolve the
+    // station handle: that lookup waits for the lwIP core lock.
+    TEST_ASSERT_EQUAL(lookups, g_esp_netif_mock.get_handle_call_count);
 
-    g_esp_netif_mock.handle_available = false;
-    read_network_traffic();
+    __wrap_esp_netif_destroy(sta);
+    esp_netif_t *recreated = __wrap_esp_netif_new(&station_config);
+    TEST_ASSERT_NOT_NULL(recreated);
+    const NetworkTrafficSnapshot before_recreate = read_network_traffic();
     __wrap_esp_netif_receive(sta, buffer, sizeof(buffer), nullptr);
-    g_esp_netif_mock.transmit_result = ESP_OK;
-    __wrap_esp_netif_transmit_wrap(sta, buffer, sizeof(buffer), nullptr);
-    const NetworkTrafficSnapshot unavailable = read_network_traffic();
-    TEST_ASSERT_EQUAL(after.rx_packets, unavailable.rx_packets);
-    TEST_ASSERT_EQUAL(after.tx_packets, unavailable.tx_packets);
+    __wrap_esp_netif_receive(recreated, buffer, sizeof(buffer), nullptr);
+    const NetworkTrafficSnapshot after_recreate = read_network_traffic();
+    TEST_ASSERT_EQUAL(1U, after_recreate.rx_packets - before_recreate.rx_packets);
+    TEST_ASSERT_EQUAL(lookups, g_esp_netif_mock.get_handle_call_count);
+    __wrap_esp_netif_destroy(recreated);
+    __wrap_esp_netif_destroy(other);
     esp_netif_mock_reset();
 }
 
@@ -981,6 +1001,108 @@ void test_runtime_performance_diagnostics_publish_complete_windows(void) {
     TEST_ASSERT_EQUAL(300U, snapshot.detection_average_us);
     TEST_ASSERT_EQUAL(200U, snapshot.detection_minimum_us);
     TEST_ASSERT_EQUAL(400U, snapshot.detection_maximum_us);
+}
+
+struct LoopStepTimerLog {
+    int64_t write_delay_us{0};
+    int warnings{0};
+    std::string warning;
+};
+
+bool loop_step_timer_log_enabled(void *, LogLevel, const char *) { return true; }
+
+void loop_step_timer_log_write(void *context, LogLevel level, const char *, int, const char *format,
+                               va_list args) {
+    auto *log = static_cast<LoopStepTimerLog *>(context);
+    esp_timer_mock::advance(log->write_delay_us);
+    if (level != LogLevel::WARNING) {
+        return;
+    }
+    char text[1024];
+    std::vsnprintf(text, sizeof(text), format, args);
+    log->warnings++;
+    log->warning = text;
+}
+
+void test_runtime_loop_step_timer_reports_slow_steps_and_separates_frontend_time(void) {
+    esp_timer_mock::reset(1000, 0);
+    LoopStepTimerLog log;
+    TEST_ASSERT_TRUE(set_log_sink({&log, &loop_step_timer_log_enabled, &loop_step_timer_log_write}));
+    RuntimeLoopStepTimer timer;
+    timer.reset();
+
+    timer.begin();
+    esp_timer_mock::advance(2000);
+    timer.mark("pipeline");
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(0, log.warnings);
+
+    // A step held by a blocking sink write and a listener callback names both.
+    timer.begin();
+    esp_timer_mock::advance(3000);
+    timer.mark("pipeline");
+    log.write_delay_us = 240000;
+    ESPECTRE_LOGI("test.loop", "heartbeat");
+    log.write_delay_us = 0;
+    esp_timer_mock::advance(4000);
+    RuntimeLoopStepTimer::record_listener_time(4000U);
+    timer.mark("heartbeat");
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(1, log.warnings);
+    TEST_ASSERT_TRUE(log.warning.find("Runtime loop took 247 ms") != std::string::npos);
+    TEST_ASSERT_TRUE(log.warning.find("pipeline 3 ms") != std::string::npos);
+    TEST_ASSERT_TRUE(log.warning.find("heartbeat 244 ms (log sink 240 ms, listener 4 ms)") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(log.warning.find("log sink 240 ms in 1 write (max 240 ms)") != std::string::npos);
+
+    // A loop that is not called in time is reported even when it runs fast.
+    esp_timer_mock::advance(150000);
+    timer.begin();
+    timer.mark("pipeline");
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(2, log.warnings);
+    TEST_ASSERT_TRUE(log.warning.find("took 0 ms, 150 ms after the previous one") != std::string::npos);
+
+    // A restart does not report the time the runtime was stopped.
+    esp_timer_mock::advance(500000);
+    timer.reset();
+    timer.begin();
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(2, log.warnings);
+
+    // A blocking log between iterations stays in the gap and in the summary.
+    timer.begin();
+    timer.finish("test.loop");
+    log.write_delay_us = 180000;
+    ESPECTRE_LOGI("test.loop", "between");
+    log.write_delay_us = 0;
+    timer.begin();
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(3, log.warnings);
+    TEST_ASSERT_TRUE(log.warning.find("took 0 ms, 180 ms after the previous one (log sink 180 ms, listener 0 ms)") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(log.warning.find("log sink 180 ms in 1 write (max 180 ms), listener 0 ms") !=
+                     std::string::npos);
+
+    // The report keeps the last step and the summary when every step is slow.
+    timer.reset();
+    esp_timer_mock::reset(5000, 0);
+    timer.begin();
+    for (const char *step : {"wifi_events", "calibration", "readiness", "pipeline", "threshold", "traffic",
+                             "receive_path", "heartbeat"}) {
+        log.write_delay_us = 2000;
+        ESPECTRE_LOGI("test.loop", "step");
+        log.write_delay_us = 0;
+        RuntimeLoopStepTimer::record_listener_time(2000U);
+        esp_timer_mock::advance(20000);
+        timer.mark(step);
+    }
+    timer.finish("test.loop");
+    TEST_ASSERT_EQUAL(4, log.warnings);
+    TEST_ASSERT_TRUE(log.warning.find("heartbeat 22 ms (log sink 2 ms, listener 2 ms)") != std::string::npos);
+    TEST_ASSERT_TRUE(log.warning.find("log sink 16 ms in 8 writes (max 2 ms), listener 16 ms") !=
+                     std::string::npos);
+    clear_log_sink();
 }
 
 void test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values(void) {
@@ -1142,6 +1264,7 @@ int process(void) {
     RUN_TEST(test_network_rates_wrap_independently_of_generator_resets);
     RUN_TEST(test_runtime_hardware_error_rate_handles_counter_epochs_and_clock_wrap);
     RUN_TEST(test_runtime_performance_diagnostics_publish_complete_windows);
+    RUN_TEST(test_runtime_loop_step_timer_reports_slow_steps_and_separates_frontend_time);
     RUN_TEST(test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);
     RUN_TEST(test_mqtt_payload_assembler_rejects_invalid_fragments);

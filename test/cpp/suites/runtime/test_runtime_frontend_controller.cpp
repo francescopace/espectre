@@ -13,10 +13,15 @@
 #include "frontend_runtime_shim.h"
 #include "runtime_config_utils.h"
 #include "runtime_frontend_controller.h"
+#include "runtime_performance_diagnostics.h"
 #include "frontend_bootstrap_helpers.h"
 #include "device_config_store.h"
 #include "nvs.h"
+#include "espectre_log.h"
+#include "esp_timer.h"
 
+#include <cstdarg>
+#include <cstdio>
 #include <string>
 
 using namespace espectre;
@@ -82,7 +87,10 @@ void setUp(void) {
   esp_wifi_mock_reset();
 }
 
-void tearDown(void) {}
+void tearDown(void) {
+  clear_log_sink();
+  esp_timer_mock::step_us = 1000;
+}
 
 void test_controller_notifies_readiness_edges_once_and_defers_callback_shutdown(void) {
   RuntimeFrontendController controller;
@@ -634,6 +642,54 @@ void test_runtime_frontend_controller_defers_shutdown_requested_by_listener(void
   TEST_ASSERT_FALSE(controller.is_setup_complete());
 }
 
+void test_listener_time_excludes_time_spent_in_the_log_sink(void) {
+  struct Capture {
+    int64_t write_delay_us{0};
+    std::string warning;
+  } capture;
+  auto enabled = [](void *, LogLevel, const char *) { return true; };
+  auto write = [](void *context, LogLevel level, const char *, int, const char *format, va_list args) {
+    auto *capture = static_cast<Capture *>(context);
+    esp_timer_mock::advance(capture->write_delay_us);
+    if (level != LogLevel::WARNING) {
+      return;
+    }
+    char text[256];
+    std::vsnprintf(text, sizeof(text), format, args);
+    capture->warning = text;
+  };
+  TEST_ASSERT_TRUE(set_log_sink({&capture, enabled, write}));
+
+  class LoggingListener : public IRuntimeListener {
+   public:
+    Capture *capture{nullptr};
+    void on_threshold_changed(const RuntimeSnapshot &) override {
+      esp_timer_mock::advance(30000);
+      capture->write_delay_us = 80000;
+      ESPECTRE_LOGI("test.listener", "publish");
+      capture->write_delay_us = 0;
+      esp_timer_mock::advance(20000);
+    }
+  };
+
+  esp_timer_mock::reset(1000, 0);
+  RuntimeFrontendController controller;
+  LoggingListener listener;
+  listener.capture = &capture;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  frontend_runtime_shim::state.snapshot.ready_to_publish = false;
+
+  RuntimeLoopStepTimer timer;
+  timer.reset();
+  timer.begin();
+  controller.loop();
+  timer.mark("dispatch");
+  timer.finish("test.listener");
+  TEST_ASSERT_TRUE(capture.warning.find("dispatch 130 ms (log sink 80 ms, listener 50 ms)") !=
+                   std::string::npos);
+}
+
 void test_runtime_frontend_controller_switches_detector_and_resets_threshold(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
@@ -684,6 +740,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
   RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
+  RUN_TEST(test_listener_time_excludes_time_spent_in_the_log_sink);
   return UNITY_END();
 }
 

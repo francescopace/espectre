@@ -527,6 +527,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
   SendErrorState error_state;
   uint32_t consecutive_errors = 0U;
   int64_t next_send_deadline_us = 0;
+  int64_t last_send_delay_report_us = -1;
   TcpConnectionState connection_state = protocol->connection_oriented()
                                             ? TcpConnectionState::DISCONNECTED
                                             : TcpConnectionState::CONNECTED;
@@ -548,6 +549,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
   while (manager->running_.load(std::memory_order_relaxed)) {
     if (manager->paused_.load(std::memory_order_relaxed)) {
+      next_send_deadline_us = 0;
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     }
@@ -579,15 +581,29 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
       }
     }
 
+    const auto report_send_delay = [&](int64_t blocked_us, int64_t late_us) {
+      if (!should_report_traffic_send_delay(esp_timer_get_time(), last_send_delay_report_us, blocked_us,
+                                            late_us, SEND_DELAY_REPORT_US, SEND_DELAY_REPORT_INTERVAL_US)) {
+        return;
+      }
+      ESPECTRE_LOGW(TAG, "%s send stalled: socket calls took %lld ms, started %lld ms late",
+                    protocol->name(), static_cast<long long>(std::max<int64_t>(blocked_us, 0) / 1000),
+                    static_cast<long long>(std::max<int64_t>(late_us, 0) / 1000));
+    };
+    const int64_t send_path_started_us = esp_timer_get_time();
     const SocketDrainResult drain_result = protocol->uses_socket()
                                               ? drain_socket(manager->sock_) : SocketDrainResult::READY;
     if (protocol->connection_oriented() && drain_result != SocketDrainResult::READY) {
+      report_send_delay(esp_timer_get_time() - send_path_started_us, 0);
       ESPECTRE_LOGW(TAG, "%s TCP connection closed while draining responses", protocol->name());
       (void)recreate_socket();
       continue;
     }
     const int64_t send_started_us = esp_timer_get_time();
     const ssize_t sent = protocol->send_packet(manager->sock_, destination);
+    const int64_t send_path_us = esp_timer_get_time() - send_path_started_us;
+    const int64_t late_us = next_send_deadline_us != 0 ? send_path_started_us - next_send_deadline_us : 0;
+    report_send_delay(send_path_us, late_us);
     if (sent <= 0) {
       manager->send_error_count_.fetch_add(1U, std::memory_order_relaxed);
       consecutive_errors++;

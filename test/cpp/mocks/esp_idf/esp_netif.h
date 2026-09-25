@@ -76,7 +76,17 @@ static inline void esp_netif_destroy_default_wifi(void *netif) {
   g_esp_netif_mock.station_created = false;
 }
 
+typedef struct esp_netif_inherent_config {
+  const char *if_key;
+} esp_netif_inherent_config_t;
+
+typedef struct esp_netif_config {
+  const esp_netif_inherent_config_t *base;
+} esp_netif_config_t;
+
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *ifkey);
+esp_netif_t *__wrap_esp_netif_new(const esp_netif_config_t *config);
+void __wrap_esp_netif_destroy(esp_netif_t *netif);
 esp_err_t __wrap_esp_netif_receive(esp_netif_t *netif, void *buffer, size_t len, void *eb);
 esp_err_t __wrap_esp_netif_transmit_wrap(esp_netif_t *netif, void *buffer, size_t len, void *netstack_buffer);
 

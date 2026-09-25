@@ -56,6 +56,7 @@ Keep `csi_target_pps` at its default of `100`. Changing it changes detector timi
 2. Internal traffic: check that the destination replies to the selected protocol. External traffic: check that the sender is running and its packets reach the device.
 3. If the traffic does not arrive, see [LAN traffic blocked](#lan-traffic-blocked).
 4. If callbacks arrive but few packets are accepted, check the hardware error counters; see [capture quality](CSI.md#capture-quality).
+5. If `accepted` falls while `hwerr` stays at zero, the device loop is not keeping up with the packets. Look for a `Runtime loop took` warning in the log; it names the step that held the loop.
 
 Start with the default `ping` source. If you selected the experimental `wifi_raw` source and input disappears, switch to another source; there is no automatic fallback. See [compatibility limits](CSI.md#compatibility-limits).
 

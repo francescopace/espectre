@@ -298,6 +298,8 @@ class RuntimeFrontendController : private IRuntimeListener {
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
   uint8_t callback_depth_{0U};
+  uint64_t callback_started_us_{0U};
+  uint64_t callback_sink_us_{0U};
   bool shutdown_requested_{false};
 };
 

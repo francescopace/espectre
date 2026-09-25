@@ -12,7 +12,11 @@
 #include "core/espectre_log.h"
 #include "esp_idf_runtime.h"
 #include "runtime/runtime_config_utils.h"
+#include "runtime/runtime_time.h"
+#include "runtime_performance_diagnostics.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <new>
 
 namespace espectre {
@@ -365,11 +369,23 @@ void RuntimeFrontendController::adopt_effective_detector_(DetectionAlgorithm alg
   }
 }
 
-void RuntimeFrontendController::begin_callback_() { ++callback_depth_; }
+void RuntimeFrontendController::begin_callback_() {
+  if (callback_depth_++ == 0U) {
+    callback_started_us_ = monotonic_now_us();
+    callback_sink_us_ = detail::log_sink_total_us();
+  }
+}
 
 void RuntimeFrontendController::end_callback_() {
-  if (callback_depth_ > 0U) {
-    --callback_depth_;
+  if (callback_depth_ > 0U && --callback_depth_ == 0U) {
+    // Listener time excludes the log sink, so a callback that logs is not
+    // counted both as listener work and as sink work.
+    const uint64_t elapsed_us = monotonic_now_us() - callback_started_us_;
+    const uint64_t sink_now_us = detail::log_sink_total_us();
+    const uint64_t sink_us = sink_now_us >= callback_sink_us_ ? sink_now_us - callback_sink_us_ : 0U;
+    const uint64_t listener_us = elapsed_us > sink_us ? elapsed_us - sink_us : 0U;
+    RuntimeLoopStepTimer::record_listener_time(
+        static_cast<uint32_t>(std::min<uint64_t>(listener_us, UINT32_MAX)));
   }
 }
 

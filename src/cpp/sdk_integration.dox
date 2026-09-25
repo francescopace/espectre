@@ -145,6 +145,8 @@ The ESP-IDF runtime always collects these counters and bounded performance windo
 
 The runtime aggregates loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot::performance` holds the latest complete window, and `platform` holds current, minimum, and largest-block heap values and configured CPU frequency. Collection is unconditional and does not emit a periodic debug log.
 
+When one `loop()` iteration, or the wait since the previous one, reaches 100 ms, the runtime logs one warning. It lists the steps that took at least 1 ms. Log-sink time and listener time are separate, and listener time does not include the sink, so a frontend that logs inside a callback is not counted twice. The summary covers the iteration and the wait before it.
+
 `performance.runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and listener callback delivery run in the owning loop task. Transport work on private tasks is outside this measurement. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 @section integration_transport_adapters Transport adapters

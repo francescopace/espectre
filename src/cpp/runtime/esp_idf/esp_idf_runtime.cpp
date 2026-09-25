@@ -222,6 +222,7 @@ bool EspIdfRuntime::setup() {
   wifi_channel_ = 0U;
   setup_complete_ = true;
   performance_diagnostics_.reset();
+  loop_step_timer_.reset();
   return true;
 }
 
@@ -243,17 +244,24 @@ void EspIdfRuntime::shutdown() {
 
 void EspIdfRuntime::loop() {
   RuntimePerformanceLoopScope performance_scope(performance_diagnostics_);
+  // Name the step that holds the loop when a stall recurs, and separate the
+  // frontend's log sink and listener time from the runtime's own work.
+  loop_step_timer_.begin();
   if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
     notify_fault_("Wi-Fi lifecycle init failed");
   }
+  loop_step_timer_.mark("wifi_events");
   bool calibration_success = false;
   if (calibration_finished_event_.take(calibration_success)) {
     finish_threshold_calibration_(calibration_success);
   }
+  loop_step_timer_.mark("calibration");
   // Settle readiness before dispatching pipeline events, so their snapshots
   // agree with the one the frontend controller caches after this loop.
   update_sensing_readiness_();
+  loop_step_timer_.mark("readiness");
   csi_pipeline_.loop();
+  loop_step_timer_.mark("pipeline");
   refresh_wifi_association_from_csi_();
   // Detector-owned adaptation is a control-plane change, so keep the runtime
   // snapshot and listener event current even when high-rate live telemetry is
@@ -261,16 +269,21 @@ void EspIdfRuntime::loop() {
   if (detector_ != nullptr) {
     notify_threshold_if_changed_(detector_->get_threshold());
   }
+  loop_step_timer_.mark("threshold");
   // Keep the active traffic source healthy while raw capture bypasses the
   // sensing sampler. In external mode this drains the non-blocking UDP socket;
   // otherwise its receive queue fills during long raw sessions and the marker
   // traffic path cannot recover cleanly.
   csi_traffic_service_.loop();
+  loop_step_timer_.mark("traffic");
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    loop_step_timer_.finish(RUNTIME_TAG);
     return;
   }
   check_csi_receive_path_();
+  loop_step_timer_.mark("receive_path");
   csi_pipeline_.heartbeat_if_due(monotonic_now_ms());
+  loop_step_timer_.mark("heartbeat");
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
     performance_diagnostics_.record_detection_timing(detection_timing.duration_sum_us,
@@ -278,6 +291,7 @@ void EspIdfRuntime::loop() {
                                                       detection_timing.minimum_us,
                                                       detection_timing.maximum_us);
   }
+  loop_step_timer_.finish(RUNTIME_TAG);
 }
 
 RuntimeSnapshot EspIdfRuntime::get_snapshot() const {
