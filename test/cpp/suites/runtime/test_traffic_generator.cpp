@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cstdint>
 #include <cstring>
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "traffic_generator_manager.h"
 #include "sdkconfig.h"
@@ -25,6 +26,12 @@ constexpr wifi_phy_rate_t EXPECTED_TX_RATE = WIFI_PHY_RATE_6M;
 TrafficGeneratorManager *active_generator = nullptr;
 int last_test_socket = -1;
 bool fail_socket_creation = false;
+unsigned delay_calls = 0U;
+constexpr uint32_t TEST_TARGET_ADDR = 0x0101A8C0U;
+// stop() logs a worker still inside a socket call after 2 s and reports a
+// fault only after 30 s, keeping the wait in both cases.
+constexpr int64_t STOP_STALL_LOG_US = 2000000;
+constexpr int64_t STOP_FAULT_US = 30000000;
 
 int create_test_socket(int domain, int type, int protocol) {
     (void)domain;
@@ -46,6 +53,17 @@ void finish_stopping_task() {
     if (function != nullptr) function(argument);
 }
 
+// The generator destructor waits until the worker is suspended. A failed
+// assertion can leave that publish for the delay hook.
+void finish_stopping_task_and_publish_suspend() {
+    finish_stopping_task();
+    g_freertos_task_mock.suspended = true;
+}
+
+void count_delay() { ++delay_calls; }
+
+bool socket_is_open(int sock) { return fcntl(sock, F_GETFD) >= 0; }
+
 void prepare_lifecycle_test() {
     g_lwip_socket_mock_factory = create_test_socket;
     g_freertos_task_mock.defer_execution = true;
@@ -66,6 +84,7 @@ void setUp(void) {
     g_lwip_socket_mock_factory = nullptr;
     last_test_socket = -1;
     fail_socket_creation = false;
+    delay_calls = 0U;
 }
 
 void tearDown(void) {
@@ -106,11 +125,207 @@ void test_internal_generators_preserve_station_rate_through_start_pause_and_stop
             manager.stop();
             TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.enable_calls);
             TEST_ASSERT_EQUAL(0U, g_esp_wifi_fixed_rate_mock.disable_calls);
+            finish_stopping_task();
+            manager.loop();
             if (mode != TrafficGeneratorMode::WIFI_RAW) {
                 TEST_ASSERT_EQUAL(-1, fcntl(last_test_socket, F_GETFD));
             }
         }
     }
+}
+
+void test_stop_signals_the_task_without_waiting_for_it(void) {
+    prepare_lifecycle_test();
+    g_freertos_delay_hook = count_delay;
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    const int sock = last_test_socket;
+
+    manager.stop();
+    TEST_ASSERT_FALSE(manager.is_running());
+    TEST_ASSERT_EQUAL(0U, delay_calls);
+    // The worker has not run yet and still owns its socket.
+    TEST_ASSERT_TRUE(socket_is_open(sock));
+    manager.loop();
+    TEST_ASSERT_TRUE(socket_is_open(sock));
+
+    finish_stopping_task();
+    TEST_ASSERT_FALSE(socket_is_open(sock));
+    manager.loop();
+    TEST_ASSERT_EQUAL(0U, delay_calls);
+    // The exited worker parks itself; only the owner deletes it.
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.delete_calls);
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+}
+
+void test_restart_waits_for_the_stopping_task_to_exit(void) {
+    prepare_lifecycle_test();
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    const int first_sock = last_test_socket;
+
+    manager.stop();
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    TEST_ASSERT_TRUE(manager.is_running());
+    manager.loop();
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_EQUAL(first_sock, last_test_socket);
+    TEST_ASSERT_TRUE(socket_is_open(first_sock));
+
+    finish_stopping_task();
+    TEST_ASSERT_FALSE(socket_is_open(first_sock));
+    manager.loop();
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_TRUE(manager.is_running());
+    TEST_ASSERT_TRUE(socket_is_open(last_test_socket));
+
+    // A stop cancels a start that still waits for the previous task.
+    manager.stop();
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    manager.stop();
+    TEST_ASSERT_FALSE(manager.is_running());
+    finish_stopping_task();
+    manager.loop();
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_FALSE(manager.is_running());
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.delete_calls);
+}
+
+void test_loop_reports_a_task_that_misses_the_stop_deadline_without_deleting_it(void) {
+    prepare_lifecycle_test();
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    const int sock = last_test_socket;
+
+    manager.stop();
+    // A Wi-Fi TX stall of a few seconds is recoverable: log it, no fault.
+    esp_timer_mock::advance(STOP_STALL_LOG_US);
+    manager.loop();
+    TEST_ASSERT_FALSE(manager.consume_stop_timeout());
+    esp_timer_mock::advance(STOP_FAULT_US - STOP_STALL_LOG_US - 100000);
+    manager.loop();
+    TEST_ASSERT_FALSE(manager.consume_stop_timeout());
+
+    esp_timer_mock::advance(100000);
+    manager.loop();
+    TEST_ASSERT_TRUE(manager.consume_stop_timeout());
+    manager.loop();
+    TEST_ASSERT_FALSE(manager.consume_stop_timeout());
+    // A worker that may be inside lwIP is never deleted, and keeps its socket.
+    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.delete_calls);
+    TEST_ASSERT_TRUE(g_freertos_task_mock.pending_function != nullptr);
+    TEST_ASSERT_TRUE(socket_is_open(sock));
+
+    // A restart keeps waiting for that worker instead of running beside it.
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    manager.loop();
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+
+    finish_stopping_task();
+    TEST_ASSERT_FALSE(socket_is_open(sock));
+    manager.loop();
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.delete_calls);
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_TRUE(manager.has_live_worker());
+}
+
+void test_completed_stop_drops_an_unread_timeout(void) {
+    prepare_lifecycle_test();
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    manager.stop();
+    esp_timer_mock::advance(STOP_FAULT_US);
+    manager.loop();
+    finish_stopping_task();
+    manager.loop();
+    TEST_ASSERT_FALSE(manager.consume_stop_timeout());
+    TEST_ASSERT_TRUE(manager.is_quiescent());
+}
+
+void test_loop_deletes_a_stopped_task_only_after_it_suspends(void) {
+    prepare_lifecycle_test();
+    g_freertos_delay_hook = finish_stopping_task_and_publish_suspend;
+    g_freertos_task_mock.reveal_suspend = false;
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    const int sock = last_test_socket;
+
+    manager.stop();
+    finish_stopping_task();
+    // The worker has left its send, but the scheduler has not parked it yet.
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.suspend_calls);
+    TEST_ASSERT_EQUAL(eRunning, eTaskGetState(&g_freertos_task_mock));
+    TEST_ASSERT_FALSE(socket_is_open(sock));
+    TEST_ASSERT_TRUE(manager.is_quiescent());
+    manager.loop();
+    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.delete_calls);
+
+    // A restart waits for that suspend instead of running beside the old task.
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    manager.loop();
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.delete_calls);
+
+    g_freertos_task_mock.suspended = true;
+    TEST_ASSERT_EQUAL(eSuspended, eTaskGetState(&g_freertos_task_mock));
+    manager.loop();
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.delete_calls);
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_TRUE(manager.has_live_worker());
+}
+
+void test_init_and_restart_wait_until_the_previous_task_exits(void) {
+    prepare_lifecycle_test();
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    TEST_ASSERT_TRUE(manager.has_live_worker());
+    TEST_ASSERT_FALSE(manager.is_quiescent());
+
+    manager.stop();
+    TEST_ASSERT_FALSE(manager.is_quiescent());
+    manager.init(40U, TrafficGeneratorMode::DNS);
+    TEST_ASSERT_EQUAL(100U, manager.current_rate_pps());
+    manager.hold_pending_restart(true);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    finish_stopping_task();
+    TEST_ASSERT_TRUE(manager.is_quiescent());
+    manager.loop();
+    TEST_ASSERT_EQUAL(40U, manager.current_rate_pps());
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_FALSE(manager.has_live_worker());
+
+    manager.hold_pending_restart(false);
+    manager.loop();
+    TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+    TEST_ASSERT_TRUE(manager.has_live_worker());
+    TEST_ASSERT_FALSE(manager.consume_start_failure());
+}
+
+void test_deferred_start_reports_launch_failure(void) {
+    prepare_lifecycle_test();
+    TrafficGeneratorManager manager;
+    manager.init(100U, TrafficGeneratorMode::PING);
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    manager.stop();
+    TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
+    TEST_ASSERT_TRUE(manager.is_running());
+    TEST_ASSERT_FALSE(manager.has_live_worker());
+
+    fail_socket_creation = true;
+    finish_stopping_task();
+    manager.loop();
+    TEST_ASSERT_FALSE(manager.is_running());
+    TEST_ASSERT_FALSE(manager.has_live_worker());
+    TEST_ASSERT_TRUE(manager.is_quiescent());
+    TEST_ASSERT_TRUE(manager.consume_start_failure());
+    TEST_ASSERT_FALSE(manager.consume_start_failure());
+    TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
 }
 
 void test_ping_socket_failure_preserves_station_rate_and_does_not_create_task(void) {
@@ -481,6 +696,13 @@ void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(voi
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_internal_generators_preserve_station_rate_through_start_pause_and_stop);
+    RUN_TEST(test_stop_signals_the_task_without_waiting_for_it);
+    RUN_TEST(test_restart_waits_for_the_stopping_task_to_exit);
+    RUN_TEST(test_loop_reports_a_task_that_misses_the_stop_deadline_without_deleting_it);
+    RUN_TEST(test_completed_stop_drops_an_unread_timeout);
+    RUN_TEST(test_loop_deletes_a_stopped_task_only_after_it_suspends);
+    RUN_TEST(test_init_and_restart_wait_until_the_previous_task_exits);
+    RUN_TEST(test_deferred_start_reports_launch_failure);
     RUN_TEST(test_ping_socket_failure_preserves_station_rate_and_does_not_create_task);
     RUN_TEST(test_task_failure_preserves_station_rate_and_closes_socket);
     RUN_TEST(test_switching_to_external_traffic_preserves_station_rate);

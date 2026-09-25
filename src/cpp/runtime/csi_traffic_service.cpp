@@ -49,10 +49,13 @@ void CsiTrafficService::stop() {
   }
 }
 
+void CsiTrafficService::hold_pending_restart(bool hold) {
+  traffic_generator_.hold_pending_restart(hold);
+}
+
 void CsiTrafficService::loop() {
-  if (traffic_generator_.is_running()) {
-    traffic_generator_.loop();
-  }
+  // A stopped generator may still be finishing its stop.
+  traffic_generator_.loop();
   if (traffic_ingress_.is_running()) {
     traffic_ingress_.loop();
   }
@@ -66,6 +69,27 @@ void CsiTrafficService::set_packet_callback(csi_traffic_packet_callback_t callba
 bool CsiTrafficService::is_running() const {
   return mode_ == TrafficGeneratorMode::EXTERNAL ? traffic_ingress_.is_running()
                                                   : traffic_generator_.is_running();
+}
+
+bool CsiTrafficService::is_quiescent() const {
+  return traffic_generator_.is_quiescent();
+}
+
+bool CsiTrafficService::generator_is_stopping() const {
+  return !traffic_generator_.is_quiescent() && !traffic_generator_.has_live_worker();
+}
+
+bool CsiTrafficService::source_is_active() const {
+  return mode_ == TrafficGeneratorMode::EXTERNAL ? traffic_ingress_.is_running()
+                                                  : traffic_generator_.has_live_worker();
+}
+
+bool CsiTrafficService::consume_generator_start_failure() {
+  return traffic_generator_.consume_start_failure();
+}
+
+bool CsiTrafficService::consume_generator_stop_timeout() {
+  return traffic_generator_.consume_stop_timeout();
 }
 
 bool CsiTrafficService::get_last_sender(UdpDatagramPeer *out_peer) const {

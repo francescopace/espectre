@@ -23,6 +23,7 @@
 namespace espectre {
 
 class IEspectreRuntime;
+struct RuntimeTrafficSources;
 struct RuntimeDiagnosticsSample;
 
 /**
@@ -74,7 +75,9 @@ class RuntimeFrontendController : private IRuntimeListener {
   /**
    * Shut the runtime down on scope exit without listener callbacks.
    *
-   * Call `shutdown()` explicitly to receive the final readiness edge.
+   * Call `shutdown()` explicitly to receive the final readiness edge. This
+   * waits until a traffic generator worker still inside a socket call has
+   * exited, so destroy the controller outside a watched loop task.
    */
   ~RuntimeFrontendController() override;
   /**
@@ -151,10 +154,16 @@ class RuntimeFrontendController : private IRuntimeListener {
   /**
    * Advance runtime work and deliver pending listener callbacks.
    *
-   * Call it continuously from your loop task. Safe, and a no-op, before setup.
+   * Call it continuously from your loop task. Safe before setup; after
+   * shutdown() it only reaps a traffic worker that outlived the backend.
    */
   void loop();
-  /** Stop sensing and release the backend. Safe before setup and to repeat. */
+  /**
+   * Stop sensing and release the backend. Safe before setup and to repeat.
+   *
+   * Does not wait for the traffic generator worker, so it is safe from the
+   * loop task. A later setup() starts traffic once that worker has exited.
+   */
   void shutdown();
 
   /**
@@ -172,6 +181,17 @@ class RuntimeFrontendController : private IRuntimeListener {
   void set_live_telemetry_enabled(bool enabled);
   /** Current armed state, including before setup. */
   bool services_armed() const { return services_armed_; }
+  /**
+   * False while a traffic stop or its CSI disable is in progress, including
+   * after shutdown() until that worker has left its send. True before setup.
+   */
+  bool traffic_allows_radio_work() const;
+  /**
+   * Keep a deferred traffic restart parked while a radio reconfigure is waiting.
+   *
+   * @param hold True while a station reconfigure or scan has not touched the driver yet.
+   */
+  void hold_pending_traffic_restart(bool hold);
   /**
    * Temporarily quiet the runtime without releasing its backend or configuration.
    *
@@ -291,6 +311,10 @@ class RuntimeFrontendController : private IRuntimeListener {
   RuntimeConfig active_config_{};
   RuntimeSnapshot snapshot_{};
   RuntimeCapabilities capabilities_{};
+  // Traffic sources outlive each backend. A generator worker still inside a
+  // socket call after shutdown() keeps a valid owner, and the next backend's
+  // start waits for it. Declared before runtime_ so it is destroyed after it.
+  std::unique_ptr<RuntimeTrafficSources> traffic_sources_;
   std::unique_ptr<IEspectreRuntime> runtime_;
   IRuntimeListener *listener_{nullptr};
   bool setup_complete_{false};

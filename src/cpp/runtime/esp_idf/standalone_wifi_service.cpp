@@ -373,8 +373,37 @@ void StandaloneWifiService::loop() {
   } else {
     maybe_restore_retained_ip_();
   }
+  service_deferred_radio_work_();
   maybe_run_deferred_connect_fallback_();
   maybe_retry_connect_();
+}
+
+bool StandaloneWifiService::traffic_blocks_radio_() const {
+  return static_cast<bool>(radio_work_ready_callback_) && !radio_work_ready_callback_();
+}
+
+void StandaloneWifiService::service_deferred_radio_work_() {
+  if (!deferred_station_update_ && !deferred_scan_) {
+    return;
+  }
+  if (traffic_blocks_radio_()) {
+    return;
+  }
+  if (deferred_station_update_) {
+    deferred_station_update_ = false;
+    (void) commit_station_update_(deferred_station_connection_was_active_);
+    return;
+  }
+  deferred_scan_ = false;
+  const esp_err_t err = start_pending_scan_();
+  if (err != ESP_OK) {
+    scan_pending_ = false;
+    if (scan_callback_) {
+      const standalone_wifi_scan_callback_t callback = std::move(scan_callback_);
+      scan_callback_ = {};
+      callback(err, {});
+    }
+  }
 }
 
 esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t callback) {
@@ -388,6 +417,24 @@ esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t ca
   if (!has_text(config_.ssid)) {
     return ESP_ERR_INVALID_STATE;
   }
+  scan_callback_ = std::move(callback);
+  scan_pending_ = true;
+  if (traffic_blocks_radio_()) {
+    deferred_scan_ = true;
+    return ESP_OK;
+  }
+  const esp_err_t err = start_pending_scan_();
+  if (err != ESP_OK) {
+    scan_pending_ = false;
+    scan_callback_ = {};
+  }
+  return err;
+}
+
+esp_err_t StandaloneWifiService::start_pending_scan_() {
+  if (!has_text(config_.ssid)) {
+    return ESP_ERR_INVALID_STATE;
+  }
   const auto *ssid_begin = reinterpret_cast<const uint8_t *>(config_.ssid);
   std::vector<uint8_t> scan_ssid(ssid_begin, ssid_begin + std::strlen(config_.ssid));
   scan_ssid.push_back(0U);
@@ -395,15 +442,7 @@ esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t ca
   scan.ssid = scan_ssid.data();
   // Keep channel zero so the driver searches every channel and band for BSSIDs
   // that advertise the configured SSID.
-
-  scan_callback_ = std::move(callback);
-  scan_pending_ = true;
-  const esp_err_t err = esp_wifi_scan_start(&scan, false);
-  if (err != ESP_OK) {
-    scan_pending_ = false;
-    scan_callback_ = {};
-  }
-  return err;
+  return esp_wifi_scan_start(&scan, false);
 }
 
 esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfig &config) {
@@ -429,7 +468,7 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
     ESPECTRE_LOGE(TAG, "Cannot change the Wi-Fi band policy without restarting the Wi-Fi service");
     return ESP_ERR_INVALID_STATE;
   }
-  if (station_reconfigure_pending_) {
+  if (station_reconfigure_pending_ || deferred_station_update_) {
     ESPECTRE_LOGW(TAG, "Wi-Fi station reconfigure is already pending");
     return ESP_ERR_INVALID_STATE;
   }
@@ -446,6 +485,15 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
 
+  if (traffic_blocks_radio_()) {
+    deferred_station_update_ = true;
+    deferred_station_connection_was_active_ = station_connection_active;
+    return ESP_OK;
+  }
+  return commit_station_update_(station_connection_active);
+}
+
+esp_err_t StandaloneWifiService::commit_station_update_(bool station_connection_active) {
   if (!wifi_started_) {
     return configure_station_();
   }

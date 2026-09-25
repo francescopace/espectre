@@ -79,6 +79,12 @@ void test_csi_traffic_service_selects_internal_generator(void) {
   generator.send_successes = 7U;
   TEST_ASSERT_EQUAL(7U, service.get_generator_packets_total());
   TEST_ASSERT_EQUAL(0x1234U, service.internal_icmp_identifier());
+
+  // A stopped generator keeps its loop so it can finish the stop.
+  service.stop();
+  TEST_ASSERT_EQUAL(1U, generator.stop_calls);
+  service.loop();
+  TEST_ASSERT_EQUAL(1U, generator.loop_calls);
 }
 
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {

@@ -48,6 +48,10 @@ class NativeFrontend : public IRuntimeListener {
   void set_device_config_change_callback(DeviceConfigChangeCallback callback);
   void prepare_for_wifi_reconfigure();
   void resume_after_wifi_reconfigure();
+  /** False while a traffic stop or its CSI disable is in progress. */
+  bool traffic_allows_radio_work() const { return runtime_.traffic_allows_radio_work(); }
+  /** Park a deferred traffic restart while a station reconfigure or scan is waiting. */
+  void hold_pending_traffic_restart(bool hold) { runtime_.hold_pending_traffic_restart(hold); }
 
   const EspectreDeviceConfig &device_config() const { return device_config_; }
   const RuntimeConfig &runtime_config() const { return runtime_.config(); }

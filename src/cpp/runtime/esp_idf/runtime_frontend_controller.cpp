@@ -28,6 +28,13 @@ static constexpr SelectedSubcarriers SELECTED_SUBCARRIERS = make_default_subcarr
 
 }  // namespace
 
+// Traffic sources that outlive each backend, so a generator worker still
+// inside a socket call after shutdown() keeps a valid owner.
+struct RuntimeTrafficSources {
+  TrafficGeneratorManager generator;
+  UDPListener ingress;
+};
+
 RuntimeFrontendController::RuntimeFrontendController() = default;
 
 // The listener may already be partly destroyed, so scope exit sends no callback.
@@ -59,7 +66,13 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   }
 
   active_config_ = config_;
-  auto *backend = new (std::nothrow) EspIdfRuntime(active_config_);
+  if (traffic_sources_ == nullptr) {
+    traffic_sources_.reset(new (std::nothrow) RuntimeTrafficSources());
+  }
+  auto *backend = traffic_sources_ != nullptr
+                      ? new (std::nothrow) EspIdfRuntime(active_config_, traffic_sources_->generator,
+                                                         traffic_sources_->ingress)
+                      : nullptr;
   if (backend == nullptr) {
     constexpr const char *message = "Failed to allocate runtime backend";
     ESPECTRE_LOGE(TAG, "%s", message);
@@ -90,7 +103,31 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   return setup_complete_;
 }
 
+bool RuntimeFrontendController::traffic_allows_radio_work() const {
+  if (runtime_ != nullptr) {
+    return runtime_->traffic_allows_radio_work();
+  }
+  // The generator outlives the backend. A sender still inside a socket call
+  // keeps station reconfigure and scan parked after shutdown(); as in the
+  // runtime, a worker that has not been stopped does not.
+  if (traffic_sources_ == nullptr) {
+    return true;
+  }
+  const TrafficGeneratorManager &generator = traffic_sources_->generator;
+  return generator.is_quiescent() || generator.has_live_worker();
+}
+
+void RuntimeFrontendController::hold_pending_traffic_restart(bool hold) {
+  if (runtime_ != nullptr) {
+    runtime_->hold_pending_traffic_restart(hold);
+  }
+}
+
 void RuntimeFrontendController::loop() {
+  if (!runtime_ && traffic_sources_ != nullptr) {
+    // Reap a worker that outlived the last backend, between shutdown and setup.
+    traffic_sources_->generator.loop();
+  }
   if (runtime_) {
     runtime_->loop();
     cache_snapshot_(runtime_->get_snapshot());

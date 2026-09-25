@@ -33,7 +33,11 @@ namespace espectre {
 
 class EspIdfRuntime : public EspIdfRuntimeBase {
  public:
+  // Owns its traffic sources; destroying it waits for a generator worker that
+  // is still inside a socket call.
   explicit EspIdfRuntime(const RuntimeConfig &config);
+  // Uses sources that outlive this runtime, so shutdown and destruction never
+  // wait for the generator worker. RuntimeFrontendController does this.
   EspIdfRuntime(const RuntimeConfig &config,
                 ICsiTrafficGenerator &traffic_generator,
                 ICsiTrafficIngress &traffic_ingress);
@@ -47,6 +51,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool setup() override;
   void shutdown() override;
   void loop() override;
+  bool traffic_allows_radio_work() const override;
+  void hold_pending_traffic_restart(bool hold) override;
   void set_services_armed(bool armed) override;
   void set_live_telemetry_enabled(bool enabled) override;
 
@@ -75,8 +81,28 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void finish_csi_receive_path_refresh_(esp_err_t result);
   void refresh_wifi_association_from_csi_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
+  void finish_pending_sensing_start_();
+  void arm_csi_receive_path_check_();
   CsiCaptureProfile sensing_capture_profile_() const;
+  void begin_capture_shutdown_(bool notify_listener);
   void stop_sensing_services_();
+  enum class DeferredCaptureAction : uint8_t {
+    None,
+    Disable,
+    DisableThenResumeSensing,
+    DisableThenRearm,
+    ResumeSensing,
+    Rearm,
+    FinishTrafficApply,
+  };
+  enum class CaptureActionResult : uint8_t { Done, Deferred, Failed };
+  CaptureActionResult schedule_capture_action_(DeferredCaptureAction action);
+  CaptureActionResult run_capture_action_(DeferredCaptureAction action);
+  static bool capture_action_disables_(DeferredCaptureAction action);
+  DeferredCaptureAction disable_capture_for_(DeferredCaptureAction action);
+  bool traffic_config_can_start_() const;
+  bool finish_traffic_apply_(bool recalibrate_if_active);
+  void service_deferred_capture_action_();
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
   void restore_traffic_runtime_config_(const RuntimeConfig &previous_config);
@@ -141,6 +167,13 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   uint64_t csi_receive_path_callbacks_at_start_{0U};
   uint64_t csi_receive_path_traffic_total_{0U};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
+  DeferredCaptureAction deferred_capture_action_{DeferredCaptureAction::None};
+  bool deferred_traffic_recalibrate_{false};
+  bool capture_updates_suppressed_{false};
+  bool sensing_start_pending_{false};
+  bool arm_receive_path_check_when_traffic_starts_{false};
+  bool hold_traffic_restart_{false};
+  esp_netif_ip_info_t deferred_rearm_ip_{};
 };
 
 }  // namespace espectre

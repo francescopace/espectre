@@ -139,11 +139,27 @@ class StandaloneWifiService {
    * Replace the station settings while the service is set up.
    *
    * An active connection is dropped and re-established with the new settings.
+   * While the radio-work callback returns false, that driver call waits for
+   * `loop()`.
    * Returns `ESP_ERR_INVALID_ARG` for oversized credentials, a negative retry
    * count, or an unusable channel, and `ESP_ERR_INVALID_STATE` before setup(),
    * while another reconfiguration is pending, or for a different band policy.
    */
   esp_err_t update_station_config(const StandaloneWifiConfig &config);
+  /**
+   * Defer a station reconfigure or scan while this returns false.
+   *
+   * The native frontend returns false while a traffic stop, or the CSI disable
+   * that follows it, is in progress, so the driver is not reconfigured under
+   * an in-flight frame. An empty callback keeps the driver call immediate.
+   *
+   * @param callback Returns true when radio work may start. Empty disables deferral.
+   */
+  void set_radio_work_ready_callback(std::function<bool()> callback) {
+    radio_work_ready_callback_ = std::move(callback);
+  }
+  /** True while a reconfigure or scan is waiting for traffic to leave the radio. */
+  bool has_deferred_radio_work() const { return deferred_station_update_ || deferred_scan_; }
   /** Scan every allowed channel for the configured SSID and report its bounded snapshot from loop(). */
   esp_err_t request_scan(standalone_wifi_scan_callback_t callback);
   /** Deliver queued Wi-Fi events and callbacks, and drive reconnection. */
@@ -192,6 +208,10 @@ class StandaloneWifiService {
   void handle_scan_done_(uint8_t status);
   void maybe_run_deferred_connect_fallback_();
   void maybe_retry_connect_();
+  bool traffic_blocks_radio_() const;
+  esp_err_t commit_station_update_(bool station_connection_active);
+  esp_err_t start_pending_scan_();
+  void service_deferred_radio_work_();
   esp_err_t connect_station_();
   void clear_cached_ip_info_();
 
@@ -214,6 +234,10 @@ class StandaloneWifiService {
   bool roaming_{false};
   bool retained_ip_pending_{false};
   bool scan_pending_{false};
+  bool deferred_station_update_{false};
+  bool deferred_station_connection_was_active_{false};
+  bool deferred_scan_{false};
+  std::function<bool()> radio_work_ready_callback_{};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   uint64_t reconnect_deadline_us_{0U};
   int wifi_retry_count_{0};

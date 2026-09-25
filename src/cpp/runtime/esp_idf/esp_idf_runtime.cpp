@@ -236,6 +236,13 @@ void EspIdfRuntime::shutdown() {
   }
   set_services_armed(false);
   on_wifi_disconnected_();
+  deferred_capture_action_ = DeferredCaptureAction::None;
+  sensing_start_pending_ = false;
+  arm_receive_path_check_when_traffic_starts_ = false;
+  // Shutdown does not wait for a sender still inside a socket call: its owner
+  // keeps the generator, and the next start waits for that sender to exit.
+  capture_updates_suppressed_ = true;
+  (void) csi_pipeline_.disable();
   csi_receive_path_check_pending_ = false;
   csi_receive_path_refresh_in_progress_ = false;
   wifi_lifecycle_.unregister_handlers();
@@ -274,7 +281,7 @@ void EspIdfRuntime::loop() {
   // sensing sampler. In external mode this drains the non-blocking UDP socket;
   // otherwise its receive queue fills during long raw sessions and the marker
   // traffic path cannot recover cleanly.
-  csi_traffic_service_.loop();
+  service_deferred_capture_action_();
   loop_step_timer_.mark("traffic");
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     loop_step_timer_.finish(RUNTIME_TAG);
@@ -495,7 +502,11 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+  if (deferred_capture_action_ == DeferredCaptureAction::FinishTrafficApply) {
+    if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+      deferred_traffic_recalibrate_ = true;
+    }
+  } else if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
     (void) trigger_recalibration();
   }
   ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_generator_mode_name(mode));
@@ -596,10 +607,9 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
   performance_diagnostics_.reset();
   if (!csi_pipeline_.start_raw_capture(callback, context)) {
     operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
-    csi_traffic_service_.stop();
-    (void) csi_pipeline_.disable();
+    begin_capture_shutdown_(false);
     update_live_telemetry_callback_();
-    if (services_armed_) start_sensing_services_(wifi_ip_info_);
+    (void) schedule_capture_action_(DeferredCaptureAction::DisableThenResumeSensing);
     return false;
   }
   refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
@@ -612,9 +622,8 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
       csi_pipeline_.stop_raw_capture();
       update_live_telemetry_callback_();
       operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
-      csi_traffic_service_.stop();
-      (void) csi_pipeline_.disable();
-      if (services_armed_) start_sensing_services_(wifi_ip_info_);
+      begin_capture_shutdown_(false);
+      (void) schedule_capture_action_(DeferredCaptureAction::DisableThenResumeSensing);
       char message[96];
       std::snprintf(message, sizeof(message), "Failed to enable raw CSI: %s", esp_err_to_name(err));
       notify_fault_(message);
@@ -636,21 +645,13 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
   csi_pipeline_.stop_raw_capture();
   csi_pipeline_.set_traffic_filter({});
   // Classic ESP32 can stop delivering CSI when traffic spans a CSI disable/
-  // enable transition. Quiesce the source before disabling capture so every
-  // new session starts with CSI armed before traffic resumes.
-  csi_traffic_service_.stop();
-  (void) csi_pipeline_.disable();
-  cancel_calibration_(false);
-  snapshot_.ready_to_publish = false;
-  snapshot_.motion_state = MotionState::IDLE;
+  // enable transition. Disable capture only after the generator has left its
+  // send, immediately when it is already quiet and otherwise from loop().
+  begin_capture_shutdown_(false);
   update_live_telemetry_callback_();
 
   ESPECTRE_LOGI(RUNTIME_TAG, "Exited raw CSI collection mode: %u", static_cast<unsigned>(reason));
-  if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
-    start_sensing_services_(wifi_ip_info_);
-  } else if (listener_ != nullptr) {
-    listener_->on_motion_state_changed(get_snapshot());
-  }
+  (void) schedule_capture_action_(DeferredCaptureAction::DisableThenResumeSensing);
   return true;
 }
 
@@ -659,12 +660,14 @@ CsiCaptureProfile EspIdfRuntime::sensing_capture_profile_() const {
   return select_csi_capture_profile(wifi_channel_, requires_lltf, config_.csi_capture_policy);
 }
 
-bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
-  if (restart_service) {
-    csi_traffic_service_.stop();
-  }
-  csi_traffic_service_.init(to_csi_traffic_config(config_));
-  if (!setup_complete_ || !wifi_ready_ || !services_armed_ || wifi_ip_info_.ip.addr == 0U || !csi_pipeline_.is_enabled()) {
+bool EspIdfRuntime::traffic_config_can_start_() const {
+  return setup_complete_ && wifi_ready_ && services_armed_ && wifi_ip_info_.ip.addr != 0U &&
+         csi_pipeline_.is_enabled();
+}
+
+bool EspIdfRuntime::finish_traffic_apply_(bool recalibrate_if_active) {
+  deferred_traffic_recalibrate_ = false;
+  if (!traffic_config_can_start_()) {
     return true;
   }
   const CsiCaptureProfile profile = sensing_capture_profile_();
@@ -681,14 +684,38 @@ bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool rec
     vTaskDelay(pdMS_TO_TICKS(CSI_ENABLE_SETTLE_MS));
   }
   refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
-  if (!csi_traffic_service_.start(runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr))) {
+  if (!csi_traffic_service_.is_running() &&
+      !csi_traffic_service_.start(runtime_traffic_target_addr(config_, wifi_ip_info_.gw.addr))) {
     notify_fault_("Failed to start CSI traffic service");
     return false;
   }
-  if (recalibrate_if_active && config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+  // A deferred launch reports the fault from loop(). Calibration waits until
+  // that launch has a live worker, via finish_pending_sensing_start_().
+  if (!csi_traffic_service_.source_is_active()) {
+    sensing_start_pending_ = true;
+    return true;
+  }
+  if (recalibrate_if_active && !sensing_start_pending_ &&
+      config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
     (void) trigger_recalibration();
   }
   return true;
+}
+
+bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
+  if (restart_service) {
+    csi_traffic_service_.stop();
+  }
+  csi_traffic_service_.init(to_csi_traffic_config(config_));
+  if (!traffic_config_can_start_()) {
+    return true;
+  }
+  if (!csi_traffic_service_.is_quiescent()) {
+    deferred_traffic_recalibrate_ = recalibrate_if_active;
+    deferred_capture_action_ = DeferredCaptureAction::FinishTrafficApply;
+    return true;
+  }
+  return finish_traffic_apply_(recalibrate_if_active);
 }
 
 void EspIdfRuntime::restore_traffic_runtime_config_(const RuntimeConfig &previous_config) {
@@ -823,11 +850,11 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
 
   csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
-  csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.is_running();
-  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
-                               ? csi_traffic_service_.get_generator_packets_total()
-                               : csi_traffic_service_.get_packets_received());
-  csi_receive_path_traffic_seen_ = false;
+  if (sensing_start_pending_) {
+    arm_receive_path_check_when_traffic_starts_ = true;
+    return;
+  }
+  arm_csi_receive_path_check_();
 }
 
 void EspIdfRuntime::check_csi_receive_path_() {
@@ -920,6 +947,20 @@ void EspIdfRuntime::refresh_wifi_association_from_csi_() {
 }
 
 void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {
+  // Capture must go through its pending disable before it is armed again, so
+  // a start that arrives first runs after that disable, from loop(). A pending
+  // rearm starts sensing itself once its disable has run.
+  if (capture_action_disables_(deferred_capture_action_)) {
+    if (deferred_capture_action_ == DeferredCaptureAction::Disable) {
+      deferred_capture_action_ = DeferredCaptureAction::DisableThenResumeSensing;
+    }
+    sensing_start_pending_ = true;
+    return;
+  }
+  if (deferred_capture_action_ == DeferredCaptureAction::ResumeSensing) {
+    deferred_capture_action_ = DeferredCaptureAction::None;
+  }
+  capture_updates_suppressed_ = false;
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -946,6 +987,9 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     const CsiCaptureProfile profile = sensing_capture_profile_();
     snapshot_.csi_capture_profile = profile;
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
+      if (capture_updates_suppressed_) {
+        return;
+      }
       snapshot_.motion_state = state;
       // A detector that is not ready has cleared its metric. Keep the last
       // one alongside the held state, as live telemetry does.
@@ -981,27 +1025,186 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
   // Yield once after arming so managed traffic cannot predate driver readiness.
   vTaskDelay(pdMS_TO_TICKS(CSI_ENABLE_SETTLE_MS));
 
+  if (deferred_capture_action_ == DeferredCaptureAction::FinishTrafficApply) {
+    sensing_start_pending_ = true;
+    return;
+  }
   if (!csi_traffic_service_.is_running() &&
       !csi_traffic_service_.start(runtime_traffic_target_addr(config_, ip_info.gw.addr))) {
     notify_fault_("Failed to start CSI traffic service");
     return;
   }
+  if (!csi_traffic_service_.source_is_active()) {
+    sensing_start_pending_ = true;
+    return;
+  }
 
+  sensing_start_pending_ = false;
   start_calibration_(false);
   snapshot_.ready_to_publish = true;
   reset_periodic_status_logger_();
 }
 
-void EspIdfRuntime::stop_sensing_services_() {
+void EspIdfRuntime::begin_capture_shutdown_(bool notify_listener) {
   cancel_calibration_(false);
   csi_pipeline_.set_traffic_filter({});
+  csi_pipeline_.set_motion_state_callback({});
+  capture_updates_suppressed_ = true;
   csi_traffic_service_.stop();
-  csi_pipeline_.disable();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
-  if (listener_ != nullptr) {
+  if (notify_listener && listener_ != nullptr) {
     listener_->on_motion_state_changed(get_snapshot());
   }
+}
+
+void EspIdfRuntime::stop_sensing_services_() {
+  begin_capture_shutdown_(true);
+  (void) schedule_capture_action_(DeferredCaptureAction::Disable);
+}
+
+bool EspIdfRuntime::traffic_allows_radio_work() const {
+  // Running traffic does not block the radio, as before stop() became
+  // asynchronous; raw collection keeps it running across a reconfigure.
+  return !csi_traffic_service_.generator_is_stopping() &&
+         !capture_action_disables_(deferred_capture_action_);
+}
+
+void EspIdfRuntime::hold_pending_traffic_restart(bool hold) {
+  hold_traffic_restart_ = hold;
+}
+
+void EspIdfRuntime::arm_csi_receive_path_check_() {
+  csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.source_is_active();
+  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
+                                         ? csi_traffic_service_.get_generator_packets_total()
+                                         : csi_traffic_service_.get_packets_received());
+  csi_receive_path_traffic_seen_ = false;
+}
+
+void EspIdfRuntime::finish_pending_sensing_start_() {
+  if (!sensing_start_pending_ || !csi_traffic_service_.source_is_active()) {
+    return;
+  }
+  sensing_start_pending_ = false;
+  deferred_traffic_recalibrate_ = false;
+  start_calibration_(false);
+  snapshot_.ready_to_publish = true;
+  reset_periodic_status_logger_();
+  if (!arm_receive_path_check_when_traffic_starts_) {
+    return;
+  }
+  arm_receive_path_check_when_traffic_starts_ = false;
+  csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
+  arm_csi_receive_path_check_();
+}
+
+EspIdfRuntime::CaptureActionResult EspIdfRuntime::schedule_capture_action_(DeferredCaptureAction action) {
+  if (!csi_traffic_service_.is_quiescent()) {
+    deferred_capture_action_ = action;
+    return CaptureActionResult::Deferred;
+  }
+  deferred_capture_action_ = DeferredCaptureAction::None;
+  return run_capture_action_(action);
+}
+
+bool EspIdfRuntime::capture_action_disables_(DeferredCaptureAction action) {
+  return action == DeferredCaptureAction::Disable ||
+         action == DeferredCaptureAction::DisableThenResumeSensing ||
+         action == DeferredCaptureAction::DisableThenRearm;
+}
+
+EspIdfRuntime::DeferredCaptureAction EspIdfRuntime::disable_capture_for_(DeferredCaptureAction action) {
+  const esp_err_t err = csi_pipeline_.disable();
+  switch (action) {
+    case DeferredCaptureAction::DisableThenResumeSensing:
+      return DeferredCaptureAction::ResumeSensing;
+    case DeferredCaptureAction::DisableThenRearm:
+      if (err != ESP_OK && csi_pipeline_.is_enabled()) {
+        char message[96];
+        std::snprintf(message, sizeof(message), "Failed to rearm CSI after channel change: %s",
+                      esp_err_to_name(err));
+        notify_fault_(message);
+        return DeferredCaptureAction::None;
+      }
+      return DeferredCaptureAction::Rearm;
+    default:
+      return DeferredCaptureAction::None;
+  }
+}
+
+EspIdfRuntime::CaptureActionResult EspIdfRuntime::run_capture_action_(DeferredCaptureAction action) {
+  switch (action) {
+    case DeferredCaptureAction::None:
+      return CaptureActionResult::Done;
+    case DeferredCaptureAction::Disable:
+    case DeferredCaptureAction::DisableThenResumeSensing:
+    case DeferredCaptureAction::DisableThenRearm: {
+      const DeferredCaptureAction next = disable_capture_for_(action);
+      if (action == DeferredCaptureAction::DisableThenRearm && next == DeferredCaptureAction::None) {
+        return CaptureActionResult::Failed;
+      }
+      return run_capture_action_(next);
+    }
+    case DeferredCaptureAction::ResumeSensing:
+      if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+        start_sensing_services_(wifi_ip_info_);
+      } else {
+        // A start deferred behind the disable no longer applies.
+        sensing_start_pending_ = false;
+        arm_receive_path_check_when_traffic_starts_ = false;
+        if (listener_ != nullptr) {
+          listener_->on_motion_state_changed(get_snapshot());
+        }
+      }
+      return CaptureActionResult::Done;
+    case DeferredCaptureAction::Rearm:
+      // The rearm starts sensing again when it still applies.
+      sensing_start_pending_ = false;
+      arm_receive_path_check_when_traffic_starts_ = false;
+      on_wifi_connected_(deferred_rearm_ip_);
+      return CaptureActionResult::Done;
+    case DeferredCaptureAction::FinishTrafficApply:
+      return finish_traffic_apply_(deferred_traffic_recalibrate_) ? CaptureActionResult::Done
+                                                                   : CaptureActionResult::Failed;
+  }
+  return CaptureActionResult::Done;
+}
+
+void EspIdfRuntime::service_deferred_capture_action_() {
+  // A station reconfigure or scan that has not touched the driver yet must see
+  // this iteration stay quiet. Launching here would put a sender back on the
+  // radio before that driver call runs.
+  const bool hold_launch = hold_traffic_restart_;
+  const bool action_pending = deferred_capture_action_ != DeferredCaptureAction::None;
+  csi_traffic_service_.hold_pending_restart(hold_launch || action_pending);
+  csi_traffic_service_.loop();
+  if (csi_traffic_service_.consume_generator_start_failure()) {
+    sensing_start_pending_ = false;
+    arm_receive_path_check_when_traffic_starts_ = false;
+    notify_fault_("Failed to start CSI traffic service");
+  }
+  if (csi_traffic_service_.consume_generator_stop_timeout()) {
+    notify_fault_("Traffic generator did not stop within 30 s");
+  }
+  if (action_pending && csi_traffic_service_.is_quiescent()) {
+    // The held radio work waits for this disable, so it runs even while held.
+    // Only the part that restarts traffic waits for the hold to clear.
+    if (capture_action_disables_(deferred_capture_action_)) {
+      deferred_capture_action_ = disable_capture_for_(deferred_capture_action_);
+    }
+    if (!hold_launch && deferred_capture_action_ != DeferredCaptureAction::None) {
+      const DeferredCaptureAction action = deferred_capture_action_;
+      deferred_capture_action_ = DeferredCaptureAction::None;
+      (void) run_capture_action_(action);
+    }
+  }
+  csi_traffic_service_.hold_pending_restart(
+      hold_launch || deferred_capture_action_ != DeferredCaptureAction::None);
+  if (!hold_launch && deferred_capture_action_ == DeferredCaptureAction::None) {
+    csi_traffic_service_.loop();
+  }
+  finish_pending_sensing_start_();
 }
 
 void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {
@@ -1023,23 +1226,19 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
            static_cast<unsigned>(current_channel));
 
   const esp_netif_ip_info_t ip_info = wifi_ip_info_;
-  cancel_calibration_(false);
-  csi_pipeline_.set_traffic_filter({});
-  csi_traffic_service_.stop();
-  const esp_err_t disable_err = csi_pipeline_.disable();
-  snapshot_.ready_to_publish = false;
-  snapshot_.motion_state = MotionState::IDLE;
-  if (listener_ != nullptr) {
-    listener_->on_motion_state_changed(get_snapshot());
-  }
-  if (disable_err != ESP_OK) {
-    char message[96];
-    std::snprintf(message, sizeof(message), "Failed to rearm CSI after channel change: %s",
-                  esp_err_to_name(disable_err));
-    notify_fault_(message);
+  begin_capture_shutdown_(true);
+  const CaptureActionResult result = schedule_capture_action_(DeferredCaptureAction::Disable);
+  if (result == CaptureActionResult::Deferred) {
+    deferred_rearm_ip_ = ip_info;
+    deferred_capture_action_ = DeferredCaptureAction::DisableThenRearm;
     return;
   }
-
+  if (result == CaptureActionResult::Failed || csi_pipeline_.is_enabled()) {
+    if (csi_pipeline_.is_enabled()) {
+      notify_fault_("Failed to rearm CSI after channel change");
+    }
+    return;
+  }
   on_wifi_connected_(ip_info);
 }
 

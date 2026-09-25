@@ -47,6 +47,20 @@ class IEspectreRuntime {
   /** Advance runtime work and deliver deferred listener callbacks. */
   virtual void loop() = 0;
   /**
+   * False while a traffic stop, or the CSI disable that follows it, is in progress.
+   *
+   * Running traffic does not block radio work.
+   */
+  virtual bool traffic_allows_radio_work() const { return true; }
+  /**
+   * Keep a deferred traffic restart from launching while the radio is in use.
+   *
+   * The native station service sets this around a deferred disconnect or scan.
+   *
+   * @param hold True while that driver call has not been issued yet.
+   */
+  virtual void hold_pending_traffic_restart(bool hold) { (void)hold; }
+  /**
    * Gate the runtime-owned services without tearing the runtime down.
    *
    * Disarmed, the runtime stays configured but starts no CSI capture or

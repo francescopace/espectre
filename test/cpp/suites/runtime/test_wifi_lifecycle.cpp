@@ -1439,6 +1439,51 @@ void test_standalone_wifi_service_update_station_config_handles_setup_and_reconn
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_ps_call_count);
 }
 
+void test_standalone_wifi_service_defers_radio_work_until_traffic_allows_it(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "InitialSSID";
+  config.password = "secret";
+  bool radio_ready = false;
+  service.set_radio_work_ready_callback([&radio_ready]() { return radio_ready; });
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
+  ip_event_got_ip_t got_ip_event{};
+  got_ip_event.ip_info.ip.addr = 0x3701A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &got_ip_event);
+  service.loop();
+
+  StandaloneWifiConfig updated = config;
+  updated.ssid = "UpdatedSSID";
+  TEST_ASSERT_EQUAL(ESP_OK, service.update_station_config(updated));
+  TEST_ASSERT_TRUE(service.has_deferred_radio_work());
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.update_station_config(updated));
+  service.loop();
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  radio_ready = true;
+  service.loop();
+  TEST_ASSERT_FALSE(service.has_deferred_radio_work());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  wifi_event_sta_disconnected_t disconnect_event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_event);
+  service.loop();
+
+  radio_ready = false;
+  int scan_callbacks = 0;
+  TEST_ASSERT_EQUAL(ESP_OK, service.request_scan(
+      [&scan_callbacks](esp_err_t, const std::vector<StandaloneWifiAccessPoint> &) { ++scan_callbacks; }));
+  TEST_ASSERT_TRUE(service.has_deferred_radio_work());
+  service.loop();
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
+  radio_ready = true;
+  service.loop();
+  TEST_ASSERT_FALSE(service.has_deferred_radio_work());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_EQUAL(0, scan_callbacks);
+  service.shutdown();
+}
+
 void test_standalone_wifi_service_update_station_config_handles_idle_station(void) {
   StandaloneWifiService service;
   StandaloneWifiConfig config;
@@ -1919,6 +1964,7 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event);
   RUN_TEST(test_standalone_wifi_service_update_station_config_handles_setup_and_reconnect_paths);
   RUN_TEST(test_standalone_wifi_service_update_station_config_handles_idle_station);
+  RUN_TEST(test_standalone_wifi_service_defers_radio_work_until_traffic_allows_it);
   RUN_TEST(test_standalone_wifi_service_leaves_csi_refresh_to_shared_runtime);
   RUN_TEST(test_standalone_wifi_service_update_station_config_rejects_invalid_bssid);
   RUN_TEST(test_standalone_wifi_service_reports_asynchronous_scan_snapshot);

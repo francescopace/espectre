@@ -30,9 +30,14 @@ void reset() { state = State{}; }
 }  // namespace frontend_runtime_shim
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
+    : EspIdfRuntime(config, traffic_generator_, traffic_ingress_) {}
+
+EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config,
+                             ICsiTrafficGenerator &traffic_generator,
+                             ICsiTrafficIngress &traffic_ingress)
     : EspIdfRuntimeBase(config, "espectre.runtime.shim", "Unknown runtime fault"),
       detector_(nullptr),
-      csi_traffic_service_(traffic_generator_, traffic_ingress_) {
+      csi_traffic_service_(traffic_generator, traffic_ingress) {
   snapshot_ = frontend_runtime_shim::state.snapshot;
   capabilities_ = frontend_runtime_shim::state.capabilities;
   frontend_runtime_shim::state.last_instance = this;
@@ -63,6 +68,10 @@ void EspIdfRuntime::loop() {
     listener_->on_threshold_changed(snapshot_);
   }
 }
+
+bool EspIdfRuntime::traffic_allows_radio_work() const { return true; }
+
+void EspIdfRuntime::hold_pending_traffic_restart(bool hold) { (void)hold; }
 
 RuntimeSnapshot EspIdfRuntime::get_snapshot() const { return snapshot_; }
 

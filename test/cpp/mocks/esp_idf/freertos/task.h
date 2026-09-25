@@ -23,7 +23,13 @@ typedef void (*TaskFunction_t)(void *);
 struct FreeRtosTaskMock {
   BaseType_t create_result{pdPASS};
   bool defer_execution{false};
+  // When false, vTaskSuspend records the call but eTaskGetState stays eRunning
+  // until the test sets suspended. That is the window before the scheduler parks the task.
+  bool reveal_suspend{true};
+  bool suspended{false};
   unsigned create_calls{0U};
+  unsigned delete_calls{0U};
+  unsigned suspend_calls{0U};
   TaskFunction_t pending_function{nullptr};
   void *pending_argument{nullptr};
 };
@@ -39,18 +45,22 @@ static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
   (void)pcName;
   (void)usStackDepth;
   (void)uxPriority;
-  (void)pxCreatedTask;
 #ifdef __cplusplus
   ++g_freertos_task_mock.create_calls;
   if (g_freertos_task_mock.create_result != pdPASS) {
     return g_freertos_task_mock.create_result;
   }
+  g_freertos_task_mock.suspended = false;
+  g_freertos_task_mock.suspend_calls = 0U;
   if (g_freertos_task_mock.defer_execution) {
+    // A deferred task has a handle, so its owner can delete it before it runs.
     g_freertos_task_mock.pending_function = pvTaskCode;
     g_freertos_task_mock.pending_argument = pvParameters;
+    if (pxCreatedTask != NULL) *pxCreatedTask = &g_freertos_task_mock;
     return pdPASS;
   }
 #endif
+  (void)pxCreatedTask;
   // For testing: execute task function synchronously instead of in a thread.
   if (pvTaskCode != NULL) {
     pvTaskCode(pvParameters);
@@ -63,8 +73,29 @@ static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
 #define pdMS_TO_TICKS(ms) ((ms) * CONFIG_FREERTOS_HZ / 1000)
 #endif
 
+static inline BaseType_t xTaskNotifyGive(TaskHandle_t xTaskToNotify) {
+  (void)xTaskToNotify;
+  return pdPASS;
+}
+
+static inline uint32_t ulTaskNotifyTake(BaseType_t xClearCountOnExit, TickType_t xTicksToWait) {
+  (void)xClearCountOnExit;
+  (void)xTicksToWait;
+  return 0U;
+}
+
 // Task deletion
-static inline void vTaskDelete(TaskHandle_t xTask) { (void)xTask; }
+static inline void vTaskDelete(TaskHandle_t xTask) {
+#ifdef __cplusplus
+  // Deleting the deferred task by handle means it never runs.
+  if (xTask != NULL && xTask == &g_freertos_task_mock) {
+    ++g_freertos_task_mock.delete_calls;
+    g_freertos_task_mock.pending_function = nullptr;
+    g_freertos_task_mock.suspended = false;
+  }
+#endif
+  (void)xTask;
+}
 
 // Task state
 typedef enum {
@@ -77,14 +108,28 @@ typedef enum {
 } eTaskState;
 
 static inline eTaskState eTaskGetState(TaskHandle_t xTask) {
+#ifdef __cplusplus
+  if (xTask == &g_freertos_task_mock && g_freertos_task_mock.suspended) {
+    return eSuspended;
+  }
+#endif
   (void)xTask;
-  // For testing, return eRunning (not deleted)
   return eRunning;
 }
 
 // Task suspend/resume
 static inline void vTaskSuspend(TaskHandle_t xTaskToSuspend) {
+#ifdef __cplusplus
+  // NULL suspends the calling task. Host tests run that task on this thread.
+  if (xTaskToSuspend == NULL || xTaskToSuspend == &g_freertos_task_mock) {
+    ++g_freertos_task_mock.suspend_calls;
+    if (g_freertos_task_mock.reveal_suspend) {
+      g_freertos_task_mock.suspended = true;
+    }
+  }
+#else
   (void)xTaskToSuspend;
+#endif
 }
 
 static inline void vTaskResume(TaskHandle_t xTaskToResume) {

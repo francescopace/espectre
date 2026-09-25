@@ -73,7 +73,7 @@ CORE_IMPLEMENTATION_HEADERS = {
 
 # Backend types the controller holds only through a private owning pointer.
 # Integrators cannot name them, so they stay opaque and out of the surface.
-OPAQUE_IMPLEMENTATION_TYPES = {"IEspectreRuntime"}
+OPAQUE_IMPLEMENTATION_TYPES = {"IEspectreRuntime", "RuntimeTrafficSources"}
 
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 FORWARD_DECLARATION_PATTERN = re.compile(r"^\s*(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.MULTILINE)

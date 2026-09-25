@@ -369,37 +369,68 @@ size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
   return TRAFFIC_NULL_DATA_FRAME_SIZE;
 }
 
-void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
-  task_handle_ = nullptr;
-  sock_ = -1;
+TrafficGeneratorManager::~TrafficGeneratorManager() {
+  // The worker dereferences this object until it exits, so wait for it however
+  // long its socket call takes. Owners that restart sensing keep the generator
+  // alive across restarts and never reach this wait on their loop.
+  stop();
+  while (!reap_stopped_task_()) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
+
+void TrafficGeneratorManager::apply_init_() {
   target_addr_ = 0U;
-  mode_ = mode;
+  mode_ = staged_mode_;
   icmp_identifier_ = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this));
-  target_pps_ = target_pps;
-  current_rate_pps_.store(target_pps, std::memory_order_relaxed);
-  running_.store(false, std::memory_order_relaxed);
+  target_pps_ = staged_target_pps_;
+  current_rate_pps_.store(staged_target_pps_, std::memory_order_relaxed);
   paused_.store(false, std::memory_order_relaxed);
-  task_exited_.store(true, std::memory_order_relaxed);
   reset_runtime_state_();
+  init_pending_ = false;
 
   ESPECTRE_LOGD(TAG,
            "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s)",
-           target_pps,
-           generator_traffic_mode_name(mode));
+           target_pps_,
+           generator_traffic_mode_name(mode_));
+}
+
+void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
+  // A worker that is still exiting keeps the mode, rate, and identifier it
+  // copied at start. start() and loop() apply this once that worker is gone.
+  staged_target_pps_ = target_pps;
+  staged_mode_ = mode;
+  init_pending_ = true;
+  if (is_quiescent() && !restart_pending_) {
+    apply_init_();
+  }
 }
 
 bool TrafficGeneratorManager::start(uint32_t target_addr) {
-  if (running_.load(std::memory_order_relaxed)) {
+  if (is_running()) {
     return true;
   }
-  if (!task_exited_.load(std::memory_order_acquire)) {
-    ESPECTRE_LOGE(TAG, "Previous traffic generator task is still stopping");
-    return false;
-  }
-  if (target_pps_ == 0U || (mode_ != TrafficGeneratorMode::WIFI_RAW && target_addr == 0U)) {
+  const uint32_t pps = init_pending_ ? staged_target_pps_ : target_pps_;
+  const TrafficGeneratorMode mode = init_pending_ ? staged_mode_ : mode_;
+  if (pps == 0U || (mode != TrafficGeneratorMode::WIFI_RAW && target_addr == 0U)) {
     ESPECTRE_LOGE(TAG, "Traffic rate or target IP is unavailable");
     return false;
   }
+  if (!complete_stop_()) {
+    // The exiting worker still owns the socket and the raw frame, so the new
+    // one launches from loop() once it is gone.
+    restart_pending_ = true;
+    restart_target_addr_ = target_addr;
+    ESPECTRE_LOGD(TAG, "Traffic generator start deferred until the previous task exits");
+    return true;
+  }
+  if (init_pending_) {
+    apply_init_();
+  }
+  return launch_(target_addr);
+}
+
+bool TrafficGeneratorManager::launch_(uint32_t target_addr) {
   target_addr_ = target_addr;
 
   if (mode_ == TrafficGeneratorMode::WIFI_RAW) {
@@ -421,24 +452,27 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
   const TrafficProtocol &protocol =
       select_traffic_protocol(mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol, wifi_raw_protocol);
   if (protocol.uses_socket()) {
-    sock_ = create_protocol_socket(protocol);
-    if (sock_ < 0) return false;
+    const int created_sock = create_protocol_socket(protocol);
+    if (created_sock < 0) return false;
+    sock_.store(created_sock, std::memory_order_release);
   }
 
   current_rate_pps_.store(target_pps_, std::memory_order_relaxed);
   reset_runtime_state_();
-  running_.store(true, std::memory_order_relaxed);
-  task_exited_.store(false, std::memory_order_relaxed);
+  running_.store(true, std::memory_order_release);
+  task_exited_.store(false, std::memory_order_release);
+  TaskHandle_t created = nullptr;
   const BaseType_t result = xTaskCreate(traffic_task_, "traffic_gen", 3072, this,
-                                        task_scheduling::kTrafficPriority, &task_handle_);
+                                        task_scheduling::kTrafficPriority, &created);
   if (result != pdPASS) {
     running_.store(false, std::memory_order_relaxed);
-    task_exited_.store(true, std::memory_order_relaxed);
-    if (sock_ >= 0) close(sock_);
-    sock_ = -1;
+    task_exited_.store(true, std::memory_order_release);
+    const int sock = sock_.exchange(-1, std::memory_order_acq_rel);
+    if (sock >= 0) close(sock);
     ESPECTRE_LOGE(TAG, "Failed to create traffic generator task (result=%d)", static_cast<int>(result));
     return false;
   }
+  task_handle_ = created;
 
   char target[16];
   const esp_ip4_addr_t target_ip{target_addr_};
@@ -455,6 +489,22 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
 }
 
 void TrafficGeneratorManager::loop() {
+  if (!complete_stop_()) {
+    return;
+  }
+  if (init_pending_ && !running_.load(std::memory_order_relaxed)) {
+    apply_init_();
+  }
+  if (restart_pending_) {
+    if (hold_restart_) {
+      return;
+    }
+    restart_pending_ = false;
+    if (!launch_(restart_target_addr_)) {
+      start_failed_ = true;
+    }
+    return;
+  }
   if (!is_running() || is_paused()) {
     return;
   }
@@ -484,26 +534,75 @@ void TrafficGeneratorManager::resume() {
 }
 
 void TrafficGeneratorManager::stop() {
-  if (!is_running() && task_exited_.load(std::memory_order_acquire)) {
+  restart_pending_ = false;
+  if (!running_.load(std::memory_order_relaxed)) {
     return;
   }
+  // The worker may be inside a socket call that waits on the lwIP core lock.
+  // Signal it and let loop() reap it instead of blocking the owner task.
   running_.store(false, std::memory_order_release);
-  for (int attempt = 0; attempt < 20 && !task_exited_.load(std::memory_order_acquire); ++attempt) {
-    vTaskDelay(pdMS_TO_TICKS(100));
+  stop_pending_ = true;
+  stop_started_us_ = esp_timer_get_time();
+  stop_stall_logged_ = false;
+  stop_fault_reported_ = false;
+  // Only the owner deletes the worker, so this handle is still valid even if
+  // the worker has already parked itself.
+  if (task_handle_ != nullptr) {
+    xTaskNotifyGive(task_handle_);
+  }
+  (void)complete_stop_();
+}
+
+bool TrafficGeneratorManager::complete_stop_() {
+  if (reap_stopped_task_()) {
+    return true;
+  }
+  // Deleting a task inside lwIP would leak the core lock or a semaphore the
+  // stack still signals. A stalled Wi-Fi TX path releases the call on its own,
+  // so log the stall and keep waiting; report a fault only when a deadlock is
+  // the plausible explanation.
+  const int64_t stopping_us = esp_timer_get_time() - stop_started_us_;
+  if (!stop_stall_logged_ && stopping_us >= STOP_STALL_LOG_US) {
+    stop_stall_logged_ = true;
+    ESPECTRE_LOGE(TAG, "Traffic generator task did not exit within 2 s; waiting for its socket call");
+  }
+  if (!stop_fault_reported_ && stopping_us >= STOP_FAULT_US) {
+    stop_fault_reported_ = true;
+    stop_timed_out_ = true;
+    ESPECTRE_LOGE(TAG, "Traffic generator task is still inside a socket call after 30 s");
+  }
+  return false;
+}
+
+bool TrafficGeneratorManager::reap_stopped_task_() {
+  if (!stop_pending_) {
+    return true;
   }
   if (!task_exited_.load(std::memory_order_acquire)) {
-    ESPECTRE_LOGE(TAG, "Traffic generator task did not exit within 2 s; deleting it");
-    if (task_handle_ != nullptr) {
-      vTaskDelete(task_handle_);
-      task_handle_ = nullptr;
-    }
-    if (sock_ >= 0) {
-      close(sock_);
-      sock_ = -1;
-    }
-    task_exited_.store(true, std::memory_order_release);
+    return false;
   }
+  // The flag is published before vTaskSuspend returns. On a second core the
+  // worker can still be inside that call, so wait until the scheduler has
+  // parked it. A deferred start runs only after this delete.
+  if (task_handle_ != nullptr) {
+    if (eTaskGetState(task_handle_) != eSuspended) {
+      return false;
+    }
+    vTaskDelete(task_handle_);
+    task_handle_ = nullptr;
+  }
+  stop_pending_ = false;
+  // The timeout means this stop is still inside the socket call. Once the
+  // worker has exited, an unread flag must not fault a later session.
+  stop_timed_out_ = false;
   ESPECTRE_LOGI(TAG, "Traffic generator stopped");
+  return true;
+}
+
+void TrafficGeneratorManager::wait_for_stop_(TickType_t ticks) {
+  if (ticks > 0) {
+    (void)ulTaskNotifyTake(pdTRUE, ticks);
+  }
 }
 
 void TrafficGeneratorManager::traffic_task_(void *arg) {
@@ -535,39 +634,42 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
   constexpr int64_t tcp_reconnect_delay_us = 1000000LL;
 
   const auto recreate_socket = [&]() {
-    if (manager->sock_ >= 0) {
-      close(manager->sock_);
+    const int previous = manager->sock_.exchange(-1, std::memory_order_acq_rel);
+    if (previous >= 0) {
+      close(previous);
     }
-    manager->sock_ = create_protocol_socket(*protocol);
+    const int created = create_protocol_socket(*protocol);
+    manager->sock_.store(created, std::memory_order_release);
     connection_state = protocol->connection_oriented()
                            ? TcpConnectionState::DISCONNECTED
                            : TcpConnectionState::CONNECTED;
     next_connect_attempt_us = esp_timer_get_time() + tcp_reconnect_delay_us;
     next_send_deadline_us = 0;
-    return manager->sock_ >= 0;
+    return created >= 0;
   };
 
   while (manager->running_.load(std::memory_order_relaxed)) {
     if (manager->paused_.load(std::memory_order_relaxed)) {
       next_send_deadline_us = 0;
-      vTaskDelay(pdMS_TO_TICKS(50));
+      manager->wait_for_stop_(pdMS_TO_TICKS(50));
       continue;
     }
 
+    const int sock = manager->sock_.load(std::memory_order_acquire);
     if (protocol->connection_oriented() && connection_state != TcpConnectionState::CONNECTED) {
       const int64_t now_us = esp_timer_get_time();
-      if (manager->sock_ < 0) {
+      if (sock < 0) {
         if (now_us >= next_connect_attempt_us) {
           (void)recreate_socket();
         }
       } else if (connection_state == TcpConnectionState::DISCONNECTED &&
                  now_us >= next_connect_attempt_us) {
-        connection_state = start_tcp_connect(manager->sock_, destination);
+        connection_state = start_tcp_connect(sock, destination);
         if (connection_state == TcpConnectionState::DISCONNECTED) {
           (void)recreate_socket();
         }
       } else if (connection_state == TcpConnectionState::CONNECTING) {
-        connection_state = poll_tcp_connect(manager->sock_);
+        connection_state = poll_tcp_connect(sock);
         if (connection_state == TcpConnectionState::DISCONNECTED) {
           (void)recreate_socket();
         } else if (connection_state == TcpConnectionState::CONNECTED) {
@@ -576,7 +678,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
         }
       }
       if (connection_state != TcpConnectionState::CONNECTED) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        manager->wait_for_stop_(pdMS_TO_TICKS(10));
         continue;
       }
     }
@@ -592,7 +694,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     };
     const int64_t send_path_started_us = esp_timer_get_time();
     const SocketDrainResult drain_result = protocol->uses_socket()
-                                              ? drain_socket(manager->sock_) : SocketDrainResult::READY;
+                                              ? drain_socket(sock) : SocketDrainResult::READY;
     if (protocol->connection_oriented() && drain_result != SocketDrainResult::READY) {
       report_send_delay(esp_timer_get_time() - send_path_started_us, 0);
       ESPECTRE_LOGW(TAG, "%s TCP connection closed while draining responses", protocol->name());
@@ -600,7 +702,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
       continue;
     }
     const int64_t send_started_us = esp_timer_get_time();
-    const ssize_t sent = protocol->send_packet(manager->sock_, destination);
+    const ssize_t sent = protocol->send_packet(sock, destination);
     const int64_t send_path_us = esp_timer_get_time() - send_path_started_us;
     const int64_t late_us = next_send_deadline_us != 0 ? send_path_started_us - next_send_deadline_us : 0;
     report_send_delay(send_path_us, late_us);
@@ -624,13 +726,13 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
           consecutive_errors >= CONSECUTIVE_ERROR_REOPEN_THRESHOLD)) {
         (void)recreate_socket();
         consecutive_errors = 0U;
-        if (manager->sock_ < 0) {
-          vTaskDelay(pdMS_TO_TICKS(100));
+        if (manager->sock_.load(std::memory_order_acquire) < 0) {
+          manager->wait_for_stop_(pdMS_TO_TICKS(100));
         }
         continue;
       }
       if (needs_backoff) {
-        vTaskDelay(pdMS_TO_TICKS(5));
+        manager->wait_for_stop_(pdMS_TO_TICKS(5));
       }
     } else {
       manager->send_success_count_.fetch_add(1U, std::memory_order_relaxed);
@@ -649,19 +751,18 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     const int64_t sleep_us = next_send_deadline_us - now_us;
     if (sleep_us > 0) {
       const TickType_t ticks = pdMS_TO_TICKS((sleep_us + 999LL) / 1000LL);
-      if (ticks > 0) {
-        vTaskDelay(ticks);
-      }
+      manager->wait_for_stop_(ticks);
     }
   }
 
-  if (manager->sock_ >= 0) {
-    close(manager->sock_);
-    manager->sock_ = -1;
+  const int sock = manager->sock_.exchange(-1, std::memory_order_acq_rel);
+  if (sock >= 0) {
+    close(sock);
   }
-  manager->task_handle_ = nullptr;
   manager->task_exited_.store(true, std::memory_order_release);
-  vTaskDelete(nullptr);
+  // Stay suspended so the owner's handle remains valid. loop() deletes this
+  // task only after eTaskGetState reports eSuspended.
+  vTaskSuspend(nullptr);
 }
 
 void TrafficGeneratorManager::reset_runtime_state_() {

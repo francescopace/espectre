@@ -281,6 +281,7 @@ void espectre_loop_task(void *arg) {
       g_mdns_bootstrap_responder->loop();
     }
     if (g_frontend != nullptr) {
+      g_frontend->hold_pending_traffic_restart(g_wifi_manager.has_deferred_radio_work());
       g_frontend->loop();
     }
 #if CONFIG_ESPECTRE_RECOVERY_BUTTON_ENABLED
@@ -399,6 +400,9 @@ extern "C" void app_main() {
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(device_config);
   g_frontend = &frontend;
+  g_wifi_manager.set_radio_work_ready_callback([]() {
+    return g_frontend == nullptr || g_frontend->traffic_allows_radio_work();
+  });
   sync_frontend_wifi_info();
   frontend.set_provisioning_command_callback(handle_wifi_provisioning_command);
   frontend.set_wifi_scan_callback(

@@ -52,11 +52,33 @@ class ICsiTrafficGenerator {
   virtual void init(uint32_t target_pps, TrafficGeneratorMode mode) = 0;
   /** Start sending to an IPv4 address in network byte order; false on failure. */
   virtual bool start(uint32_t target_addr) = 0;
-  /** Stop sending and release the sender. */
+  /** Signal the sender to stop. loop() releases it; this call does not block. */
   virtual void stop() = 0;
-  /** Advance periodic work from the owner task. */
+  /**
+   * Advance periodic work from the owner task.
+   *
+   * Called while stopped too, so an implementation can finish a stop() that
+   * returned before its sender exited.
+   */
   virtual void loop() = 0;
+  /**
+   * Keep a deferred start from launching inside loop().
+   *
+   * The owner sets this while it still has to disable CSI or touch the radio.
+   * start() itself still launches once the previous sender has already exited.
+   *
+   * @param hold True to park the deferred start.
+   */
+  virtual void hold_pending_restart(bool hold) { (void)hold; }
   virtual bool is_running() const = 0;
+  /** True when no sender is inside a send. A deferred start can still be waiting. */
+  virtual bool is_quiescent() const { return !is_running(); }
+  /** True after start() has created a worker that stop() has not signalled. */
+  virtual bool has_live_worker() const { return is_running(); }
+  /** True once, after a deferred launch fails. Synchronous start() does not set this. */
+  virtual bool consume_start_failure() { return false; }
+  /** True once, after a stopped sender has not exited within its grace period. */
+  virtual bool consume_stop_timeout() { return false; }
   /** Successful sends in the current session. */
   virtual uint32_t send_success_count() const = 0;
   /** ICMP identifier used by ping traffic, so its replies can be recognized. */
@@ -127,7 +149,9 @@ class CsiTrafficService {
   bool start(uint32_t target_addr = 0U);
   /** Stop the generator and the listener. */
   void stop();
-  /** Advance whichever source is running. */
+  /** Forward hold_pending_restart() to the generator. */
+  void hold_pending_restart(bool hold);
+  /** Advance the running source, and let a stopped generator finish its stop. */
   void loop();
   /** Register the callback for accepted external packets. */
   void set_packet_callback(csi_traffic_packet_callback_t callback,
@@ -135,6 +159,16 @@ class CsiTrafficService {
 
   /** Whether the source for the configured mode is running. */
   bool is_running() const;
+  /** True when the generator is not inside a send. */
+  bool is_quiescent() const;
+  /** True between a generator stop() and the exit of its sender. */
+  bool generator_is_stopping() const;
+  /** True when the configured source has a live sender, not only a deferred start. */
+  bool source_is_active() const;
+  /** True once, after a deferred generator launch fails. */
+  bool consume_generator_start_failure();
+  /** True once, after a stopped generator has not exited within its grace period. */
+  bool consume_generator_stop_timeout();
   /** Sender of the latest accepted external packet; false before the first one. */
   bool get_last_sender(UdpDatagramPeer *out_peer) const;
   /** Accepted external packets since init(). */

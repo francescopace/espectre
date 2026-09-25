@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fcntl.h>
+#include <unistd.h>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -23,6 +25,8 @@
 #undef private
 
 #include "esp_timer.h"
+#include "freertos/task.h"
+#include "lwip/sockets.h"
 #include "csi_format.h"
 #include "csi_traffic_fakes.h"
 #include "nvs.h"
@@ -82,6 +86,67 @@ class DetectorListener : public IRuntimeListener {
 };
 
 bool accept_raw_packet(void *, const RawCsiPacketView &) { return true; }
+
+// A real generator whose worker runs only when the test lets it exit.
+unsigned traffic_sockets_opened = 0U;
+int last_traffic_socket = -1;
+unsigned traffic_delay_calls = 0U;
+
+int open_test_socket(int, int, int) {
+  ++traffic_sockets_opened;
+  last_traffic_socket = open("/dev/null", O_RDWR);
+  return last_traffic_socket;
+}
+
+bool socket_is_open(int sock) { return fcntl(sock, F_GETFD) >= 0; }
+
+void count_traffic_delay() { ++traffic_delay_calls; }
+
+void run_pending_traffic_task() {
+  const auto function = g_freertos_task_mock.pending_function;
+  g_freertos_task_mock.pending_function = nullptr;
+  if (function != nullptr) function(g_freertos_task_mock.pending_argument);
+}
+
+void prepare_deferred_traffic_task() {
+  traffic_sockets_opened = 0U;
+  last_traffic_socket = -1;
+  traffic_delay_calls = 0U;
+  g_freertos_task_mock = {};
+  g_freertos_task_mock.defer_execution = true;
+  g_lwip_socket_mock_factory = open_test_socket;
+}
+
+// Shuts the runtime down and lets its last worker exit and be reaped, also
+// when an assertion leaves the test early. The generator's destructor waits
+// for its worker, and the mock runs that worker only when told to.
+struct DeferredTrafficTaskScope {
+  DeferredTrafficTaskScope(EspIdfRuntime &owner, TrafficGeneratorManager &traffic)
+      : runtime(owner), generator(traffic) {}
+  ~DeferredTrafficTaskScope() {
+    runtime.shutdown();
+    run_pending_traffic_task();
+    generator.loop();
+    g_freertos_task_mock = {};
+    g_lwip_socket_mock_factory = nullptr;
+  }
+  EspIdfRuntime &runtime;
+  TrafficGeneratorManager &generator;
+};
+
+// The same guarantee for a controller that owns its traffic generator.
+struct ControllerTrafficTaskScope {
+  explicit ControllerTrafficTaskScope(RuntimeFrontendController &owner) : controller(owner) {}
+  ~ControllerTrafficTaskScope() {
+    g_freertos_delay_hook = nullptr;
+    controller.shutdown();
+    run_pending_traffic_task();
+    controller.loop();
+    g_freertos_task_mock = {};
+    g_lwip_socket_mock_factory = nullptr;
+  }
+  RuntimeFrontendController &controller;
+};
 
 void complete_csi_receive_path_refresh(EspIdfRuntime &runtime) {
   TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
@@ -1183,6 +1248,226 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
   runtime.csi_traffic_service_.stop();
 }
 
+void test_runtime_disables_capture_only_after_the_traffic_task_exits(void) {
+  prepare_deferred_traffic_task();
+  RuntimeConfig config;
+  TrafficGeneratorManager generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  DeferredTrafficTaskScope scope(runtime, generator);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_TRUE(generator.has_live_worker());
+
+  // Raw collection keeps traffic running through a disarm. Running traffic
+  // must not park station radio work, or a reconfigure would never start.
+  runtime.capabilities_.supports_raw_csi = true;
+  TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
+  runtime.set_services_armed(false);
+  TEST_ASSERT_TRUE(generator.has_live_worker());
+  TEST_ASSERT_TRUE(runtime.traffic_allows_radio_work());
+
+  TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
+  TEST_ASSERT_FALSE(generator.has_live_worker());
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_FALSE(runtime.traffic_allows_radio_work());
+  runtime.hold_pending_traffic_restart(true);
+  runtime.loop();
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_FALSE(runtime.traffic_allows_radio_work());
+
+  // A held restart does not hold the disable that the radio work waits for.
+  run_pending_traffic_task();
+  runtime.loop();
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_TRUE(runtime.traffic_allows_radio_work());
+  runtime.hold_pending_traffic_restart(false);
+  runtime.loop();
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+}
+
+void test_runtime_channel_change_rearms_after_the_traffic_task_and_held_radio_work(void) {
+  prepare_deferred_traffic_task();
+  RuntimeConfig config;
+  TrafficGeneratorManager generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  DeferredTrafficTaskScope scope(runtime, generator);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+  TEST_ASSERT_TRUE(generator.has_live_worker());
+
+  runtime.on_csi_channel_changed_(6U, 11U);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_FALSE(runtime.traffic_allows_radio_work());
+
+  runtime.hold_pending_traffic_restart(true);
+  run_pending_traffic_task();
+  runtime.loop();
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_TRUE(runtime.traffic_allows_radio_work());
+  runtime.loop();
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+
+  runtime.hold_pending_traffic_restart(false);
+  runtime.loop();
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_TRUE(generator.has_live_worker());
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+}
+
+void test_runtime_reconnect_while_traffic_stops_rearms_capture_after_its_disable(void) {
+  prepare_deferred_traffic_task();
+  RuntimeConfig config;
+  TrafficGeneratorManager generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  DeferredTrafficTaskScope scope(runtime, generator);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+  const int csi_calls = g_esp_wifi_mock.set_csi_call_count;
+
+  // The reconnect arrives before the old sender exits. Capture must not stay
+  // armed across the disconnect; it waits for its disable instead.
+  runtime.on_wifi_disconnected_();
+  runtime.on_wifi_connected_(ip);
+  runtime.loop();
+  TEST_ASSERT_EQUAL(csi_calls, g_esp_wifi_mock.set_csi_call_count);
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
+
+  run_pending_traffic_task();
+  runtime.loop();
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_csi_call_count >= csi_calls + 2);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_TRUE(generator.has_live_worker());
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+  TEST_ASSERT_TRUE(runtime.snapshot_.ready_to_publish);
+}
+
+void test_runtime_reports_a_traffic_task_that_does_not_stop_and_keeps_waiting(void) {
+  prepare_deferred_traffic_task();
+  RuntimeConfig config;
+  DetectorListener listener;
+  TrafficGeneratorManager generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  DeferredTrafficTaskScope scope(runtime, generator);
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+
+  runtime.on_wifi_disconnected_();
+  const int faults = listener.faults;
+  // A sender held for seconds by a Wi-Fi TX stall is not a fault.
+  esp_timer_mock::advance(2000000);
+  runtime.loop();
+  TEST_ASSERT_EQUAL(faults, listener.faults);
+  esp_timer_mock::advance(28000000);
+  runtime.loop();
+  TEST_ASSERT_EQUAL(faults + 1, listener.faults);
+  runtime.loop();
+  TEST_ASSERT_EQUAL(faults + 1, listener.faults);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_FALSE(runtime.traffic_allows_radio_work());
+  TEST_ASSERT_EQUAL(0U, g_freertos_task_mock.delete_calls);
+
+  run_pending_traffic_task();
+  runtime.loop();
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.csi_enabled);
+  TEST_ASSERT_TRUE(runtime.traffic_allows_radio_work());
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.delete_calls);
+}
+
+void test_controller_setup_after_shutdown_waits_for_the_previous_traffic_task(void) {
+  prepare_deferred_traffic_task();
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  RuntimeFrontendController controller;
+  ControllerTrafficTaskScope scope(controller);
+  TEST_ASSERT_TRUE(controller.traffic_allows_radio_work());
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  controller.loop();
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+  const int first_sock = last_traffic_socket;
+  TEST_ASSERT_TRUE(socket_is_open(first_sock));
+
+  // Shutting down from the loop must not wait for a sender held in a socket
+  // call. The backend goes away; the sender keeps its owner and its socket.
+  g_freertos_delay_hook = count_traffic_delay;
+  controller.shutdown();
+  TEST_ASSERT_EQUAL(0U, traffic_delay_calls);
+  g_freertos_delay_hook = nullptr;
+  TEST_ASSERT_TRUE(socket_is_open(first_sock));
+  // The backend is gone, but the sender is still inside its socket call.
+  TEST_ASSERT_FALSE(controller.traffic_allows_radio_work());
+
+  // A new backend waits for that sender: no second task and no second socket.
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  controller.loop();
+  controller.loop();
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_EQUAL(1U, traffic_sockets_opened);
+  TEST_ASSERT_FALSE(controller.traffic_allows_radio_work());
+
+  run_pending_traffic_task();
+  TEST_ASSERT_FALSE(socket_is_open(first_sock));
+  controller.loop();
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.delete_calls);
+  TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_EQUAL(2U, traffic_sockets_opened);
+  TEST_ASSERT_TRUE(socket_is_open(last_traffic_socket));
+
+  // Without a backend, the controller loop still reaps the last sender.
+  controller.shutdown();
+  TEST_ASSERT_FALSE(controller.traffic_allows_radio_work());
+  run_pending_traffic_task();
+  // The worker has left its send. The radio may move before loop() deletes it.
+  TEST_ASSERT_TRUE(controller.traffic_allows_radio_work());
+  controller.loop();
+  TEST_ASSERT_EQUAL(2U, g_freertos_task_mock.delete_calls);
+  TEST_ASSERT_TRUE(controller.traffic_allows_radio_work());
+}
+
+void test_recovered_traffic_stop_does_not_fault_the_next_runtime(void) {
+  prepare_deferred_traffic_task();
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  RuntimeFrontendController controller;
+  ControllerTrafficTaskScope scope(controller);
+  DetectorListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  controller.loop();
+  TEST_ASSERT_EQUAL(1U, g_freertos_task_mock.create_calls);
+
+  // The stop times out with no backend to read it, then the worker exits.
+  controller.shutdown();
+  esp_timer_mock::advance(30000000);
+  controller.loop();
+  run_pending_traffic_task();
+  controller.loop();
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  controller.loop();
+  controller.loop();
+  TEST_ASSERT_EQUAL(0, listener.faults);
+}
+
 void test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change(void) {
   RuntimeConfig config;
   config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
@@ -1462,6 +1747,12 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_disconnect_or_disarm_cancels_refresh_and_discards_queued_completion);
   RUN_TEST(test_runtime_raw_collection_restores_armed_and_disarmed_sensing);
   RUN_TEST(test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change);
+  RUN_TEST(test_runtime_disables_capture_only_after_the_traffic_task_exits);
+  RUN_TEST(test_runtime_channel_change_rearms_after_the_traffic_task_and_held_radio_work);
+  RUN_TEST(test_runtime_reconnect_while_traffic_stops_rearms_capture_after_its_disable);
+  RUN_TEST(test_runtime_reports_a_traffic_task_that_does_not_stop_and_keeps_waiting);
+  RUN_TEST(test_controller_setup_after_shutdown_waits_for_the_previous_traffic_task);
+  RUN_TEST(test_recovered_traffic_stop_does_not_fault_the_next_runtime);
   RUN_TEST(test_runtime_channel_change_cold_resets_ml_without_calibration);
   return UNITY_END();
 }

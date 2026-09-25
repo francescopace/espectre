@@ -16,8 +16,23 @@
  * @brief ESP-IDF managed traffic for firmware that owns its CSI capture path.
  *
  * Link ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES and its ESP-IDF dependencies.
- * The firmware owns the object and calls stop() before destroying it or
- * tearing down Wi-Fi. Call lifecycle and control methods from one owner task.
+ * The firmware owns the object and calls stop() before tearing down Wi-Fi.
+ * Call lifecycle and control methods from one owner task.
+ *
+ * stop() only signals the worker and wakes it from a pacing wait, so it never
+ * blocks the owner loop. Keep calling loop() after stop(): it reaps the worker
+ * once that worker has suspended after leaving its send. Deleting it while it
+ * may be inside lwIP, or while vTaskSuspend is still running on another core,
+ * can leave the stack locked or corrupt the scheduler. A worker that has not
+ * exited within 2 s is logged, and loop() keeps waiting; after 30 s,
+ * consume_stop_timeout() is true once. If that worker exits before the flag is
+ * read, the timeout is dropped. The radio is free to reconfigure once
+ * is_quiescent() is true. Destroying the generator waits until its worker has
+ * exited, so keep one generator alive across sensing restarts.
+ * A start() made while the previous worker is still exiting returns true and
+ * launches the new worker from a later loop(), unless hold_pending_restart()
+ * is set. If that launch fails, consume_start_failure() is true and
+ * is_running() turns false.
  */
 
 #include <atomic>
@@ -102,17 +117,56 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
 /** Paced ESP-IDF traffic generator with a firmware-owned lifecycle. */
 class TrafficGeneratorManager : public ICsiTrafficGenerator {
  public:
+  /**
+   * Stop the worker and wait until it exits, however long its socket call takes.
+   *
+   * Destroy the generator outside a watched loop, or keep it for the device's lifetime.
+   */
+  ~TrafficGeneratorManager() override;
+
   /** Configure the send rate and backend while stopped. */
   void init(uint32_t target_pps,
             TrafficGeneratorMode mode = TrafficGeneratorMode::PING) override;
 
   /** Start sending to an IPv4 address in network byte order; WIFI_RAW ignores the address. */
   bool start(uint32_t target_addr) override;
-  /** Check send progress and report a stalled generator from the owner task. */
+  /** Finish a pending stop or restart, and report a stalled generator, from the owner task. */
   void loop() override;
+  /** Signal the worker to exit and return without waiting for it. */
   void stop() override;
+  /** Keep loop() from launching a deferred start while the owner still owns the radio. */
+  void hold_pending_restart(bool hold) override { hold_restart_ = hold; }
 
-  bool is_running() const override { return running_.load(std::memory_order_relaxed); }
+  /** Whether the worker runs or a deferred start is waiting to launch it. */
+  bool is_running() const override {
+    return running_.load(std::memory_order_relaxed) || restart_pending_;
+  }
+  /** True when the worker has left its send, even if loop() has not reaped it yet. */
+  bool is_quiescent() const override {
+    return !running_.load(std::memory_order_acquire) &&
+           task_exited_.load(std::memory_order_acquire);
+  }
+  /** True when start() has a worker that stop() has not signalled. */
+  bool has_live_worker() const override {
+    return running_.load(std::memory_order_acquire) &&
+           !task_exited_.load(std::memory_order_acquire);
+  }
+  /** True once, after loop() fails to launch a deferred start. */
+  bool consume_start_failure() override {
+    const bool failed = start_failed_;
+    start_failed_ = false;
+    return failed;
+  }
+  /**
+   * True once, after a stopped worker has not exited within 30 s.
+   *
+   * An unread timeout is dropped when that worker exits.
+   */
+  bool consume_stop_timeout() override {
+    const bool timed_out = stop_timed_out_;
+    stop_timed_out_ = false;
+    return timed_out;
+  }
   /** Suspend sends without destroying the worker. */
   void pause();
   /** Resume sends after pause(). */
@@ -134,19 +188,39 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
 
  private:
   static void traffic_task_(void *arg);
+  bool launch_(uint32_t target_addr);
+  bool reap_stopped_task_();
+  bool complete_stop_();
+  void apply_init_();
   void reset_runtime_state_();
+  void wait_for_stop_(TickType_t ticks);
 
+  // Owner-task state: only the owner creates and deletes the worker.
   TaskHandle_t task_handle_{nullptr};
-  int sock_{-1};
+  std::atomic<int> sock_{-1};
   uint32_t target_addr_{0U};
   uint32_t target_pps_{0U};
+  uint32_t staged_target_pps_{0U};
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
+  TrafficGeneratorMode staged_mode_{TrafficGeneratorMode::PING};
+  bool init_pending_{false};
   uint16_t icmp_identifier_{0U};
   uint8_t null_data_frame_[TRAFFIC_NULL_DATA_FRAME_SIZE]{};
   std::atomic<uint32_t> current_rate_pps_{0U};
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};
   std::atomic<bool> task_exited_{true};
+  // Owner-task state: a signalled worker not yet reaped, and a start() that
+  // waits for it to exit.
+  bool stop_pending_{false};
+  int64_t stop_started_us_{0};
+  bool stop_stall_logged_{false};
+  bool stop_fault_reported_{false};
+  bool stop_timed_out_{false};
+  bool restart_pending_{false};
+  bool hold_restart_{false};
+  bool start_failed_{false};
+  uint32_t restart_target_addr_{0U};
   std::atomic<uint32_t> send_success_count_{0U};
   std::atomic<uint32_t> send_error_count_{0U};
   uint32_t previous_send_success_count_{0U};
@@ -155,6 +229,12 @@ class TrafficGeneratorManager : public ICsiTrafficGenerator {
 
   static constexpr int64_t HEALTH_CHECK_INTERVAL_US = 1000000;
   static constexpr int64_t SEND_STALL_TIMEOUT_US = 5000000;
+  // A stopped worker can only wait inside lwIP: its sockets never block on
+  // I/O. Wi-Fi TX stalls seen on hardware last 2-3 s, and a lost AP ends by
+  // the station's beacon timeout (6 s by default), which fails pending frames.
+  // Past 30 s neither explains the wait, so a stack deadlock is plausible.
+  static constexpr int64_t STOP_STALL_LOG_US = 2000000;
+  static constexpr int64_t STOP_FAULT_US = 30000000;
   // A send that blocks or starts this late is reported, so a stall can be told
   // apart as a blocked socket or TX path versus a task that did not run.
   // The warning itself is limited to one per interval, so a slow log cannot
