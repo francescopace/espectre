@@ -707,13 +707,14 @@ def _ha_panel_inventory(platform="esphome", version=3, source="ping", legacy=Fal
     entities, states = [], []
     values = {"ownership": "internal", "source": source, "refresh": "unknown",
               "generator": "0", "traffic": "5", "traffic_rx": "100",
-              "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
+              "accepted": "99.5", "occupancy": "98", "rssi": "-54"}
     # 3.0.0-rc1 and rc2 pair an ownership select with a source select without `external`.
     controls = {"ownership": ("select", "csi_traffic_ownership")} if legacy else {}
     controls["source"] = ("select", "csi_traffic_source")
     options = {"ownership": ["internal", "external"],
                "source": _TRAFFIC_SOURCE_OPTIONS[:-1] if legacy else _TRAFFIC_SOURCE_OPTIONS}
-    for role, (domain, suffix) in {**controls, **ha_client.ENTITY_ROLES}.items():
+    roles = {**controls, **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
+    for role, (domain, suffix) in roles.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
             unique_id = "espectre_0123456789abcdef_" + suffix
@@ -723,9 +724,11 @@ def _ha_panel_inventory(platform="esphome", version=3, source="ping", legacy=Fal
             unique_id = f"aabbccddeeff-{domain}-" + (suffix if version == 1 else name)
         entity_id = domain + ".renamed_" + role
         entities.append({"entity_id": entity_id, "device_id": "sensor-a", "platform": platform,
-                         "unique_id": unique_id, "name": "A custom HA name", "disabled_by": None})
+                         "unique_id": unique_id, "name": "A custom HA name", "disabled_by": None,
+                         "entity_category": "diagnostic" if role == "rssi" else None})
         states.append({"entity_id": entity_id, "state": values[role],
-                       "attributes": {"options": list(options[role])} if role in options else {},
+                       "attributes": {"options": list(options[role])} if role in options else
+                       {"device_class": "signal_strength", "unit_of_measurement": "dBm"} if role == "rssi" else {},
                        "last_updated": "2026-09-19T10:00:00+00:00"})
     return devices, entities, states, [{"area_id": "kitchen", "name": "Kitchen"}]
 
@@ -742,6 +745,7 @@ def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, versio
     assert row["fields"]["traffic_rx"]["value"] == 100
     assert row["fields"]["accepted"]["value"] == 99.5
     assert row["fields"]["occupancy"]["value"] == 98
+    assert row["fields"]["rssi"]["value"] == -54
 
 
 @pytest.mark.parametrize("source,ownership,internal_mode", [
@@ -879,9 +883,34 @@ def test_ha_panel_recognizes_devices_only_by_traffic_source_options():
     assert ha_client.build_inventory(devices, entities, states[1:], areas) == []
 
 
+_UPSTREAM_ROLES = ["source", "generator", "traffic", "traffic_rx", "accepted", "occupancy"]
 _UPSTREAM_RECOMMENDED = ["CSI Traffic Source", "Generator Rate", "Traffic TX Rate", "Traffic RX Rate",
                          "CSI Accepted Rate", "CSI Temporal Occupancy"]
 _UPSTREAM_CUSTOM = ["Sorgente", "Generati", "Inviati", "Ricevuti", "CSI utili", "Copertura"]
+
+
+def _upstream_inventory(names=_UPSTREAM_RECOMMENDED, options=_TRAFFIC_SOURCE_OPTIONS,
+                        diagnostics=True, signals=(("WiFi Signal", "diagnostic"),)):
+    """An ESPHome device with the upstream `espectre` component: user-chosen names,
+    a board model, ESPHome's own `wifi_signal` sensor, and no Refresh Diagnostics button."""
+    devices = [{"id": "upstream-a", "name": "living-room", "manufacturer": "Espressif",
+                "model": "esp32-c6-devkitc-1"}]
+    values = ["ping", "100.0", "101.0", "3.0", "99.0", "97"]
+    entities, states = [], []
+    rows = list(zip(_UPSTREAM_ROLES, names, values, strict=True))[:None if diagnostics else 1]
+    for role, name, value in rows:
+        domain = "select" if role == "source" else "sensor"
+        entities.append({"entity_id": f"{domain}.living_room_{role}", "device_id": "upstream-a",
+                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/{domain}/{name}"})
+        states.append({"entity_id": entities[-1]["entity_id"], "state": value,
+                       "attributes": {"options": list(options)} if role == "source" else {}})
+    for index, (name, category) in enumerate(signals):
+        entities.append({"entity_id": f"sensor.living_room_signal_{index}", "device_id": "upstream-a",
+                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/sensor/{name}",
+                         "entity_category": category})
+        states.append({"entity_id": entities[-1]["entity_id"], "state": str(-61 - index),
+                       "attributes": {"device_class": "signal_strength", "unit_of_measurement": "dBm"}})
+    return devices, entities, states, []
 
 
 @pytest.mark.parametrize("names,options,diagnostics", [
@@ -891,24 +920,26 @@ _UPSTREAM_CUSTOM = ["Sorgente", "Generati", "Inviati", "Ricevuti", "CSI utili", 
     (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, False),
 ], ids=["recommended", "custom", "c6", "no_diagnostics"])
 def test_ha_panel_recognizes_the_upstream_esphome_component(names, options, diagnostics):
-    """User-named entities, a board model, and no Refresh Diagnostics button."""
-    devices = [{"id": "upstream-a", "name": "living-room", "manufacturer": "Espressif",
-                "model": "esp32-c6-devkitc-1"}]
-    roles = ["source", "generator", "traffic", "traffic_rx", "accepted", "occupancy"]
-    values = ["ping", "100.0", "101.0", "3.0", "99.0", "97"]
-    entities, states = [], []
-    for role, name, value in list(zip(roles, names, values, strict=True))[:None if diagnostics else 1]:
-        domain = "select" if role == "source" else "sensor"
-        entities.append({"entity_id": f"{domain}.living_room_{role}", "device_id": "upstream-a",
-                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/{domain}/{name}"})
-        states.append({"entity_id": entities[-1]["entity_id"], "state": value,
-                       "attributes": {"options": list(options)} if role == "source" else {}})
-    row, = ha_client.build_inventory(devices, entities, states, [])
-    assert row["can_control"] and not row["can_refresh"] and row["chip"] == "ESP32-C6"
+    row, = ha_client.build_inventory(*_upstream_inventory(names, options, diagnostics))
+    assert row["can_control"] and row["reason"] is None and row["chip"] == "ESP32-C6"
+    assert not row["can_refresh"] and row["fields"]["refresh"]["status"] == "missing"
     assert row["fields"]["ownership"]["value"] == "internal" and row["internal_mode"] == "ping"
+    assert row["fields"]["rssi"]["value"] == -61
     recognized = diagnostics and names is _UPSTREAM_RECOMMENDED
-    assert [row["fields"][role]["value"] for role in roles[1:]] == (
+    assert [row["fields"][role]["value"] for role in _UPSTREAM_ROLES[1:]] == (
         [100, 101, 3, 99, 97] if recognized else [None] * 5)
+
+
+@pytest.mark.parametrize("signals,expected", [
+    # A BLE beacon's RSSI shares the type but not the diagnostic category.
+    ((("BLE Beacon", None), ("WiFi Signal", "diagnostic"), ("WiFi RSSI", "diagnostic")),
+     "sensor.living_room_signal_1"),
+    ((("BLE Beacon", None),), None),
+])
+def test_ha_panel_takes_rssi_from_the_first_diagnostic_signal_strength_sensor(signals, expected):
+    row, = ha_client.build_inventory(*_upstream_inventory(signals=signals))
+    assert row["fields"]["rssi"].get("entity_id") == expected
+    assert row["can_control"]
 
 
 @pytest.mark.parametrize("value", ["unavailable", "unknown", "nan", "inf", "bad"])
@@ -1072,6 +1103,26 @@ def test_ha_panel_single_source_select_restores_the_previous_internal_packet():
             writes = [call for call in fake.calls if call["type"] == "call_service"]
             assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_source"}] * 2
             assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "dns"}]
+    asyncio.run(exercise())
+
+
+def test_ha_panel_controls_the_upstream_component_without_refresh():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.inventory = _upstream_inventory(options=["ping", "dns", "dns_tcp", "external"])
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
+                                         confirmation_timeout=0)
+            assert (await ha.act(["upstream-a"], "external"))["results"][0]["status"] == "confirmed"
+            assert (await ha.act(["upstream-a"], "internal"))["results"][0]["status"] == "confirmed"
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert [call["target"] for call in writes] == [{"entity_id": "select.living_room_source"}] * 2
+            assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "ping"}]
     asyncio.run(exercise())
 
 

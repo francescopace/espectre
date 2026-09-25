@@ -28,8 +28,6 @@ ENTITY_ROLES = {
     "traffic_rx": ("sensor", "traffic_rx_rate"),
     "accepted": ("sensor", "csi_accepted_rate"),
     "occupancy": ("sensor", "csi_temporal_occupancy"),
-    "rssi": ("sensor", "wifi_rssi"),
-    "calibrating": ("binary_sensor", "calibration_active"),
 }
 
 
@@ -55,6 +53,16 @@ def entity_role(entity):
             if re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") == suffix:
                 return role
     return None
+
+
+def is_wifi_signal(entity, states):
+    """Firmware RSSI sensors and ESPHome's `wifi_signal` share this type, whatever their name.
+    BLE and cellular signal sensors use it too, but are not diagnostic by default."""
+    attributes = states.get(entity.get("entity_id"), {}).get("attributes", {})
+    return (entity.get("entity_id", "").startswith("sensor.")
+            and entity.get("entity_category") == "diagnostic"
+            and attributes.get("device_class") == "signal_strength"
+            and attributes.get("unit_of_measurement") == "dBm")
 
 
 def select_options(entity, states):
@@ -131,19 +139,24 @@ def build_inventory(devices, entities, state_list, areas):
             grouped.setdefault(entity["device_id"], []).append(entity)
     result = []
     for device in devices:
-        candidates = {}
+        candidates, signals = {}, []
         for entity in grouped.get(device["id"], []):
             options = select_options(entity, states)
             role = ("source" if TRAFFIC_SOURCE_MODES <= options else
                     "ownership" if options == OWNERSHIP_MODES else entity_role(entity))
             if role:
                 candidates.setdefault(role, []).append(entity)
+            elif is_wifi_signal(entity, states):
+                signals.append(entity)
         if "source" not in candidates:
             continue
+        # Two Wi-Fi signal sensors, such as the firmware's and ESPHome's, report the same RSSI.
+        if signals:
+            candidates["rssi"] = signals[:1]
         roles = {key: values[0] for key, values in candidates.items() if len(values) == 1}
         fields = {key: entity_value(roles.get(key), states, numeric=key in
                   {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"})
-                  for key in ("source", "ownership", *ENTITY_ROLES)}
+                  for key in ("source", "ownership", "rssi", *ENTITY_ROLES)}
         # Current firmware offers `external` in the source select itself.
         unified = "ownership" not in candidates
         control_role = "source" if unified else "ownership"
