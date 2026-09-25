@@ -2,21 +2,21 @@
 
 ## Release plan
 
-| Milestone | Status | Starts when | Product outcome |
-| --- | --- | --- | --- |
-| **v3.0.0-rc1** | Released | September 5, 2026 | Publish the first complete candidate of the shared sensing platform |
-| **v3.0.0-rc2** | Released | September 16, 2026 | Validate signed firmware, sensing fixes, and SDK packaging |
-| **v3.0.0-rc3** | In progress | `rc2` is published | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
-| **v3.0.0** | Planned | `rc3` is published | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
-| **v3.1.0** | Planned | v3.0.0 is published and no v3.0.x release blockers remain open | Validate Matter with more controllers and define its production path |
-| **v3.2.0** | Demand-gated | An external Arduino integration demonstrates the need | Bring ESPectre to Arduino projects through a supported SDK runtime |
-| **v3.3.0** | Demand-gated | Apple Home over Matter leaves a documented product gap | Add a dedicated Apple Home frontend when HomeKit solves that gap |
-| **v3.4.0** | Research-gated | Stationary presence passes its sensing and product gates | Add stationary presence as a distinct sensing output |
-| **v3.5.0** | Research-gated | Presence is validated and at least one candidate earns promotion | Release a supported gesture or non-medical micro-motion capability |
-| **v4.0.0** | Planned | The v3 sensing platform is stable | Coordinate sensing nodes on the local network |
-| **v4.1.0** | Planned | The local coordination contract is stable | Add an optional, self-hostable relay for remote access |
-| **v4.2.0** | Demand-gated | Multi-node deployments need managed operations | Add optional fleet, history, update, and alert workflows |
-| **v5.0.0** | Exploratory | Practical sensing hardware exposes suitable measurements | Adopt IEEE 802.11bf or an equivalent sensing backend |
+| Milestone | Status | Product outcome |
+| --- | --- | --- |
+| **v3.0.0-rc1** | Released | Publish the first complete candidate of the shared sensing platform |
+| **v3.0.0-rc2** | Released | Validate signed firmware, sensing fixes, and SDK packaging |
+| **v3.0.0-rc3** | Released | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
+| **v3.0.0** | In progress | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
+| **v3.1.0** | Planned | Validate Matter with more controllers and define its production path |
+| **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
+| **v3.3.0** | Demand-gated | Add a dedicated Apple Home frontend where Matter falls short |
+| **v3.4.0** | Research-gated | Add stationary presence as a distinct sensing output |
+| **v3.5.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
+| **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
+| **v4.1.0** | Planned | Add an optional, self-hostable relay for remote access |
+| **v4.2.0** | Demand-gated | Add optional fleet, history, update, and alert workflows |
+| **v5.0.0** | Exploratory | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
 Demand-gated and research-gated releases do not block later ones: `v4.0.0` does not wait for `v3.2.0` to `v3.5.0`.
 
@@ -24,7 +24,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 **Product outcome**: release the stable v3 platform once the release candidates are validated, the remaining dataset work is done, and the rc-era compatibility code is gone.
 
-**Scope**: fix what `rc2` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. New sensing features and frontends wait for later versions.
+**Scope**: fix what `rc3` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. New sensing features and frontends wait for later versions.
 
 **Remaining release gates**:
 

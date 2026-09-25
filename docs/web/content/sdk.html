@@ -32,7 +32,7 @@
       <p>The SDK is for ESP-IDF products that compile its sources together with their own firmware.</p>
     </div>
     <dl class="sdk-fit-grid">
-      <div><dt>Toolchain</dt><dd>ESP-IDF <code>&gt;=5.5.3</code> and C++17. The project's own firmware builds with ESP-IDF 5.5.5.</dd></div>
+      <div><dt>Toolchain</dt><dd>ESP-IDF 5.5.3 or later and C++17. Checked builds are 5.5.3, 5.5.4, 5.5.5, 6.0.3, and 6.1.0. The project's own firmware builds with ESP-IDF 5.5.5. Hardware checks on ESP-IDF 6.x are still pending.</dd></div>
       <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi.</dd></div>
       <div><dt>Validated sensing</dt><dd>Detector results are measured on 2.4 GHz HT20 CSI. By default (<code>AUTO</code>), the runtime picks <code>lltf20</code> for its own raw Wi-Fi traffic, <code>vht20</code> on 5 GHz, and <code>ht20</code> otherwise; the <code>device</code> resource reports it as <code>csi_profile</code>. Detection quality on 5 GHz is not measured yet.</dd></div>
       <div><dt>Delivery model</dt><dd>A versioned C++ source component, installed with the ESP-IDF Component Manager and compiled with your firmware. Source archives are also available if you prefer to copy it into your project.</dd></div>

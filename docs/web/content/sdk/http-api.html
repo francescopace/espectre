@@ -69,7 +69,7 @@
   <pre class="code"><code>{"timestamp_ms":42000,"state":"motion","score":0.7312}</code></pre>
 
   <h2 data-toc-label="Raw CSI">Collect raw CSI</h2>
-  <p><code>GET /espectre/v1/csi</code> opens a binary CSI stream if <code>capabilities.features.csi</code> is true. Only one stream can be open at a time, and closing it ends the capture. While it is open, sensing pauses and motion events stop. Changes that conflict with it return HTTP <code>409</code>.</p>
+  <p><code>GET /espectre/v1/csi</code> opens a binary CSI stream if <code>capabilities.features.csi</code> is true. Only one stream can be open at a time, and closing it ends the capture. While it is open, motion and other derived events stop. Capture and traffic keep running, and resource events stay published. Changes that conflict with it return HTTP <code>409</code>.</p>
   <div class="note"><strong>The CSI stream is binary.</strong> It contains CSI V8 records in order, each with a 60-byte little-endian header. See the API reference for the exact format.</div>
 
   <h2 data-toc-label="Errors and security">Handle errors and security</h2>

@@ -26,7 +26,7 @@
     </figure>
 
     <h2 id="ha-prefix">Step 1 — Find your entity IDs</h2>
-    <p>The dashboard template uses the default ESPHome entity IDs, which start with <code>espectre_</code>. With MQTT, Home Assistant creates each entity ID the first time it sees the entity, and keeps any later renames; see <a href="https://www.home-assistant.io/integrations/mqtt/#naming-of-mqtt-entities" target="_blank" rel="noopener">Naming of MQTT entities</a>.</p>
+    <p>The dashboard template starts from entity IDs with the prefix <code>espectre_</code>. Official ESPHome images add the last three MAC bytes, so that prefix becomes <code>espectre_a1b2c3_</code> and every <code>espectre_</code> in the template has to change. A custom or older ESPHome device still named <code>espectre</code> can keep the template as it is. With MQTT, Home Assistant creates each entity ID the first time it sees the entity, and keeps any later renames; see <a href="https://www.home-assistant.io/integrations/mqtt/#naming-of-mqtt-entities" target="_blank" rel="noopener">Naming of MQTT entities</a>.</p>
     <ol class="steps-list">
       <li><h3>Open the entity list</h3><p>Go to <em>Settings → Devices &amp; services → Entities</em>, then filter for your ESPectre device.</p></li>
       <li><h3>Identify the active entities</h3><p>Open <em>Movement Score</em>, check that it belongs to the right device and shows a value, and copy its full entity ID.</p></li>
@@ -36,7 +36,8 @@
       <caption class="sr-only">How Home Assistant entity IDs affect the dashboard template</caption>
       <thead><tr><th scope="col">Situation</th><th scope="col">Movement Score example</th><th scope="col">Dashboard change</th></tr></thead>
       <tbody>
-        <tr><td>Default ESPHome name</td><td><code>sensor.espectre_movement_score</code></td><td>No prefix change</td></tr>
+        <tr><td>Official ESPHome image</td><td><code>sensor.espectre_a1b2c3_movement_score</code></td><td>Replace <code>espectre_</code> with <code>espectre_a1b2c3_</code></td></tr>
+        <tr><td>ESPHome name <code>espectre</code>, without a MAC suffix</td><td><code>sensor.espectre_movement_score</code></td><td>No prefix change</td></tr>
         <tr><td>Default Native device name</td><td><code>sensor.espectre_c3_f61093_movement_score</code></td><td>Replace <code>espectre_</code> with <code>espectre_c3_f61093_</code></td></tr>
         <tr><td>Entity-ID collision</td><td><code>sensor.espectre_c3_f61093_movement_score_2</code></td><td>Replace each affected complete entity ID</td></tr>
       </tbody>
@@ -81,7 +82,7 @@
       <li>Move in the room: Motion should change and Movement Score should update.</li>
       <li>The Threshold line should appear in the graph once the device has sent its value.</li>
       <li>Select <em>Refresh Diagnostics</em> to fill in Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. They update only when you ask.</li>
-      <li>Press Recalibrate only when the room can stay still. Calibration Active shows when Lightweight calibration is done.</li>
+      <li>Press Recalibrate only when the room can stay still. Calibration Active stays on while Lightweight calibration is running.</li>
     </ul>
 
     <h2 id="ha-traffic-generator">Optional — Run the traffic generator app</h2>

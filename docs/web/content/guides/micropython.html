@@ -8,7 +8,7 @@
   <p class="article-lead">Capture Wi-Fi CSI and detect motion in MicroPython, using the CSI support that ESPectre added to MicroPython itself.</p>
   <figure>
     <img src="/assets/images/guides/micropython-csi-runtime-card.avif" alt="A Python snake mascot perched on an Espressif board connected to a laptop displaying CSI traces" width="1068" height="600" loading="eager">
-    <figcaption>MicroPython captures CSI on the ESP32; Micro-ESPectre turns it into motion detection on the device.</figcaption>
+    <figcaption>MicroPython captures CSI on the ESP32. The native Lightweight detector turns those measurements into motion.</figcaption>
   </figure>
 
   <details class="page-toc">
@@ -21,15 +21,15 @@
   <p>The change was merged for MicroPython 1.29.0, so any MicroPython project can now use CSI on the ESP32. Micro-ESPectre builds on an official MicroPython version instead of the old CSI fork.</p>
 
   <h2 id="micropython-runtime">What runs on the ESP32</h2>
-  <p>Everything runs on the microcontroller, not on a computer: CSI capture, filtering, detection, traffic generation, and reporting. The device reports motion and a movement score; it does not send raw CSI.</p>
+  <p>The device loop runs in MicroPython on the board. CSI capture uses MicroPython. Filtering, Lightweight detection, traffic generation, and HTTP delivery use native components from the C++ SDK. The device reports motion and a movement score; it does not send raw CSI.</p>
   <div class="pipeline">
     <div><strong>Wi-Fi traffic</strong><span>router</span></div>
     <div><strong>CSI capture</strong><span>MicroPython</span></div>
-    <div><strong>Features</strong><span>on-device Python</span></div>
-    <div><strong>Detection</strong><span>on-device Python</span></div>
+    <div><strong>Features</strong><span>native SDK</span></div>
+    <div><strong>Detection</strong><span>native Lightweight</span></div>
     <div><strong>Direct SSE</strong><span>local network</span></div>
   </div>
-  <p>The Python and C++ versions share the same detector design, data format, and protocol. New ideas are tried in Python first and moved to the C++ firmware once they are proven.</p>
+  <p>Detector changes are tried in host-side Python first, then ported into the shared C++ code that the device runs. Messages use the same protocol as the other firmware types.</p>
 
   <h2 id="micropython-requirements">Requirements</h2>
   <div class="table-wrap"><table>
@@ -37,7 +37,7 @@
     <thead><tr><th scope="col">Requirement</th><th scope="col">Current support</th></tr></thead>
     <tbody>
       <tr><td>Board</td><td>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6.</td></tr>
-      <tr><td>Radio</td><td>2.4 GHz Wi-Fi with steady incoming traffic</td></tr>
+      <tr><td>Radio</td><td>Steady Wi-Fi traffic on 2.4&nbsp;GHz. ESP32-C5 also captures a 5&nbsp;GHz link as <code>vht20</code>. Detection quality on 5&nbsp;GHz is not measured yet.</td></tr>
       <tr><td>Firmware</td><td>The ESPectre MicroPython image, built from an official MicroPython version</td></tr>
       <tr><td>Host setup</td><td>The ESPectre repository and its <code>./espectre</code> command</td></tr>
       <tr><td>Monitoring</td><td>A browser or client on the same local network</td></tr>
@@ -66,7 +66,7 @@ cp src/python/micro_espectre/config_local.py.example \
 
   <h2 id="micropython-profiles">Lightweight sensing</h2>
   <p>Micro-ESPectre runs only the Lightweight detector, which calibrates its threshold at startup while the room is quiet. The High Accuracy code stays in the repository for research and testing, but is not copied to the device.</p>
-  <p>Over Direct HTTP, Micro-ESPectre provides <code>health</code>, <code>device</code>, <code>capabilities</code>, <code>sensing</code>, <code>wifi</code>, and <code>diagnostics</code>. Its only action is recalibration, and its <code>events</code> stream sends motion updates only. It also prints its status on the serial port every second. It has no MQTT, CSI capture, device discovery, or Home Assistant support.</p>
+  <p>Over Direct HTTP, Micro-ESPectre provides <code>health</code>, <code>device</code>, <code>capabilities</code>, <code>sensing</code>, <code>wifi</code>, and <code>diagnostics</code>. Its only action is recalibration, and its <code>events</code> stream sends motion updates only. It also prints its status on the serial port every second. It publishes its DNS-SD service, so <code>./espectre devices --frontend micro</code> can list it. Browser Auto-discovery still needs a Native, ESPHome, or commissioned Matter device on the LAN: Micro does not answer the bootstrap name or <code>GET /devices</code>. It has no MQTT, raw CSI stream, or Home Assistant support.</p>
 
   <h2 id="micropython-boundary">Current role and limits</h2>
   <p>Micro-ESPectre is where we experiment in Python. It is not a stable library yet: you install the whole application, and its public interface may still change.</p>

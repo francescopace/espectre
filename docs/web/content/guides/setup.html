@@ -52,7 +52,7 @@
       <summary>For integrators: build from source with the CLI</summary>
       <div class="article-details-body">
     <h3 id="setup-cli" class="subheading">Build, flash, and monitor</h3>
-    <p>You need Python 3. Native and Matter build with ESP-IDF 5.5 if it is installed, or with the project's Docker image otherwise; flashing still needs local serial tools. ESPHome installs its own toolchain.</p>
+    <p>You need Python 3.14. Native and Matter build with ESP-IDF 5.5.3 or later when it is installed, or with the project's Docker image otherwise. Checked builds include 5.5.3 through 5.5.5, 6.0.3, and 6.1.0. The project's firmware uses 5.5.5. Hardware checks on ESP-IDF 6.x are still pending. Flashing still needs local serial tools. ESPHome installs its own toolchain.</p>
     <p>Prepare the repository once:</p>
     <pre class="code"><code>git clone https://github.com/francescopace/espectre.git
 cd espectre
@@ -121,7 +121,7 @@ espectre&gt; recalibrate</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-network-esphome-panel" role="tabpanel" aria-labelledby="setup-network-esphome-tab" data-network-frontend="esphome" hidden>
         <ol class="steps-list">
-          <li><h3>Set up Wi-Fi in the installer</h3><p>Right after installation, enter your network name and password. Published images use 2.4&nbsp;GHz. If USB setup does not work, connect to the <code>ESPectre Fallback</code> hotspot and finish in the browser.</p></li>
+          <li><h3>Set up Wi-Fi in the installer</h3><p>Right after installation, enter your network name and password. Use a 2.4&nbsp;GHz network. Published ESP32-C5 images can also join 5&nbsp;GHz, but detection quality on 5&nbsp;GHz has not been measured yet. If USB setup does not work, connect to the <code>ESPectre Fallback</code> hotspot and finish in the browser.</p></li>
           <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a new ESPHome device. Accept it to get the motion sensor, movement score, threshold control, recalibrate button, and calibration status. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns these into a sensing dashboard.</p></li>
         </ol>
         <p><strong>CLI builds</strong> contain no Wi-Fi credentials. Set up Wi-Fi over USB or through the fallback hotspot.</p>
@@ -145,7 +145,7 @@ espectre&gt; recalibrate</code></pre>
       <summary>For integrators: how browser discovery works</summary>
       <div class="article-details-body">
       <h3 id="setup-native-discovery" class="subheading">Automatic LAN discovery and browser support</h3>
-      <p>A web page cannot list the services on your network, but it can look up a single <code>.local</code> name. The portal looks up a name that any ESPectre device answers. That device searches the network for the other ESPectre devices and sends back their addresses. Each attempt uses a new random name, so cached answers from earlier attempts never get in the way.</p>
+      <p>A web page cannot list the services on your network, but it can look up a single <code>.local</code> name. The portal looks up a name that Native, ESPHome, and commissioned Matter devices answer. Micro-ESPectre does not answer it. The device that answers searches the network for the other ESPectre devices, including Micro-ESPectre, and sends back their addresses. Each attempt uses a new random name, so cached answers from earlier attempts never get in the way.</p>
       <p>Everything stays on your local network: no app, no browser extension, and no address scanning. Discovery is optional and works over IPv4 only. It needs at least one ESPectre device that can answer, even if you then pick another one. You can always enter a device's IP address instead.</p>
       <div class="table-wrap"><table>
         <caption class="sr-only">Browser compatibility and validation status for automatic LAN discovery</caption>
@@ -163,7 +163,7 @@ espectre&gt; recalibrate</code></pre>
 
     <h2 id="setup-test">Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">
-      <li>Published firmware uses Lightweight Detection. After joining Wi-Fi, it calibrates for up to about ten seconds: keep the room still, then move normally. High-Accuracy Detection needs no calibration.</li>
+      <li>Published firmware uses Lightweight Detection. After joining Wi-Fi, it calibrates for about ten seconds of clean data: keep the room still, then move normally. A burst in that window extends calibration in five-second steps, up to about thirty seconds. High-Accuracy Detection needs no calibration.</li>
       <li>Wave an arm a few meters from the board. Motion should turn on within about a second and clear shortly after you stop.</li>
     </ul>
     <div class="note">The movement level is a score from 0.0 to 1.0 that depends on your room. There is no universal threshold: if the sensor reacts too much or too little, adjust the threshold a little at a time. The <a href="/guides/detection/">detection guide</a> explains what the score means.</div>

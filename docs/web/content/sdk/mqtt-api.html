@@ -57,7 +57,7 @@
       <tr><td><code>start_ota</code></td><td>optional <code>channel</code></td><td>Start an update from a firmware channel</td></tr>
     </tbody>
   </table></div>
-  <p>A command can be at most 2,048 bytes. An unsupported command returns <code>accepted: false</code> with code <code>forbidden</code>. Other errors use the same codes as HTTP.</p>
+  <p>A command can be at most 2,048 bytes. A command outside the MQTT list returns <code>accepted: false</code> with code <code>forbidden</code>. An operation this firmware leaves out of its capabilities returns <code>unsupported</code>. Other errors use the same codes as HTTP.</p>
 
   <h2 data-toc-label="HTTP only">What needs Direct HTTP</h2>
   <p>MQTT cannot change the broker settings, list nearby devices, or stream raw CSI. Use Direct HTTP or Device settings for those. For diagnostics, send <code>read_diagnostics</code> with the <code>fields</code> you want.</p>

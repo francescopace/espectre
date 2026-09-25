@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0-rc3] - 2026-09-22 - SDK on the ESP Component Registry and ESP-IDF 6 support
+## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support
 
 ### Highlights
 

@@ -13,8 +13,8 @@
       <tr><td>Choose it when</td><td>CPU and memory are tight</td><td>Detection quality and fewer false alarms in a quiet room come first</td></tr>
       <tr><td>Decision input</td><td>2 features</td><td>8 features</td></tr>
       <tr><td>Classifier</td><td>Fixed logistic combination of the two features</td><td>MLP: <code>8 → 24 → 12 → 1</code></td></tr>
-      <tr><td>Persistent detector state</td><td>1,792 B</td><td>6,144 B</td></tr>
-      <tr><td>Startup</td><td>Calibrates its threshold in up to 10 seconds of clean data</td><td>No calibration; uses a threshold of 0.5</td></tr>
+      <tr><td>Persistent detector state</td><td>2,016 B</td><td>5,068 B</td></tr>
+      <tr><td>Startup</td><td>About 10 seconds of clean data, or up to about 30 seconds when that window holds a burst</td><td>No calibration; uses a threshold of 0.5</td></tr>
       <tr><td>Learned parameters</td><td>Two logistic weights, an intercept, and fitted normalization</td><td>529 neural-network parameters</td></tr>
     </tbody>
   </table></div>
@@ -26,7 +26,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Detection profile</th><th>Recall</th><th>False-positive rate</th><th>F1</th><th>Mean detection time</th><th>Mean runtime CPU</th></tr></thead>
     <tbody>
-      <tr><td>Lightweight</td><td>98.8%</td><td>0.8%</td><td>98.6%</td><td>0.814 ms</td><td>7.36%</td></tr>
+      <tr><td>Lightweight</td><td>98.7%</td><td>0.8%</td><td>98.6%</td><td>0.814 ms</td><td>7.36%</td></tr>
       <tr><td>High Accuracy</td><td>99.4%</td><td>0.1%</td><td>99.5%</td><td>2.956 ms</td><td>10.14%</td></tr>
     </tbody>
   </table></div>
@@ -45,7 +45,7 @@
     <div><strong>Motion state</strong><span>runtime event</span></div>
   </div>
   <p>The detector wants 100 samples per second. Time is split into 10 ms slots, and each slot keeps only the packet closest to its center. Empty slots stay empty, and a burst of packets in one slot still counts once. So bursts cannot make the detector's clock run faster than real time.</p>
-  <p>Each decision looks at one second of data and needs at least 70% of its slots filled. The runtime decides every 250 ms. After a gap in the data, it starts over instead of joining unrelated moments.</p>
+  <p>The detector becomes ready after one second with at least 70% of its slots filled. Once it is ready, coverage below 70% for less than one window still produces decisions. The runtime decides every 250 ms. A gap as long as the window clears detector history.</p>
   <div class="note"><strong>More packets fill more slots; they are not extra evidence.</strong> Several packets in the same slot still count as one.</div>
 
   <h2 id="sdk-detectors-frequency" data-toc-label="Frequency inputs">Which frequencies each feature uses</h2>
