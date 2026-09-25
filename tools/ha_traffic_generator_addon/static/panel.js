@@ -22,7 +22,7 @@ async function api(path, body) {
     if (response.headers.get("content-type")?.includes("application/json")) {
       message = (await response.json()).error || message;
     }
-    throw new Error(message);
+    throw Object.assign(new Error(message), {status: response.status});
   }
   return response.json();
 }
@@ -30,6 +30,13 @@ async function api(path, body) {
 function notice(message, error = false) {
   $("notice").textContent = message;
   $("notice").classList.toggle("error", error);
+}
+
+function noticeFailure(error, fallback) {
+  // Ingress rejects an expired session cookie. Home Assistant normally renews it only on page load.
+  const expired = error.status === 401;
+  notice(expired ? "Home Assistant session expired. Reload the page." : fallback, true);
+  return expired;
 }
 
 function controls() {
@@ -135,8 +142,8 @@ function scheduleStream(delay = 0) {
 
 function connectStream() {
   if (!pageActive || document.hidden || busy || pending || connectTask || streamSocket) return;
-  connectTask = openStream().catch(() => {
-    notice("Connection lost. Reconnecting…", true);
+  connectTask = openStream().catch(error => {
+    noticeFailure(error, "Connection lost. Reconnecting…");
   }).finally(() => {
     connectTask = null;
     scheduleStream(2000);
@@ -233,8 +240,8 @@ async function execute(action, ids) {
   } catch (error) {
     // A timed-out write may have succeeded. Never retry it automatically.
     rows = []; selected.clear();
-    actionMessage = "Action not confirmed. Check the device in Home Assistant before retrying.";
-    notice(actionMessage, true);
+    const fallback = "Action not confirmed. Check the device in Home Assistant before retrying.";
+    actionMessage = noticeFailure(error, fallback) ? "" : fallback;
   } finally { busy = false; render(); scheduleStream(); }
 }
 
@@ -250,8 +257,8 @@ async function toggleGenerator() {
   } catch (error) {
     generatorRunning = null;
     $("running").textContent = "Disconnected";
-    actionMessage = "Generator action not confirmed. Check its status before retrying.";
-    notice(actionMessage, true);
+    const fallback = "Generator action not confirmed. Check its status before retrying.";
+    actionMessage = noticeFailure(error, fallback) ? "" : fallback;
   } finally { busy = false; render(); scheduleStream(); }
 }
 

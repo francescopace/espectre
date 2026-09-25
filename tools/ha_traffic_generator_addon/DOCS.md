@@ -80,12 +80,13 @@ Leave `dscp` at `46` unless your network has a QoS policy to match, or you want 
 - **App missing or installation fails:** check the repository branch, host architecture, and **Settings → System → Logs → Supervisor**.
 - **App stops immediately:** check its **Log** tab for invalid options. Clear `source_ip` unless you need a specific local interface.
 - **Panel cannot connect to Home Assistant:** update or rebuild the app, and check that Home Assistant Core is running. There is no token to enter.
+- **Panel says the Home Assistant session expired:** reload the page. Home Assistant issues a new app session only when the page loads.
 - **Device missing or controls unavailable:** add the device through ESPHome or MQTT and check that its traffic source select is enabled. Matter devices have no traffic controls.
 - **Command not confirmed:** check the device's mode in Home Assistant before retrying; a timeout does not mean the change failed. In bulk changes, each failure is reported separately and successful changes are kept.
 - **App runs, but no CSI arrives:** confirm external mode and matching rate, port, and multicast group. Try device IP addresses and check network isolation and firewall rules.
 - **Packets sent, but no motion:** sent packets are not received packets. Check the device's diagnostics and calibration with [ESPectre troubleshooting](https://github.com/francescopace/espectre/blob/main/docs/TROUBLESHOOTING.md#no-csi-or-insufficient-input). Watchdog only restarts the app if it crashes; it does not check the sensors.
 
-The log shows the settings at startup, then packet counts and send errors every 60 seconds. Updating the app does not update ESPectre firmware or change device settings.
+The log shows the settings at startup, each **Start** and **Stop** from the panel, and new send errors, checked once a minute. The panel shows the live packet counts. Updating the app does not update ESPectre firmware or change device settings.
 
 ## Standalone use
 

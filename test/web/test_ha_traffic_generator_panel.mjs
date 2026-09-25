@@ -82,6 +82,7 @@ function fixture(count = 1) {
             calls.push({ path: url.pathname, body, headers: options.headers });
             if (hold) { const wait = hold; hold = null; await wait; }
             if (fail === true || body?.action === fail) { fail = false; throw new Error('offline'); }
+            if (typeof fail === 'number') { const status = fail; fail = false; return { ok: false, status, headers: new Map() }; }
             if (url.pathname.endsWith('/generator')) running = body.action === 'start';
             else if (body) devices.forEach(row => {
                 if (body.device_ids.includes(row.id)) row.fields.ownership.value = body.action;
@@ -322,6 +323,39 @@ it('recovers automatically after a connection failure', async () => {
     await f.tick(2000);
     assert.equal(f.get('devices').children.length, 1);
     assert.equal(f.get('notice').textContent, '');
+});
+
+it('reports an expired ingress session apart from a lost connection and keeps retrying', async () => {
+    const f = fixture();
+    await f.tick();
+    f.sockets[0].close();
+    const lost = f.get('notice').textContent;
+    f.failNext(401);
+    await f.tick(2000);
+    assert.equal(f.sockets.length, 1);
+    assert.equal(f.get('notice').textContent, 'Home Assistant session expired. Reload the page.');
+    assert.notEqual(lost, f.get('notice').textContent);
+    await f.tick(2000);
+    assert.equal(f.get('devices').children.length, 1);
+    assert.equal(f.get('notice').textContent, '');
+});
+
+it('reports an expired ingress session when a command cannot reach Home Assistant', async () => {
+    const f = fixture();
+    await f.tick();
+    modeButton(f).dispatch('click');
+    f.failNext(401);
+    f.get('confirm').close('apply');
+    await f.flush();
+    assert.equal(writes(f).length, 0);
+    assert.equal(f.get('notice').textContent, 'Home Assistant session expired. Reload the page.');
+    await f.tick(2000);
+    f.failNext(401);
+    f.get('generator-toggle').dispatch('click');
+    await f.flush();
+    assert.equal(writes(f).length, 0);
+    assert.equal(f.get('running').textContent, 'Disconnected');
+    assert.equal(f.get('notice').textContent, 'Home Assistant session expired. Reload the page.');
 });
 
 it('displays a large streamed inventory without browser diagnostic commands', async () => {

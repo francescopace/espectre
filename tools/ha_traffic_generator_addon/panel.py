@@ -229,6 +229,7 @@ async def serve():
         logging.info("UDP generator started: %s", json.dumps(options))
         logging.info("Panel ready through Home Assistant Ingress on port %s", ingress_port)
         next_report = time.monotonic() + 60
+        reported_errors = 0
         while not stop.is_set():
             try:
                 await asyncio.wait_for(stop.wait(), timeout=1)
@@ -237,12 +238,18 @@ async def serve():
             if generator_failed(app):
                 raise RuntimeError("UDP generator stopped unexpectedly")
             if time.monotonic() >= next_report:
-                logging.info("Sent %s packets; send errors: %s", generator.sent_packets, generator.send_errors)
+                # The panel shows live counters; the log reports only new send errors.
+                send_errors = generator.send_errors
+                if send_errors > reported_errors:
+                    logging.warning("UDP send errors: %s in the last minute, %s in total",
+                                    send_errors - reported_errors, send_errors)
+                    reported_errors = send_errors
                 next_report = time.monotonic() + 60
     finally:
         await runner.cleanup()
         generator.stop()
-        logging.info("External CSI traffic generator stopped")
+        logging.info("External CSI traffic generator stopped after %s packets; send errors: %s",
+                     generator.sent_packets, generator.send_errors)
 
 
 def main():
