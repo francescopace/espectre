@@ -66,10 +66,6 @@ class UDPListener : public ICsiTrafficIngress {
    */
   bool is_running() const override { return running_; }
   
-  /**
-   * Get the listening port
-   */
-  uint16_t get_port() const { return port_; }
   uint64_t get_packets_received() const override { return packets_received_; }
   bool get_last_sender(UdpDatagramPeer *out_peer) const override;
   

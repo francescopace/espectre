@@ -11,7 +11,7 @@
  * Build and run:
  *   c++ -O3 -DNDEBUG -std=c++17 -Isrc/cpp/core \
  *       test/cpp/support/benchmark_lightweight_iqr_resources.cpp \
- *       src/cpp/core/filters.cpp \
+ *       src/cpp/core/filters.cpp src/cpp/core/espectre_log.cpp \
  *       -o /tmp/benchmark_lightweight_iqr_resources
  *   /tmp/benchmark_lightweight_iqr_resources
  */
@@ -213,10 +213,19 @@ float aggregated_packet_turbulence(const Packet& packet, float* packet_frame,
          aggregated_state.push(aggregated_turbulence);
 }
 
+float percentile_from_sorted(const float* sorted_values, uint16_t count, float quantile) {
+  if (sorted_values == nullptr || count == 0U) return 0.0f;
+  const float position = static_cast<float>(count - 1U) * quantile;
+  const uint16_t lower = static_cast<uint16_t>(position);
+  if (lower >= count - 1U) return sorted_values[count - 1U];
+  const float fraction = position - static_cast<float>(lower);
+  return sorted_values[lower] * (1.0f - fraction) + sorted_values[lower + 1U] * fraction;
+}
+
 float iqr_over_mean(float* sorted, uint16_t count, float mean) {
   std::sort(sorted, sorted + count);
-  const float q25 = espectre::percentile_from_sorted(sorted, count, 0.25f);
-  const float q75 = espectre::percentile_from_sorted(sorted, count, 0.75f);
+  const float q25 = percentile_from_sorted(sorted, count, 0.25f);
+  const float q75 = percentile_from_sorted(sorted, count, 0.75f);
   return (q75 - q25) / std::max(std::fabs(mean), 1e-6f);
 }
 

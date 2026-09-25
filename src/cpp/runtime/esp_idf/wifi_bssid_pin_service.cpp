@@ -63,24 +63,6 @@ bool normalize_bssid(const std::string &value, std::string *normalized) {
 
 }  // namespace
 
-const char *wifi_bssid_pin_apply_state_name(WifiBssidPinApplyState state) {
-  switch (state) {
-    case WifiBssidPinApplyState::VERIFYING:
-      return "verifying";
-    case WifiBssidPinApplyState::ROLLING_BACK:
-      return "rolling_back";
-    case WifiBssidPinApplyState::APPLIED:
-      return "applied";
-    case WifiBssidPinApplyState::ROLLED_BACK:
-      return "rolled_back";
-    case WifiBssidPinApplyState::RECOVERY_REQUIRED:
-      return "recovery_required";
-    case WifiBssidPinApplyState::IDLE:
-    default:
-      return "idle";
-  }
-}
-
 esp_err_t WifiBssidPinService::setup(WifiBssidPinServiceConfig config) {
   if (!config.apply_callback || !config.station_state_getter ||
       config.candidate_timeout_ms == 0U) {

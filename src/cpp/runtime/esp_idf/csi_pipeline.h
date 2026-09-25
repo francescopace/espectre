@@ -288,11 +288,6 @@ class CsiPipeline {
   void set_channel_change_callback(channel_change_callback_t callback) {
     channel_change_callback_ = callback;
   }
-
-  /**
-   * Get the detector instance
-   */
-  BaseDetector* get_detector() { return detector_; }
   
   /**
    * Clear detector buffer (for calibration reset)

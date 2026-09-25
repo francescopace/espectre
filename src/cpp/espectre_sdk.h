@@ -131,6 +131,7 @@
 #include "runtime/runtime_diagnostics.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_config.h"
+#include "runtime/csi_raw_record.h"
 #include "runtime/raw_csi.h"
 #include "runtime/runtime_sensing_schema.h"
 #include "runtime/runtime_snapshot.h"

@@ -48,9 +48,6 @@ enum class WifiBssidPinApplyState : uint8_t {
   RECOVERY_REQUIRED,
 };
 
-/** Protocol name of an apply state, such as `verifying` or `rolled_back`. */
-const char *wifi_bssid_pin_apply_state_name(WifiBssidPinApplyState state);
-
 /** Hooks that connect WifiBssidPinService to the firmware's Wi-Fi stack. */
 struct WifiBssidPinServiceConfig {
   /**

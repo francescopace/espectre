@@ -226,7 +226,6 @@ void test_csi_pipeline_init(void) {
     manager.init(&detector, &g_wifi_mock);
     
     TEST_ASSERT_FALSE(manager.is_enabled());
-    TEST_ASSERT_NOT_NULL(manager.get_detector());
 }
 
 // ============================================================================

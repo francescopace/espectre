@@ -87,37 +87,6 @@ struct CsiFormatAssessment {
   bool requires_normalization() const { return payload_view == CsiPayloadView::NORMALIZED; }
 };
 
-inline const char *csi_format_reason_code_to_string(CsiFormatReasonCode code) {
-  switch (code) {
-    case CsiFormatReasonCode::NONE:
-      return "none";
-    case CsiFormatReasonCode::NULL_OR_EMPTY:
-      return "null_or_empty";
-    case CsiFormatReasonCode::BAD_LENGTH:
-      return "bad_length";
-    case CsiFormatReasonCode::UNSUPPORTED_PHY:
-      return "unsupported_phy";
-    case CsiFormatReasonCode::UNSUPPORTED_WIDTH:
-      return "unsupported_width";
-    case CsiFormatReasonCode::UNEXPECTED_LTF:
-      return "unexpected_ltf";
-    case CsiFormatReasonCode::UNKNOWN_LAYOUT:
-      return "unknown_layout";
-    case CsiFormatReasonCode::MISSING_METADATA:
-      return "missing_metadata";
-    case CsiFormatReasonCode::RX_ERROR:
-      return "rx_error";
-    case CsiFormatReasonCode::RX_END_ERROR:
-      return "rx_end_error";
-    case CsiFormatReasonCode::INVALID_ESTIMATE:
-      return "invalid_estimate";
-    case CsiFormatReasonCode::INVALID_FIRST_WORD:
-      return "invalid_first_word";
-    default:
-      return "unknown";
-  }
-}
-
 inline bool csi_info_is_legacy_lltf(const wifi_csi_info_t *info,
                                     CsiCaptureProfile profile) {
 #if CONFIG_SOC_WIFI_HE_SUPPORT

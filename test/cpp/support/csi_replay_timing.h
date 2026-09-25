@@ -10,7 +10,7 @@
 #include <cstdint>
 
 #include "detector_limits.h"
-#include "detector_timing.h"
+#include "replay_packet_timing.h"
 
 namespace espectre {
 namespace csi_replay_timing {

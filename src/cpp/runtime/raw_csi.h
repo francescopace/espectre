@@ -25,31 +25,22 @@ enum class RuntimeOperationState : uint8_t {
   RAW_COLLECTION = 1U,
 };
 
-/** Protocol name of an operation state: `sensing` or `raw_collection`. */
-inline const char *runtime_operation_state_name(RuntimeOperationState state) {
-  return state == RuntimeOperationState::RAW_COLLECTION ? "raw_collection" : "sensing";
-}
-
 /** Why a raw CSI collection session ended. */
 enum class RawCsiStopReason : uint8_t {
   /** The owner stopped it. */
   REQUESTED = 0U,
-  /** Reserved; no shipped transport reports it. */
-  OWNER_DISCONNECTED,
   /** The binary stream connection closed. */
-  RAW_DISCONNECTED,
+  RAW_DISCONNECTED = 2U,
   /** The Wi-Fi link dropped. */
-  WIFI_LOST,
+  WIFI_LOST = 3U,
   /** The association moved to another channel. */
-  CHANNEL_CHANGED,
-  /** Reserved; no shipped transport reports it. */
-  BIND_TIMEOUT,
+  CHANNEL_CHANGED = 4U,
   /** A send to the client failed. */
-  SLOW_CLIENT,
+  SLOW_CLIENT = 6U,
   /** The service or runtime shut down. */
-  SHUTDOWN,
+  SHUTDOWN = 7U,
   /** An unexpected failure ended the session. */
-  INTERNAL_ERROR,
+  INTERNAL_ERROR = 8U,
 };
 
 /**
@@ -75,12 +66,6 @@ struct RawCsiPacketView {
    * classic ESP32 it runs on a different clock than `esp_timer`.
    */
   uint32_t wifi_rx_ts_us{0U};
-  /**
-   * Receive start time in nanoseconds, valid with
-   * `RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID`. The built-in pipeline leaves it
-   * zero.
-   */
-  uint64_t wifi_rx_start_ts_ns{0U};
   /** Bit set of `RawCsiRecordFlags`. */
   uint8_t record_flags{0U};
   /** Primary channel the packet arrived on. */

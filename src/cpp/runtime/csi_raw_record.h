@@ -108,7 +108,7 @@ struct RawCsiRecordHeaderV8 {
   uint64_t device_ticks_us;
   /** See `RawCsiPacketView::wifi_rx_ts_us`. */
   uint32_t wifi_rx_ts_us;
-  /** See `RawCsiPacketView::wifi_rx_start_ts_ns`. */
+  /** Receive start time in nanoseconds, valid with `RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID`; the SDK writes zero. */
   uint64_t wifi_rx_start_ts_ns;
 
   uint8_t channel;

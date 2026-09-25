@@ -75,7 +75,7 @@ if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
     idf_component_optional_requires(PRIVATE esp_http_server)
     idf_component_get_property(espectre_mdns_dir espressif__mdns COMPONENT_DIR)
     target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/private_include")
-    target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_receive_action")
+    target_link_options(${COMPONENT_LIB} INTERFACE ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS})
 endif()
 
 target_link_options(${COMPONENT_LIB} INTERFACE ${ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS})

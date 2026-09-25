@@ -26,19 +26,19 @@ void tearDown(void) {}
 
 void test_variance_empty_array(void) {
     float data[] = {};
-    float result = calculate_variance_two_pass(data, 0);
+    float result = calculate_mean_variance_two_pass(data, 0).variance;
     TEST_ASSERT_EQUAL_FLOAT(0.0f, result);
 }
 
 void test_variance_single_element(void) {
     float data[] = {5.0f};
-    float result = calculate_variance_two_pass(data, 1);
+    float result = calculate_mean_variance_two_pass(data, 1).variance;
     TEST_ASSERT_EQUAL_FLOAT(0.0f, result);
 }
 
 void test_variance_identical_values(void) {
     float data[] = {3.0f, 3.0f, 3.0f, 3.0f};
-    float result = calculate_variance_two_pass(data, 4);
+    float result = calculate_mean_variance_two_pass(data, 4).variance;
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, result);
 }
 
@@ -46,13 +46,13 @@ void test_variance_known_values(void) {
     // Values: 2, 4, 4, 4, 5, 5, 7, 9
     // Mean = 5, Variance = 4
     float data[] = {2.0f, 4.0f, 4.0f, 4.0f, 5.0f, 5.0f, 7.0f, 9.0f};
-    float result = calculate_variance_two_pass(data, 8);
+    float result = calculate_mean_variance_two_pass(data, 8).variance;
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 4.0f, result);
 }
 
 void test_variance_with_negative_values(void) {
     float data[] = {-2.0f, -1.0f, 0.0f, 1.0f, 2.0f};
-    float result = calculate_variance_two_pass(data, 5);
+    float result = calculate_mean_variance_two_pass(data, 5).variance;
     // Mean = 0, Variance = (4+1+0+1+4)/5 = 2
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 2.0f, result);
 }
@@ -60,7 +60,7 @@ void test_variance_with_negative_values(void) {
 void test_variance_large_values_numerical_stability(void) {
     // Large values to test numerical stability
     float data[] = {1000000.0f, 1000001.0f, 1000002.0f, 1000003.0f, 1000004.0f};
-    float result = calculate_variance_two_pass(data, 5);
+    float result = calculate_mean_variance_two_pass(data, 5).variance;
     // Variance should be 2.0 (same as small values)
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 2.0f, result);
 }

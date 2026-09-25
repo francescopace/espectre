@@ -88,25 +88,6 @@ inline bool ml_feature_needs_aggregated_turbulence(uint8_t id) {
            MLFeatureSource::AGGREGATED_TURBULENCE_SERIES;
 }
 
-inline float median_from_sorted(const float* sorted_values, uint16_t count) {
-    if (count == 0 || sorted_values == nullptr) return 0.0f;
-    if (count % 2 == 0) {
-        return (sorted_values[count / 2 - 1] + sorted_values[count / 2]) / 2.0f;
-    }
-    return sorted_values[count / 2];
-}
-
-inline float percentile_from_sorted(const float* sorted_values, uint16_t count,
-                                    float quantile) {
-    if (sorted_values == nullptr || count == 0U) return 0.0f;
-    const float position = static_cast<float>(count - 1U) * quantile;
-    const uint16_t lower = static_cast<uint16_t>(position);
-    if (lower >= count - 1U) return sorted_values[count - 1U];
-    const float fraction = position - static_cast<float>(lower);
-    return sorted_values[lower] * (1.0f - fraction) +
-           sorted_values[lower + 1U] * fraction;
-}
-
 inline float order_statistic_in_place(float* values, uint16_t count,
                                       uint16_t index) {
     std::nth_element(values, values + index, values + count);

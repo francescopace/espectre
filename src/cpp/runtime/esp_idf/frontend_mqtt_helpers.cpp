@@ -43,14 +43,12 @@ bool setup_frontend_mqtt_transport(IMqttTransport *transport,
 }
 
 bool publish_frontend_mqtt_message(IMqttTransport *transport,
-                                   const EspectreDeviceConfig &config,
                                    const char *suffix,
                                    const std::string &payload,
                                    bool retain) {
   if (transport == nullptr || !transport->connected()) {
     return false;
   }
-  (void) config;
   return transport->publish_suffix(suffix, payload, retain);
 }
 
@@ -59,14 +57,13 @@ bool publish_frontend_mqtt_status(IMqttTransport *transport,
                                   bool online,
                                   uint32_t timestamp_ms) {
   return publish_frontend_mqtt_message(
-      transport, config, "health", espectre_health_payload(config, online, timestamp_ms), true);
+      transport, "health", espectre_health_payload(config, online, timestamp_ms), true);
 }
 
 bool publish_frontend_mqtt_command_result(IMqttTransport *transport,
                                           const EspectreDeviceConfig &config,
                                           const FrontendCommandResult &result) {
   return publish_frontend_mqtt_message(transport,
-                                       config,
                                        "commands/result",
                                        espectre_command_result_payload(config,
                                                                        result.command,

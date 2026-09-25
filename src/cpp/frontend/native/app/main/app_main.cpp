@@ -10,6 +10,7 @@
 #include "espectre_services_sdk.h"
 #include "espectre_mqtt_sdk.h"
 #include <cstdarg>
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -28,7 +29,13 @@
 
 static const char *TAG = "espectre.native.app";
 
+#ifndef CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY
+#define CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY 5
+#endif
+
 namespace {
+
+constexpr uint32_t kNativeLoopPriority = CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY;
 
 #ifdef ESPECTRE_OTA_DEVELOP_BUILD
 constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::DEVELOP;
@@ -447,7 +454,7 @@ extern "C" void app_main() {
 
   ESP_ERROR_CHECK(g_wifi_manager.start());
   xTaskCreate(espectre_loop_task, "espectre_native_loop", 8192, nullptr,
-              espectre::task_scheduling::kNativeLoopPriority, nullptr);
+              kNativeLoopPriority, nullptr);
   ESP_LOGI(TAG, "ESPectre native firmware started (loop priority=%u)",
-           static_cast<unsigned>(espectre::task_scheduling::kNativeLoopPriority));
+           static_cast<unsigned>(kNativeLoopPriority));
 }

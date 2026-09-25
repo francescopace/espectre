@@ -128,8 +128,6 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   };
 
   static esp_err_t request_uri_handler_(httpd_req *request);
-  static esp_err_t events_handler_(httpd_req *request);
-  static esp_err_t raw_handler_(httpd_req *request);
   static esp_err_t options_handler_(httpd_req *request);
   static esp_err_t open_session_(void *server, int socket);
   static void worker_entry_(void *context);

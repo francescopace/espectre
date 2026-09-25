@@ -41,10 +41,14 @@ All notable changes to this project will be documented in this file.
 - Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
 - One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
 - `update_sensing` with a threshold on a device that cannot change it now returns `unsupported`, like the other sensing fields, instead of `invalid_params`.
+- The core, protocol, and services facades include every header whose types appear in their public signatures, so each header in the API reference arrives through a facade. The reference now documents every public SDK type and leaves out the internal `espectre::detail` namespace and `MqttPayloadAssembler`.
+- **Breaking:** `espectre::task_scheduling::kNativeLoopPriority` left the SDK; the Native frontend defines its own loop priority. `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY` is unchanged.
+- **Breaking:** Removed SDK API that nothing used: `parse_json_array_objects()`, `append_runtime_csi_quality_diagnostics_json()`, `runtime_operation_state_name()`, `wifi_bssid_pin_apply_state_name()`, the `RawCsiStopReason` values `OWNER_DISCONNECTED` and `BIND_TIMEOUT`, and `RawCsiPacketView::wifi_rx_start_ts_ns`, which was always zero. The remaining stop reasons keep their numeric values, and raw records still carry `wifi_rx_start_ts_ns` as zero. `publish_frontend_mqtt_message()` drops its unused `config` argument.
 - **Breaking:** `RuntimeConfig::wifi_band_policy` and the Kconfig band option default to `AUTO` on every target. `AUTO` uses the bands the radio has, so single-band chips now accept it and stay on 2.4 GHz. A `RuntimeConfig{}` built by hand on ESP32-C5 now selects the band automatically; set `BAND_2G` to keep the old behavior.
 
 ### Fixed
 
+- Fixed source-list builds of the Direct sources having no way to add the mDNS link wrapper they need. `espectre_sources.cmake` now provides `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS`, and [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#optional-capability-groups) lists it with the mDNS private include directory.
 - Fixed the generator rate counting station traffic; it now reads zero when no internal generator runs (#182).
 - Fixed the WiFi Channel sensor showing decimals (#181).
 - Fixed sensing and network services not resuming after roaming with a retained IPv4 address.

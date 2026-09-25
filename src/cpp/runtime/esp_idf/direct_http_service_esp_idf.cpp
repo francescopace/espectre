@@ -656,16 +656,6 @@ esp_err_t EspIdfDirectHttpService::request_uri_handler_(httpd_req_t *request) {
   return service->handle_request_(request);
 }
 
-esp_err_t EspIdfDirectHttpService::events_handler_(httpd_req_t *request) {
-  if (request == nullptr || request->user_ctx == nullptr) return ESP_ERR_INVALID_ARG;
-  return static_cast<EspIdfDirectHttpService *>(request->user_ctx)->handle_events_(request);
-}
-
-esp_err_t EspIdfDirectHttpService::raw_handler_(httpd_req_t *request) {
-  if (request == nullptr || request->user_ctx == nullptr) return ESP_ERR_INVALID_ARG;
-  return static_cast<EspIdfDirectHttpService *>(request->user_ctx)->handle_raw_(request);
-}
-
 esp_err_t EspIdfDirectHttpService::options_handler_(httpd_req_t *request) {
   if (request == nullptr || request->user_ctx == nullptr) return ESP_ERR_INVALID_ARG;
   return static_cast<EspIdfDirectHttpService *>(request->user_ctx)->handle_options_(request);
@@ -1278,7 +1268,6 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
     header.device_id = config.device_id;
     header.device_ticks_us = sample.metadata.captured_at_us;
     header.wifi_rx_ts_us = sample.metadata.wifi_rx_ts_us;
-    header.wifi_rx_start_ts_ns = sample.metadata.wifi_rx_start_ts_ns;
     header.channel = sample.metadata.channel;
     header.rssi_dbm = sample.metadata.rssi_dbm;
     header.noise_floor_dbm = sample.metadata.noise_floor_dbm;

@@ -67,24 +67,6 @@ inline float apply_cv_normalization(float std_dev, float mean) {
     return (mean > 0.0f) ? std_dev / mean : 0.0f;
 }
 
-/**
- * Calculate turbulence from variance with gain-invariant normalization
- * 
- * Combines variance → std → normalization in one call.
- * 
- * @param variance Pre-calculated variance
- * @param values Array used for mean calculation
- * @param count Number of values
- * @return Turbulence value
- */
-inline float calculate_turbulence_from_variance(float variance, 
-                                                 const float* values, 
-                                                 size_t count) {
-    float std_dev = std::sqrt(variance);
-    float mean = calculate_mean(values, count);
-    return apply_cv_normalization(std_dev, mean);
-}
-
 struct MeanVariance {
     float mean{0.0f};
     float variance{0.0f};
@@ -129,17 +111,6 @@ inline MeanVariance calculate_mean_variance_two_pass(const float *values, size_t
     result.mean = mean;
     result.variance = variance;
     return result;
-}
-
-/**
- * Calculate variance using the two-pass algorithm
- *
- * @param values Array of float values
- * @param n Number of values
- * @return Variance (0.0 if n == 0)
- */
-inline float calculate_variance_two_pass(const float *values, size_t n) {
-    return calculate_mean_variance_two_pass(values, n).variance;
 }
 
 /**

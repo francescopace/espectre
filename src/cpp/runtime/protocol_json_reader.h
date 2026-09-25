@@ -64,20 +64,6 @@ class JsonReader {
     return true;
   }
 
-  bool parse_array_objects(std::vector<std::vector<JsonObjectField>> *objects, std::string *error) {
-    error_ = error;
-    if (objects == nullptr) {
-      return fail_("objects output is required");
-    }
-    objects->clear();
-    skip_space_();
-    if (!parse_array_(0U, objects)) {
-      return false;
-    }
-    skip_space_();
-    return position_ == input_.size() || fail_("unexpected data after JSON array");
-  }
-
   bool parse_array_strings(std::vector<std::string> *strings, std::string *error) {
     error_ = error;
     if (strings == nullptr) return fail_("strings output is required");
@@ -113,7 +99,7 @@ class JsonReader {
     error_ = error;
     objects->clear();
     skip_space_();
-    if (!parse_array_(0U, nullptr, objects)) return false;
+    if (!parse_array_(0U, objects)) return false;
     skip_space_();
     return position_ == input_.size() || fail_("unexpected data after JSON array");
   }
@@ -343,8 +329,7 @@ class JsonReader {
     return true;
   }
 
-  bool parse_array_(size_t depth, std::vector<std::vector<JsonObjectField>> *objects = nullptr,
-                    std::vector<std::vector<JsonFieldView>> *views = nullptr) {
+  bool parse_array_(size_t depth, std::vector<std::vector<JsonFieldView>> *views = nullptr) {
     if (depth > 16U) {
       return fail_("JSON nesting limit exceeded");
     }
@@ -356,17 +341,12 @@ class JsonReader {
       return true;
     }
     while (true) {
-      std::vector<JsonObjectField> fields;
-      std::vector<JsonFieldView> object_views;
       if (views != nullptr) {
+        std::vector<JsonFieldView> object_views;
         if (!parse_object_(nullptr, depth + 1U, &object_views)) return false;
         views->push_back(std::move(object_views));
-      } else if (objects != nullptr ? !parse_object_(&fields, depth + 1U)
-                                   : !parse_value_(nullptr, nullptr, depth + 1U)) {
+      } else if (!parse_value_(nullptr, nullptr, depth + 1U)) {
         return false;
-      }
-      if (objects != nullptr) {
-        objects->push_back(std::move(fields));
       }
       skip_space_();
       if (consume_(']')) {

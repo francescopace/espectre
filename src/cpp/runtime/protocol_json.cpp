@@ -264,13 +264,6 @@ bool parse_json_object_fields(const std::string &payload,
   return reader.parse_object(fields, error);
 }
 
-bool parse_json_array_objects(const std::string &payload,
-                              std::vector<std::vector<JsonObjectField>> *objects,
-                              std::string *error) {
-  detail::JsonReader reader(payload);
-  return reader.parse_array_objects(objects, error);
-}
-
 bool parse_json_array_strings(const std::string &payload, std::vector<std::string> *strings,
                               std::string *error) {
   detail::JsonReader reader(payload);

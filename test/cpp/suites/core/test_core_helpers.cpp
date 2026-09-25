@@ -136,6 +136,19 @@ void test_l1_reconfiguration_and_moves_preserve_profile_history(void) {
     }
 }
 
+struct TrajectoryFeatures {
+    float innovation{0.0f};
+    float excess{0.0f};
+    float spread{0.0f};
+    float kendall{0.0f};
+};
+
+TrajectoryFeatures trajectory_features_of(const ChannelShapeTrajectoryTracker &tracker) {
+    TrajectoryFeatures features;
+    tracker.trajectory_features(features.innovation, features.excess, features.spread, features.kendall);
+    return features;
+}
+
 void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
     ChannelShapeTrajectoryTracker baseline;
     ChannelShapeTrajectoryTracker gained;
@@ -149,17 +162,17 @@ void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
         gained.process_packet(gained_packet.data(), gained_packet.size(), timestamp);
         gained.process_packet(gained_packet.data(), gained_packet.size(), timestamp + 20000U);
     }
-    TEST_ASSERT_TRUE(baseline.coherent_innovation_energy() > 0.0f);
-    TEST_ASSERT_TRUE(baseline.excess_path() > 0.0f);
-    TEST_ASSERT_TRUE(baseline.subband_kendall_lag_excess() > 0.0f);
+    TEST_ASSERT_TRUE(trajectory_features_of(baseline).innovation > 0.0f);
+    TEST_ASSERT_TRUE(trajectory_features_of(baseline).excess > 0.0f);
+    TEST_ASSERT_TRUE(trajectory_features_of(baseline).kendall > 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, baseline.coherent_innovation_energy(),
-        gained.coherent_innovation_energy());
+        1e-6f, trajectory_features_of(baseline).innovation,
+        trajectory_features_of(gained).innovation);
     TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, baseline.excess_path(), gained.excess_path());
+        1e-6f, trajectory_features_of(baseline).excess, trajectory_features_of(gained).excess);
     TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, baseline.subband_kendall_lag_excess(),
-        gained.subband_kendall_lag_excess());
+        1e-6f, trajectory_features_of(baseline).kendall,
+        trajectory_features_of(gained).kendall);
 }
 
 void test_trajectory_duplicate_packets_expire_old_motion(void) {
@@ -170,23 +183,23 @@ void test_trajectory_duplicate_packets_expire_old_motion(void) {
         tracker.process_packet(packet.data(), packet.size(),
                                static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
     }
-    TEST_ASSERT_TRUE(tracker.shape_spread_subband() > 0.0f);
+    TEST_ASSERT_TRUE(trajectory_features_of(tracker).spread > 0.0f);
     const auto repeated = make_trajectory_packet(11U, 1);
     for (uint8_t step = 12U; step < 40U; ++step) {
         tracker.process_packet(repeated.data(), repeated.size(),
                                static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
     }
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.coherent_innovation_energy());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.excess_path());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.shape_spread_subband());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, tracker.subband_kendall_lag_excess());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, trajectory_features_of(tracker).innovation);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, trajectory_features_of(tracker).excess);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, trajectory_features_of(tracker).spread);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, trajectory_features_of(tracker).kendall);
 
     for (uint8_t step = 40U; step < 52U; ++step) {
         const auto packet = make_trajectory_packet(step - 40U, 1);
         tracker.process_packet(packet.data(), packet.size(),
                                static_cast<uint64_t>(step) * CHANNEL_SHAPE_BIN_US);
     }
-    TEST_ASSERT_TRUE(tracker.shape_spread_subband() > 0.0f);
+    TEST_ASSERT_TRUE(trajectory_features_of(tracker).spread > 0.0f);
 }
 
 void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
@@ -213,30 +226,13 @@ void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
             packet_values, HT20_NUM_SUBCARRIERS);
     }
 
-    float direct_innovation = 0.0f;
-    float direct_excess = 0.0f;
-    float direct_spread = 0.0f;
-    float shared_innovation = 0.0f;
-    float shared_excess = 0.0f;
-    float shared_spread = 0.0f;
-    direct_trajectory.trajectory_features(
-        direct_innovation, direct_excess, direct_spread);
-    shared_trajectory.trajectory_features(
-        shared_innovation, shared_excess, shared_spread);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_innovation, shared_innovation);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_excess, shared_excess);
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct_spread, shared_spread);
-    TEST_ASSERT_TRUE(shared_spread > 0.0f);
-    TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, shared_innovation,
-        shared_trajectory.coherent_innovation_energy());
-    TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, shared_excess, shared_trajectory.excess_path());
-    TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, shared_spread, shared_trajectory.shape_spread_subband());
-    TEST_ASSERT_FLOAT_WITHIN(
-        1e-6f, shared_trajectory.subband_kendall_lag_excess(),
-        direct_trajectory.subband_kendall_lag_excess());
+    const TrajectoryFeatures direct = trajectory_features_of(direct_trajectory);
+    const TrajectoryFeatures shared = trajectory_features_of(shared_trajectory);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct.innovation, shared.innovation);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct.excess, shared.excess);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct.spread, shared.spread);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, direct.kendall, shared.kendall);
+    TEST_ASSERT_TRUE(shared.spread > 0.0f);
 }
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -252,10 +248,6 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
 
     TEST_ASSERT_EQUAL_FLOAT(3.0f, apply_cv_normalization(6.0f, 2.0f));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, apply_cv_normalization(6.0f, 0.0f));
-
-    float mean_values[] = {2.0f, 4.0f, 6.0f, 8.0f};
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.4472136f,
-                             calculate_turbulence_from_variance(5.0f, mean_values, 4));
 }
 
 void test_temporal_csi_sampler_matches_fixed_slot_contract(void) {
@@ -693,10 +685,7 @@ void test_detector_startup_gate_traits(void) {
 
 void test_ml_feature_helpers_cover_guard_paths(void) {
     float sample[] = {1.0f, 3.0f, 5.0f, 7.0f};
-    float sorted[] = {1.0f, 3.0f, 5.0f, 7.0f};
 
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, median_from_sorted(nullptr, 0));
-    TEST_ASSERT_EQUAL_FLOAT(4.0f, median_from_sorted(sorted, 4));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 2, 2.0f, 1.0f, 1));
     TEST_ASSERT_EQUAL_FLOAT(0.0f, calc_autocorrelation(sample, 4, 4.0f, 0.0f, 1));
     // A scratch that cannot back the sort leaves zcr at zero rather

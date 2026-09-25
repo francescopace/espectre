@@ -120,7 +120,7 @@ class LightweightDetector : public BaseDetector {
    *
    * Production uses the nominal-rate default. Alternate lags are exposed for
    * replay experiments only: changing the feature offset requires validating
-   * the fitted coefficients before deployment. See `core/detector_timing.h`.
+   * the fitted coefficients before deployment. See `core/detector_limits.h`.
    */
   LightweightDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE,
                       float threshold = LIGHTWEIGHT_DEFAULT_THRESHOLD,

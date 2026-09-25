@@ -19,6 +19,7 @@
  */
 #include "espectre_sdk.h"
 #include "runtime/diagnostic_fields.h"
+#include "runtime/direct_http_protocol.h"
 #include "runtime/direct_http_service.h"
 #include "runtime/espectre_protocol.h"
 #include "runtime/mqtt_transport.h"

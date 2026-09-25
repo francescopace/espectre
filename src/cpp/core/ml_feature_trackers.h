@@ -258,53 +258,6 @@ class ChannelShapeTrajectoryTracker {
     kendall_lag_excess = median_(kendall_samples.data(), kendall_count);
   }
 
-  void trajectory_features(float& coherent_innovation_energy,
-                           float& excess_path,
-                           float& shape_spread_subband) const {
-    float kendall = 0.0f;
-    trajectory_features(coherent_innovation_energy, excess_path,
-                        shape_spread_subband, kendall);
-  }
-
-  void trajectory_features(float& coherent_innovation_energy,
-                           float& excess_path) const {
-    float spread = 0.0f;
-    float kendall = 0.0f;
-    trajectory_features(coherent_innovation_energy, excess_path, spread,
-                        kendall);
-  }
-
-  float coherent_innovation_energy() const {
-    float innovation = 0.0f;
-    float excess = 0.0f;
-    trajectory_features(innovation, excess);
-    return innovation;
-  }
-
-  float excess_path() const {
-    float innovation = 0.0f;
-    float excess = 0.0f;
-    trajectory_features(innovation, excess);
-    return excess;
-  }
-
-  float shape_spread_subband() const {
-    float innovation = 0.0f;
-    float excess = 0.0f;
-    float spread = 0.0f;
-    trajectory_features(innovation, excess, spread);
-    return spread;
-  }
-
-  float subband_kendall_lag_excess() const {
-    float innovation = 0.0f;
-    float excess = 0.0f;
-    float spread = 0.0f;
-    float kendall = 0.0f;
-    trajectory_features(innovation, excess, spread, kendall);
-    return kendall;
-  }
-
  private:
   using Profile = std::array<float, CHANNEL_SHAPE_SUBBAND_COUNT>;
   struct PathPoint {

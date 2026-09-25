@@ -14,6 +14,7 @@ REPO_ROOT = repo_root()
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 SHARED_KCONFIG = CPP_ROOT / "runtime" / "esp_idf" / "espectre_config" / "Kconfig.projbuild"
 NATIVE_KCONFIG = CPP_ROOT / "frontend" / "native" / "espectre" / "Kconfig.projbuild"
+NATIVE_APP = CPP_ROOT / "frontend" / "native" / "app" / "main" / "app_main.cpp"
 SCHEDULING_HEADER = CPP_ROOT / "runtime" / "esp_idf" / "task_scheduling_config.h"
 MICRO_ROOT = REPO_ROOT / "src" / "python" / "micro_espectre"
 MICRO_KCONFIG = (
@@ -53,9 +54,10 @@ def test_native_loop_priority_is_frontend_owned() -> None:
     block = _config_block(NATIVE_KCONFIG, "ESPECTRE_NATIVE_LOOP_TASK_PRIORITY")
     assert re.search(r"(?m)^\s*range 1 10\s*$", block)
     assert re.search(r"(?m)^\s*default 5\s*$", block)
-    assert "#define CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY 5" in (
-        SCHEDULING_HEADER.read_text(encoding="utf-8")
+    assert "#define CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY 5" in NATIVE_APP.read_text(
+        encoding="utf-8"
     )
+    assert "NATIVE_LOOP" not in SCHEDULING_HEADER.read_text(encoding="utf-8")
     assert "ESPECTRE_NATIVE_LOOP_TASK_PRIORITY" not in SHARED_KCONFIG.read_text(
         encoding="utf-8"
     )
@@ -114,13 +116,11 @@ def test_task_creation_uses_policy_constants_without_chip_conditionals() -> None
     traffic = (
         CPP_ROOT / "runtime" / "esp_idf" / "traffic_generator_manager.cpp"
     ).read_text(encoding="utf-8")
-    native = (
-        CPP_ROOT / "frontend" / "native" / "app" / "main" / "app_main.cpp"
-    ).read_text(encoding="utf-8")
+    native = NATIVE_APP.read_text(encoding="utf-8")
 
     assert "task_scheduling::kDirectHttpdPriority" in direct
     assert "task_scheduling::kDirectWorkerPriority" in direct
     assert "task_scheduling::kRawWorkerPriority" in direct
     assert "CONFIG_IDF_TARGET_ESP32" not in direct
     assert "task_scheduling::kTrafficPriority" in traffic
-    assert "task_scheduling::kNativeLoopPriority" in native
+    assert "kNativeLoopPriority, nullptr" in native

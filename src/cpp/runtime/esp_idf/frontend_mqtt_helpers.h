@@ -37,10 +37,9 @@ bool setup_frontend_mqtt_transport(IMqttTransport *transport,
 /**
  * Publish under the device topic prefix; false while disconnected.
  *
- * The prefix comes from the transport's own configuration; `config` is not read.
+ * The prefix comes from the configuration passed to IMqttTransport::setup().
  */
 bool publish_frontend_mqtt_message(IMqttTransport *transport,
-                                   const EspectreDeviceConfig &config,
                                    const char *suffix,
                                    const std::string &payload,
                                    bool retain);

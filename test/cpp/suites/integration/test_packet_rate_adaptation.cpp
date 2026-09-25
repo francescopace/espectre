@@ -24,7 +24,7 @@
 
 #include "lightweight_detector.h"
 #include "detector_limits.h"
-#include "detector_timing.h"
+#include "replay_packet_timing.h"
 #include "high_accuracy_detector.h"
 #include "csi_test_data.h"
 #include "csi_replay_metrics.h"

@@ -200,7 +200,7 @@ The included example connects the sink to ESP-IDF Log v2 through `esp_log_va` an
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` for bootstrap and persisted config |
 | `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` | `mqtt` |
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | None beyond the base runtime |
-| `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
+| `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns`, the mDNS `private_include` directory, and `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS` |
 
 All groups are off by default, and the minimal SDK pulls in no networking stacks. `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` also turns on provisioning.
 
@@ -219,7 +219,7 @@ The SDK does not set up a console or USB; your application does. If you are migr
 
 Other notes:
 
-- For a core-only integration with managed traffic, link `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES`. The traffic group needs `esp_netif`, `esp_timer`, `esp_wifi`, `freertos`, and `lwip`. The full runtime already includes it.
+- For a core-only integration with managed traffic, link `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES`. The traffic group needs `esp_netif`, `esp_timer`, `esp_wifi`, `freertos`, and `lwip`, and links with `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS`. The full runtime already includes it.
 - The provisioning service stores credentials your application supplies. The onboarding protocol is up to you; the SDK does not include Improv Serial.
 - `IMqttTransport` and `IDirectHttpService` are header-only, so you can implement them without enabling a group.
 - `DirectHttpServiceConfig` allows no browser origins by default. `for_first_party_portals()` allows the official ESPectre portals.

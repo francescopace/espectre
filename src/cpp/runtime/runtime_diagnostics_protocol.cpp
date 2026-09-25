@@ -51,16 +51,6 @@ void append_json_null(std::string *out, const char *key) {
 
 }  // namespace
 
-void append_runtime_csi_quality_diagnostics_json(std::string *out,
-                                                const RuntimeDiagnosticsSnapshot &diagnostics) {
-  if (out == nullptr) return;
-  append_json_uint(out, "csi_rx_error_total", diagnostics.csi.rx_error_total);
-  append_json_uint(out, "csi_rx_end_error_total", diagnostics.csi.rx_end_error_total);
-  append_json_uint(out, "csi_invalid_estimate_total", diagnostics.csi.invalid_estimate_total);
-  append_json_uint(out, "csi_invalid_first_word_total", diagnostics.csi.invalid_first_word_total);
-  append_json_uint(out, "csi_sanitized_first_word_total", diagnostics.csi.sanitized_first_word_total);
-}
-
 void append_runtime_performance_diagnostics_json(std::string *out,
                                                  const RuntimeDiagnosticsSnapshot &diagnostics,
                                                  bool include_current_memory) {

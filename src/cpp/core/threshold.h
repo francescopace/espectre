@@ -334,23 +334,6 @@ class StartupThresholdCalibrator {
     return "gated median";
   }
 
-  const char* phase_label() const {
-    if (motion_accepted_) {
-      return "COMPLETE";
-    }
-    if (packet_count_ >= target_packets_) {
-      return "FALLBACK";
-    }
-    switch (phase_) {
-      case Phase::SEEK_MOTION:
-        return "SEEK_MOTION";
-      case Phase::SEEK_POST_MOTION_QUIET:
-        return "SEEK_POST_QUIET";
-      default:
-        return "CALIBRATING";
-    }
-  }
-
  private:
   enum class Phase {
     SEEK_MOTION,
