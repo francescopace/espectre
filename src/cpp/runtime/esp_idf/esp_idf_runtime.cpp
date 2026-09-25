@@ -671,13 +671,15 @@ bool EspIdfRuntime::finish_traffic_apply_(bool recalibrate_if_active) {
     return true;
   }
   const CsiCaptureProfile profile = sensing_capture_profile_();
-  if (profile != csi_pipeline_.capture_profile()) {
+  const bool profile_changed = profile != csi_pipeline_.capture_profile();
+  if (profile_changed) {
     cancel_calibration_(true);
     const esp_err_t err = csi_pipeline_.reconfigure_capture(profile);
     if (err != ESP_OK) {
       notify_fault_("Failed to change CSI capture profile");
       return false;
     }
+    csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
     snapshot_.csi_capture_profile = profile;
     snapshot_.motion_state = MotionState::IDLE;
     snapshot_.movement_metric = 0.0f;
@@ -693,6 +695,13 @@ bool EspIdfRuntime::finish_traffic_apply_(bool recalibrate_if_active) {
   // that launch has a live worker, via finish_pending_sensing_start_().
   if (!csi_traffic_service_.source_is_active()) {
     sensing_start_pending_ = true;
+  }
+  // A new profile is a new arm. LLTF20 callbacks at startup say nothing about
+  // HT20, which can stay silent on S3 and C5 until the receive path refresh.
+  if (profile_changed) {
+    request_csi_receive_path_check_(false);
+  }
+  if (!csi_traffic_service_.source_is_active()) {
     return true;
   }
   if (recalibrate_if_active && !sensing_start_pending_ &&
@@ -850,6 +859,11 @@ void EspIdfRuntime::maybe_resume_sensing_after_wifi_reconfigure_() {
 
   csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
   start_sensing_services_(wifi_ip_info_);
+  request_csi_receive_path_check_(false);
+}
+
+void EspIdfRuntime::request_csi_receive_path_check_(bool after_refresh) {
+  csi_receive_path_after_refresh_ = after_refresh;
   if (sensing_start_pending_) {
     arm_receive_path_check_when_traffic_starts_ = true;
     return;
@@ -902,6 +916,13 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
   if (elapsed < std::max(CSI_STARTUP_OBSERVATION_MS, config_.window_size_ms)) return;
+  if (csi_receive_path_after_refresh_) {
+    // The refresh is the only recovery, so a path still silent under traffic
+    // would otherwise leave sensing calibrating with no report at all.
+    csi_receive_path_check_pending_ = false;
+    notify_fault_("No CSI callbacks with active traffic after a receive-path refresh");
+    return;
+  }
   if (now - csi_receive_path_last_attempt_ms_ < CSI_REFRESH_RETRY_INTERVAL_MS) return;
   csi_receive_path_last_attempt_ms_ = now;
 
@@ -934,7 +955,9 @@ void EspIdfRuntime::finish_csi_receive_path_refresh_(esp_err_t result) {
                   esp_err_to_name(result));
   }
   if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+    csi_receive_path_callbacks_at_start_ = csi_pipeline_.capture_callback_invocations_total();
     start_sensing_services_(wifi_ip_info_);
+    request_csi_receive_path_check_(true);
   }
 }
 
@@ -1479,7 +1502,6 @@ void EspIdfRuntime::log_periodic_status_(uint32_t packets_received) {
 }
 
 void EspIdfRuntime::reset_periodic_status_logger_() {
-  status_logger_.reset();
   const RuntimeDiagnosticsSnapshot diagnostics = get_diagnostics();
   const uint32_t now_ms = monotonic_now_ms();
   diagnostics_sampler_.reset(diagnostics, now_ms);

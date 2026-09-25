@@ -370,8 +370,6 @@ protected:
     float current_metric_;
     /** Packets processed since the last reset(). */
     uint32_t total_packets_;
-    /** Position of the current packet since the last reset(). */
-    uint32_t packet_index_;
     /** See packet_timestamp_us_or(). */
     uint64_t packet_timestamp_us_;
     bool has_packet_timestamp_;

@@ -15,75 +15,66 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Added ESP-IDF 6.x support to the SDK. Official firmware stays on 5.5.5, and hardware checks on 6.x are still pending; see [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#esp-idf-compatibility-validation).
-- Added registry packages with a Wi-Fi sensing example and the API reference for their version. Twelve consumer builds validate each package before and after publication.
-- Added the Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel to control traffic and view live diagnostics. It also controls ESPHome devices built with the `espectre` component (#168).
-- Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
-- Added a warning when one runtime loop iteration, or the wait before it, reaches 100 ms. It names the slow steps and separates frontend log-sink time from listener time, without counting a log inside a callback twice. The summary includes that wait. The traffic generator warns when a send blocks or starts at least 100 ms late, at most once per second.
-- Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
-- Added the SDK API reference to the website, with its version and commit.
-- Added three `BaseDetector` calibration hooks: `on_startup_calibration_abandoned()` when a calibration ends without a result, `startup_calibration_conclusive()` to extend a calibration whose evidence is not yet readable, and `calibration_motion_ceiling()` for the metric that counts as motion during calibration. Their defaults keep the previous behavior.
-- Added `RuntimeConfig::persist_runtime_overrides`. Set it to false when your firmware owns configuration: the runtime then neither restores nor saves live control changes. The runtime now logs each saved value that overrides the config.
+- ESP-IDF 6.x support in the SDK. Official firmware stays on 5.5.5; see [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#esp-idf-compatibility-validation).
+- Registry packages with a Wi-Fi sensing example, validated by consumer builds before and after publication.
+- The SDK API reference on the website, covering every public type.
+- The Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel for traffic control and live diagnostics, including ESPHome devices (#168).
+- Generator Rate and Traffic RX Rate sensors in Home Assistant (#182).
+- Warnings when a runtime loop iteration or a traffic generator send stalls for 100 ms or more, naming the slow steps.
+- An NM-CYD-C5 ESPHome example with a touch display, contributed by @RockBase-iot (#166).
+- `BaseDetector` calibration hooks `on_startup_calibration_abandoned()`, `startup_calibration_conclusive()`, and `calibration_motion_ceiling()`. Defaults keep the previous behavior.
+- `RuntimeConfig::persist_runtime_overrides`: set it to false when your firmware owns configuration, so live control changes are neither restored nor saved.
 
 ### Changed
 
-- `RuntimeFrontendController::validate_control_update()` checks a combined sensing change before any of it applies, and `FrontendCommandEngine::execute()` takes it as a new, optional last argument. Custom frontends should pass it to keep `update_sensing` all-or-nothing.
-- **Breaking:** Official ESPHome images use MAC-suffixed hostnames such as `espectre-a1b2c3.local`, so one image can serve several devices. After the first update, use the new hostname for OTA and add the suffix to dashboard entity IDs (#179).
-- **Breaking:** The SDK exports only its root include directory. Use layer-prefixed includes such as `#include "runtime/runtime_config.h"`; the facades are unchanged.
-- **Breaking:** `IEspectreRuntime` is now internal. `RuntimeConfig` and `WifiBandPolicy` moved to `runtime/runtime_config.h`, which replaces `runtime/runtime_interface.h`. Drive the runtime through `RuntimeFrontendController`.
-- **Breaking:** `espectre_sdk.h` no longer includes the ESPectre Protocol. Include `espectre_protocol_sdk.h` for protocol messages, JSON, diagnostic fields, and the Direct HTTP and MQTT transport contracts; the services and MQTT headers include it for you. Diagnostic JSON and field helpers moved from `runtime/runtime_diagnostics.h` to `runtime/runtime_diagnostics_protocol.h`, and diagnostic profiles have named constants such as `ESPECTRE_DIAGNOSTIC_PROFILE_NATIVE`.
-- **Breaking:** `RuntimeDiagnosticsSnapshot` groups its fields as `link`, `traffic`, `csi`, `platform`, and `performance`, and drops the prefix the group already names: `csi_accepted_total` becomes `csi.accepted_total`, `wifi_rssi_dbm` becomes `link.rssi_dbm`, and `performance_window_ready` becomes `performance.window_ready`. Wire field names are unchanged. `diagnostics_sample()` is now the recommended way to read diagnostics.
-- **Breaking:** Renamed SDK symbols so each name says what it controls: `RuntimeTrafficMode` is `TrafficGeneratorMode`, and the `RuntimeConfig` fields `csi_capture_profile`, `segmentation_threshold`, and `segmentation_window_size_ms` are `csi_capture_policy`, `threshold`, and `window_size_ms`. The controller setters drop the `_runtime` suffix, for example `set_threshold()` and `set_traffic_generator_mode()`. The name and parse helpers follow the new type names, and `RUNTIME_SEGMENTATION_*` constants are `RUNTIME_THRESHOLD_DEFAULT` and `RUNTIME_WINDOW_SIZE_MS_*`. Wire names, returned strings, ESPHome YAML keys, and saved settings are unchanged.
-- **Breaking:** `traffic_generator_mode` now also takes `external`, and replaces `csi_traffic_mode` everywhere: in the protocol (`sensing` and its update), ESPHome YAML (`traffic_generator_mode: external`), Kconfig (`CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL`), and the SDK (`TrafficGeneratorMode::EXTERNAL`). ESPHome rejects the old `csi_traffic_mode` and `csi_traffic_mode_select` keys with a message. The Home Assistant "CSI Traffic Ownership" select is gone; "CSI Traffic Source" gains the `external` option. Devices that saved `external` at runtime keep it after the update. Update clients and firmware together.
-- Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately. Micro-ESPectre needs rebuilt firmware for station rates (#182).
-- The SDK requires MQTT and mDNS only when their service is enabled, and no longer requires the HTTP server.
+- **Breaking:** Official ESPHome images use MAC-suffixed hostnames such as `espectre-a1b2c3.local`. After the first update, use the new hostname for OTA and update dashboard entity IDs (#179).
+- **Breaking:** The SDK exports only its root include directory; use layer-prefixed includes such as `#include "runtime/runtime_config.h"`.
+- **Breaking:** `IEspectreRuntime` is internal. `RuntimeConfig` and `WifiBandPolicy` moved to `runtime/runtime_config.h`, which replaces `runtime/runtime_interface.h`.
+- **Breaking:** `espectre_sdk.h` no longer includes the ESPectre Protocol; include `espectre_protocol_sdk.h`. Diagnostic JSON helpers moved to `runtime/runtime_diagnostics_protocol.h`, and diagnostic profiles have named constants.
+- **Breaking:** `RuntimeDiagnosticsSnapshot` groups its fields as `link`, `traffic`, `csi`, `platform`, and `performance`, for example `csi.accepted_total`. Wire names are unchanged.
+- **Breaking:** Renamed SDK symbols so each name says what it controls, such as `TrafficGeneratorMode`, `RuntimeConfig::threshold`, and `set_threshold()`. Wire names, ESPHome YAML keys, and saved settings are unchanged.
+- **Breaking:** `traffic_generator_mode: external` replaces `csi_traffic_mode` in the protocol, ESPHome YAML, Kconfig, and the SDK. The Home Assistant "CSI Traffic Ownership" select is gone; "CSI Traffic Source" gains `external`. Saved settings migrate; update clients and firmware together.
+- **Breaking:** `kNativeLoopPriority` left the SDK; the Native frontend defines its own.
+- **Breaking:** Removed unused SDK API, including `parse_json_array_objects()`, two `RawCsiStopReason` values, and `RawCsiPacketView::wifi_rx_start_ts_ns`. `publish_frontend_mqtt_message()` drops its `config` argument.
+- **Breaking:** `wifi_band_policy` defaults to `AUTO` on every target. A hand-built `RuntimeConfig{}` on ESP32-C5 now selects the band automatically.
+- Traffic diagnostics report internal generation (`generator_pps`) and station traffic (`traffic_tx_pps`, `traffic_rx_pps`) separately, so the generator rate reads zero when no generator runs (#182).
+- The SDK requires MQTT and mDNS only when enabled, and no longer requires the HTTP server.
+- ESPHome devices no longer run periodic roaming scans, which took the radio off-channel for up to 12 seconds every 5 minutes.
+- `update_sensing` returns `unsupported` for a threshold the device cannot change.
 - CLI discovery waits six seconds by default and asks devices to reply directly.
-- ESPHome devices no longer run ESPHome's periodic roaming scans, which took the radio off-channel for up to about 12 seconds every 5 minutes. Losing the access point still triggers a normal reconnect.
-- Tagged releases, including prereleases, publish the SDK to the production registry. `main` and `develop` snapshots go to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre), which keeps the ten newest per branch.
-- One `cd.yml` workflow publishes snapshots and releases from tested CI artifacts, replacing `snapshot.yml` and `release.yml` (#178).
-- `update_sensing` with a threshold on a device that cannot change it now returns `unsupported`, like the other sensing fields, instead of `invalid_params`.
-- The core, protocol, and services facades include every header whose types appear in their public signatures, so each header in the API reference arrives through a facade. The reference now documents every public SDK type and leaves out the internal `espectre::detail` namespace and `MqttPayloadAssembler`.
-- **Breaking:** `espectre::task_scheduling::kNativeLoopPriority` left the SDK; the Native frontend defines its own loop priority. `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY` is unchanged.
-- **Breaking:** Removed SDK API that nothing used: `parse_json_array_objects()`, `append_runtime_csi_quality_diagnostics_json()`, `runtime_operation_state_name()`, `wifi_bssid_pin_apply_state_name()`, the `RawCsiStopReason` values `OWNER_DISCONNECTED` and `BIND_TIMEOUT`, and `RawCsiPacketView::wifi_rx_start_ts_ns`, which was always zero. The remaining stop reasons keep their numeric values, and raw records still carry `wifi_rx_start_ts_ns` as zero. `publish_frontend_mqtt_message()` drops its unused `config` argument.
-- **Breaking:** `RuntimeConfig::wifi_band_policy` and the Kconfig band option default to `AUTO` on every target. `AUTO` uses the bands the radio has, so single-band chips now accept it and stay on 2.4 GHz. A `RuntimeConfig{}` built by hand on ESP32-C5 now selects the band automatically; set `BAND_2G` to keep the old behavior.
+- One `cd.yml` workflow publishes releases to the production registry and `main` and `develop` snapshots to the [staging registry](https://components-staging.espressif.com/components/francescopace/espectre) (#178).
 
 ### Fixed
 
-- Fixed source-list builds of the Direct sources having no way to add the mDNS link wrapper they need. `espectre_sources.cmake` now provides `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS`, and [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#optional-capability-groups) lists it with the mDNS private include directory.
-- Fixed the generator rate counting station traffic; it now reads zero when no internal generator runs (#182).
-- Fixed the runtime loop taking the lwIP core lock once per second to read the station traffic counters, so a busy network stack could stall it. The counters are read without a lock, and the station is recognized when its netif is created or recreated.
-- Fixed stopping the traffic generator blocking the runtime loop for at least 100 ms, and up to 2 seconds when its task was stuck in a socket call, on every Wi-Fi disconnect, reconfiguration, or receive-path refresh. `stop()` now only signals the task, and `loop()` reaps it once it exits; a task inside a socket call is never deleted. A stop still pending after 30 seconds is reported as a fault, unless the task exits first. `RuntimeFrontendController::shutdown()` no longer waits for the task, and a later `setup()` starts traffic once it has exited. CSI capture is disabled, and a native station reconfigure or scan runs, only after the task has left its send. Firmware that drives `TrafficGeneratorManager` or `CsiTrafficService` directly must keep calling their `loop()` after `stop()`.
+- Fixed runtime loop stalls from taking the lwIP core lock and from stopping the traffic generator. Firmware that drives `TrafficGeneratorManager` or `CsiTrafficService` directly must keep calling `loop()` after `stop()`.
+- Fixed sensing not resuming after roaming with a retained IPv4 address, and startup waiting on a Wi-Fi scan.
+- Fixed CSI staying silent on S3 and C5 after switching from `wifi_raw` to another traffic source.
+- Fixed Lightweight calibration: movement no longer pushes the threshold close to 1.0, and quiet rooms no longer drive it to about 0.01. It now stays between 0.095 and 0.987.
+- Fixed MOTION and availability flickering during brief CSI coverage dips.
+- Fixed `update_sensing` applying some fields before rejecting another. Custom frontends should pass the new optional validator to `FrontendCommandEngine::execute()`.
+- Fixed a failed startup calibration dropping the active detector, an unchanged detector losing its threshold, and `shutdown()` leaving availability ready.
+- Fixed `espectre collect` ignoring its own startup calibration.
+- Fixed mDNS replies to common query types and browser discovery running out of HTTP connections. See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/DISCOVERY.md#limits).
+- Fixed Native rebooting while checking for OTA updates.
+- Fixed `matter qr` and `monitor --reset` leaving the device in the firmware loader, and Matter reporting its version as `unknown`.
+- Fixed standalone Wi-Fi leaking resources, truncating full-length credentials, and giving up on reconnection.
+- Fixed source-list builds of the Direct sources missing the mDNS link wrapper; use `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_LINK_OPTIONS`.
 - Fixed the WiFi Channel sensor showing decimals (#181).
-- Fixed sensing and network services not resuming after roaming with a retained IPv4 address.
-- Fixed startup waiting on a Wi-Fi scan; a single scan now runs only when CSI does not start, after one second of traffic without CSI callbacks instead of five.
-- Fixed movement during a Lightweight calibration, at startup or on recalibration, setting the threshold close to 1.0 and hiding motion for minutes. Calibration now leaves out a short movement, extending from 10 up to 30 seconds, and restarts on strong movement; if the room stays busy for about 30 seconds, it keeps the threshold in force. A threshold above 0.89 logs a noisy-link warning that recommends High Accuracy.
-- Fixed the Lightweight threshold adapting down to about 0.01 in very quiet rooms, where rest noise crossed it. It now stays between 0.095 and 0.987.
-- Fixed sensing availability dropping for a fraction of a second when window coverage briefly fell under the 70% valid-slot floor. Readiness now holds through dips shorter than one detector window, and the runtime logs every readiness change with its reason.
-- Fixed evaluations made while the detector is not ready counting as IDLE in motion-hit filtering, which could switch MOTION off during a coverage dip. They now keep the current state and the last movement score on every frontend, as replay already did.
-- Fixed `espectre collect` ignoring its own startup calibration and running at the default Lightweight threshold. It now applies the calibrated threshold and rejects movement during calibration as the firmware does.
-- Fixed mDNS replies to several common query types on all four frontends, keeping compatibility with rc1 and rc2. See [DISCOVERY.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/DISCOVERY.md#limits).
-- Fixed repeated browser discovery running out of HTTP connections, and added one retry for slow devices.
-- Fixed Native rebooting while checking for OTA updates in Device settings.
-- Fixed `matter qr` and `monitor --reset` leaving the device in the firmware loader.
-- Fixed Matter reporting its firmware version as `unknown`.
-- Fixed a failed startup calibration dropping the active detector, and an unchanged detector losing its configured threshold.
-- Fixed `RuntimeFrontendController::shutdown()` leaving availability reported as ready.
-- Fixed standalone Wi-Fi leaking resources after shutdown, truncating full-length credentials, and giving up on reconnection; it now retries every 30 seconds.
-- Fixed Preview snapshots replacing the Release firmware on the home badge.
-- Fixed `update_sensing` applying some fields before rejecting another, for example switching the detector and then refusing `wifi_raw` under the `HT_VHT` capture policy. Every field is now checked first, as the API specifies. If the device fails while applying, it republishes `sensing` so clients see the values it actually uses.
 
 ### Removed
 
-- **Breaking:** Removed the `traffic_packets_total` diagnostic and SDK accessor. Use `get_generator_packets_total()` for internal generation or `get_packets_received()` for external UDP (#182).
-- **Breaking:** Removed `initialize_primary_console()` from the SDK; integrations set up their own console.
+- **Breaking:** Removed the `traffic_packets_total` diagnostic; use `get_generator_packets_total()` or `get_packets_received()` (#182).
+- **Breaking:** Removed `initialize_primary_console()`; integrations set up their own console.
 - **Breaking:** Removed `wifi_tx_rate.h` from the services facade; call `apply_station_tx_rate()` from `network_traffic.h`.
 - **Breaking:** Removed `ESPECTRE_CORE_INCLUDE_DIRS` and `ESPECTRE_RUNTIME_INCLUDE_DIRS`.
 - **Breaking:** Removed CSI V7 binary record support. Existing NPZ datasets still load.
-- **Breaking:** Removed `RuntimeProfile`, `RuntimeConfig::runtime_profile`, `RuntimeConfigError::RUNTIME_PROFILE`, `runtime_profile_name()`, and `runtime_csi_traffic_mode_valid_for_profile()`. The runtime has one profile; set `traffic_generator_mode` instead.
-- **Breaking:** Removed `RuntimeSubcarrierSource`, `subcarrier_source_name()`, and the `subcarrier_source` and `fixed_subcarriers` snapshot fields. Read the fixed subcarrier set once from `RuntimeFrontendController::subcarriers()`.
-- **Breaking:** Removed `csi_traffic_mode_is_sensing_control()`, `normalize_sensing_csi_traffic_mode()`, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. Use `traffic_generator_mode` and `RuntimeConfig{}`. `validate_runtime_float()`, `validate_runtime_uint32()`, and `validate_runtime_uint8()` are now internal.
-- **Breaking:** Removed the unused raw stream command path: `FrontendRawStreamCallback`, the last `FrontendCommandEngine::execute()` argument, and `RawCsiSessionController::handle_command()`. Raw CSI collection opens with `GET /csi`.
-- **Breaking:** Removed `handle_device_config_command()`, `DeviceConfigCommandResult`, `DeviceConfigClearHandler`, and `DeviceConfigUpdateHandler`, which nothing used. Parse legacy commands with `parse_espectre_config_command()` and `parse_espectre_mqtt_config_command()`.
+- **Breaking:** Removed `RuntimeProfile` and its helpers; set `traffic_generator_mode` instead.
+- **Breaking:** Removed `RuntimeSubcarrierSource` and the subcarrier snapshot fields; read `RuntimeFrontendController::subcarriers()`.
+- **Breaking:** Removed `csi_traffic_mode` helpers, `make_runtime_sensing_config()`, and `visit_runtime_diagnostics()`. The `validate_runtime_*()` helpers are now internal.
+- **Breaking:** Removed the unused raw stream command path, including the last `FrontendCommandEngine::execute()` argument. Raw CSI collection opens with `GET /csi`.
+- **Breaking:** Removed `handle_device_config_command()` and its types; use `parse_espectre_config_command()` and `parse_espectre_mqtt_config_command()`.
+- **Breaking:** Removed `ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE` and `ESPECTRE_DIRECT_MAX_METHOD_SIZE`; use `ESPECTRE_COMMAND_ID_MAX_LENGTH`.
+- **Breaking:** Removed `BaseDetector::packet_index_`; read `total_packets_`.
 
 ### SDK source migration
 
@@ -117,6 +108,9 @@ Updating C++ code from rc2 is a compile-and-replace pass. Behavior changes only 
 | `RuntimeProfile`, `RuntimeSubcarrierSource`, `visit_runtime_diagnostics()` | Removed |
 | `FrontendCommandEngine::execute(..., raw_stream_callback)` | Drop the last argument; raw CSI collection opens with `GET /csi` |
 | `handle_device_config_command()` | `parse_espectre_config_command()`, `parse_espectre_mqtt_config_command()` |
+| `ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE` | `ESPECTRE_COMMAND_ID_MAX_LENGTH` |
+| `ESPECTRE_DIRECT_MAX_METHOD_SIZE` | Removed; command names use the canonical registry |
+| `BaseDetector::packet_index_` | `total_packets_` |
 
 Two behavior changes need a decision:
 

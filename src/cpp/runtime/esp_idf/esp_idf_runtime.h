@@ -82,6 +82,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void refresh_wifi_association_from_csi_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
   void finish_pending_sensing_start_();
+  void request_csi_receive_path_check_(bool after_refresh);
   void arm_csi_receive_path_check_();
   CsiCaptureProfile sensing_capture_profile_() const;
   void begin_capture_shutdown_(bool notify_listener);
@@ -161,6 +162,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool csi_receive_path_check_pending_{false};
   bool csi_receive_path_refresh_in_progress_{false};
   bool csi_receive_path_traffic_seen_{false};
+  // The pending check verifies a completed refresh instead of requesting one.
+  bool csi_receive_path_after_refresh_{false};
   uint32_t csi_receive_path_check_started_ms_{0U};
   uint32_t csi_receive_path_last_traffic_ms_{0U};
   uint32_t csi_receive_path_last_attempt_ms_{0U};

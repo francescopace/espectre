@@ -22,8 +22,6 @@ class PeriodicSensingStatusLogger {
                   const RuntimeSnapshot &snapshot,
                   uint32_t packets_per_publish,
                   const RuntimeDiagnosticsSample *diagnostics = nullptr);
-  /** Retained for compatibility; rate history is owned by the diagnostic sampler. */
-  void reset() {}
 };
 
 }  // namespace espectre

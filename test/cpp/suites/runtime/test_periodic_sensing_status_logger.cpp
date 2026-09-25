@@ -102,11 +102,6 @@ void test_missing_diagnostics_do_not_mislabel_admitted_packets(void) {
   esp_timer_mock::advance(500000);
   logger.log_status("runtime", snapshot(), 50U);
   TEST_ASSERT_TRUE(capture.message.find("gen:-- tx:-- rx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
-
-  logger.reset();
-  esp_timer_mock::advance(500000);
-  logger.log_status("runtime", snapshot(), 50U);
-  TEST_ASSERT_TRUE(capture.message.find("gen:-- tx:-- rx:-- cb:-- accepted:-- hwerr:-- occ:--%") != std::string::npos);
 }
 
 void test_calibration_progress_is_clamped(void) {

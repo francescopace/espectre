@@ -34,8 +34,8 @@ class EvaluationCadence {
 
   /** Set the detector window duration used for gap handling and sizing. */
   void set_window_size_ms(uint32_t window_size_ms) {
-    window_size_ms_ = window_size_ms > 0U ? window_size_ms : 1U;
-    window_duration_us_ = window_size_ms_ * 1000U;
+    const uint32_t resolved_ms = window_size_ms > 0U ? window_size_ms : 1U;
+    window_duration_us_ = resolved_ms * 1000U;
   }
 
   /**
@@ -90,7 +90,6 @@ class EvaluationCadence {
   }
 
  private:
-  uint32_t window_size_ms_{DETECTOR_WINDOW_SIZE_MS_DEFAULT};
   uint32_t window_duration_us_{DETECTOR_WINDOW_SIZE_MS_DEFAULT * 1000U};
   uint32_t evaluation_interval_us_{EVALUATION_INTERVAL_US};
   uint32_t last_packet_us_{0U};

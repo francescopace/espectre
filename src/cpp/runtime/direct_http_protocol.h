@@ -29,12 +29,6 @@ inline constexpr const char *ESPECTRE_DIRECT_HTTP_TRANSPORT = "http";
 inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_SIZE = ESPECTRE_COMMAND_MAX_PAYLOAD_SIZE;
 /** Largest response body produced, in bytes. */
 inline constexpr size_t ESPECTRE_DIRECT_MAX_RESPONSE_SIZE = 8192U;
-/** @deprecated Use `ESPECTRE_COMMAND_ID_MAX_LENGTH`; Direct uses the canonical limit. */
-[[deprecated("use ESPECTRE_COMMAND_ID_MAX_LENGTH")]] inline constexpr size_t
-    ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE = ESPECTRE_COMMAND_ID_MAX_LENGTH;
-/** @deprecated Command names are validated by the canonical registry. */
-[[deprecated("command names are validated by the canonical registry")]] inline constexpr size_t
-    ESPECTRE_DIRECT_MAX_METHOD_SIZE = 64U;
 
 /** A Direct HTTP request mapped onto a canonical command. */
 struct DirectRequest {

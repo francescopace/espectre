@@ -46,7 +46,6 @@ BaseDetector::BaseDetector(uint16_t window_size)
     , state_(MotionState::IDLE)
     , current_metric_(0.0f)
     , total_packets_(0)
-    , packet_index_(0)
     , packet_timestamp_us_(0U)
     , has_packet_timestamp_(false) {
 
@@ -91,7 +90,6 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , state_(other.state_)
     , current_metric_(other.current_metric_)
     , total_packets_(other.total_packets_)
-    , packet_index_(other.packet_index_)
     , packet_timestamp_us_(other.packet_timestamp_us_)
     , has_packet_timestamp_(other.has_packet_timestamp_)
     , hampel_state_(other.hampel_state_)
@@ -118,7 +116,6 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         state_ = other.state_;
         current_metric_ = other.current_metric_;
         total_packets_ = other.total_packets_;
-        packet_index_ = other.packet_index_;
         packet_timestamp_us_ = other.packet_timestamp_us_;
         has_packet_timestamp_ = other.has_packet_timestamp_;
         lowpass_state_ = other.lowpass_state_;
@@ -191,7 +188,6 @@ void BaseDetector::process_amplitudes(const float* amplitudes, uint8_t count) {
 
 void BaseDetector::reset() {
     clear_evaluation_state_();
-    packet_index_ = 0;
     total_packets_ = 0;
     has_packet_timestamp_ = false;
 
@@ -273,7 +269,6 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
         buffer_count_++;
     }
     
-    packet_index_++;
     total_packets_++;
 }
 

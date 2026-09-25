@@ -368,6 +368,86 @@ void test_runtime_defers_busy_refresh_with_capture_running_and_a_bounded_request
   runtime.shutdown();
 }
 
+void test_runtime_profile_change_rechecks_the_receive_path(void) {
+  if (!kSupportsWifiRaw) TEST_IGNORE_MESSAGE("wifi_raw is not supported on this target");
+  for (const bool callbacks : {false, true}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    nvs_mock_reset();
+    RuntimeConfig config;
+    config.traffic_generator_mode = TrafficGeneratorMode::WIFI_RAW;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
+    // LLTF20 delivers from the first arm, which closes the startup check.
+    g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+    TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::PING));
+    TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
+    if (callbacks) g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+    generator.send_successes++;
+    runtime.check_csi_receive_path_();
+    generator.send_successes += 100U;
+    esp_timer_mock::advance(1000000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(callbacks ? 0 : 1, g_esp_wifi_mock.scan_start_call_count);
+    if (!callbacks) complete_csi_receive_path_refresh(runtime);
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_reports_a_receive_path_still_silent_after_its_refresh(void) {
+  for (const bool callbacks : {false, true}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    DetectorListener listener;
+    runtime.set_listener(&listener);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    generator.send_successes++;
+    runtime.check_csi_receive_path_();
+    generator.send_successes++;
+    esp_timer_mock::advance(1000000);
+    runtime.check_csi_receive_path_();
+    complete_csi_receive_path_refresh(runtime);
+    TEST_ASSERT_TRUE(generator.is_running());
+    TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
+    if (callbacks) g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+    generator.send_successes++;
+    runtime.check_csi_receive_path_();
+    generator.send_successes += 100U;
+    esp_timer_mock::advance(999000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(0, listener.faults);
+    esp_timer_mock::advance(1000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(callbacks ? 0 : 1, listener.faults);
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+    // The fault is reported once, and the refresh is never repeated.
+    generator.send_successes += 1000U;
+    esp_timer_mock::advance(60000000);
+    runtime.loop();
+    TEST_ASSERT_EQUAL(callbacks ? 0 : 1, listener.faults);
+    TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    runtime.shutdown();
+  }
+}
+
 void test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails(void) {
   RuntimeConfig config;
   config.runtime_detector_selection_enabled = true;
@@ -1718,6 +1798,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh);
   RUN_TEST(test_runtime_external_wifi_stack_owns_recovery_scan_results);
   RUN_TEST(test_runtime_defers_busy_refresh_with_capture_running_and_a_bounded_request_window);
+  RUN_TEST(test_runtime_profile_change_rechecks_the_receive_path);
+  RUN_TEST(test_runtime_reports_a_receive_path_still_silent_after_its_refresh);
   RUN_TEST(test_runtime_detector_switch_preserves_state_when_calibrator_allocation_fails);
   RUN_TEST(test_runtime_calibration_can_restart_from_completion_callback);
   RUN_TEST(test_runtime_calibration_allocation_failure_does_not_emit_started);
