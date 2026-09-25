@@ -1,5 +1,5 @@
 name: "ESPectre Traffic Generator"
-version: "0.2.2"
+version: "0.3.0"
 slug: "espectre_traffic_generator"
 description: "Generate external traffic for ESPectre devices."
 url: "https://espectre.dev/guides/home-assistant/"

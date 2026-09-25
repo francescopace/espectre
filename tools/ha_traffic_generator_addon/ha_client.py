@@ -16,10 +16,12 @@ import aiohttp
 
 HA_WEBSOCKET = "ws://supervisor/core/websocket"
 UNAVAILABLE = {"unknown", "unavailable", None}
+# Every ESPectre firmware offers these packet modes in its traffic source select,
+# whatever the user named it. 3.0.0-rc1 and rc2 add a separate ownership select.
+TRAFFIC_SOURCE_MODES = {"ping", "dns", "dns_tcp"}
+OWNERSHIP_MODES = {"internal", "external"}
 # Integration-owned identifiers, not user-editable entity IDs or display names.
 ENTITY_ROLES = {
-    "ownership": ("select", "csi_traffic_ownership"),
-    "source": ("select", "csi_traffic_source"),
     "refresh": ("button", "refresh_diagnostics"),
     "generator": ("sensor", "generator_rate"),
     "traffic": ("sensor", "traffic_tx_rate"),
@@ -53,6 +55,13 @@ def entity_role(entity):
             if re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") == suffix:
                 return role
     return None
+
+
+def select_options(entity, states):
+    options = states.get(entity.get("entity_id"), {}).get("attributes", {}).get("options")
+    if not entity.get("entity_id", "").startswith("select.") or not isinstance(options, list):
+        return set()
+    return set(options)
 
 
 def entity_value(entity, states, *, numeric=False):
@@ -122,47 +131,38 @@ def build_inventory(devices, entities, state_list, areas):
             grouped.setdefault(entity["device_id"], []).append(entity)
     result = []
     for device in devices:
-        # Supervisor apps are service entries, even when branded as ESPectre.
-        if device.get("entry_type") == "service":
-            continue
         candidates = {}
         for entity in grouped.get(device["id"], []):
-            role = entity_role(entity)
+            options = select_options(entity, states)
+            role = ("source" if TRAFFIC_SOURCE_MODES <= options else
+                    "ownership" if options == OWNERSHIP_MODES else entity_role(entity))
             if role:
                 candidates.setdefault(role, []).append(entity)
-        branded = any("espectre" in str(device.get(key, "")).lower()
-                      for key in ("manufacturer", "model"))
-        # Default ESPHome firmware may identify its manufacturer as Espressif.
-        if not branded and "source" not in candidates:
+        if "source" not in candidates:
             continue
         roles = {key: values[0] for key, values in candidates.items() if len(values) == 1}
         fields = {key: entity_value(roles.get(key), states, numeric=key in
-                  {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"}) for key in ENTITY_ROLES}
-        # Current firmware offers `external` in the single source select; older
-        # firmware pairs an internal/external ownership select with it.
-        unified = "ownership" not in candidates and "source" in candidates
+                  {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"})
+                  for key in ("source", "ownership", *ENTITY_ROLES)}
+        # Current firmware offers `external` in the source select itself.
+        unified = "ownership" not in candidates
         control_role = "source" if unified else "ownership"
-        control = roles.get(control_role, {})
-        options = states.get(control.get("entity_id"), {}).get("attributes", {}).get("options", [])
+        control = fields[control_role]
+        options = select_options(roles.get(control_role, {}), states)
         internal_mode = None
         if unified:
-            source = fields["source"]
-            if source["value"] is not None and source["value"] != "external":
-                internal_mode = source["value"]
-            fields["ownership"] = dict(source, value=None if source["value"] is None else
-                                       ("external" if source["value"] == "external" else "internal"))
-            supported = "external" in options and source["value"] in options
-        else:
-            supported = ({"internal", "external"}.issubset(options)
-                         and fields["ownership"]["value"] in {"internal", "external"})
+            if control["value"] not in {None, "external"}:
+                internal_mode = control["value"]
+            fields["ownership"] = dict(control, value=None if control["value"] is None else
+                                       ("external" if control["value"] == "external" else "internal"))
         reason = None
         if device.get("disabled_by"):
             reason = "Device is disabled in Home Assistant."
-        elif len(candidates.get(control_role, [])) > 1:
+        elif len(candidates[control_role]) > 1:
             reason = "Multiple traffic ownership entities; no control selected."
-        elif fields["ownership"]["status"] != "available":
-            reason = "Traffic ownership entity is " + fields["ownership"]["status"] + "."
-        elif not supported:
+        elif control["status"] != "available":
+            reason = "Traffic ownership entity is " + control["status"] + "."
+        elif "external" not in options or control["value"] not in options:
             reason = "Traffic ownership options are not supported."
         # A button may have state 'unknown' before its first press; this is valid.
         refresh = roles.get("refresh", {})
@@ -352,42 +352,27 @@ class HomeAssistant:
                 results.append(result)
                 if row is None:
                     continue
-                if action == "refresh":
-                    if not row["can_refresh"]:
-                        result["message"] = "Refresh Diagnostics is missing, disabled, or unavailable."
-                        continue
-                    domain, service = "button", "press"
-                    entity_id, data = row["fields"]["refresh"]["entity_id"], {}
-                else:
-                    if not row["can_control"]:
-                        result["message"] = row["reason"]
-                        continue
-                    if row["fields"]["ownership"]["value"] == action:
-                        result.update(status="unchanged", message="Already " + action + ".")
-                        continue
-                    domain, service = "select", "select_option"
-                    entity_id = row["fields"]["ownership"]["entity_id"]
-                    option = action
-                    if row["unified_source"]:
-                        if row["internal_mode"]:
-                            self.internal_modes[device_id] = row["internal_mode"]
-                        option = "external" if action == "external" else self.internal_modes.get(device_id, "ping")
-                    data = {"option": option}
+                if not row["can_control"]:
+                    result["message"] = row["reason"]
+                    continue
+                if row["fields"]["ownership"]["value"] == action:
+                    result.update(status="unchanged", message="Already " + action + ".")
+                    continue
+                entity_id = row["fields"]["ownership"]["entity_id"]
+                option = action
+                if row["unified_source"]:
+                    if row["internal_mode"]:
+                        self.internal_modes[device_id] = row["internal_mode"]
+                    option = "external" if action == "external" else self.internal_modes.get(device_id, "ping")
                 try:
-                    await connection.command("call_service", domain=domain, service=service,
-                                             target={"entity_id": entity_id}, service_data=data)
+                    await connection.command("call_service", domain="select", service="select_option",
+                                             target={"entity_id": entity_id}, service_data={"option": option})
                 except HomeAssistantError:
                     result["message"] = "Home Assistant rejected the action."
                     continue
-                if action == "refresh":
-                    result.update(status="requested", message="Diagnostics requested; check the sample timestamps.")
-                else:
-                    result.update(status="unconfirmed", message="Command sent, but the device has not confirmed it. Refresh before retrying.")
-                    pending[entity_id] = (result, data["option"])
+                result.update(status="unconfirmed", message="Command sent, but the device has not confirmed it. Refresh before retrying.")
+                pending[entity_id] = (result, option)
             deadline = asyncio.get_running_loop().time() + self.confirmation_timeout
-            # Reading HA after the service call is not proof that all diagnostics are new.
-            if action == "refresh":
-                await asyncio.sleep(0.5)
             while True:
                 states = await connection.command("get_states")
                 for state in states:

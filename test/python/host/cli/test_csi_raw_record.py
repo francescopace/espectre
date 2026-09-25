@@ -698,16 +698,22 @@ def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monk
     }]
 
 
-def _ha_panel_inventory(platform="esphome", version=3, unified=False, source="ping"):
+_TRAFFIC_SOURCE_OPTIONS = ["ping", "dns", "dns_tcp", "wifi_raw", "external"]
+
+
+def _ha_panel_inventory(platform="esphome", version=3, source="ping", legacy=False):
     devices = [{"id": "sensor-a", "name": "ESPectre kitchen", "name_by_user": "Kitchen",
                 "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
     entities, states = [], []
     values = {"ownership": "internal", "source": source, "refresh": "unknown",
               "generator": "0", "traffic": "5", "traffic_rx": "100",
               "accepted": "99.5", "occupancy": "98", "rssi": "-54", "calibrating": "off"}
-    for role, (domain, suffix) in ha_client.ENTITY_ROLES.items():
-        if unified and role == "ownership":
-            continue
+    # 3.0.0-rc1 and rc2 pair an ownership select with a source select without `external`.
+    controls = {"ownership": ("select", "csi_traffic_ownership")} if legacy else {}
+    controls["source"] = ("select", "csi_traffic_source")
+    options = {"ownership": ["internal", "external"],
+               "source": _TRAFFIC_SOURCE_OPTIONS[:-1] if legacy else _TRAFFIC_SOURCE_OPTIONS}
+    for role, (domain, suffix) in {**controls, **ha_client.ENTITY_ROLES}.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
             unique_id = "espectre_0123456789abcdef_" + suffix
@@ -718,11 +724,8 @@ def _ha_panel_inventory(platform="esphome", version=3, unified=False, source="pi
         entity_id = domain + ".renamed_" + role
         entities.append({"entity_id": entity_id, "device_id": "sensor-a", "platform": platform,
                          "unique_id": unique_id, "name": "A custom HA name", "disabled_by": None})
-        options = {"ownership": ["internal", "external"]}
-        if unified:
-            options["source"] = ["ping", "dns", "dns_tcp", "wifi_raw", "external"]
         states.append({"entity_id": entity_id, "state": values[role],
-                       "attributes": {"options": options[role]} if role in options else {},
+                       "attributes": {"options": list(options[role])} if role in options else {},
                        "last_updated": "2026-09-19T10:00:00+00:00"})
     return devices, entities, states, [{"area_id": "kitchen", "name": "Kitchen"}]
 
@@ -744,11 +747,35 @@ def test_ha_panel_recognizes_registry_identity_after_ha_renames(platform, versio
 @pytest.mark.parametrize("source,ownership,internal_mode", [
     ("dns", "internal", "dns"), ("external", "external", None)])
 def test_ha_panel_derives_ownership_from_the_single_traffic_source_select(source, ownership, internal_mode):
-    row, = ha_client.build_inventory(*_ha_panel_inventory(unified=True, source=source))
-    assert row["can_control"] and row["unified_source"]
+    row, = ha_client.build_inventory(*_ha_panel_inventory(source=source))
+    assert row["can_control"]
     assert row["fields"]["ownership"]["value"] == ownership
     assert row["fields"]["ownership"]["entity_id"] == "select.renamed_source"
     assert row["internal_mode"] == internal_mode
+
+
+def test_ha_panel_controls_rc2_devices_through_the_ownership_select():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        fake.inventory = _ha_panel_inventory(source="dns", legacy=True)
+        row, = ha_client.build_inventory(*fake.inventory)
+        assert row["can_control"] and not row["unified_source"]
+        assert row["fields"]["ownership"]["entity_id"] == "select.renamed_ownership"
+        assert row["fields"]["source"]["value"] == "dns"
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
+                                         confirmation_timeout=0)
+            assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "confirmed"
+            assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_ownership"}] * 2
+            assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "internal"}]
+    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize("manufacturer", ["ESPectre", "https://espectre.dev"])
@@ -817,36 +844,71 @@ def test_ha_panel_dhcp_matches_mac_not_name_and_updates_addresses():
     assert ha_client.build_inventory(*inventory)[0]["ip_address"] == "192.168.1.9"
 
 
-@pytest.mark.parametrize("case", ["disabled", "device_disabled", "offline", "missing", "ambiguous", "options"])
-def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case):
-    devices, entities, states, areas = _ha_panel_inventory("mqtt")
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("case", ["disabled", "device_disabled", "offline", "ambiguous", "options"])
+def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case, legacy):
+    devices, entities, states, areas = _ha_panel_inventory("mqtt", legacy=legacy)
     if case == "disabled":
         entities[0]["disabled_by"] = "user"
     elif case == "device_disabled":
         devices[0]["disabled_by"] = "user"
     elif case == "offline":
         states[0]["state"] = "unavailable"
-    elif case == "missing":
-        entities.pop(0)
     elif case == "ambiguous":
-        duplicate = dict(entities[0], entity_id="select.duplicate")
-        entities.append(duplicate)
+        entities.append(dict(entities[0], entity_id="select.duplicate"))
+        states.append(dict(states[0], entity_id="select.duplicate"))
     else:
-        states[0]["attributes"]["options"] = ["on", "off"]
+        states[0]["attributes"]["options"] = ["internal"] if legacy else ["ping", "dns", "dns_tcp"]
     row, = ha_client.build_inventory(devices, entities, states, areas)
     assert not row["can_control"]
     assert row["reason"]
 
 
-def test_ha_panel_does_not_infer_entities_from_mutable_display_names():
+def test_ha_panel_recognizes_devices_only_by_traffic_source_options():
     devices, entities, states, areas = _ha_panel_inventory()
     for entity in entities:
         entity["unique_id"] = "unrelated-identifier"
-        entity["name"] = "CSI Traffic Ownership"
-    assert ha_client.build_inventory(devices, entities, states, areas) == []
-    devices[0]["manufacturer"] = "ESPectre"
+        entity["name"] = "CSI Accepted Rate"
     row, = ha_client.build_inventory(devices, entities, states, areas)
-    assert not row["can_control"] and not row["can_refresh"]
+    assert row["can_control"] and not row["can_refresh"]
+    assert row["fields"]["accepted"]["status"] == "missing"
+    for options in (["ping", "dns"], ["internal", "external"]):
+        changed = [dict(states[0], attributes={"options": options}), *states[1:]]
+        assert ha_client.build_inventory(devices, entities, changed, areas) == []
+    # HA gives disabled entities no state, so a disabled select hides the device.
+    assert ha_client.build_inventory(devices, entities, states[1:], areas) == []
+
+
+_UPSTREAM_RECOMMENDED = ["CSI Traffic Source", "Generator Rate", "Traffic TX Rate", "Traffic RX Rate",
+                         "CSI Accepted Rate", "CSI Temporal Occupancy"]
+_UPSTREAM_CUSTOM = ["Sorgente", "Generati", "Inviati", "Ricevuti", "CSI utili", "Copertura"]
+
+
+@pytest.mark.parametrize("names,options,diagnostics", [
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, True),
+    (_UPSTREAM_CUSTOM, _TRAFFIC_SOURCE_OPTIONS, True),
+    (_UPSTREAM_RECOMMENDED, ["ping", "dns", "dns_tcp", "external"], True),  # ESP32-C6
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, False),
+], ids=["recommended", "custom", "c6", "no_diagnostics"])
+def test_ha_panel_recognizes_the_upstream_esphome_component(names, options, diagnostics):
+    """User-named entities, a board model, and no Refresh Diagnostics button."""
+    devices = [{"id": "upstream-a", "name": "living-room", "manufacturer": "Espressif",
+                "model": "esp32-c6-devkitc-1"}]
+    roles = ["source", "generator", "traffic", "traffic_rx", "accepted", "occupancy"]
+    values = ["ping", "100.0", "101.0", "3.0", "99.0", "97"]
+    entities, states = [], []
+    for role, name, value in list(zip(roles, names, values, strict=True))[:None if diagnostics else 1]:
+        domain = "select" if role == "source" else "sensor"
+        entities.append({"entity_id": f"{domain}.living_room_{role}", "device_id": "upstream-a",
+                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/{domain}/{name}"})
+        states.append({"entity_id": entities[-1]["entity_id"], "state": value,
+                       "attributes": {"options": list(options)} if role == "source" else {}})
+    row, = ha_client.build_inventory(devices, entities, states, [])
+    assert row["can_control"] and not row["can_refresh"] and row["chip"] == "ESP32-C6"
+    assert row["fields"]["ownership"]["value"] == "internal" and row["internal_mode"] == "ping"
+    recognized = diagnostics and names is _UPSTREAM_RECOMMENDED
+    assert [row["fields"][role]["value"] for role in roles[1:]] == (
+        [100, 101, 3, 99, 97] if recognized else [None] * 5)
 
 
 @pytest.mark.parametrize("value", ["unavailable", "unknown", "nan", "inf", "bad"])
@@ -983,16 +1045,13 @@ def test_ha_panel_actions_use_internal_services_and_check_returned_state(outcome
             assert [result["status"] for result in data["results"]] == [outcome, "error"]
             writes = [call for call in fake.calls if call["type"] == "call_service"]
             assert len(writes) == 1
-            assert writes[0]["target"] == {"entity_id": "select.renamed_ownership"}
+            assert writes[0]["target"] == {"entity_id": "select.renamed_source"}
             assert writes[0]["service_data"] == {"option": "external"}
             assert "test-supervisor-secret" not in json.dumps(data)
             assert "private details" not in json.dumps(data)
             if outcome == "confirmed":
                 assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "unchanged"
                 assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
-                assert (await ha.act(["sensor-a"], "refresh"))["results"][0]["status"] == "requested"
-                button = [call for call in fake.calls if call.get("domain") == "button"]
-                assert len(button) == 1 and button[0]["service"] == "press"
     asyncio.run(exercise())
 
 
@@ -1001,7 +1060,7 @@ def test_ha_panel_single_source_select_restores_the_previous_internal_packet():
         from aiohttp import web
         from aiohttp.test_utils import TestServer
         fake = _PanelHomeAssistantServer()
-        fake.inventory = _ha_panel_inventory(unified=True, source="dns")
+        fake.inventory = _ha_panel_inventory(source="dns")
         app = web.Application()
         app.router.add_get("/core/websocket", fake.websocket)
         async with TestServer(app) as server:
@@ -1062,7 +1121,7 @@ def test_ha_panel_bulk_keeps_disabled_devices_unchanged():
         fake = _PanelHomeAssistantServer()
         device = dict(fake.inventory[0][0], id="sensor-b", manufacturer="ESPectre")
         fake.inventory[0].append(device)
-        entity = dict(fake.inventory[1][0], device_id="sensor-b", entity_id="select.disabled_ownership", disabled_by="user")
+        entity = dict(fake.inventory[1][0], device_id="sensor-b", entity_id="select.disabled_source", disabled_by="user")
         fake.inventory[1].append(entity)
         app = web.Application()
         app.router.add_get("/core/websocket", fake.websocket)
@@ -1072,7 +1131,7 @@ def test_ha_panel_bulk_keeps_disabled_devices_unchanged():
             result = await ha.act(["sensor-a", "sensor-b"], "external")
             assert [item["status"] for item in result["results"]] == ["confirmed", "error"]
             writes = [call for call in fake.calls if call["type"] == "call_service"]
-            assert len(writes) == 1 and writes[0]["target"] == {"entity_id": "select.renamed_ownership"}
+            assert len(writes) == 1 and writes[0]["target"] == {"entity_id": "select.renamed_source"}
             assert fake.inventory[1][-1]["disabled_by"] == "user"
     asyncio.run(exercise())
 

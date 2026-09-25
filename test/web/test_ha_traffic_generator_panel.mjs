@@ -82,9 +82,8 @@ function fixture(count = 1) {
             calls.push({ path: url.pathname, body, headers: options.headers });
             if (hold) { const wait = hold; hold = null; await wait; }
             if (fail === true || body?.action === fail) { fail = false; throw new Error('offline'); }
-            if (body?.action === 'refresh') devices.forEach(row => row.fields.accepted.value++);
             if (url.pathname.endsWith('/generator')) running = body.action === 'start';
-            else if (body && body.action !== 'refresh') devices.forEach(row => {
+            else if (body) devices.forEach(row => {
                 if (body.device_ids.includes(row.id)) row.fields.ownership.value = body.action;
             });
             return { ok: true, json: async () => structuredClone(/\/(status|generator)$/.test(url.pathname) ? {

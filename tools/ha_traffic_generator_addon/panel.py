@@ -141,7 +141,7 @@ async def action(request):
     if not isinstance(payload, dict) or set(payload) != {"device_ids", "action"}:
         raise web.HTTPBadRequest(text="Expected device_ids and action.")
     device_ids, operation = payload["device_ids"], payload["action"]
-    if (not isinstance(operation, str) or operation not in {"internal", "external", "refresh"}
+    if (not isinstance(operation, str) or operation not in {"internal", "external"}
             or not isinstance(device_ids, list) or not 1 <= len(device_ids) <= 32
             or any(not isinstance(value, str) or not value or len(value) > 128 for value in device_ids)
             or len(set(device_ids)) != len(device_ids)):

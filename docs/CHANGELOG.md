@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 
 - Added ESP-IDF 6.x support to the SDK. Official firmware stays on 5.5.5, and hardware checks on 6.x are still pending; see [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#esp-idf-compatibility-validation).
 - Added registry packages with a Wi-Fi sensing example and the API reference for their version. Twelve consumer builds validate each package before and after publication.
-- Added the Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel to control traffic and view live diagnostics (#168).
+- Added the Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel to control traffic and view live diagnostics. It also controls ESPHome devices built with the `espectre` component (#168).
 - Added Generator Rate and Traffic RX Rate sensors to Home Assistant (#182).
 - Added an NM-CYD-C5 ESPHome example with a local touch display, contributed by @RockBase-iot (#166).
 - Added the SDK API reference to the website, with its version and commit.

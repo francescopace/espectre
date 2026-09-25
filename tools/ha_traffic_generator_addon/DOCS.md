@@ -5,7 +5,7 @@ The ESPectre Traffic Generator sends a steady stream of packets from Home Assist
 ## Requirements
 
 - **Home Assistant OS**, 64-bit (`aarch64` or `amd64`), with an administrator account and Internet access. Container, Core, Supervised, and 32-bit installations are not supported.
-- **ESPectre 3.0 firmware** (prereleases included) with the ESPHome, Native, or Matter frontend, already on Wi-Fi.
+- **ESPectre 3.0 firmware** (prereleases included) with the ESPHome, Native, or Matter frontend, or an ESPHome device with the `espectre` component, already on Wi-Fi.
 - Home Assistant must be able to reach the devices on UDP port **5555**.
 - To control devices from the panel, they must be in Home Assistant through **ESPHome** or **Native MQTT Discovery**, with their traffic entities enabled. Matter devices can receive traffic but cannot be controlled from the panel.
 
@@ -39,13 +39,13 @@ What you see for each device:
 - **TX / s** and **RX / s:** all network packets the device sent and received (UDP, ICMP, TCP, and so on). Older firmware may show a different TX count or omit these values.
 - **Occupancy:** how much valid CSI the detector receives. This is not the Matter occupancy sensor.
 
-Missing or disabled values show **—**, never zero. Renamed devices and entities are still recognized, but custom ESPHome YAML that renames the firmware entities may not be. Enable disabled entities in **Settings → Devices & services → Entities**.
+Missing or disabled values show **—**, never zero. The panel finds a device by its traffic source select, whatever its name. It finds each diagnostic by the name the firmware gives it, so a sensor renamed in ESPHome YAML shows **—**; renaming it in Home Assistant is fine. With the ESPHome `espectre` component, name its sensors Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Accepted Rate, and CSI Temporal Occupancy, and name ESPHome's `wifi_signal` sensor WiFi RSSI. Enable disabled entities in **Settings → Devices & services → Entities**.
 
 The generator summary shows the rate per target and any send errors since the app started. Sent packets do not prove that devices received them. **Stop** pauses the traffic and **Start** resumes it; device modes do not change, so devices in external mode lose their traffic while stopped. Restarting the app resets the counters and starts traffic again.
 
 ### How the panel works
 
-- While the panel is open, it asks each device for fresh diagnostics about once per second, by pressing its **Refresh Diagnostics** button. It stops when you close or hide the page; the traffic keeps running.
+- While the panel is open, it asks each device for fresh diagnostics about once per second, by pressing its **Refresh Diagnostics** button. It stops when you close or hide the page; the traffic keeps running. Devices without that button send diagnostics on their own schedule.
 - Values are the latest ones Home Assistant has; a request does not guarantee new values.
 - The panel reconnects by itself after an error. A failed mode change is never retried automatically.
 - The app talks only to Home Assistant, using the token Home Assistant gives it. It does not scan the network, use mDNS, MQTT credentials, or ESPectre's Direct API. Its web server accepts only requests coming through Home Assistant.
@@ -80,7 +80,7 @@ Leave `dscp` at `46` unless your network has a QoS policy to match, or you want 
 - **App missing or installation fails:** check the repository branch, host architecture, and **Settings → System → Logs → Supervisor**.
 - **App stops immediately:** check its **Log** tab for invalid options. Clear `source_ip` unless you need a specific local interface.
 - **Panel cannot connect to Home Assistant:** update or rebuild the app, and check that Home Assistant Core is running. There is no token to enter.
-- **Device missing or controls unavailable:** add the device through ESPHome or MQTT and check that its entities are enabled. Matter devices have no traffic controls. Custom firmware entity names may not be recognized.
+- **Device missing or controls unavailable:** add the device through ESPHome or MQTT and check that its traffic source select is enabled. Matter devices have no traffic controls.
 - **Command not confirmed:** check the device's mode in Home Assistant before retrying; a timeout does not mean the change failed. In bulk changes, each failure is reported separately and successful changes are kept.
 - **App runs, but no CSI arrives:** confirm external mode and matching rate, port, and multicast group. Try device IP addresses and check network isolation and firewall rules.
 - **Packets sent, but no motion:** sent packets are not received packets. Check the device's diagnostics and calibration with [ESPectre troubleshooting](https://github.com/francescopace/espectre/blob/main/docs/TROUBLESHOOTING.md#no-csi-or-insufficient-input). Watchdog only restarts the app if it crashes; it does not check the sensors.
