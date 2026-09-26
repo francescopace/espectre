@@ -115,7 +115,7 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
 /// @endcond
 
 /** Paced ESP-IDF traffic generator with a firmware-owned lifecycle. */
-class TrafficGeneratorManager : public ICsiTrafficGenerator {
+class TrafficGeneratorManager final : public ICsiTrafficGenerator {
  public:
   /**
    * Stop the worker and wait until it exits, however long its socket call takes.

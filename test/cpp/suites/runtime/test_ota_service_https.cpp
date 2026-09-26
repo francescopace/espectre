@@ -83,7 +83,7 @@ std::string buffer_text(const HttpsOtaService::ManifestBuffer &body) {
   return text;
 }
 
-bool parse_manifest_text(HttpsOtaService &service, const std::string &text, const std::string &channel,
+bool parse_manifest_text(const HttpsOtaService &service, const std::string &text, const std::string &channel,
                          HttpsOtaService::ManifestInfo *manifest, std::string *error) {
   g_esp_http_client_mock.response_body = text;
   HttpsOtaService::ManifestBuffer body;

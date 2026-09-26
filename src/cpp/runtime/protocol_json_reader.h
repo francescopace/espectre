@@ -83,7 +83,10 @@ class JsonReader {
       }
     }
     skip_space_();
-    return position_ == input_.size() || fail_("unexpected data after JSON array");
+    if (position_ != input_.size()) {
+      return fail_("unexpected data after JSON array");
+    }
+    return true;
   }
 
   bool parse_object_views(std::vector<JsonFieldView> *fields, std::string *error) {
@@ -92,7 +95,10 @@ class JsonReader {
     skip_space_();
     if (!parse_object_(nullptr, 0U, fields)) return false;
     skip_space_();
-    return position_ == input_.size() || fail_("unexpected data after JSON object");
+    if (position_ != input_.size()) {
+      return fail_("unexpected data after JSON object");
+    }
+    return true;
   }
 
   bool parse_array_object_views(std::vector<std::vector<JsonFieldView>> *objects, std::string *error) {
@@ -101,7 +107,10 @@ class JsonReader {
     skip_space_();
     if (!parse_array_(0U, objects)) return false;
     skip_space_();
-    return position_ == input_.size() || fail_("unexpected data after JSON array");
+    if (position_ != input_.size()) {
+      return fail_("unexpected data after JSON array");
+    }
+    return true;
   }
 
   bool parse_string_value(std::string *value, std::string *error) {
@@ -109,7 +118,10 @@ class JsonReader {
     skip_space_();
     if (!parse_string_(value)) return false;
     skip_space_();
-    return position_ == input_.size() || fail_("unexpected data after JSON string");
+    if (position_ != input_.size()) {
+      return fail_("unexpected data after JSON string");
+    }
+    return true;
   }
 
  private:

@@ -129,9 +129,9 @@ static_assert(sizeof(RUNTIME_CSI_TRAFFIC_MARKER_BYTES) == RUNTIME_CSI_TRAFFIC_MA
 static_assert(sizeof("👻") - 1U == RUNTIME_CSI_TRAFFIC_MARKER_LENGTH,
               "CSI traffic marker UTF-8 text must match its canonical wire bytes");
 
-constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
-  return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD
-                                                      : RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX;
+// Both detectors share the probability scale asserted below.
+constexpr float runtime_threshold_max(DetectionAlgorithm /* algorithm */) {
+  return RUNTIME_THRESHOLD_MAX;
 }
 
 constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
@@ -152,6 +152,8 @@ constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
 }
 
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");
+static_assert(RUNTIME_THRESHOLD_MAX == LIGHTWEIGHT_MAX_THRESHOLD,
+              "Runtime threshold max drifted from detector_types.h");
 static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == HIGH_ACCURACY_MAX_THRESHOLD,
               "Runtime High Accuracy threshold max drifted from high_accuracy_detector.h");
 static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == LIGHTWEIGHT_MAX_THRESHOLD,

@@ -363,13 +363,8 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
   }
   config_.peer_discovery->set_wifi_ready(read_direct_wifi_connected());
   const bool started = config_.peer_discovery->start(
-      [this, request_token, request_id = request.command_id, command_name = request.command](PeerDiscoverySnapshot snapshot) {
+      [this, request_token](const PeerDiscoverySnapshot &snapshot) {
         if (service_ == nullptr) return;
-        EspectreDeviceConfig response_device;
-        response_device.device_id = config_.device_id;
-        EspectreCommand response_command;
-        response_command.command_id = request_id;
-        response_command.command = command_name;
         (void) service_->complete_deferred_response(
             request_token,
             peer_discovery_snapshot_json(snapshot));

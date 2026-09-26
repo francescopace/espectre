@@ -54,15 +54,6 @@
       "reason": "The buffer aliases csi_info.buf and is consumed through process_packet and the interceptor callback."
     },
     {
-      "rule": "unreadVariable",
-      "file": "test/cpp/suites/runtime/test_runtime_helpers.cpp",
-      "messages": [
-        "Variable 'payload[bin*2+1]' is assigned a value that is never used.",
-        "Variable 'payload[bin*2]' is assigned a value that is never used."
-      ],
-      "reason": "The payload aliases info.buf and is consumed by the capture service; callback counts verify the resulting rejection."
-    },
-    {
       "rule": "knownConditionTrueFalse",
       "file": "test/cpp/suites/runtime/test_csi_pipeline.cpp",
       "messages": [
@@ -106,14 +97,6 @@
     },
     {
       "rule": "knownConditionTrueFalse",
-      "file": "src/cpp/runtime/protocol_json.cpp",
-      "messages": [
-        "Return value 'fail_(\"unexpected data after JSON array\")' is always false"
-      ],
-      "reason": "fail_ returns false while recording the parse error; its side effect is required."
-    },
-    {
-      "rule": "knownConditionTrueFalse",
       "file": "test/cpp/suites/runtime/test_sdk_surface.cpp",
       "messages": [
         "Condition 'subcarrier_count>0U' is always true"
@@ -144,6 +127,38 @@
         "Using search with iterator 'output.begin()' that is always empty."
       ],
       "reason": "The serial writer callback appends to output; the parsed frame assertions verify that output is populated."
+    },
+    {
+      "rule": "redundantAssignment",
+      "file": "test/cpp/suites/runtime/test_runtime_helpers.cpp",
+      "messages": [
+        "Variable 'log.write_delay_us' is reassigned a value before the old one has been used."
+      ],
+      "reason": "The installed log sink reads write_delay_us through its context pointer during the ESPECTRE_LOGI call between the assignments."
+    },
+    {
+      "rule": "redundantAssignment",
+      "file": "test/cpp/suites/runtime/test_sdk_surface.cpp",
+      "messages": [
+        "Variable 'capture.write_delay_us' is reassigned a value before the old one has been used."
+      ],
+      "reason": "The installed log sink reads write_delay_us through its context pointer during the ESPECTRE_LOGI call between the assignments."
+    },
+    {
+      "rule": "redundantAssignment",
+      "file": "test/cpp/suites/runtime/test_runtime_frontend_controller.cpp",
+      "messages": [
+        "Variable 'listener.shutdown_on_readiness' is reassigned a value before the old one has been used."
+      ],
+      "reason": "The controller holds the listener and reads shutdown_on_readiness from its readiness callback during controller.loop()."
+    },
+    {
+      "rule": "unsignedLessThanZero",
+      "file": "test/cpp/suites/runtime/test_runtime_detector_switch.cpp",
+      "messages": [
+        "Checking if unsigned expression '0U' is less than zero."
+      ],
+      "reason": "The feed lambda increments unready_loops by reference, so the bounds check reads the counted value, not the reset."
     }
   ]
 }
