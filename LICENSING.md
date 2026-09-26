@@ -16,13 +16,13 @@ Separate, independent applications do not become covered by GPLv3 merely because
 
 To distribute an eligible integration under proprietary terms without GPLv3's copyleft obligations, you must purchase a separate commercial license before distribution. The signed agreement defines the covered material, permitted uses, and fees.
 
-For commercial licensing inquiries, contact our team at <contact@espectre.dev>.
+Commercial licenses are sold through [Mercurius Platform](https://mercuriusplatform.com/prodotti/espectre/). For commercial licensing inquiries, contact <info@mercuriusplatform.com>.
 
 ## Integration services
 
 Optional architecture review, firmware integration, validation, and tuning services may also be available under a separately scoped services agreement. These services are not included in a commercial license unless they are expressly included in the signed agreement.
 
-For integration-service inquiries, contact our team at <contact@espectre.dev>.
+For integration-service inquiries and quotes, contact Mercurius Platform at <info@mercuriusplatform.com>.
 
 ## Contributions
 

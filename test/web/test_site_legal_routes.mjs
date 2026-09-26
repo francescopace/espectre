@@ -39,11 +39,12 @@ describe('website legal route contracts', () => {
         const security = read('docs/web/content/security.html');
         const licensing = read('docs/web/content/licensing.html');
         assert.match(contact, /mailto:contact@espectre\.dev/);
+        assert.match(contact, /href="https:\/\/mercuriusplatform\.com\/prodotti\/espectre\/"/);
         assert.match(contact, /github\.com\/francescopace\/espectre\/discussions/);
         assert.match(contact, /github\.com\/francescopace\/espectre\/issues/);
         assert.match(security, /mailto:security@espectre\.dev/);
         assert.match(security, /github\.com\/francescopace\/espectre\/security/);
-        assert.match(licensing, /mailto:contact@espectre\.dev\?subject=Commercial%20licensing%20inquiry/);
+        assert.match(licensing, /href="https:\/\/mercuriusplatform\.com\/prodotti\/espectre\/"/);
     });
 
     it('publishes privacy cookie settings as a stable anchor', () => {
