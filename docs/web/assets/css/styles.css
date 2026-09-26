@@ -1575,7 +1575,7 @@ body.modal-open { overflow: hidden; }
   border-radius: 18px;
   background: var(--accent-soft);
 }
-.docs-start-copy { max-width: 650px; }
+.docs-start-copy { max-width: 700px; }
 .docs-start-copy h2 {
   margin: 7px 0 8px;
   font-size: 26px;
@@ -1690,6 +1690,8 @@ body.modal-open { overflow: hidden; }
   font-size: 11px;
   color: var(--dim);
 }
+.licensing-page .docs-path { min-height: 0; }
+.licensing-page .docs-path p { margin-bottom: 12px; }
 .security-guidelines ul {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

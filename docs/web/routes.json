@@ -277,7 +277,7 @@
     {
       "name": "licensing",
       "title": "Licensing | ESPectre",
-      "description": "Commercial licensing and optional engineering support for embedding ESPectre sensing layers in proprietary ESP-IDF firmware.",
+      "description": "ESPectre commercial license pricing for proprietary ESP-IDF firmware: perpetual product licenses, no per-device royalties, and optional maintenance and integration services.",
       "staticPath": "/licensing/"
     },
     {
