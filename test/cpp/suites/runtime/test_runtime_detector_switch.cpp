@@ -881,6 +881,44 @@ void test_runtime_recalibration_during_motion_keeps_the_live_threshold(void) {
   runtime.shutdown();
 }
 
+void test_runtime_traffic_change_restarts_a_running_calibration(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  FakeCsiTrafficGenerator traffic_generator;
+  FakeCsiTrafficIngress traffic_ingress;
+  EspIdfRuntime runtime(config, traffic_generator, traffic_ingress);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  TEST_ASSERT_TRUE(runtime.setup());
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
+  ip_info.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip_info);
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+  uint32_t packet_index = 0U;
+  for (uint32_t guard = 0U; guard < 40U && runtime.get_snapshot().calibration_packets == 0U; ++guard) {
+    feed_calibration_evaluation(runtime, false, packet_index);
+  }
+  TEST_ASSERT_TRUE(runtime.get_snapshot().calibration_packets > 0U);
+
+  // PING and DNS share the capture profile, so nothing else cancels the
+  // calibration: its ping evidence must not become the DNS baseline.
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::DNS));
+  runtime.loop();
+  TEST_ASSERT_TRUE(runtime.is_calibrating());
+  TEST_ASSERT_EQUAL(0, runtime.get_snapshot().calibration_packets);
+  TEST_ASSERT_EQUAL(1, listener.calibration_starts);
+  TEST_ASSERT_EQUAL(0, listener.calibration_finishes);
+  // A manual request during calibration is still refused.
+  TEST_ASSERT_FALSE(runtime.trigger_recalibration());
+
+  run_quiet_startup_calibration(runtime, packet_index);
+  TEST_ASSERT_TRUE(listener.last_calibration_success);
+  TEST_ASSERT_EQUAL(1, listener.calibration_finishes);
+  TEST_ASSERT_TRUE(runtime.calibrated_setup_.traffic_generator_mode == TrafficGeneratorMode::DNS);
+  runtime.shutdown();
+}
+
 void test_runtime_startup_calibration_during_motion_keeps_the_default(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
@@ -1811,6 +1849,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_only);
   RUN_TEST(test_runtime_calibration_consumes_evaluations_resets_on_gaps_and_finishes);
   RUN_TEST(test_runtime_recalibration_during_motion_keeps_the_live_threshold);
+  RUN_TEST(test_runtime_traffic_change_restarts_a_running_calibration);
   RUN_TEST(test_runtime_startup_calibration_during_motion_keeps_the_default);
   RUN_TEST(test_runtime_rejects_invalid_detector_geometry_before_starting_services);
   RUN_TEST(test_runtime_rejects_invalid_or_unpersisted_controls_without_changing_config);

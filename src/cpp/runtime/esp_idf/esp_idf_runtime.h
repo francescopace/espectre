@@ -107,6 +107,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
   void restore_traffic_runtime_config_(const RuntimeConfig &previous_config);
+  void recalibrate_for_traffic_change_();
   bool start_calibration_(bool reset_high_accuracy_threshold = true,
                           std::unique_ptr<StartupThresholdCalibrator> prepared = nullptr);
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,

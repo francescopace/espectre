@@ -507,7 +507,7 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
       deferred_traffic_recalibrate_ = true;
     }
   } else if (config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
-    (void) trigger_recalibration();
+    recalibrate_for_traffic_change_();
   }
   ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_generator_mode_name(mode));
   return true;
@@ -706,9 +706,24 @@ bool EspIdfRuntime::finish_traffic_apply_(bool recalibrate_if_active) {
   }
   if (recalibrate_if_active && !sensing_start_pending_ &&
       config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
-    (void) trigger_recalibration();
+    recalibrate_for_traffic_change_();
   }
   return true;
+}
+
+void EspIdfRuntime::recalibrate_for_traffic_change_() {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return;
+  }
+  if (!snapshot_.calibrating) {
+    (void) trigger_recalibration();
+    return;
+  }
+  // A profile change has already cancelled calibration. With the same profile,
+  // the running calibration holds evidence from the previous traffic source,
+  // so restart it in place for the new one.
+  ESPECTRE_LOGI(RUNTIME_TAG, "Restarting calibration for the new traffic source");
+  (void) start_calibration_();
 }
 
 bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
