@@ -28,7 +28,7 @@ using csi_traffic_packet_callback_t = void (*)(void *, const UdpDatagramPeer &, 
 
 /** Traffic policy for CsiTrafficService; build it with to_csi_traffic_config(). */
 struct CsiTrafficServiceConfig {
-  /** Internal generator mode, or `EXTERNAL` to listen for another host. */
+  /** Internal generator mode, or `EXTERNAL_HOST` to listen for another host. */
   TrafficGeneratorMode mode{TrafficGeneratorMode::PING};
   /** Internal generator send rate, in packets per second. */
   uint32_t rate_pps{100U};
@@ -86,7 +86,7 @@ class ICsiTrafficGenerator {
 };
 
 /**
- * Listener for traffic sent by another host in `EXTERNAL` mode.
+ * Listener for traffic sent by another host in `EXTERNAL_HOST` mode.
  *
  * Only datagrams whose payload matches the expected marker are counted and
  * reported. Call every method from the owner task.
@@ -123,7 +123,7 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config);
 /**
  * Keeps CSI-bearing traffic flowing in the configured mode.
  *
- * Internal modes drive the generator; `EXTERNAL` drives the listener, which
+ * Internal modes drive the generator; `EXTERNAL_HOST` drives the listener, which
  * accepts the ESPectre traffic marker. The full runtime owns one of these;
  * firmware that captures CSI itself can use it directly.
  *
@@ -143,7 +143,7 @@ class CsiTrafficService {
    * Start the source for the configured mode; a running source is left as is.
    *
    * `target_addr` is the internal generator's IPv4 destination in network byte
-   * order, ignored in `EXTERNAL` mode. Returns false when the source fails to
+   * order, ignored in `EXTERNAL_HOST` mode. Returns false when the source fails to
    * start.
    */
   bool start(uint32_t target_addr = 0U);

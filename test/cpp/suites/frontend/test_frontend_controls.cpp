@@ -586,7 +586,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_direct_api(false);
   component.set_csi_target_pps(94);
   component.set_traffic_generator_mode("external");
-  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
   component.set_traffic_generator_mode("dns_tcp");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
   component.set_traffic_generator_mode("ping");
@@ -814,7 +814,7 @@ void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
 
   generator_mode_select.control("external");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
   generator_mode_select.republish_state();
   TEST_ASSERT_EQUAL_STRING("external", generator_mode_select.get_state().c_str());
 

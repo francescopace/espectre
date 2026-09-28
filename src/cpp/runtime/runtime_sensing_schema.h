@@ -48,7 +48,7 @@ enum class DetectionAlgorithm {
  *
  * CSI is only produced when packets arrive, so something has to keep the link
  * busy. The first four modes run the internal generator at `csi_target_pps`
- * with the given packet; `EXTERNAL` leaves it to another host.
+ * with the given packet; `EXTERNAL_HOST` leaves it to another host.
  */
 enum class TrafficGeneratorMode {
   /** Internal generator, ICMP echo. Default. */
@@ -63,7 +63,7 @@ enum class TrafficGeneratorMode {
    * No internal generator: another host sends exact UDP markers or unicast
    * ICMP Echo Requests, and the runtime listens for them.
    */
-  EXTERNAL,
+  EXTERNAL_HOST,
 };
 
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
@@ -142,7 +142,7 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
 constexpr bool runtime_traffic_generator_mode_valid(TrafficGeneratorMode mode) {
   return mode == TrafficGeneratorMode::PING || mode == TrafficGeneratorMode::DNS ||
          mode == TrafficGeneratorMode::DNS_TCP || mode == TrafficGeneratorMode::WIFI_RAW ||
-         mode == TrafficGeneratorMode::EXTERNAL;
+         mode == TrafficGeneratorMode::EXTERNAL_HOST;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {

@@ -77,7 +77,7 @@ void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_traffic_generator_mode(nullptr, &has_saved_value));
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_traffic_generator_mode(static_cast<TrafficGeneratorMode>(99)));
 
-  for (const auto mode : {TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::EXTERNAL}) {
+  for (const auto mode : {TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::EXTERNAL_HOST}) {
     TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(mode));
     TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
     TEST_ASSERT_TRUE(has_saved_value);
@@ -97,7 +97,7 @@ void test_runtime_traffic_mode_store_migrates_the_legacy_csi_traffic_key_once(vo
   nvs_mock_put_str("csi_traffic", "external");
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
 
   // The legacy key is gone, so a later save is not overridden again.
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));

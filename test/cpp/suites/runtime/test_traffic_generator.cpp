@@ -380,7 +380,7 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
     TEST_ASSERT_FALSE(generator.is_running());
     TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
 
-    config.mode = TrafficGeneratorMode::EXTERNAL;
+    config.mode = TrafficGeneratorMode::EXTERNAL_HOST;
     service.init(config);
     TEST_ASSERT_TRUE(service.start());
     TEST_ASSERT_FALSE(generator.is_running());

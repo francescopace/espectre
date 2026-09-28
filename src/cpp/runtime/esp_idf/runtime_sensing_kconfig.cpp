@@ -148,7 +148,7 @@ uint8_t clamp_uint8_or_default_(uint32_t value, uint8_t default_value, uint8_t m
 
 std::string multicast_group_or_default_(const char *value, const char *key) {
   RuntimeConfig probe = RuntimeConfig{};
-  probe.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
+  probe.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL_HOST;
   probe.csi_traffic_multicast_group = value != nullptr ? value : "";
   if (validate_runtime_config(probe) != RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP) {
     return probe.csi_traffic_multicast_group;
@@ -210,7 +210,7 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #elif CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP
   config.traffic_generator_mode = TrafficGeneratorMode::DNS_TCP;
 #elif CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL
-  config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
+  config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL_HOST;
 #else
   config.traffic_generator_mode = TrafficGeneratorMode::PING;
 #endif

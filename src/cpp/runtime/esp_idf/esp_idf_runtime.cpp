@@ -898,7 +898,7 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
 
-  const uint64_t traffic = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
+  const uint64_t traffic = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL_HOST
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
   const uint32_t now = monotonic_now_ms();
@@ -1114,7 +1114,7 @@ void EspIdfRuntime::hold_pending_traffic_restart(bool hold) {
 
 void EspIdfRuntime::arm_csi_receive_path_check_() {
   csi_receive_path_check_pending_ = csi_pipeline_.is_enabled() && csi_traffic_service_.source_is_active();
-  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL
+  csi_receive_path_traffic_total_ = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL_HOST
                                          ? csi_traffic_service_.get_generator_packets_total()
                                          : csi_traffic_service_.get_packets_received());
   csi_receive_path_traffic_seen_ = false;

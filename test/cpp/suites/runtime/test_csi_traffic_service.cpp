@@ -26,7 +26,7 @@ void test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics(v
   FakeCsiTrafficIngress ingress;
   CsiTrafficService service(generator, ingress);
   CsiTrafficServiceConfig config;
-  config.mode = TrafficGeneratorMode::EXTERNAL;
+  config.mode = TrafficGeneratorMode::EXTERNAL_HOST;
   config.udp_port = 6001U;
   config.multicast_group = "239.12.12.12";
 
@@ -103,10 +103,10 @@ void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) 
   service_config = to_csi_traffic_config(runtime_config);
   TEST_ASSERT_TRUE(service_config.mode == TrafficGeneratorMode::DNS_TCP);
 
-  runtime_config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
+  runtime_config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL_HOST;
   runtime_config.csi_traffic_multicast_group.clear();
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(service_config.mode == TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_TRUE(service_config.multicast_group.empty());
 }
 

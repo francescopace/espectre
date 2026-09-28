@@ -75,6 +75,24 @@ CORE_IMPLEMENTATION_HEADERS = {
 # Integrators cannot name them, so they stay opaque and out of the surface.
 OPAQUE_IMPLEMENTATION_TYPES = {"IEspectreRuntime", "RuntimeTrafficSources"}
 
+# Unprefixed object-like macros from Arduino-ESP32 `Arduino.h` and
+# `esp32-hal-gpio.h`, which every sketch includes before the SDK.
+ARDUINO_CORE_MACROS = {
+    "ANALOG", "BIN", "CHANGE", "DEC", "DEFAULT", "DEG_TO_RAD", "DEPRECATED", "DISABLED",
+    "DISPLAY", "EULER", "EXTERNAL", "FALLING", "HALF_PI", "HEX", "HIGH", "INPUT",
+    "INPUT_PULLDOWN", "INPUT_PULLUP", "LOW", "LSBFIRST", "MSBFIRST", "NOP", "OCT", "ONHIGH",
+    "ONHIGH_WE", "ONLOW", "ONLOW_WE", "OPEN_DRAIN", "OUTPUT", "OUTPUT_OPEN_DRAIN", "PI",
+    "PULLDOWN", "PULLUP", "RAD_TO_DEG", "RISING", "SERIAL", "TWO_PI",
+}
+# Function-like macros from `Arduino.h`, `WCharacter.h`, `esp32-hal.h`, and
+# `esp32-hal-log.h`. They expand only when followed by a parenthesis.
+ARDUINO_CORE_FUNCTION_MACROS = {
+    "_BV", "_NOP", "_abs", "_max", "_min", "_round", "bit", "bitClear", "bitRead", "bitSet",
+    "bitToggle", "bitWrite", "cli", "constrain", "degrees", "highByte", "interrupts",
+    "isascii", "log_d", "log_e", "log_i", "log_n", "log_v", "log_w", "lowByte",
+    "noInterrupts", "optimistic_yield", "radians", "sei", "sq", "toascii", "word",
+}
+
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 FORWARD_DECLARATION_PATTERN = re.compile(r"^\s*(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.MULTILINE)
 DEFINITION_PATTERN = re.compile(
@@ -177,6 +195,26 @@ def test_opaque_implementation_types_stay_out_of_the_published_surface() -> None
     assert not (defined & OPAQUE_IMPLEMENTATION_TYPES), (
         f"internal backend types reached the SDK surface: {sorted(defined & OPAQUE_IMPLEMENTATION_TYPES)}"
     )
+
+
+def test_public_identifiers_avoid_arduino_core_macros() -> None:
+    """Arduino-ESP32 macros must not match a public identifier.
+
+    A sketch includes `Arduino.h` before any library, and the preprocessor
+    rewrites tokens regardless of scope, so `TrafficGeneratorMode::EXTERNAL`
+    would become `TrafficGeneratorMode::0`.
+    """
+    public: set[Path] = set()
+    for facade in (FACADE, CORE_FACADE, PROTOCOL_FACADE, SERVICES_FACADE, MQTT_FACADE):
+        public.update(include_closure(facade))
+    offenders: list[str] = []
+    for header in sorted(public):
+        source = re.sub(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\])*\"", "", header.read_text(encoding="utf-8"), flags=re.DOTALL)
+        names = set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", source)) & ARDUINO_CORE_MACROS
+        names |= set(re.findall(r"\b([A-Za-z_]\w*)\s*\(", source)) & ARDUINO_CORE_FUNCTION_MACROS
+        for name in sorted(names):
+            offenders.append(f"{header.relative_to(CPP_ROOT).as_posix()}: {name}")
+    assert not offenders, f"public identifiers collide with Arduino-ESP32 macros: {offenders}"
 
 
 def test_facade_headers_are_all_in_the_generated_reference() -> None:

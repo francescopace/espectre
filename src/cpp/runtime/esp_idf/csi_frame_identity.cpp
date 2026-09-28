@@ -190,7 +190,7 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
   if (!parse_bounded_payload(info, &packet) ||
       !destination_mac_matches(packet, config, info->dmac)) return false;
   switch (config.traffic_mode) {
-    case TrafficGeneratorMode::EXTERNAL:
+    case TrafficGeneratorMode::EXTERNAL_HOST:
       return matches_external_udp(packet, config) || matches_external_ping(packet, config);
     case TrafficGeneratorMode::WIFI_RAW:
       return false;  // Only the LLTF20 ACK path above supplies raw Wi-Fi samples.

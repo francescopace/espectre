@@ -22,7 +22,7 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
 
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
-  if (mode_ != TrafficGeneratorMode::EXTERNAL) {
+  if (mode_ != TrafficGeneratorMode::EXTERNAL_HOST) {
     traffic_generator_.init(config.rate_pps, mode_);
   }
   traffic_ingress_.init(config.udp_port);
@@ -34,7 +34,7 @@ void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
 }
 
 bool CsiTrafficService::start(uint32_t target_addr) {
-  if (mode_ == TrafficGeneratorMode::EXTERNAL) {
+  if (mode_ == TrafficGeneratorMode::EXTERNAL_HOST) {
     return traffic_ingress_.is_running() || traffic_ingress_.start();
   }
   return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
@@ -67,7 +67,7 @@ void CsiTrafficService::set_packet_callback(csi_traffic_packet_callback_t callba
 }
 
 bool CsiTrafficService::is_running() const {
-  return mode_ == TrafficGeneratorMode::EXTERNAL ? traffic_ingress_.is_running()
+  return mode_ == TrafficGeneratorMode::EXTERNAL_HOST ? traffic_ingress_.is_running()
                                                   : traffic_generator_.is_running();
 }
 
@@ -80,7 +80,7 @@ bool CsiTrafficService::generator_is_stopping() const {
 }
 
 bool CsiTrafficService::source_is_active() const {
-  return mode_ == TrafficGeneratorMode::EXTERNAL ? traffic_ingress_.is_running()
+  return mode_ == TrafficGeneratorMode::EXTERNAL_HOST ? traffic_ingress_.is_running()
                                                   : traffic_generator_.has_live_worker();
 }
 
@@ -101,7 +101,7 @@ uint64_t CsiTrafficService::get_packets_received() const {
 }
 
 uint32_t CsiTrafficService::get_generator_packets_total() const {
-  return mode_ != TrafficGeneratorMode::EXTERNAL
+  return mode_ != TrafficGeneratorMode::EXTERNAL_HOST
              ? traffic_generator_.send_success_count()
              : 0U;
 }

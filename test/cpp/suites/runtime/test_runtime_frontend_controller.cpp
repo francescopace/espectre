@@ -397,13 +397,13 @@ void test_runtime_frontend_controller_adopts_backend_effective_config(void) {
 
   frontend_runtime_shim::state.override_config_on_setup = true;
   frontend_runtime_shim::state.setup_config = staged;
-  frontend_runtime_shim::state.setup_config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL;
+  frontend_runtime_shim::state.setup_config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL_HOST;
   frontend_runtime_shim::state.setup_config.motion_on_hits = 8U;
   frontend_runtime_shim::state.setup_config.motion_off_hits = 6U;
 
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
 }
@@ -504,17 +504,17 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
 
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL));
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL_HOST));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::DNS_TCP));
   TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == TrafficGeneratorMode::DNS_TCP);
 
   TEST_ASSERT_FALSE(controller.set_traffic_generator_mode(static_cast<TrafficGeneratorMode>(0x7f)));
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL_HOST));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
 
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode(TrafficGeneratorMode::PING));
   TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_traffic_generator_mode_calls);

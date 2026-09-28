@@ -131,7 +131,7 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
   }
-  if (config.traffic_generator_mode == TrafficGeneratorMode::EXTERNAL) {
+  if (config.traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST) {
     if (config.csi_traffic_udp_port < RUNTIME_NETWORK_PORT_MIN) {
       return RuntimeConfigError::CSI_TRAFFIC_UDP_PORT;
     }
@@ -228,7 +228,7 @@ const char *traffic_generator_mode_name(TrafficGeneratorMode mode) {
       return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME;
     case TrafficGeneratorMode::WIFI_RAW:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME;
-    case TrafficGeneratorMode::EXTERNAL:
+    case TrafficGeneratorMode::EXTERNAL_HOST:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME;
     default:
       return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
@@ -247,7 +247,7 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
 
 TrafficGeneratorMode parse_traffic_generator_mode(const char *mode) {
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME) == 0) {
-    return TrafficGeneratorMode::EXTERNAL;
+    return TrafficGeneratorMode::EXTERNAL_HOST;
   }
   if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME) == 0) {
     return TrafficGeneratorMode::WIFI_RAW;

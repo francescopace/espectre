@@ -299,7 +299,7 @@ void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
   mqtt.emit_command(
       "{\"command_id\":\"traffic-1b\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"external\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
 
   mqtt.emit_command(
       "{\"command_id\":\"traffic-2\",\"command\":\"update_sensing\",\"traffic_generator_mode\":\"ping\"}");

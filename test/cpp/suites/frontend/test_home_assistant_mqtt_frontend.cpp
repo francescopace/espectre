@@ -616,7 +616,7 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "external");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "external"));
   TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/sensing",
                                                "\"traffic_generator_mode\":\"external\""));

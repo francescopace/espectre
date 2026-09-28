@@ -99,7 +99,7 @@ struct RuntimeConfig {
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
   /**
    * How the device gets CSI-bearing traffic: one of the internal generator
-   * modes, or `EXTERNAL` to listen for another host.
+   * modes, or `EXTERNAL_HOST` to listen for another host.
    */
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
