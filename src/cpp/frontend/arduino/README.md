@@ -12,7 +12,7 @@ Arduino support is in development for v3.2.0 and is not yet a supported release.
 
 ## Installation
 
-Download the `espectre-arduino-<version>.zip` library from the release assets. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
+Releases do not include the library yet. CI builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
 
 ```bash
 arduino-cli config set library.enable_unsafe_install true
@@ -81,6 +81,7 @@ ESPectre logs follow the **Core Debug Level** setting, like the core's own messa
 - The library includes sensing only. MQTT, Direct HTTP, and provisioning are not included.
 - The `traffic.tx_packets_total` and `traffic.rx_packets_total` diagnostics stay at zero.
 - On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
+- The example uses 70–88% of the default 1.2 MB app partition, the most on ESP32-C5 and ESP32-C6. Choose a larger **Partition Scheme** when your sketch adds other libraries.
 
 ## Licensing
 

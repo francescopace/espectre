@@ -56,7 +56,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 **Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. It is not supported until the exit criteria pass.
+**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32-S3 and ESP32-C5 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The other chips still need hardware checks, and the library is not supported until the exit criteria pass.
 
 **Scope**:
 
