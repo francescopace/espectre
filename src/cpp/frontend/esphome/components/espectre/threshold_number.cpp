@@ -30,7 +30,7 @@ void ESpectreThresholdNumber::dump_config() {
 
 void ESpectreThresholdNumber::control(float value) {
   // Called when user changes value from HA
-  // set_threshold_runtime handles everything: update, save, and publish
+  // set_threshold_runtime updates and publishes the session-only threshold.
   if (this->parent_ != nullptr) {
     if (!this->parent_->set_threshold_runtime(value)) this->republish_state();
   }
@@ -38,7 +38,7 @@ void ESpectreThresholdNumber::control(float value) {
 
 void ESpectreThresholdNumber::republish_state() {
   // Re-publish current threshold to Home Assistant
-  // This ensures HA receives the saved value after API connection is established
+  // This ensures HA receives the current value after API connection is established.
   if (this->parent_ != nullptr) {
     float current = this->parent_->get_threshold();
     this->publish_state(current);

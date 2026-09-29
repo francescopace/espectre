@@ -437,7 +437,7 @@ bool EspIdfRuntime::set_threshold(float threshold) {
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(get_snapshot());
   }
-  ESPECTRE_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only, recalculated at boot)", threshold);
+  ESPECTRE_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only)", threshold);
   return true;
 }
 

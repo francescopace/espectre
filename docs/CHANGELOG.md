@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed ESPHome starting High Accuracy with the Lightweight threshold instead of `0.5` when selected in YAML (#186).
 - Fixed a traffic source change during Lightweight calibration being ignored when the CSI capture profile stays the same, such as from `ping` to `dns`. The calibration now restarts for the new source instead of mixing evidence from both.
 
 ## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support

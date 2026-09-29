@@ -595,8 +595,12 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
 
   TEST_ASSERT_FALSE(component.direct_api_enabled_);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
+                          component.runtime_.config().threshold);
   component.set_detection_algorithm("lightweight");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::LIGHTWEIGHT),
+                          component.runtime_.config().threshold);
   component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
   component.set_motion_off_hits(5);
@@ -615,7 +619,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_traffic_generator_mode("dns");
   component.set_detection_algorithm("high_accuracy");
 
-  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_DEFAULT,
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
                           component.runtime_.config().threshold);
   TEST_ASSERT_EQUAL(1500U, component.runtime_.config().window_size_ms);
   TEST_ASSERT_EQUAL(94, component.runtime_.config().csi_target_pps);

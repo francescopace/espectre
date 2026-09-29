@@ -67,6 +67,8 @@ On ESP32-C5, `wifi.band_mode` accepts `2.4GHz`, `5GHz`, or `AUTO` (default). Oth
 
 `detection_algorithm` is only the starting profile. The `detector_select` entity changes it live and remembers the choice. Switching to Lightweight starts a calibration, shown by `calibration_active_sensor`. See [detection profile](../../../../docs/TROUBLESHOOTING.md#detection-profile) to choose.
 
+At boot, the threshold starts from the selected profile's SDK default: High Accuracy uses `0.5`, and Lightweight adapts its fitted base threshold through startup calibration. Manual threshold changes last until recalibration or reboot.
+
 ## Entity customization
 
 ### Integrated entities

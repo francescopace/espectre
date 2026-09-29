@@ -61,7 +61,7 @@ struct RuntimeConfig {
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::AUTO};
   /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
   CsiCapturePolicy csi_capture_policy{CsiCapturePolicy::AUTO};
-  /** Detection profile to run. Lightweight self-calibrates; High Accuracy uses trained weights. */
+  /** Detection profile to run. When assigning it, initialize `threshold` with `runtime_default_threshold()` or a custom value. */
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
   /**
    * Motion probability threshold, on the same 0..1 scale as

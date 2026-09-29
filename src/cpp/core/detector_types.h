@@ -23,7 +23,7 @@ enum class MotionState {
  * Both detectors compare a 0..1 motion probability against their threshold.
  * @{
  */
-/** Lightweight threshold in force until startup calibration replaces it. */
+/** Fitted Lightweight base threshold, used at startup and as the reference for adaptive calibration. */
 constexpr float LIGHTWEIGHT_DEFAULT_THRESHOLD = 0.6621854538596202f;
 constexpr float LIGHTWEIGHT_MIN_THRESHOLD = 0.0f;
 constexpr float LIGHTWEIGHT_MAX_THRESHOLD = 1.0f;

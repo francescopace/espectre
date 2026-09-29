@@ -94,6 +94,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   // declared once in the constructor rather than as a side effect here.
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
+    this->runtime_.config().threshold = runtime_default_threshold(this->runtime_.config().detection_algorithm);
   }
   void set_evaluation_interval_ms(uint32_t interval_ms) {
     this->runtime_.config().evaluation_interval_ms = interval_ms;
