@@ -2,7 +2,7 @@
 
 ## Architecture And Placement
 
-- Use ESP-IDF for firmware code, not Arduino. `C++`17 features are available.
+- Use ESP-IDF for firmware code, not Arduino. Write `C++`17: the code must also build as `C++`20 (ESPHome) and `C++`23 (the ESP-IDF default).
 - Keep shared `core` and `runtime` code frontend-agnostic.
 - Follow ESPHome component conventions only inside `frontend/esphome/`. Do not assume ESPHome-specific patterns apply to Matter, Native, or shared runtime code.
 - Use `ESPECTRE_LOGD`, `ESPECTRE_LOGI`, `ESPECTRE_LOGW`, and `ESPECTRE_LOGE` in shared `core` and `runtime` code so frontends own the logging backend. Frontend-specific ESP-IDF code may use `ESP_LOG*` directly. Do not add blocking work in firmware `loop()` paths or callbacks.
