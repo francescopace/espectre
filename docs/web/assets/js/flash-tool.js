@@ -10,7 +10,7 @@
 
 'use strict';
 
-    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.6.1-2.8.1/headless.js?v=5';
+    const FLASH_SERIAL_BUNDLE = '/vendor/espectre-web-serial-0.7.0-2.8.1/headless.js?v=5';
     const FLASH_ANSI_BUNDLE = '/vendor/ansi_up-6.0.6/ansi_up.js';
     const FLASH_SERIAL_BAUD = 115200;
     const FLASH_IMPROV_PROBE_TIMEOUT_MS = 1500;
@@ -833,19 +833,6 @@
         return description;
     }
 
-    function flashApplyEsptoolSpiRegisterFix(loader) {
-        const readFlashId = loader.readFlashId.bind(loader);
-        loader.readFlashId = async (...args) => {
-            const chip = loader.chip;
-            if ((chip?.CHIP_NAME === 'ESP32-C5' || chip?.CHIP_NAME === 'ESP32-C6')
-                    && chip.SPI_REG_BASE === 0x60002000) {
-                // Fixed upstream after esptool-js 0.6.1; keep the dependency unmodified.
-                chip.SPI_REG_BASE = 0x60003000;
-            }
-            return readFlashId(...args);
-        };
-    }
-
     function flashSelectArtifact(artifacts, chip) {
         const normalized = flashNormalizeChip(chip);
         return (artifacts || []).find(
@@ -896,7 +883,6 @@
             serialOptions: { bufferSize: FLASH_SERIAL_BUFFER_SIZE }
         });
         flash.loader = loader;
-        flashApplyEsptoolSpiRegisterFix(loader);
         let attempt = 0;
         flashTrackUsbMethod(loader, 'connect', 'Opening the bootloader connection…', 'Reading chip information…');
         flashTrackUsbMethod(loader, '_connectAttempt', () => 'Connecting to bootloader (attempt ' + (++attempt) + ')…');
@@ -1238,6 +1224,8 @@
         // Isolate metadata-read limits from the loader used for later installation.
         const session = Object.create(loader);
         session.transport = Object.create(transport);
+        // Commands must discard stale bytes from the live receive buffer.
+        session.transport.flushInput = () => transport.flushInput();
         const ensureActive = () => {
             if (stopped) throw new Error('The USB flash read has been stopped.');
         };
@@ -2399,7 +2387,6 @@
         stageVisible: flashStageVisible,
         sessionPanelVisible: flashSessionPanelVisible,
         selectArtifact: flashSelectArtifact,
-        applyEsptoolSpiRegisterFix: flashApplyEsptoolSpiRegisterFix,
         hardResetLoader: flashHardResetLoader,
         serialIdentity: flashSerialIdentity,
         matterCodes: flashMatterCodes,

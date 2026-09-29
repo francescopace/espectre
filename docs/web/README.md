@@ -46,7 +46,7 @@ Generated pages compute their hashes at build time. The route manifest and fragm
 
 ## Browser dependencies
 
-The installer uses a local bundle built from pinned `esptool-js` 0.6.1 and `improv-wifi-serial-sdk` 2.8.1, extended with ESPectre's `GET_MATTER_ONBOARDING` (`0x80`) RPC. QRCode.js 1.0.0 draws the Matter setup code and ansi_up 6.0.6 colors the serial log. `package-lock.json` pins the versions.
+The installer uses a local bundle built from pinned `esptool-js` 0.7.0 and `improv-wifi-serial-sdk` 2.8.1, extended with ESPectre's `GET_MATTER_ONBOARDING` (`0x80`) RPC. QRCode.js 1.0.0 draws the Matter setup code and ansi_up 6.0.6 colors the serial log. `package-lock.json` pins the versions.
 
 ```bash
 npm --prefix docs/web ci --ignore-scripts

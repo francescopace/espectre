@@ -219,13 +219,14 @@ describe('Monitor traffic source availability', () => {
 function flashReadFixture(contents) {
     const reads = [];
     const writes = [];
-    const packets = [];
     const transport = {
+        packets: [],
+        flushInput() { this.packets = []; },
         getInfo: () => 'test',
         slipWriter: (packet) => packet,
         async read() {
-            assert.ok(packets.length, 'A read must have a pending protocol frame');
-            return packets.shift();
+            assert.ok(transport.packets.length, 'A read must have a pending protocol frame');
+            return transport.packets.shift();
         },
         device: {
             writable: {
@@ -244,11 +245,11 @@ function flashReadFixture(contents) {
                         response[0] = 1;
                         response[1] = packet[1];
                         const bytes = contents(address, size);
-                        packets.push(response);
+                        transport.packets.push(response);
                         for (let offset = 0; offset < bytes.length; offset += blockSize) {
-                            packets.push(bytes.slice(offset, offset + blockSize));
+                            transport.packets.push(bytes.slice(offset, offset + blockSize));
                         }
-                        packets.push(new Uint8Array(16));
+                        transport.packets.push(new Uint8Array(16));
                     },
                     releaseLock() {},
                     async abort() {},
@@ -260,7 +261,7 @@ function flashReadFixture(contents) {
         transport, baudrate: 115200,
         terminal: { clean() {}, writeLine() {}, write() {} },
     });
-    return { loader, transport, reads, writes, packets };
+    return { loader, transport, reads, writes, get packets() { return transport.packets; } };
 }
 
 function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
@@ -991,19 +992,6 @@ describe('website tool contracts', () => {
         assert.equal(new URL(link.href).search, '');
     });
 
-    it('applies the upstream esptool-js SPI register correction for C5 and C6', async () => {
-        const core = loadFlashCore();
-        for (const chipName of ['ESP32-C5', 'ESP32-C6']) {
-            const loader = {
-                chip: null,
-                async readFlashId() { return this.chip.SPI_REG_BASE; },
-            };
-            core.applyEsptoolSpiRegisterFix(loader);
-            loader.chip = { CHIP_NAME: chipName, SPI_REG_BASE: 0x60002000 };
-            assert.equal(await loader.readFlashId(), 0x60003000);
-        }
-    });
-
     it('uses the esp-web-tools hard-reset sequence after flashing', async () => {
         const core = loadFlashCore();
         const calls = [];
@@ -1317,6 +1305,17 @@ describe('website tool contracts', () => {
         assert.equal(fixture.packets.length, 0);
     });
 
+    it('discards stale input from the live transport before each metadata read', async () => {
+        const context = loadFlashRuntime();
+        const fixture = flashReadFixture((_address, size) => new Uint8Array(size).fill(7));
+        for (const address of [0x8000, 0x20000]) {
+            fixture.packets.push(new Uint8Array([0xff]));
+            const bytes = await context.flashReadFirmwareBytes(fixture.loader, address, 4, 'test');
+            assert.deepEqual(Array.from(bytes), [7, 7, 7, 7]);
+            assert.equal(fixture.packets.length, 0);
+        }
+    });
+
     it('reads metadata in bounded blocks with cumulative ACKs and rejects truncated frames before ACK', async () => {
         const context = loadFlashRuntime({ console: { info() {}, warn() {} } });
         const blockSize = vm.runInContext('FLASH_METADATA_BLOCK_SIZE', context);
@@ -1370,7 +1369,6 @@ describe('website tool contracts', () => {
             flashCloseMode: async () => {},
             flashWaitForSerialReopen: async () => {},
             flashReportUsbStep() {},
-            flashApplyEsptoolSpiRegisterFix() {},
         });
         await context.flashEnterLoader({
             Transport,

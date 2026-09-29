@@ -40,7 +40,7 @@ The production site stages pinned browser assets and the runtime dependencies in
 
 | Package | Version | License |
 | --- | --- | --- |
-| esptool-js | 0.6.1 | Apache-2.0 |
+| esptool-js | 0.7.0 | Apache-2.0 |
 | atob-lite | 2.0.0 | MIT |
 | pako | 2.2.0 | MIT and Zlib |
 | improv-wifi-serial-sdk | 2.8.0 | Apache-2.0 |
