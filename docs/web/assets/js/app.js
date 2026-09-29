@@ -24,7 +24,8 @@
 
     // analytics.js is optional: the app must work with it blocked or absent.
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
-    const errorType = (error) => (error && (error.code || error.name)) || 'Error';
+    const errorType = (error) => Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599
+        ? `http_${error.status}` : (error && (error.code || error.name)) || 'Error';
     const toolNameForRoute = (routeName) => routeRegistry.groupOf(routeName) === 'tools'
         ? (routeRegistry.get(routeName)?.analyticsName || routeName)
         : 'monitor';
@@ -378,7 +379,15 @@
 
     async function loadToolScript(routeName) {
         const src = toolScriptUrl(routeName);
-        if (src) await loadScriptOnce(src);
+        if (!src) return;
+        try {
+            await loadScriptOnce(src);
+        } catch (error) {
+            track('tool_load_error', {
+                tool_name: toolNameForRoute(routeName), stage: 'script', error_type: errorType(error)
+            });
+            throw error;
+        }
     }
 
     async function ensureActiveToolScripts() {
@@ -411,6 +420,11 @@
                 return true;
             } catch (error) {
                 console.warn('Static content fetch failed:', error);
+                if (routeRegistry.groupOf(route) === 'tools') {
+                    track('tool_load_error', {
+                        tool_name: toolNameForRoute(route), stage: 'content', error_type: errorType(error)
+                    });
+                }
                 container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
                     + '<a href="' + definition.staticPath + '">Open the standalone page</a>.</p>';
                 return false;
@@ -426,11 +440,18 @@
         const initializerName = toolInitializers[route];
         if (!ready || !initializerName || initializedToolRoutes.has(route)) return ready;
         await loadToolScript(route);
-        const initializer = window[initializerName];
-        if (typeof initializer !== 'function') {
-            throw new Error(`Tool initializer ${initializerName} is unavailable`);
+        try {
+            const initializer = window[initializerName];
+            if (typeof initializer !== 'function') {
+                throw new Error(`Tool initializer ${initializerName} is unavailable`);
+            }
+            initializer();
+        } catch (error) {
+            track('tool_load_error', {
+                tool_name: toolNameForRoute(route), stage: 'initialization', error_type: errorType(error)
+            });
+            throw error;
         }
-        initializer();
         initializedToolRoutes.add(route);
         if (conn.mode === 'demo' && demoSysinfoSnapshot) {
             applySysinfo(demoSysinfoSnapshot);

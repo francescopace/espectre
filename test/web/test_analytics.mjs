@@ -29,7 +29,7 @@ globalThis.__analyticsTest = {
 };`;
 
 function analyticsContext({
-    hostname = 'espectre.dev', path = '/', hash = '', staticPage = false,
+    hostname = 'espectre.dev', path = '/', hash = '', search = '', staticPage = false,
     navigatorValues = {}, storedConsent = null, preloadManifest = true
 } = {}) {
     const appendedScripts = [];
@@ -54,6 +54,7 @@ function analyticsContext({
         hostname,
         pathname: path,
         hash,
+        search,
         origin: `https://${hostname}`
     };
     const window = {
@@ -65,7 +66,7 @@ function analyticsContext({
     };
     if (preloadManifest) window.ESPectreRouteManifest = routeManifest;
     const context = vm.createContext({
-        console, Date, Map, Set, URL, Object, navigator: navigatorValues, document, location,
+        console, Date, Map, Set, URL, URLSearchParams, Object, navigator: navigatorValues, document, location,
         fetch: async (url) => ({
             ok: url === '/routes.json',
             status: url === '/routes.json' ? 200 : 404,
@@ -159,6 +160,71 @@ describe('analytics privacy boundary', () => {
         assert.equal(window.dataLayer.length, before + 1);
         assert.equal(window.dataLayer.at(-1)[0], 'event');
         assert.equal(window.dataLayer.at(-1)[1], 'firmware_catalog');
+    });
+
+    it('preserves only public campaign slugs across navigation and delayed consent', () => {
+        const { api, appendedScripts, window } = analyticsContext({
+            search: '?utm_source=github&utm_medium=social&utm_campaign=rc3&utm_content=readme'
+                + '&utm_id=release-3&target=192.168.1.10&password=secret&utm_term=private'
+        });
+        window.location.search = '';
+        window.location.pathname = '/tools/flash/';
+        assert.equal(appendedScripts.length, 0);
+        assert.equal(window.dataLayer, undefined);
+        api.enableAnalytics();
+        const config = window.dataLayer.find((entry) => entry[0] === 'config')[2];
+        assert.equal(config.campaign_source, 'github');
+        assert.equal(config.campaign_medium, 'social');
+        assert.equal(config.campaign_name, 'rc3');
+        assert.equal(config.campaign_content, 'readme');
+        assert.equal(config.campaign_id, 'release-3');
+        assert.equal(config.campaign_term, undefined);
+        assert.equal(config.page_location, 'https://espectre.dev/tools/flash/');
+        assert.doesNotMatch(JSON.stringify(window.dataLayer), /192\.168|secret|private/);
+        api.disableAnalytics();
+        assert.equal(api.trackEvent('firmware_usb_result', { result: 'identified' }), false);
+    });
+
+    it('rejects campaign URLs, addresses, free text, and oversized values', () => {
+        const { api, window } = analyticsContext({
+            search: '?utm_source=user%40example.com&utm_medium=https://example.com'
+                + '&utm_campaign=private%20text&utm_id=192.168.1.2&utm_content=' + 'a'.repeat(65)
+        });
+        api.enableAnalytics({ sendPageView: false });
+        const config = window.dataLayer.find((entry) => entry[0] === 'config')[2];
+        assert.equal(Object.keys(config).some((key) => key.startsWith('campaign_')), false);
+    });
+
+    it('keeps reliability diagnostics bounded and excludes private payloads', () => {
+        const { api, window } = analyticsContext();
+        const cases = [
+            ['firmware_usb_result', { result: 'cancelled', stage: 'port_selection', flow: 'flash' }],
+            ['wifi_provision_result', { result: 'failure', stage: 'provision', error_type: 'NetworkError' }],
+            ['tool_load_error', { tool_name: 'game', stage: 'script', error_type: 'TypeError' }],
+            ['local_discovery', { method: 'target', result: 'empty', network_permission: 'granted' }],
+            ['firmware_install_result', { stage: 'download', result: 'failure', error_type: 'FirmwareSignatureError', firmware_version: '3.0.0-rc3' }]
+        ];
+        for (const [name, params] of cases) {
+            assert.equal(api.trackEvent(name, params), false);
+        }
+        api.enableAnalytics({ sendPageView: false });
+        for (const [name, params] of cases) {
+            api.trackEvent(name, { ...params, duration_ms: 125, ssid: 'private', message: 'secret', endpoint: '192.168.1.1' });
+            const event = window.dataLayer.at(-1)[2];
+            for (const [key, value] of Object.entries(params)) assert.equal(event[key], value);
+            assert.equal(event.analytics_version, '2');
+            assert.doesNotMatch(JSON.stringify(event), /private|secret|192\.168/);
+        }
+        const rejected = api.sanitizeAnalyticsEvent('local_discovery', {
+            method: 'private device name', network_permission: 'private', duration_ms: Infinity
+        });
+        assert.equal(rejected.method, 'unknown');
+        assert.equal(rejected.network_permission, 'unknown');
+        assert.equal(rejected.duration_ms, undefined);
+        for (const transport of ['direct_http', 'simulation', 'serial']) {
+            assert.equal(api.sanitizeAnalyticsEvent('tool_connection', { transport }).transport, transport);
+        }
+        assert.equal(api.sanitizeAnalyticsEvent('tool_connection', { transport: '192.168.1.1' }).transport, 'unknown');
     });
 
     it('allows the documented tool contract and rejects device-controlled analytics data', () => {
@@ -316,7 +382,7 @@ describe('analytics route metadata', () => {
             const events = window.dataLayer?.filter((entry) => entry[1] === 'select_404_suggestion') || [];
             assert.equal(events.length, storedConsent === 'granted' ? 1 : 0);
             if (storedConsent === 'granted') {
-                assert.deepEqual(Object.keys(events[0][2]), ['content_group']);
+                assert.deepEqual(Object.keys(events[0][2]), ['content_group', 'analytics_version']);
                 const pageView = window.dataLayer.find((entry) => entry[1] === 'page_view');
                 assert.equal(pageView[2].page_location, 'https://espectre.dev/documentation/setup/');
             }

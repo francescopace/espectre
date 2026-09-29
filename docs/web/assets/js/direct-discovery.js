@@ -304,7 +304,31 @@
         return button?.closest('.device-connect-card')?.querySelector('.js-direct-discovery') || null;
     }
 
+    let localDiscoveryAttempt = null;
+
+    function beginLocalDiscovery(method) {
+        finishLocalDiscovery(localDiscoveryAttempt, 'cancelled');
+        const attempt = { tool_name: activeToolName(), method, startedAt: Date.now() };
+        localDiscoveryAttempt = attempt;
+        track('local_discovery', { tool_name: attempt.tool_name, method, result: 'attempt' });
+        return attempt;
+    }
+
+    function finishLocalDiscovery(attempt, result, params = {}) {
+        if (!attempt || localDiscoveryAttempt !== attempt) return;
+        localDiscoveryAttempt = null;
+        track('local_discovery', {
+            tool_name: attempt.tool_name, method: attempt.method, result,
+            duration_ms: Math.max(0, Date.now() - attempt.startedAt),
+            ...(params.device_count !== undefined
+                ? { device_count: params.device_count, truncated: params.truncated } : {}),
+            ...(params.error_type
+                ? { error_type: params.error_type, network_permission: params.network_permission } : {})
+        });
+    }
+
     function cancelDirectDiscovery({ clear = false } = {}) {
+        finishLocalDiscovery(localDiscoveryAttempt, 'cancelled');
         directDiscoveryGeneration += 1;
         const client = directDiscoveryClient;
         directDiscoveryClient = null;
@@ -460,7 +484,7 @@
         panel.textContent = 'Starting device search…';
         button.disabled = true;
         button.setAttribute('aria-disabled', 'true');
-        track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
+        const attempt = beginLocalDiscovery('browse');
         try {
             const result = await queryLocalPeers((message) => {
                 if (generation === directDiscoveryGeneration) panel.textContent = message;
@@ -468,8 +492,7 @@
             if (generation !== directDiscoveryGeneration) return;
             setDirectConnectionHelp();
             renderDiscoveredPeers(panel, result);
-            track('local_discovery', {
-                tool_name: activeToolName(), result: result.devices.length ? 'success' : 'empty',
+            finishLocalDiscovery(attempt, result.devices.length ? 'success' : 'empty', {
                 device_count: result.devices.length, truncated: result.truncated
             });
         } catch (error) {
@@ -477,8 +500,8 @@
             const permissionState = await localNetworkAccessState();
             if (generation !== directDiscoveryGeneration) return;
             panel.textContent = directDiscoveryFailureMessage(error, permissionState);
-            track('local_discovery', {
-                tool_name: activeToolName(), result: 'failure', error_type: errorType(error)
+            finishLocalDiscovery(attempt, 'failure', {
+                error_type: errorType(error), network_permission: permissionState
             });
         } finally {
             if (generation === directDiscoveryGeneration) {
@@ -621,7 +644,7 @@
             : target.shortId ? `device ID …${target.shortId}` : `device name “${target.search}”`;
         setDirectConnectionHelp();
         setDirectConnectionStatus(`Looking for ${description} on this Wi-Fi network.`);
-        track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
+        const attempt = beginLocalDiscovery('target');
         let result;
         try {
             result = await queryLocalPeers();
@@ -629,6 +652,9 @@
             if (generation !== directDiscoveryGeneration) return null;
             const permissionState = await localNetworkAccessState();
             if (generation !== directDiscoveryGeneration) return null;
+            finishLocalDiscovery(attempt, 'failure', {
+                error_type: errorType(error), network_permission: permissionState
+            });
             throw new Error(directDiscoveryFailureMessage(error, permissionState), { cause: error });
         } finally {
             if (generation === directDiscoveryGeneration) setDirectConnectionStatus();
@@ -639,8 +665,7 @@
             ? peer.device_id === target.deviceId
             : target.shortId ? peer.device_id.endsWith(target.shortId)
                 : [peer.name, peer.instance].some((value) => String(value || '').toLowerCase().includes(query)));
-        track('local_discovery', {
-            tool_name: activeToolName(), result: matches.length === 1 ? 'success' : (matches.length ? 'multiple' : 'empty'),
+        finishLocalDiscovery(attempt, matches.length === 1 ? 'success' : (matches.length ? 'multiple' : 'empty'), {
             device_count: result.devices.length, truncated: result.truncated
         });
         if (matches.length === 0) {

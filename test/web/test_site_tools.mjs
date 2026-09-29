@@ -35,6 +35,167 @@ function loadFlashCore(globals = {}) {
     return loadFlashRuntime(globals).window.ESPectreFlashCore;
 }
 
+describe('tool reliability analytics', () => {
+    const errorType = (error) => error.code || error.name;
+
+    for (const failedStage of ['download', 'erase', 'write', 'reset', 'onboarding', null]) {
+        it(`reports one install outcome with its stage (${failedStage || 'success'})`, async () => {
+            const events = [];
+            const nodes = new Map();
+            const node = (selector) => {
+                if (!nodes.has(selector)) nodes.set(selector, { value: 'native', checked: false });
+                return nodes.get(selector);
+            };
+            const failAt = (stage) => {
+                if (stage === failedStage) throw Object.assign(new Error('private device details'), { name: 'NetworkError' });
+            };
+            const context = loadFlashRuntime({
+                $: node, document: { getElementById: node }, errorType,
+                track: (name, params) => events.push({ name, params }),
+                console: { warn() {} }
+            });
+            Object.assign(context.flashState, {
+                port: {}, mode: 'loader', requiresErase: true, targetVersion: '3.0.0-rc3',
+                loader: { eraseFlash: async () => failAt('erase'), writeFlash: async () => failAt('write') }
+            });
+            Object.assign(context, {
+                flashConfirmEraseDialog: async () => true,
+                flashShowProgress() {}, flashSetState() {}, flashSetStep() {},
+                flashSetProgress() {}, flashSyncControls() {},
+                flashDownloadFirmware: async () => { failAt('download'); return { factory: new Uint8Array(8) }; },
+                flashHardResetLoader: async () => failAt('reset'),
+                flashCloseMode: async () => {}, flashWaitForClose: async (promise) => promise,
+                flashRecordInstalledFirmware() {},
+                flashPostInstall: async () => failAt('onboarding')
+            });
+            await context.flashInstall();
+            const results = events.filter((event) => event.name === 'firmware_install_result');
+            assert.equal(events.filter((event) => event.name === 'firmware_install_start').length, 1);
+            assert.equal(results.length, 1);
+            const result = results[0].params;
+            const failed = failedStage && failedStage !== 'onboarding';
+            assert.equal(result.result, failed ? 'failure' : 'success');
+            assert.equal(result.stage, failed ? failedStage : 'reset');
+            assert.equal(result.firmware_version, '3.0.0-rc3');
+            assert.ok(result.duration_ms >= 0);
+            assert.equal(result.error_type, failed ? 'NetworkError' : undefined);
+            assert.doesNotMatch(JSON.stringify(events), /private device/);
+        });
+    }
+
+    it('reports chooser cancellation separately without an install result', async () => {
+        const events = [];
+        const context = loadFlashRuntime({
+            $: () => ({}), document: { getElementById: () => ({ value: 'native' }) },
+            browserSupport: { flash: true }, errorType, toast() {},
+            navigator: { serial: { requestPort: async () => { throw Object.assign(new Error(), { name: 'NotFoundError' }); } } },
+            track: (name, params) => events.push({ name, params })
+        });
+        Object.assign(context, {
+            flashSetFlow() {}, flashNotifyTransition() {}, flashReportUsbStep() {},
+            flashLoadHeadless: async () => ({}), flashCleanup: async () => {},
+            flashSetStep() {}, flashSetState() {}, flashSyncControls() {}
+        });
+        await context.flashDetect();
+        assert.deepEqual(events.map((event) => event.name), ['firmware_installer_open', 'firmware_usb_result']);
+        assert.equal(events[1].params.result, 'cancelled');
+        assert.equal(events[1].params.stage, 'port_selection');
+        context.flashReportUsbResult('failure');
+        assert.equal(events.length, 2);
+    });
+
+    it('reports Wi-Fi retries and ignores a completion after cancellation', async () => {
+        const events = [];
+        const fields = new Map();
+        const field = (selector) => {
+            if (!fields.has(selector)) fields.set(selector, { value: 'private-value' });
+            return fields.get(selector);
+        };
+        const context = loadFlashRuntime({
+            $: field, document: { getElementById: () => ({ value: 'native' }) },
+            errorType, toast() {}, console: { warn() {} },
+            track: (name, params) => events.push({ name, params })
+        });
+        Object.assign(context, { flashSetState() {}, flashComplete() {} });
+        context.flashState.improv = { provision: async () => { throw Object.assign(new Error('secret'), { name: 'NetworkError' }); } };
+        await context.flashProvision({ preventDefault() {} });
+        assert.equal(events.at(-1).params.result, 'failure');
+        context.flashState.improv.provision = async () => {};
+        await context.flashProvision({ preventDefault() {} });
+        assert.equal(events.at(-1).params.result, 'success');
+        let finish;
+        context.flashState.improv.provision = () => new Promise((resolve) => { finish = resolve; });
+        field('.js-flash-wifi-ssid').value = 'private-value';
+        const pending = context.flashProvision({ preventDefault() {} });
+        context.flashReportWifiResult('cancelled');
+        context.flashState.operation += 1;
+        finish();
+        await pending;
+        assert.deepEqual(events.map((event) => event.params.result), ['failure', 'success', 'cancelled']);
+        assert.ok(events.every((event) => event.name === 'wifi_provision_result'));
+        assert.doesNotMatch(JSON.stringify(events), /secret|private-value/);
+    });
+
+    for (const outcome of ['empty', 'failure', 'cancelled']) {
+        it(`finishes target discovery exactly once (${outcome})`, async () => {
+            const events = [];
+            let finish;
+            const context = vm.createContext({
+                Date, errorType, $$: () => [], activeToolName: () => 'game',
+                track: (name, params) => events.push({ name, params })
+            });
+            vm.runInContext(read('docs/web/assets/js/direct-discovery.js'), context);
+            vm.runInContext('let directDiscoveryGeneration = 0; let directDiscoveryClient = null;', context);
+            Object.assign(context, {
+                setDirectConnectionHelp() {}, setDirectConnectionStatus() {},
+                localNetworkAccessState: async () => 'denied',
+                queryLocalPeers: async () => {
+                    if (outcome === 'failure') throw Object.assign(new Error('private network'), { code: 'connection_failed' });
+                    if (outcome === 'cancelled') await new Promise((resolve) => { finish = resolve; });
+                    return { devices: [], truncated: false };
+                }
+            });
+            const pending = context.resolveDiscoveredTarget({ search: 'private-name' }, {});
+            if (outcome === 'cancelled') {
+                context.cancelDirectDiscovery();
+                finish();
+                await pending;
+            } else await assert.rejects(pending);
+            assert.deepEqual(events.map((event) => event.params.result), ['attempt', outcome]);
+            assert.equal(events[1].params.method, 'target');
+            assert.ok(events[1].params.duration_ms >= 0);
+            assert.equal(events[1].params.network_permission, outcome === 'failure' ? 'denied' : undefined);
+            assert.doesNotMatch(JSON.stringify(events), /private-name|private network/);
+        });
+    }
+
+    it('reports lazy-script and initializer failures while allowing a retry', async () => {
+        const source = read('docs/web/assets/js/app.js');
+        const context = vm.createContext({
+            window: {}, errorType, conn: {}, demoSysinfoSnapshot: null,
+            $: () => ({ dataset: { scriptSrc: '/assets/js/game-tool.js' } }),
+            toolNameForRoute: () => 'game',
+            toolInitializers: { 'tool-game': 'initGame' }, initializedToolRoutes: new Set(),
+            loadStaticContent: async () => true,
+            loadScriptOnce: async () => { throw new TypeError('private URL'); },
+            events: []
+        });
+        vm.runInContext('const track = (name, params) => events.push({ name, params });', context);
+        vm.runInContext(source.slice(source.indexOf('    function toolScriptUrl('), source.indexOf('    async function ensureActiveToolScripts(')), context);
+        vm.runInContext(source.slice(source.indexOf('    async function prepareRouteContent('), source.indexOf('    /*', source.indexOf('    async function prepareRouteContent('))), context);
+        await assert.rejects(context.prepareRouteContent('tool-game'));
+        assert.equal(context.events.at(-1).params.stage, 'script');
+        context.loadScriptOnce = async () => {};
+        await assert.rejects(context.prepareRouteContent('tool-game'));
+        assert.equal(context.events.at(-1).params.stage, 'initialization');
+        context.window.initGame = () => {};
+        assert.equal(await context.prepareRouteContent('tool-game'), true);
+        assert.equal(context.events.length, 2);
+        assert.ok(context.initializedToolRoutes.has('tool-game'));
+        assert.doesNotMatch(JSON.stringify(context.events), /private URL|game-tool\.js/);
+    });
+});
+
 describe('Monitor traffic source availability', () => {
     it('disables wifi_raw on C6 and restores it when the connected chip changes', () => {
         const options = ['ping', 'dns', 'dns_tcp', 'wifi_raw', 'external'].map((value) => ({ value }));

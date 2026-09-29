@@ -16,6 +16,21 @@ const SITE_POLICY = window.ESPectreSite;
 if (!SITE_POLICY) throw new Error('ESPectre site policy is unavailable');
 const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
 const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
+const ANALYTICS_VERSION = '2';
+
+// Keep only public campaign slugs in memory while the visitor decides on consent.
+const landingCampaign = (() => {
+    const query = new URLSearchParams(window.location.search || '');
+    const campaign = {};
+    for (const [utm, field] of Object.entries({
+        utm_source: 'campaign_source', utm_medium: 'campaign_medium',
+        utm_campaign: 'campaign_name', utm_id: 'campaign_id', utm_content: 'campaign_content'
+    })) {
+        const value = query.get(utm);
+        if (value && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(value)) campaign[field] = value;
+    }
+    return campaign;
+})();
 
 const CAPABILITY_BY_ROUTE = {
     'tool-flash': ['web_serial', 'serial']
@@ -29,16 +44,23 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
         'tool_name', 'entry_point', 'frontend', 'chip', 'detector', 'protocol_version',
         'firmware_version'
     ],
-    firmware_catalog: ['channel', 'result', 'frontend_count', 'artifact_count', 'error_type'],
-    firmware_install_result: ['frontend', 'channel', 'chip', 'result'],
-    firmware_install_start: ['frontend', 'channel', 'chip'],
+    firmware_catalog: ['channel', 'result', 'frontend_count', 'artifact_count', 'error_type', 'firmware_version'],
+    firmware_install_result: [
+        'frontend', 'channel', 'chip', 'result', 'stage', 'duration_ms', 'error_type', 'firmware_version'
+    ],
+    firmware_install_start: ['frontend', 'channel', 'chip', 'firmware_version'],
     firmware_installer_open: ['frontend', 'channel', 'chip'],
+    firmware_usb_result: ['frontend', 'channel', 'chip', 'flow', 'result', 'stage', 'duration_ms', 'error_type'],
+    wifi_provision_result: ['frontend', 'chip', 'flow', 'result', 'stage', 'duration_ms', 'error_type'],
     firmware_releases_open: ['frontend', 'channel', 'entry_point'],
     firmware_selection: ['selection_type', 'frontend', 'channel'],
     game_abandon: ['input_mode', 'score', 'distance', 'reason'],
     game_over: ['input_mode', 'score', 'orbs', 'distance'],
     game_start: ['input_mode'],
-    local_discovery: ['tool_name', 'result', 'device_count', 'truncated', 'error_type'],
+    local_discovery: [
+        'tool_name', 'result', 'method', 'duration_ms', 'network_permission',
+        'device_count', 'truncated', 'error_type'
+    ],
     matter_qr_read: ['result', 'error_type'],
     ota_update_attempt: ['channel', 'transport', 'input_mode', 'result', 'error_type'],
     ota_update_result: ['result', 'ota_state', 'duration_ms', 'channel', 'error_type'],
@@ -58,6 +80,7 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
     tool_capability: ['tool_name', 'capability', 'result'],
     tool_connection: ['tool_name', 'entry_point', 'transport', 'result', 'error_type'],
     tool_demo_start: ['tool_name', 'entry_point'],
+    tool_load_error: ['tool_name', 'stage', 'error_type'],
     tool_disconnect: [
         'tool_name', 'entry_point', 'transport', 'input_mode', 'reason', 'duration_seconds'
     ],
@@ -82,8 +105,11 @@ const ANALYTICS_CATEGORY_VALUES = Object.freeze({
     detector: new Set(['high_accuracy', 'lightweight', 'unknown']),
     entry_point: new Set(['configure', 'flash', 'game', 'monitor', 'raw-csi', 'theremin']),
     format: new Set(['tar.gz', 'zip']),
+    flow: new Set(['flash', 'wifi']),
     frontend: new Set(['custom', 'esphome', 'matter', 'micro', 'native']),
     input_mode: new Set(['demo', 'direct']),
+    method: new Set(['browse', 'target']),
+    network_permission: new Set(['granted', 'denied', 'prompt', 'unavailable']),
     ota_state: new Set([
         'applying', 'checking', 'downloading', 'error', 'idle', 'reboot_scheduled',
         'reconnected', 'starting', 'unknown', 'up_to_date', 'update_available'
@@ -95,16 +121,26 @@ const ANALYTICS_CATEGORY_VALUES = Object.freeze({
         'restart', 'route_change', 'stream_error', 'user', 'wifi_cleared'
     ]),
     result: new Set([
-        'accepted', 'attempt', 'available', 'cancelled', 'empty', 'failure', 'multiple',
+        'accepted', 'already_configured', 'attempt', 'available', 'cancelled', 'empty',
+        'failure', 'identified', 'multiple', 'skipped',
         'stopped', 'success', 'unavailable', 'unconfirmed', 'unsupported',
         'validation_failure'
     ]),
     selection_type: new Set(['channel', 'frontend']),
     setting_value: new Set(['sawtooth', 'sine', 'square', 'start', 'stop', 'triangle']),
-    tool_name: new Set(['configure', 'flash', 'game', 'monitor', 'raw-csi', 'theremin'])
+    stage: new Set([
+        'dependency', 'port_selection', 'detection', 'prepare', 'download',
+        'erase', 'write', 'reset', 'provision', 'script', 'content', 'initialization'
+    ]),
+    tool_name: new Set(['configure', 'flash', 'game', 'monitor', 'raw-csi', 'theremin']),
+    transport: new Set(['direct_http', 'simulation', 'serial'])
 });
 
 const ANALYTICS_ERROR_TYPES = new Set([
+    'FirmwareCatalogFormatError', 'FirmwareDownloadError', 'FirmwareLayoutError',
+    'FirmwareSignatureError', 'ImprovUnavailableError', 'ImprovWifiStoppedError',
+    'SerialDeviceChangedError', 'SerialSessionError', 'UnsupportedChipError',
+    'UsbFlashReadError', 'WebSerialBundleError',
     'AbortError', 'ClientDisconnected', 'DeviceReportedError', 'Error', 'InvalidStateError',
     'NetworkError', 'NotAllowedError', 'NotConnected', 'NotFoundError', 'NotSupportedError',
     'QrRendererMissing', 'RangeError', 'ReferenceError', 'SecurityError', 'StatusTimeout',
@@ -329,7 +365,9 @@ function enableAnalytics({ sendPageView = true } = {}) {
         const config = {
             send_page_view: false,
             allow_google_signals: false,
-            allow_ad_personalization_signals: false
+            allow_ad_personalization_signals: false,
+            page_location: window.location.origin + (IS_STATIC_PAGE ? window.location.pathname : routePath(currentRoute())),
+            ...landingCampaign
         };
         if (analyticsDebugEnabled()) config.debug_mode = true;
         window.gtag('config', GA_MEASUREMENT_ID, config);
@@ -376,6 +414,7 @@ function trackEvent(eventName, params = {}) {
     }
     window.gtag('event', eventName, {
         content_group: getSiteSection(),
+        analytics_version: ANALYTICS_VERSION,
         ...sanitized
     });
     return true;

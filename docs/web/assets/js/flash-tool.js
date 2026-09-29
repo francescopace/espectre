@@ -64,7 +64,7 @@
         flowDialogReturnFocus: null,
         consoleOpen: false, consoleText: '', consoleAnsiText: '', consoleRedacting: false,
         ansiDependency: null, ansiConstructor: null, ansiRenderer: null,
-        attempt: null, flow: 'flash', operation: 0,
+        attempt: null, usbAttempt: null, wifiAttempt: null, flow: 'flash', operation: 0,
         closePromise: null, lastSerialCloseAt: 0,
         activityTimer: null
     };
@@ -151,14 +151,50 @@
         };
     }
 
-    function flashReportResult(result) {
-        if (flash.resultReported) return;
+    function flashReportResult(result, error) {
+        if (flash.resultReported || !flash.attempt) return;
         flash.resultReported = true;
-        track('firmware_install_result', { ...flashParams(), result });
+        track('firmware_install_result', {
+            ...flash.attempt.params, result, stage: flash.attempt.stage,
+            duration_ms: Math.max(0, Date.now() - flash.attempt.startedAt),
+            ...(error ? { error_type: errorType(error) } : {})
+        });
+    }
+
+    function flashReportUsbResult(result, error) {
+        const attempt = flash.usbAttempt;
+        if (!attempt) return;
+        flash.usbAttempt = null;
+        const { frontend, channel } = flashParams();
+        track('firmware_usb_result', {
+            frontend, channel, flow: attempt.flow, result, stage: attempt.stage,
+            ...(['identified', 'unsupported'].includes(result) ? { chip: flash.detectedChip } : {}),
+            duration_ms: Math.max(0, Date.now() - attempt.startedAt),
+            ...(error ? { error_type: errorType(error) } : {})
+        });
+    }
+
+    function flashBeginWifiTracking(stage) {
+        flash.wifiAttempt = {
+            startedAt: Date.now(), stage,
+            params: { frontend: flash.detectedFrontend || flashParams().frontend,
+                chip: flash.detectedChip, flow: flash.flow }
+        };
+    }
+
+    function flashReportWifiResult(result, error) {
+        const attempt = flash.wifiAttempt;
+        if (!attempt) return;
+        flash.wifiAttempt = null;
+        track('wifi_provision_result', {
+            ...attempt.params, result, stage: attempt.stage,
+            duration_ms: Math.max(0, Date.now() - attempt.startedAt),
+            ...(error ? { error_type: errorType(error) } : {})
+        });
     }
 
     function flashBeginInstallAttempt(erase, loader, onStart) {
-        const attempt = { erase, loader };
+        const attempt = { erase, loader, startedAt: Date.now(), stage: 'prepare' };
         flash.attempt = attempt;
         onStart(attempt);
         return attempt;
@@ -449,6 +485,7 @@
                 if (track('firmware_catalog', {
                     channel: selectedChannel,
                     result: 'success',
+                    firmware_version: flash.targetVersion,
                     frontend_count: frontends.length,
                     artifact_count: frontends.reduce(
                         (total, [, item]) => total + (item.artifacts || []).length, 0
@@ -516,6 +553,9 @@
             );
             failure.name = 'WebSerialBundleError';
             failure.cause = error;
+            track('tool_load_error', {
+                tool_name: 'flash', stage: 'dependency', error_type: failure.name
+            });
             throw failure;
         }
     }
@@ -878,6 +918,8 @@
             toast(flashUnsupportedMessage());
             return;
         }
+        flashReportUsbResult('cancelled');
+        flashReportWifiResult('cancelled');
         flash.resultReported = false;
         flashSetFlow('flash');
         flash.currentInfo = null;
@@ -886,17 +928,20 @@
         flash.nextUrl = '';
         $('.js-flash-force-erase').checked = false;
         const operation = ++flash.operation;
+        flash.usbAttempt = { startedAt: Date.now(), stage: 'dependency', flow: 'flash' };
         flashNotifyTransition('selecting', 'Loading USB tools…');
         track('firmware_installer_open', flashParams());
         try {
             if (flash.closePromise) await flashWaitForClose(flash.closePromise);
             const api = await flashLoadHeadless();
             if (operation !== flash.operation) return;
+            flash.usbAttempt.stage = 'port_selection';
             flashReportUsbStep(reusePort
                 ? 'Checking the selected USB device…'
                 : 'Choose the ESPectre USB device in the browser dialog.');
             const port = reusePort && flash.port ? flash.port : await navigator.serial.requestPort();
             if (operation !== flash.operation) return;
+            flash.usbAttempt.stage = 'detection';
             flashActivateUsb(port, false);
             flashNotifyTransition('detecting', 'USB device selected. Reading its firmware…');
             const improv = await flashProbeImprov(api);
@@ -945,10 +990,12 @@
             }
             flashActivateUsb(port);
             flashSetStep('review');
+            flashReportUsbResult('identified');
             toast('Device connected.');
         } catch (error) {
             if (operation !== flash.operation) return;
-            if (error?.name === 'NotFoundError') {
+            if (error?.name === 'NotFoundError' && flash.usbAttempt?.stage === 'port_selection') {
+                flashReportUsbResult('cancelled');
                 await flashCleanup(false);
                 flashSetStep('select');
                 flashSetState('ready');
@@ -982,19 +1029,25 @@
             toast('Wi-Fi configuration over USB is available for Native and ESPHome.');
             return;
         }
+        flashReportUsbResult('cancelled');
+        flashReportWifiResult('cancelled');
         flash.resultReported = false;
         flashSetFlow('wifi');
         flash.nextUrl = '';
         const operation = ++flash.operation;
+        flash.usbAttempt = { startedAt: Date.now(), stage: 'dependency', flow: 'wifi' };
+        flashBeginWifiTracking('prepare');
         flashNotifyTransition('selecting', reusePort
             ? 'Preparing Wi-Fi configuration…'
             : 'Choose the ESPectre USB device in the browser dialog.');
         try {
             const api = await flashLoadHeadless();
             if (operation !== flash.operation) return;
+            flash.usbAttempt.stage = 'port_selection';
             const usingExistingPort = Boolean(reusePort && flash.port);
             const port = usingExistingPort ? flash.port : await navigator.serial.requestPort();
             if (operation !== flash.operation) return;
+            flash.usbAttempt.stage = 'detection';
             flashActivateUsb(port, usingExistingPort);
             let improv = usingExistingPort && flash.mode === 'improv' ? flash.improv : null;
             if (usingExistingPort && flash.mode === 'loader' && flash.loader) {
@@ -1029,10 +1082,12 @@
             $('.js-flash-matter-onboarding').hidden = true;
             flashSetStep('onboarding');
             flashSetState('provisioning');
+            flashReportUsbResult('identified');
             toast('Wi-Fi configuration is ready.');
         } catch (error) {
             if (operation !== flash.operation) return;
-            if (error?.name === 'NotFoundError') {
+            if (error?.name === 'NotFoundError' && flash.usbAttempt?.stage === 'port_selection') {
+                flashReportUsbResult('cancelled');
                 await flashCleanup(false);
                 flashSetFlow('flash');
                 flashSetStep('select');
@@ -1425,8 +1480,9 @@
         }
         let loader = flash.mode === 'loader' ? flash.loader : null;
         const expectedChip = flash.detectedChip;
-        const attempt = flashBeginInstallAttempt(erase, loader, () => {
-            track('firmware_install_start', flashParams());
+        const attempt = flashBeginInstallAttempt(erase, loader, (activeAttempt) => {
+            activeAttempt.params = { ...flashParams(), firmware_version: flash.targetVersion };
+            track('firmware_install_start', activeAttempt.params);
         });
         flashShowProgress(true);
         flashSyncControls();
@@ -1448,7 +1504,10 @@
                 attempt.loader = loader;
             }
             await flashProgramImage({
-                download: () => flashDownloadFirmware(erase),
+                download: () => {
+                    attempt.stage = 'download';
+                    return flashDownloadFirmware(erase);
+                },
                 validate: () => {
                     if (flash.attempt !== attempt || flash.loader !== loader
                             || flash.mode !== 'loader') {
@@ -1481,15 +1540,18 @@
                     });
                 },
                 onErase: () => {
+                    attempt.stage = 'erase';
                     flashSetState('erase');
                     flashSetProgress(12, 'Erasing flash memory…');
                     flashSyncControls();
                 },
                 onWrite: () => {
+                    attempt.stage = 'write';
                     flashSetState('write');
                     flashSyncControls();
                 }
             });
+            attempt.stage = 'reset';
             flashSetState('restart');
             flashSetProgress(98, 'Restarting the board…');
             await flashHardResetLoader(loader, flash.transport);
@@ -1526,11 +1588,13 @@
             await flashReadMatterCodes();
             return;
         }
+        flashBeginWifiTracking('prepare');
         const api = await flashLoadHeadless();
         flashSetState('onboarding', 'Waiting for the new firmware…');
         await flashDelay(500);
         const improv = await flashProbeImprov(api, FLASH_IMPROV_BOOT_TIMEOUT_MS);
         if (!improv) {
+            flashReportWifiResult('unavailable');
             flashRecordInstalledFirmware(frontend);
             flashComplete('Firmware installed. Configure Wi-Fi later from a supported Improv Serial client.');
             return;
@@ -1538,6 +1602,7 @@
         flashRecordInstalledFirmware(frontend, improv.info);
         flash.nextUrl = improv.nextUrl || '';
         if (improv.state === api.ImprovSerialCurrentState.PROVISIONED || flash.nextUrl) {
+            flashReportWifiResult('already_configured');
             flashComplete('Firmware installed, and the device is already connected to a network.');
             return;
         }
@@ -1555,12 +1620,15 @@
         const ssid = $('.js-flash-wifi-ssid').value;
         const password = $('.js-flash-wifi-password');
         if (!ssid) return;
+        if (flash.wifiAttempt?.stage === 'provision') return;
+        flashBeginWifiTracking('provision');
         $('.js-flash-provision').disabled = true;
         flashSetState('provisioning');
         toast('Sending Wi-Fi settings directly to the device…');
         try {
             await flash.improv.provision(ssid, password.value, FLASH_PROVISION_TIMEOUT_MS);
             if (operation !== flash.operation) return;
+            flashReportWifiResult('success');
             flash.nextUrl = flash.improv.nextUrl || '';
             password.value = '';
             $('.js-flash-wifi-ssid').value = '';
@@ -1569,6 +1637,7 @@
                 : 'Firmware installed, and the device joined the network.');
         } catch (error) {
             if (operation !== flash.operation) return;
+            flashReportWifiResult('failure', error);
             password.value = '';
             console.warn('Improv Serial provisioning failed:', error);
             toast('The board could not join that network. Check the credentials and try again.');
@@ -1783,6 +1852,8 @@
         const operation = flash.operation;
         console.warn('Web Serial operation failed:', error);
         flashShowProgress(false);
+        flashReportUsbResult(error?.name === 'UnsupportedChipError' ? 'unsupported' : 'failure', error);
+        flashReportWifiResult('failure', error);
         if (flashShouldReportInstallResult()) {
             flashReportResult(error?.name === 'UnsupportedChipError' ? 'unsupported' : 'failure', error);
         }
@@ -1977,6 +2048,8 @@
         flash.operation += 1;
         flashShowProgress(false);
         if (reportCancelled && !flash.resultReported && flash.attempt) flashReportResult('cancelled');
+        flashReportUsbResult('cancelled');
+        flashReportWifiResult('cancelled');
         flash.consoleOpen = false;
         await flashCloseMode({ keepPort: false });
         flash.selectedArtifact = null;
@@ -2149,6 +2222,7 @@
         const returnFocus = flash.flowDialogReturnFocus;
         flash.flowDialogReturnFocus = null;
         flash.operation += 1;
+        flashReportWifiResult('cancelled');
         $('.js-flash-wifi-password').value = '';
         $('.js-flash-wifi-ssid').value = '';
         const returnStep = flash.detectedChip && flash.port ? 'review' : 'select';
@@ -2244,6 +2318,8 @@
         });
         $('.js-flash-wifi-form').addEventListener('submit', flashProvision);
         $('.js-flash-skip-onboarding').addEventListener('click', () => {
+            if (!flash.wifiAttempt) flashBeginWifiTracking('prepare');
+            flashReportWifiResult(flash.wifiAttempt.stage === 'provision' ? 'cancelled' : 'skipped');
             $('.js-flash-wifi-password').value = '';
             flashComplete(flash.flow === 'wifi'
                 ? 'Wi-Fi settings were not changed.'
@@ -2280,6 +2356,10 @@
             if (event.target !== flash.port) return;
             const critical = flashIsCritical();
             flash.operation += 1;
+            const error = new Error('The USB device was disconnected.');
+            error.name = 'NetworkError';
+            flashReportUsbResult('failure', error);
+            flashReportWifiResult('failure', error);
             flash.consoleOpen = false;
             flash.transport?.setDeviceLostCallback(null);
             flash.improv = null;
@@ -2290,7 +2370,7 @@
             flash.port = null;
             flashReleaseUsb();
             flashSyncConsoleControls(false);
-            if (critical) void flashFail(new Error('The USB device was disconnected.'));
+            if (critical) void flashFail(error);
             else {
                 flashResetUi();
                 flashSetState('ready');
