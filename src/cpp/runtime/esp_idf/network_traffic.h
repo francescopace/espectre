@@ -29,7 +29,8 @@ struct NetworkTrafficSnapshot {
  *
  * Compile ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES and link with
  * ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS when consuming the source groups
- * directly. The SDK component already supplies these link options.
+ * directly. The SDK component already supplies these link options. Arduino
+ * library builds cannot pass linker options, so both counters stay zero there.
  */
 NetworkTrafficSnapshot read_network_traffic();
 

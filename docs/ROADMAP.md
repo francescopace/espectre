@@ -62,7 +62,6 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 - Add an Arduino-facing runtime adapter that reuses the SDK's runtime controller, the ESP-IDF runtime, and the shared detector
 - Keep Wi-Fi startup, reconnect policy, and product integration under the consuming sketch's control
-- Keep Wi-Fi power save off after the sketch restarts the station, since Arduino turns it back on at every station start
 - Measure CSI on Arduino's prebuilt ESP-IDF configuration, which keeps A-MPDU on and has fewer RX buffers. On ESP32, A-MPDU TX also stops the default fixed TX rate from applying
 - Reassess whether the runtime event mailbox should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix

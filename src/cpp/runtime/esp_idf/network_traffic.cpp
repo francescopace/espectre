@@ -12,6 +12,9 @@
 namespace {
 std::atomic<uint32_t> tx_packets{0U};
 std::atomic<uint32_t> rx_packets{0U};
+// Arduino builds libraries without their linker options, so the --wrap hooks
+// below cannot link there and both counters stay zero.
+#ifndef ARDUINO
 // Pointer captured when WIFI_STA_DEF is created. The receive and transmit
 // hooks run on the Wi-Fi RX and TX path, which LWIP_IRAM_OPTIMIZATION keeps in
 // IRAM for speed, so they only compare this pointer instead of calling flash
@@ -27,6 +30,7 @@ void remember_station(esp_netif_t *netif, const esp_netif_config_t *config) {
     station.store(netif, std::memory_order_relaxed);
   }
 }
+#endif  // ARDUINO
 }  // namespace
 
 namespace espectre {
@@ -35,6 +39,7 @@ NetworkTrafficSnapshot read_network_traffic() {
 }
 }  // namespace espectre
 
+#ifndef ARDUINO
 extern "C" esp_netif_t *__real_esp_netif_new(const esp_netif_config_t *);
 extern "C" void __real_esp_netif_destroy(esp_netif_t *);
 extern "C" esp_err_t __real_esp_netif_receive(esp_netif_t *, void *, size_t, void *);
@@ -67,3 +72,4 @@ extern "C" esp_err_t IRAM_ATTR __wrap_esp_netif_transmit_wrap(esp_netif_t *netif
   }
   return result;
 }
+#endif  // ARDUINO
