@@ -2408,3 +2408,46 @@ def test_sdk_reference_keeps_public_nested_types_and_hides_private_types(tmp_pat
     assert [node.get("refid") for node in compound.findall("innerclass")] == ["public_config"]
     assert [node.get("id") for node in compound.findall(".//memberdef")] == ["setup"]
     assert [node.get("refid") for node in ET.parse(index).getroot().findall("compound")] == ["service"]
+
+
+def test_arduino_library_ships_only_the_sensing_sources_it_can_compile(tmp_path: Path) -> None:
+    """Arduino compiles every source under src/, and its includes must resolve there."""
+    builder = load_script("build_arduino_package")
+    sdk_builder = load_script("build_sdk_package")
+    args = argparse.Namespace(version="3.2.0-rc1", output_dir=str(tmp_path), source_date_epoch=1_800_000_000)
+    archive = builder.build_arduino_package(args)
+    assert archive.name == "espectre-arduino-3.2.0-rc1.zip"
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(tmp_path / "extracted")
+    library = tmp_path / "extracted" / builder.LIBRARY_NAME
+    src = library / "src"
+
+    properties = dict(
+        line.split("=", 1) for line in (library / "library.properties").read_text(encoding="utf-8").splitlines() if line
+    )
+    assert properties["version"] == "3.2.0-rc1"
+    assert properties["architectures"] == "esp32"
+    for include in properties["includes"].split(","):
+        assert (src / include).is_file()
+    assert (library / "examples" / "MotionDetection" / "MotionDetection.ino").is_file()
+    assert sdk_builder.detect_sdk_version(src / "runtime" / "espectre_sdk_version.h") == "3.2.0-rc1"
+
+    groups = builder.cmake_source_groups()
+    shipped = {path.relative_to(src).as_posix() for path in src.rglob("*") if path.suffix in {".c", ".cpp"}}
+    expected = {source for group in builder.SOURCE_GROUPS for source in groups[group]}
+    adapter = {path.relative_to(builder.ARDUINO_ROOT / "src").as_posix()
+               for path in (builder.ARDUINO_ROOT / "src").glob("*.cpp")}
+    assert shipped == expected | adapter
+    optional = {source for group in sdk_builder.OPTIONAL_SOURCE_GROUPS for source in groups[group]}
+    assert not shipped & optional
+
+    local_include = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.MULTILINE)
+    unresolved: list[str] = []
+    for source in sorted(src.rglob("*")):
+        if source.suffix not in {".c", ".cpp", ".h"}:
+            continue
+        for include in local_include.findall(source.read_text(encoding="utf-8")):
+            packaged = (source.parent / include).is_file() or (src / include).is_file()
+            if not packaged and (builder.CPP_ROOT / include).is_file():
+                unresolved.append(f"{source.relative_to(src)} -> {include}")
+    assert not unresolved, f"SDK headers missing from the Arduino library: {unresolved}"

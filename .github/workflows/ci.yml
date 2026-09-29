@@ -492,6 +492,96 @@ jobs:
           path: .cache/firmware/espectre-native-*
           retention-days: 7
 
+  build-arduino:
+    needs: [prepare, test-cpp, test-python]
+    permissions:
+      contents: read
+    name: Build Arduino ${{ matrix.chip }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: ESP32
+            board: esp32
+          - chip: ESP32-C3
+            board: esp32c3
+          - chip: ESP32-C5
+            board: esp32c5
+          - chip: ESP32-C6
+            board: esp32c6
+          - chip: ESP32-S2
+            board: esp32s2
+          - chip: ESP32-S3
+            board: esp32s3
+    env:
+      ARDUINO_CLI_VERSION: 1.5.1
+      ARDUINO_CLI_SHA256: 28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b
+      ARDUINO_ESP32_VERSION: 3.3.12
+      ARDUINO_DIRECTORIES_DATA: ${{ github.workspace }}/.cache/arduino/data
+      ARDUINO_DIRECTORIES_DOWNLOADS: ${{ github.workspace }}/.cache/arduino/downloads
+      ARDUINO_DIRECTORIES_USER: ${{ github.workspace }}/.cache/arduino/user
+      ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL: 'true'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install packaging dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Cache Arduino core
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            .cache/arduino/data
+            .cache/arduino/downloads
+          key: arduino-${{ runner.os }}-esp32-${{ env.ARDUINO_ESP32_VERSION }}
+
+      - name: Install Arduino CLI and the ESP32 core
+        run: |
+          mkdir -p .cache/arduino/bin
+          curl -fsSL -o .cache/arduino/cli.tar.gz \
+            "https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          echo "${ARDUINO_CLI_SHA256}  .cache/arduino/cli.tar.gz" | sha256sum --check
+          tar -xzf .cache/arduino/cli.tar.gz -C .cache/arduino/bin arduino-cli
+          echo "${{ github.workspace }}/.cache/arduino/bin" >> "$GITHUB_PATH"
+          .cache/arduino/bin/arduino-cli core install "esp32:esp32@${ARDUINO_ESP32_VERSION}" \
+            --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+
+      - name: Build Arduino library
+        env:
+          LIBRARY_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python .github/scripts/build_arduino_package.py \
+            --version "$LIBRARY_VERSION" \
+            --output-dir .cache/arduino-library
+          arduino-cli lib install --zip-path .cache/arduino-library/espectre-arduino-*.zip
+
+      - name: Compile the MotionDetection example
+        run: |
+          arduino-cli compile --warnings default \
+            --fqbn "esp32:esp32:${{ matrix.board }}" \
+            "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/MotionDetection"
+
+      - name: Upload Arduino library
+        if: success() && github.event_name == 'push' && matrix.board == 'esp32'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          overwrite: true
+          name: arduino-library
+          path: .cache/arduino-library/espectre-arduino-*.zip
+          retention-days: 7
+
   build-sdk:
     name: Build SDK Package
     needs: [prepare, build-site, test-cpp, test-python]

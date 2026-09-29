@@ -183,7 +183,7 @@ The repository has three complete firmware integrations (frontends) built on the
 | ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with network commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
-They are not part of the SDK package. For a minimal project, start from the [Wi-Fi motion detection example](../src/cpp/examples/wifi_motion_detection/README.md).
+They are not part of the SDK package. For Arduino-ESP32 sketches, the [Arduino library](../src/cpp/frontend/arduino/README.md) wraps the runtime; it is in development. For a minimal project, start from the [Wi-Fi motion detection example](../src/cpp/examples/wifi_motion_detection/README.md).
 
 ### Logging
 

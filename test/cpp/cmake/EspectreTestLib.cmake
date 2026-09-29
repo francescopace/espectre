@@ -243,6 +243,20 @@ target_include_directories(espectre_frontend_esphome_testlib
         "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre"
 )
 
+add_library(espectre_frontend_arduino_testlib STATIC
+    ${ESPECTRE_FRONTEND_ARDUINO_SOURCES}
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
+)
+target_link_libraries(espectre_frontend_arduino_testlib
+    PUBLIC
+        espectre_runtime_testlib
+        espectre_test_mocks
+)
+target_include_directories(espectre_frontend_arduino_testlib
+    PUBLIC
+        "${ESPECTRE_FRONTEND_ROOT}/arduino/src"
+)
+
 add_library(espectre_frontend_matter_testlib STATIC
     ${ESPECTRE_FRONTEND_MATTER_SOURCES}
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_direct_http_bridge.cpp"

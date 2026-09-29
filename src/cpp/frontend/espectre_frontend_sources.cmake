@@ -46,6 +46,10 @@ set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
     "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/traffic_mode_select.cpp"
 )
 
+set(ESPECTRE_FRONTEND_ARDUINO_SOURCES
+    "${ESPECTRE_FRONTEND_ROOT}/arduino/src/ESPectre.cpp"
+)
+
 set(ESPECTRE_FRONTEND_MATTER_SOURCES
     ${ESPECTRE_FRONTEND_COMMON_SOURCES}
     "${ESPECTRE_FRONTEND_ROOT}/matter/espectre/matter_frontend.cpp"

@@ -181,6 +181,11 @@
     },
     {
       "kind": "host_test",
+      "owners": ["test_arduino_frontend"],
+      "sources": ["src/cpp/frontend/arduino/src/ESPectre.cpp"]
+    },
+    {
+      "kind": "host_test",
       "owners": ["test_matter_frontend"],
       "sources": ["src/cpp/frontend/matter/espectre/matter_frontend.cpp"]
     },

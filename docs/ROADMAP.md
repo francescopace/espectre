@@ -9,7 +9,7 @@
 | **v3.0.0-rc3** | Released | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
 | **v3.0.0** | In progress | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
 | **v3.1.0** | Planned | Validate Matter with more controllers and define its production path |
-| **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
+| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Add a dedicated Apple Home frontend where Matter falls short |
 | **v3.4.0** | Research-gated | Add stationary presence as a distinct sensing output |
 | **v3.5.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
@@ -56,7 +56,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 **Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Starts when**: a real Arduino project shows what it needs. Until then, Arduino is not supported.
+**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. It is not supported until the exit criteria pass.
 
 **Scope**:
 
