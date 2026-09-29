@@ -16,7 +16,7 @@
 
 **Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Status**: in progress. Arduino stays unsupported until this release ships.
+**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. It is not supported until the exit criteria pass.
 
 **Scope**:
 

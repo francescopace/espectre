@@ -163,6 +163,8 @@ The repository has three complete firmware built on the public SDK. They are not
 | ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
+For Arduino-ESP32 sketches, the [Arduino library](../src/cpp/frontend/arduino/README.md) wraps the runtime; it is in development.
+
 ## Public headers
 
 | Header | Use it for |
