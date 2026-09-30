@@ -147,19 +147,16 @@ void test_device_id_helpers_format_and_parse_canonical_hex_consistently(void) {
   uint64_t parsed = 0U;
   TEST_ASSERT_TRUE(parse_espectre_device_id("00007c2c6742bbac", &parsed));
   TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, parsed);
-  // Accept the legacy prefix while clients migrate to the canonical form.
-  TEST_ASSERT_TRUE(parse_espectre_device_id("0x00007c2c6742bbac", &parsed));
-  TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, parsed);
-  TEST_ASSERT_TRUE(parse_espectre_device_id("124", &parsed));
-  TEST_ASSERT_EQUAL(0x124ULL, parsed);
-  TEST_ASSERT_FALSE(parse_espectre_device_id("bad-id", &parsed));
+  TEST_ASSERT_TRUE(parse_espectre_device_id("ffffffffffffffff", &parsed));
+  TEST_ASSERT_EQUAL(0xFFFFFFFFFFFFFFFFULL, parsed);
+  // Only the canonical form parses; a failure leaves the output untouched.
+  for (const char *malformed : {"", "124", "0x00007c2c6742bbac", "00007C2C6742BBAC", "00007c2c6742bbac0",
+                                "00007c2c6742bbag", " 0007c2c6742bbac"}) {
+    TEST_ASSERT_FALSE(parse_espectre_device_id(malformed, &parsed));
+    TEST_ASSERT_EQUAL(0xFFFFFFFFFFFFFFFFULL, parsed);
+  }
+  TEST_ASSERT_FALSE(parse_espectre_device_id("00007c2c6742bbac", nullptr));
 
-  const uint8_t mac[6] = {0x7C, 0x2C, 0x67, 0x42, 0xBB, 0xAC};
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, espectre_device_id_from_mac(mac, sizeof(mac)));
-  TEST_ASSERT_EQUAL(ESPECTRE_DEFAULT_DEVICE_ID, espectre_device_id_from_mac(nullptr, 0));
-#pragma GCC diagnostic pop
   TEST_ASSERT_EQUAL_STRING("ESPectre C6 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32c6").c_str());
   TEST_ASSERT_EQUAL_STRING("ESPectre S2 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32s2").c_str());
   TEST_ASSERT_EQUAL_STRING("ESPectre UNK 000000", espectre_device_name(ESPECTRE_DEFAULT_DEVICE_ID).c_str());

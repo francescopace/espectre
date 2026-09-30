@@ -717,28 +717,23 @@ std::string format_espectre_device_id(uint64_t device_id) {
 }
 
 bool parse_espectre_device_id(const std::string &value, uint64_t *device_id) {
-  if (device_id == nullptr || value.empty()) {
+  if (device_id == nullptr || value.size() != 16U) {
     return false;
   }
-  char *end_ptr = nullptr;
-  errno = 0;
-  const unsigned long long parsed = std::strtoull(value.c_str(), &end_ptr, 16);
-  if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE) {
-    return false;
+  uint64_t parsed = 0U;
+  for (const char c : value) {
+    uint64_t nibble = 0U;
+    if (c >= '0' && c <= '9') {
+      nibble = static_cast<uint64_t>(c - '0');
+    } else if (c >= 'a' && c <= 'f') {
+      nibble = static_cast<uint64_t>(c - 'a' + 10);
+    } else {
+      return false;
+    }
+    parsed = (parsed << 4U) | nibble;
   }
-  *device_id = static_cast<uint64_t>(parsed);
+  *device_id = parsed;
   return true;
-}
-
-uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len) {
-  if (mac == nullptr || mac_len < 6U) {
-    return ESPECTRE_DEFAULT_DEVICE_ID;
-  }
-  uint64_t device_id = 0U;
-  for (size_t i = 0U; i < 6U; ++i) {
-    device_id = (device_id << 8U) | static_cast<uint64_t>(mac[i]);
-  }
-  return device_id;
 }
 
 std::string espectre_device_name(uint64_t device_id, const char *chip) {

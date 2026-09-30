@@ -62,7 +62,6 @@ CONF_DIRECT_API = "direct_api"
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
 CONF_CSI_TARGET_PPS = "csi_target_pps"
 CONF_CSI_CAPTURE_PROFILE = "csi_capture_profile"
-CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
 CONF_CSI_TRAFFIC_MULTICAST_GROUP = "csi_traffic_multicast_group"
 CONF_EVALUATION_INTERVAL_MS = "evaluation_interval_ms"
 CONF_MOTION_ON_HITS = "motion_on_hits"
@@ -110,7 +109,6 @@ CONF_THRESHOLD_NUMBER = "threshold_number"
 CONF_MOTION_ON_HITS_NUMBER = "motion_on_hits_number"
 CONF_MOTION_OFF_HITS_NUMBER = "motion_off_hits_number"
 CONF_DETECTOR_SELECT = "detector_select"
-CONF_CSI_TRAFFIC_MODE_SELECT = "csi_traffic_mode_select"
 CONF_TRAFFIC_GENERATOR_MODE_SELECT = "traffic_generator_mode_select"
 
 CONF_SENSING_SWITCH = "sensing_switch"
@@ -207,9 +205,6 @@ CONFIG_SCHEMA = cv.Schema({
     # Positive temporal CSI target; traffic_generator_mode selects who sends the traffic.
     cv.Optional(CONF_CSI_TARGET_PPS, default=CSI_TARGET_PPS_DEFAULT): cv.int_range(
         min=CSI_TARGET_PPS_MIN, max=CSI_TARGET_PPS_MAX
-    ),
-    cv.Optional(CONF_CSI_TRAFFIC_MODE): cv.invalid(
-        "csi_traffic_mode was removed; use traffic_generator_mode: external for an external traffic source"
     ),
     cv.Optional(CONF_CSI_CAPTURE_PROFILE, default=CSI_CAPTURE_PROFILE_DEFAULT): cv.one_of(
         "auto", "lltf", "ht-vht", lower=True
@@ -393,9 +388,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_DETECTOR_SELECT, default={"name": "Detection Profile"}): select.select_schema(
         ESpectreDetectorSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
-    ),
-    cv.Optional(CONF_CSI_TRAFFIC_MODE_SELECT): cv.invalid(
-        "csi_traffic_mode_select was removed; traffic_generator_mode_select offers the external option"
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE_SELECT, default={"name": "CSI Traffic Source"}): select.select_schema(
         ESpectreTrafficModeSelect,

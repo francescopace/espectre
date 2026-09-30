@@ -396,5 +396,3 @@ Rate limiting is reported only as HTTP `429` (there is no `rate_limited` result 
 Direct HTTP is meant for a trusted local network. The firmware accepts only listed browser origins, requires the Private Network Access preflight, and limits body size, queues, clients, and request rate. It listens only on the Wi-Fi station interface and never returns stored passwords. Any extra protection for `/mqtt` would come as an additive extension.
 
 Clients check `capabilities.protocol_version` once. Version `1.0` can gain resources, fields, operations, and events; clients must ignore what they do not know. After the stable release, a breaking change needs a new base path and discovery protocol version.
-
-During the 3.0.0 release candidates the version stays `1.0` (`/espectre/v1`, MQTT prefix `espectre/v1/devices`, `protovers=1.0`). Diagnostics changed within this phase: a request without fields now returns the catalog, and `["*"]` returns all values. The `csi_traffic_mode` field was removed in 3.0.0-rc3: `traffic_generator_mode: external` replaces `csi_traffic_mode: external`. Use matching firmware and clients.

@@ -36,7 +36,7 @@ What you see for each device:
 - **Chip:** shown when Home Assistant knows the hardware model.
 - **Wi-Fi RSSI:** signal strength in dBm, if that sensor is enabled in Home Assistant.
 - **Generator / s:** packets the device's own generator sent; zero in external mode.
-- **TX / s** and **RX / s:** all network packets the device sent and received (UDP, ICMP, TCP, and so on). Older firmware may show a different TX count or omit these values.
+- **TX / s** and **RX / s:** all network packets the device sent and received (UDP, ICMP, TCP, and so on).
 - **Occupancy:** how much valid CSI the detector receives. This is not the Matter occupancy sensor.
 
 Missing or disabled values show **—**, never zero. The panel finds a device by its traffic source select, whatever its name. It finds Wi-Fi RSSI by its type: the first diagnostic sensor that reports a signal strength in dBm. It finds the other diagnostics by the name the firmware gives them, so a sensor renamed in ESPHome YAML shows **—**; renaming it in Home Assistant is fine. With the ESPHome `espectre` component, name its sensors Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Accepted Rate, and CSI Temporal Occupancy. Enable disabled entities in **Settings → Devices & services → Entities**.

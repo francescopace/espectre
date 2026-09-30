@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **Breaking:** `TrafficGeneratorMode::EXTERNAL` is now `TrafficGeneratorMode::EXTERNAL_HOST`, because Arduino defines `EXTERNAL` as a macro. The `external` wire value, ESPHome YAML, Kconfig, and saved settings are unchanged.
+- **Breaking:** Removed the release-candidate compatibility code. A `csi_traffic` setting saved by rc1 or rc2 no longer migrates, so select `external` again if you used it. ESPHome reports `csi_traffic_mode` and `csi_traffic_mode_select` as unknown keys. Native no longer clears Home Assistant entities retired during the release candidates; delete any leftovers in Home Assistant. The Traffic Generator add-on controls only firmware with the single "CSI Traffic Source" select.
+- **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
 
 ### Fixed
 

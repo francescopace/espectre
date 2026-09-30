@@ -449,19 +449,12 @@ std::string format_espectre_device_id(uint64_t device_id);
 /**
  * Parse a device id from its wire form.
  *
- * @param value Formatted device id, as produced by `format_espectre_device_id()`.
+ * @param value Formatted device id, as produced by `format_espectre_device_id()`:
+ * exactly 16 lowercase hexadecimal characters.
  * @param device_id Written only when parsing succeeds.
  * @return false on a malformed value, leaving the output untouched.
  */
 bool parse_espectre_device_id(const std::string &value, uint64_t *device_id);
-/**
- * Pack the first six MAC bytes into the historical numeric representation.
- *
- * @deprecated Runtime firmware uses the cached, domain-separated SHA-256
- * pseudonym from `derive_runtime_device_id()` instead.
- */
-[[deprecated("use the runtime-generated device identity")]] uint64_t espectre_device_id_from_mac(
-    const uint8_t *mac, size_t mac_len);
 /** Conventional device name derived from the immutable device identifier. */
 std::string espectre_device_name(uint64_t device_id, const char *chip = nullptr);
 /** The id actually in use. Frontend startup replaces the zero sentinel. */

@@ -94,24 +94,6 @@ void ESpectreComponent::setup() {
           this->wifi_bssid_pending_loaded_ = true;
         }
       }
-    } else {
-      struct LegacyStoredWifiBssid {
-        uint8_t version{1U};
-        uint8_t pinned{0U};
-        std::array<char, 18> value{};
-      };
-      auto legacy_preference = global_preferences->make_preference<LegacyStoredWifiBssid>(
-          fnv1_hash("espectre_wifi_bssid"));
-      LegacyStoredWifiBssid legacy;
-      if (legacy_preference.load(&legacy) && legacy.version == 1U && legacy.pinned == 1U) {
-        legacy.value.back() = '\0';
-        const std::string pin = legacy.value.data();
-        if (pin.size() == 17U) {
-          this->wifi_bssid_pin_ = pin;
-          std::string migration_message;
-          (void) this->persist_wifi_bssid_pin_(pin, &migration_message);
-        }
-      }
     }
   }
 

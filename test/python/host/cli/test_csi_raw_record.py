@@ -701,19 +701,15 @@ def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monk
 _TRAFFIC_SOURCE_OPTIONS = ["ping", "dns", "dns_tcp", "wifi_raw", "external"]
 
 
-def _ha_panel_inventory(platform="esphome", version=3, source="ping", legacy=False):
+def _ha_panel_inventory(platform="esphome", version=3, source="ping"):
     devices = [{"id": "sensor-a", "name": "ESPectre kitchen", "name_by_user": "Kitchen",
                 "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
     entities, states = [], []
-    values = {"ownership": "internal", "source": source, "refresh": "unknown",
+    values = {"source": source, "refresh": "unknown",
               "generator": "0", "traffic": "5", "traffic_rx": "100",
               "accepted": "99.5", "occupancy": "98", "rssi": "-54"}
-    # 3.0.0-rc1 and rc2 pair an ownership select with a source select without `external`.
-    controls = {"ownership": ("select", "csi_traffic_ownership")} if legacy else {}
-    controls["source"] = ("select", "csi_traffic_source")
-    options = {"ownership": ["internal", "external"],
-               "source": _TRAFFIC_SOURCE_OPTIONS[:-1] if legacy else _TRAFFIC_SOURCE_OPTIONS}
-    roles = {**controls, **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
+    options = {"source": _TRAFFIC_SOURCE_OPTIONS}
+    roles = {"source": ("select", "csi_traffic_source"), **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
     for role, (domain, suffix) in roles.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
@@ -756,30 +752,6 @@ def test_ha_panel_derives_ownership_from_the_single_traffic_source_select(source
     assert row["fields"]["ownership"]["value"] == ownership
     assert row["fields"]["ownership"]["entity_id"] == "select.renamed_source"
     assert row["internal_mode"] == internal_mode
-
-
-def test_ha_panel_controls_rc2_devices_through_the_ownership_select():
-    async def exercise():
-        from aiohttp import web
-        from aiohttp.test_utils import TestServer
-        fake = _PanelHomeAssistantServer()
-        fake.inventory = _ha_panel_inventory(source="dns", legacy=True)
-        row, = ha_client.build_inventory(*fake.inventory)
-        assert row["can_control"] and not row["unified_source"]
-        assert row["fields"]["ownership"]["entity_id"] == "select.renamed_ownership"
-        assert row["fields"]["source"]["value"] == "dns"
-        app = web.Application()
-        app.router.add_get("/core/websocket", fake.websocket)
-        async with TestServer(app) as server:
-            ha = ha_client.HomeAssistant("test-supervisor-secret",
-                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
-                                         confirmation_timeout=0)
-            assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "confirmed"
-            assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
-            writes = [call for call in fake.calls if call["type"] == "call_service"]
-            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_ownership"}] * 2
-            assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "internal"}]
-    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize("manufacturer", ["ESPectre", "https://espectre.dev"])
@@ -848,10 +820,9 @@ def test_ha_panel_dhcp_matches_mac_not_name_and_updates_addresses():
     assert ha_client.build_inventory(*inventory)[0]["ip_address"] == "192.168.1.9"
 
 
-@pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("case", ["disabled", "device_disabled", "offline", "ambiguous", "options"])
-def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case, legacy):
-    devices, entities, states, areas = _ha_panel_inventory("mqtt", legacy=legacy)
+def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case):
+    devices, entities, states, areas = _ha_panel_inventory("mqtt")
     if case == "disabled":
         entities[0]["disabled_by"] = "user"
     elif case == "device_disabled":
@@ -862,7 +833,7 @@ def test_ha_panel_rejects_unavailable_or_ambiguous_controls(case, legacy):
         entities.append(dict(entities[0], entity_id="select.duplicate"))
         states.append(dict(states[0], entity_id="select.duplicate"))
     else:
-        states[0]["attributes"]["options"] = ["internal"] if legacy else ["ping", "dns", "dns_tcp"]
+        states[0]["attributes"]["options"] = ["ping", "dns", "dns_tcp"]
     row, = ha_client.build_inventory(devices, entities, states, areas)
     assert not row["can_control"]
     assert row["reason"]

@@ -132,26 +132,6 @@ constexpr DiagnosticSensorDef kDiagnosticSensors[] = {
     {"WiFi RSSI", "wifi_rssi", "wifi_rssi", "dBm", nullptr, "signal_strength", true},
 };
 
-struct RetiredHaDiscovery {
-  const char *component;
-  const char *suffix;
-};
-
-constexpr RetiredHaDiscovery kRetiredHaDiscoveries[] = {
-    {"sensor", "intensity"},
-    {"binary_sensor", "motion"},
-    {"sensor", "movement"},
-    {"switch", "calibrate"},
-    {"switch", "trigger_calibration"},
-    {"select", "detector"},
-    {"select", "csi_traffic_mode"},
-    {"select", "traffic_generator_mode"},
-    {"select", "csi_traffic_ownership"},
-    {"button", "diagnostics"},
-    {"sensor", "csi_missing_rate"},
-    {"sensor", "csi_occupancy"},
-};
-
 std::string build_diagnostic_sensor_discovery_payload(const FrontendHaMqttSettings &settings,
                                                       const EspectreDeviceInfo &info,
                                                       const FrontendHaDiagnosticSensor &sensor) {
@@ -494,16 +474,6 @@ bool build_frontend_ha_discovery_message(
         build_calibration_active_discovery_payload(settings, info),
     };
     return true;
-  }
-  for (const RetiredHaDiscovery &retired : kRetiredHaDiscoveries) {
-    if (index-- == 0U) {
-      *message = FrontendHaDiscoveryMessage{
-          build_discovery_topic(retired.component, settings.discovery_prefix,
-                                settings.ha_object_prefix + "_" + retired.suffix),
-          "",
-      };
-      return true;
-    }
   }
   return false;
 }

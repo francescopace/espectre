@@ -215,7 +215,7 @@ Component Manager reads these options through [Kconfig dependency conditions](ht
 
 The registry lists all optional dependencies even though a minimal build does not use them. Source-list integrations declare their own dependencies. `espectre_mqtt_sdk.h` needs the MQTT component; `espectre_services_sdk.h` does not need the HTTP server headers.
 
-The SDK does not set up a console or USB; your application does. If you are migrating from the prerelease SDK, replace `initialize_primary_console()` with your own console setup.
+The SDK does not set up a console or USB; your application does.
 
 Other notes:
 
@@ -266,8 +266,6 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 The transmit rate is a build-time Kconfig string, not a `RuntimeConfig` field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="0"` (automatic), `"6"`, or `"6.5"`. Keep the quotes. See [transmit rate](CSI.md#transmit-rate) for defaults and requirements.
 
 Only some settings can change at runtime. Check the advertised capabilities, then use the runtime setters or the [sensing operations](API.md#sensing-update-and-calibration). See [tuning essentials](TROUBLESHOOTING.md#tuning-essentials) for when to change a setting.
-
-Migrating from an early v3 snapshot? Move `traffic_generator_rate` to `csi_target_pps` and pick an internal `traffic_generator_mode`. Saved `pacing` and `disabled` values keep the saved generator mode automatically. An integer `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` must be quoted or removed.
 
 ### Traffic destination
 

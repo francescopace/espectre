@@ -88,31 +88,6 @@ void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
 }
 
-void test_runtime_traffic_mode_store_migrates_the_legacy_csi_traffic_key_once(void) {
-  TrafficGeneratorMode generator_mode = TrafficGeneratorMode::PING;
-  bool has_saved_value = false;
-
-  // A saved external source wins over the saved packet and survives as the single mode.
-  nvs_mock_put_str("traffic_gen", "dns");
-  nvs_mock_put_str("csi_traffic", "external");
-  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
-  TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::EXTERNAL_HOST);
-
-  // The legacy key is gone, so a later save is not overridden again.
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
-  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
-  TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::DNS);
-
-  // Legacy internal values keep the saved packet.
-  for (const char *legacy : {"internal", "pacing", "disabled"}) {
-    nvs_mock_put_str("traffic_gen", "dns_tcp");
-    nvs_mock_put_str("csi_traffic", legacy);
-    TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
-    TEST_ASSERT_TRUE(generator_mode == TrafficGeneratorMode::DNS_TCP);
-  }
-}
-
 void test_wifi_config_store_handles_missing_namespace_and_invalid_args(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_stored_wifi_config(nullptr));
 
@@ -380,7 +355,6 @@ int process(void) {
   RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);
   RUN_TEST(test_runtime_motion_hits_store_round_trips_and_validates_values);
   RUN_TEST(test_runtime_traffic_mode_store_round_trips_and_validates_values);
-  RUN_TEST(test_runtime_traffic_mode_store_migrates_the_legacy_csi_traffic_key_once);
   RUN_TEST(test_normalize_ht20_csi_payload_handles_supported_lengths);
   RUN_TEST(test_normalize_ht20_csi_payload_rejects_invalid_inputs_and_renders_tags);
   return UNITY_END();

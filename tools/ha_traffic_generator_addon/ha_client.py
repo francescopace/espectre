@@ -17,9 +17,8 @@ import aiohttp
 HA_WEBSOCKET = "ws://supervisor/core/websocket"
 UNAVAILABLE = {"unknown", "unavailable", None}
 # Every ESPectre firmware offers these packet modes in its traffic source select,
-# whatever the user named it. 3.0.0-rc1 and rc2 add a separate ownership select.
+# whatever the user named it.
 TRAFFIC_SOURCE_MODES = {"ping", "dns", "dns_tcp"}
-OWNERSHIP_MODES = {"internal", "external"}
 # Integration-owned identifiers, not user-editable entity IDs or display names.
 ENTITY_ROLES = {
     "refresh": ("button", "refresh_diagnostics"),
@@ -142,8 +141,7 @@ def build_inventory(devices, entities, state_list, areas):
         candidates, signals = {}, []
         for entity in grouped.get(device["id"], []):
             options = select_options(entity, states)
-            role = ("source" if TRAFFIC_SOURCE_MODES <= options else
-                    "ownership" if options == OWNERSHIP_MODES else entity_role(entity))
+            role = "source" if TRAFFIC_SOURCE_MODES <= options else entity_role(entity)
             if role:
                 candidates.setdefault(role, []).append(entity)
             elif is_wifi_signal(entity, states):
@@ -156,27 +154,22 @@ def build_inventory(devices, entities, state_list, areas):
         roles = {key: values[0] for key, values in candidates.items() if len(values) == 1}
         fields = {key: entity_value(roles.get(key), states, numeric=key in
                   {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"})
-                  for key in ("source", "ownership", "rssi", *ENTITY_ROLES)}
-        # Current firmware offers `external` in the source select itself.
-        unified = "ownership" not in candidates
-        control_role = "source" if unified else "ownership"
-        control = fields[control_role]
-        options = select_options(roles.get(control_role, {}), states)
-        internal_mode = None
-        if unified:
-            if control["value"] not in {None, "external"}:
-                internal_mode = control["value"]
-            fields["ownership"] = dict(control, value=None if control["value"] is None else
-                                       ("external" if control["value"] == "external" else "internal"))
+                  for key in ("source", "rssi", *ENTITY_ROLES)}
+        # The source select offers `external` next to the internal packet modes.
+        control = fields["source"]
+        options = select_options(roles.get("source", {}), states)
+        internal_mode = control["value"] if control["value"] not in {None, "external"} else None
+        fields["ownership"] = dict(control, value=None if control["value"] is None else
+                                   ("external" if control["value"] == "external" else "internal"))
         reason = None
         if device.get("disabled_by"):
             reason = "Device is disabled in Home Assistant."
-        elif len(candidates[control_role]) > 1:
-            reason = "Multiple traffic ownership entities; no control selected."
+        elif len(candidates["source"]) > 1:
+            reason = "Multiple traffic source entities; no control selected."
         elif control["status"] != "available":
-            reason = "Traffic ownership entity is " + control["status"] + "."
+            reason = "Traffic source entity is " + control["status"] + "."
         elif "external" not in options or control["value"] not in options:
-            reason = "Traffic ownership options are not supported."
+            reason = "Traffic source options are not supported."
         # A button may have state 'unknown' before its first press; this is valid.
         refresh = roles.get("refresh", {})
         refresh_state = states.get(refresh.get("entity_id"))
@@ -191,7 +184,7 @@ def build_inventory(devices, entities, state_list, areas):
             "integration": ", ".join(sorted({e.get("platform", "") for e in
                                             grouped.get(device["id"], [])})),
             "fields": fields, "can_control": reason is None, "reason": reason,
-            "can_refresh": can_refresh, "unified_source": unified, "internal_mode": internal_mode,
+            "can_refresh": can_refresh, "internal_mode": internal_mode,
         })
     return sorted(result, key=lambda row: (row["name"].casefold(), row["id"]))
 
@@ -371,12 +364,10 @@ class HomeAssistant:
                 if row["fields"]["ownership"]["value"] == action:
                     result.update(status="unchanged", message="Already " + action + ".")
                     continue
-                entity_id = row["fields"]["ownership"]["entity_id"]
-                option = action
-                if row["unified_source"]:
-                    if row["internal_mode"]:
-                        self.internal_modes[device_id] = row["internal_mode"]
-                    option = "external" if action == "external" else self.internal_modes.get(device_id, "ping")
+                entity_id = row["fields"]["source"]["entity_id"]
+                if row["internal_mode"]:
+                    self.internal_modes[device_id] = row["internal_mode"]
+                option = "external" if action == "external" else self.internal_modes.get(device_id, "ping")
                 try:
                     await connection.command("call_service", domain="select", service="select_option",
                                              target={"entity_id": entity_id}, service_data={"option": option})

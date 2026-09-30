@@ -91,34 +91,6 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/sensor/native_0000111122223333_intensity/config" &&
-                                        publish.retain && publish.payload.empty();
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
-                               mqtt_transport_mock::state.publishes.end(),
-                               [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic ==
-                                            "homeassistant/binary_sensor/native_0000111122223333_motion/config" &&
-                                        publish.retain && publish.payload.empty();
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
-                               mqtt_transport_mock::state.publishes.end(),
-                               [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic ==
-                                            "homeassistant/switch/native_0000111122223333_calibrate/config" &&
-                                        publish.retain && publish.payload.empty();
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
-                               mqtt_transport_mock::state.publishes.end(),
-                               [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic ==
-                                            "homeassistant/switch/native_0000111122223333_trigger_calibration/config" &&
-                                        publish.retain && publish.payload.empty();
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
-                               mqtt_transport_mock::state.publishes.end(),
-                               [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic ==
                                             "homeassistant/sensor/native_0000111122223333_traffic_tx_rate/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Traffic TX Rate\"") != std::string::npos &&
@@ -191,14 +163,6 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                             std::string::npos &&
                                         publish.payload.find("\"entity_category\":\"config\"") !=
                                             std::string::npos;
-                               }));
-  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
-                               mqtt_transport_mock::state.publishes.end(),
-                               [](const mqtt_transport_mock::Publish &publish) {
-                                 // The former ownership select is retired with an empty retained config.
-                                 return publish.topic ==
-                                            "homeassistant/select/native_0000111122223333_csi_traffic_ownership/config" &&
-                                        publish.retain && publish.payload.empty();
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
@@ -379,15 +343,11 @@ void test_native_frontend_retries_the_complete_ha_snapshot_after_queue_backpress
 
   mqtt_transport_mock::state.diagnostics.queued_publishes = 0U;
   frontend.loop();
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/motion/state"));
-
-  mqtt_transport_mock::state.diagnostics.queued_publishes = 0U;
-  frontend.loop();
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/motion/state", "ON"));
   TEST_ASSERT_TRUE(has_mqtt_publish(
       "homeassistant/sensor/native_0000111122223333_csi_temporal_occupancy/config"));
   TEST_ASSERT_TRUE(has_mqtt_publish(
-      "homeassistant/sensor/native_0000111122223333_csi_occupancy/config", ""));
+      "homeassistant/binary_sensor/native_0000111122223333_calibration_active/config"));
 }
 
 void test_native_frontend_defers_initial_ha_state_until_sensing_is_ready(void) {
