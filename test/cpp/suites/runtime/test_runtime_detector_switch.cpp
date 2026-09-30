@@ -148,6 +148,13 @@ struct ControllerTrafficTaskScope {
   RuntimeFrontendController &controller;
 };
 
+// Each callback counts even when its packet cannot enter the detector.
+void deliver_csi_callbacks(int count) {
+  for (int i = 0; i < count; ++i) {
+    g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+  }
+}
+
 void complete_csi_receive_path_refresh(EspIdfRuntime &runtime) {
   TEST_ASSERT_TRUE(runtime.csi_receive_path_refresh_in_progress_);
   wifi_event_sta_scan_done_t event{};
@@ -201,10 +208,11 @@ void test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected(void) 
     TEST_ASSERT_TRUE(generator.is_running());
     TEST_ASSERT_EQUAL(1, listener.calibration_starts);
     TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
-    // The callback counter includes packets that cannot enter the detector.
-    g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
-    generator.send_successes = 1000U;
-    esp_timer_mock::advance(6000000);
+    generator.send_successes = 1U;
+    runtime.loop();
+    deliver_csi_callbacks(1000);
+    generator.send_successes = 1001U;
+    esp_timer_mock::advance(1000000);
     runtime.loop();
     TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.scan_start_call_count);
     TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
@@ -255,6 +263,34 @@ void test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeo
     esp_timer_mock::advance(60000000);
     runtime.loop();
     TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_stray_callbacks_do_not_hide_a_silent_receive_path(void) {
+  // S3 can deliver one callback right after a reconnect and then stay silent.
+  for (const int callbacks : {0, 9, 10}) {
+    esp_timer_mock::reset(0, 0);
+    esp_event_mock_reset();
+    esp_wifi_mock_reset();
+    RuntimeConfig config;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    esp_netif_ip_info_t ip{};
+    ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+    runtime.on_wifi_connected_(ip);
+    deliver_csi_callbacks(1);
+    generator.send_successes = 1U;
+    runtime.check_csi_receive_path_();
+    deliver_csi_callbacks(callbacks);
+    generator.send_successes = 101U;
+    esp_timer_mock::advance(1000000);
+    runtime.check_csi_receive_path_();
+    TEST_ASSERT_EQUAL(callbacks < 10 ? 1 : 0, g_esp_wifi_mock.scan_start_call_count);
+    TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
+    if (callbacks < 10) complete_csi_receive_path_refresh(runtime);
     runtime.shutdown();
   }
 }
@@ -386,15 +422,19 @@ void test_runtime_profile_change_rechecks_the_receive_path(void) {
     runtime.on_wifi_connected_(ip);
     TEST_ASSERT_EQUAL(CsiCaptureProfile::LLTF20, runtime.get_snapshot().csi_capture_profile);
     // LLTF20 delivers from the first arm, which closes the startup check.
-    g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
+    generator.send_successes++;
+    runtime.check_csi_receive_path_();
+    deliver_csi_callbacks(100);
+    generator.send_successes += 100U;
+    esp_timer_mock::advance(1000000);
     runtime.check_csi_receive_path_();
     TEST_ASSERT_FALSE(runtime.csi_receive_path_check_pending_);
     TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::PING));
     TEST_ASSERT_EQUAL(CsiCaptureProfile::HT20, runtime.get_snapshot().csi_capture_profile);
     TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
-    if (callbacks) g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
     generator.send_successes++;
     runtime.check_csi_receive_path_();
+    if (callbacks) deliver_csi_callbacks(100);
     generator.send_successes += 100U;
     esp_timer_mock::advance(1000000);
     runtime.check_csi_receive_path_();
@@ -427,9 +467,9 @@ void test_runtime_reports_a_receive_path_still_silent_after_its_refresh(void) {
     complete_csi_receive_path_refresh(runtime);
     TEST_ASSERT_TRUE(generator.is_running());
     TEST_ASSERT_TRUE(runtime.csi_receive_path_check_pending_);
-    if (callbacks) g_esp_wifi_mock.csi_callback(g_esp_wifi_mock.csi_callback_context, nullptr);
     generator.send_successes++;
     runtime.check_csi_receive_path_();
+    if (callbacks) deliver_csi_callbacks(100);
     generator.send_successes += 100U;
     esp_timer_mock::advance(999000);
     runtime.check_csi_receive_path_();
@@ -1833,6 +1873,7 @@ int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected);
   RUN_TEST(test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeout);
+  RUN_TEST(test_runtime_stray_callbacks_do_not_hide_a_silent_receive_path);
   RUN_TEST(test_runtime_absent_or_stopped_traffic_does_not_trigger_a_refresh);
   RUN_TEST(test_runtime_external_wifi_stack_owns_recovery_scan_results);
   RUN_TEST(test_runtime_defers_busy_refresh_with_capture_running_and_a_bounded_request_window);

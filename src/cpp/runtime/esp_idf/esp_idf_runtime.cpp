@@ -48,6 +48,10 @@ static constexpr uint32_t CSI_ENABLE_SETTLE_MS = 100U;
 // observation lasts one window and never less than this floor.
 static constexpr uint32_t CSI_STARTUP_OBSERVATION_MS = 1000U;
 static constexpr uint32_t CSI_STARTUP_TRAFFIC_IDLE_MS = 1000U;
+// A working receive path reports about one callback per packet exchanged. A
+// path that went silent right after arming can still deliver one stray
+// callback, as S3 does after a reconnect, so only a steady rate counts.
+static constexpr uint64_t CSI_RECEIVE_PATH_PACKETS_PER_CALLBACK = 10U;
 static constexpr uint32_t CSI_REFRESH_RETRY_INTERVAL_MS = 500U;
 static constexpr uint32_t CSI_REFRESH_REQUEST_WINDOW_MS = 15000U;
 static constexpr SelectedSubcarriers SELECTED_SUBCARRIERS = make_default_subcarriers();
@@ -891,13 +895,8 @@ void EspIdfRuntime::check_csi_receive_path_() {
       !services_armed_ || !wifi_ready_ || !csi_pipeline_.is_enabled()) {
     return;
   }
-  // Any hardware callback proves that the receive path works. Rejected packets
-  // and a low movement score are not reasons to disturb the radio.
-  if (csi_pipeline_.capture_callback_invocations_total() != csi_receive_path_callbacks_at_start_) {
-    csi_receive_path_check_pending_ = false;
-    return;
-  }
 
+  const uint64_t callbacks = csi_pipeline_.capture_callback_invocations_total();
   const uint64_t traffic = (csi_traffic_service_.mode() != TrafficGeneratorMode::EXTERNAL_HOST
                                ? csi_traffic_service_.get_generator_packets_total()
                                : csi_traffic_service_.get_packets_received());
@@ -910,6 +909,8 @@ void EspIdfRuntime::check_csi_receive_path_() {
     if (traffic == csi_receive_path_traffic_total_) return;
     csi_receive_path_traffic_seen_ = true;
     csi_receive_path_traffic_total_ = traffic;
+    csi_receive_path_traffic_at_start_ = traffic;
+    csi_receive_path_callbacks_at_start_ = callbacks;
     csi_receive_path_check_started_ms_ = now;
     csi_receive_path_last_traffic_ms_ = now;
     csi_receive_path_last_attempt_ms_ = now;
@@ -931,11 +932,19 @@ void EspIdfRuntime::check_csi_receive_path_() {
     return;
   }
   if (elapsed < std::max(CSI_STARTUP_OBSERVATION_MS, config_.window_size_ms)) return;
+  // Callbacks for rejected packets still prove that the receive path works,
+  // but they must keep pace with the traffic.
+  const uint64_t observed = callbacks - csi_receive_path_callbacks_at_start_;
+  if (observed > 0U && observed * CSI_RECEIVE_PATH_PACKETS_PER_CALLBACK >=
+                           traffic - csi_receive_path_traffic_at_start_) {
+    csi_receive_path_check_pending_ = false;
+    return;
+  }
   if (csi_receive_path_after_refresh_) {
     // The refresh is the only recovery, so a path still silent under traffic
     // would otherwise leave sensing calibrating with no report at all.
     csi_receive_path_check_pending_ = false;
-    notify_fault_("No CSI callbacks with active traffic after a receive-path refresh");
+    notify_fault_("CSI callbacks still missing under active traffic after a receive-path refresh");
     return;
   }
   if (now - csi_receive_path_last_attempt_ms_ < CSI_REFRESH_RETRY_INTERVAL_MS) return;
@@ -957,7 +966,7 @@ void EspIdfRuntime::check_csi_receive_path_() {
   csi_receive_path_refresh_in_progress_ = true;
   stop_sensing_services_();
   ESPECTRE_LOGW(RUNTIME_TAG,
-                "No CSI callbacks after %u ms of traffic; refreshing the receive path",
+                "CSI callbacks missing after %u ms of traffic; refreshing the receive path",
                 static_cast<unsigned>(elapsed));
 }
 

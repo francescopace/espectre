@@ -169,6 +169,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   uint32_t csi_receive_path_last_traffic_ms_{0U};
   uint32_t csi_receive_path_last_attempt_ms_{0U};
   uint64_t csi_receive_path_callbacks_at_start_{0U};
+  uint64_t csi_receive_path_traffic_at_start_{0U};
   uint64_t csi_receive_path_traffic_total_{0U};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
   DeferredCaptureAction deferred_capture_action_{DeferredCaptureAction::None};
