@@ -1,19 +1,22 @@
 /*
- * ESPectre - Arduino Frontend Unit Tests
+ * ESPectre - Arduino Adapter Unit Tests
  *
- * Unit tests for the Arduino sensor adapter.
+ * Unit tests for the `ESPectre` sensor adapter.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "esp32-hal-log.h"
 #include "esp_timer.h"
 
 #include <string>
 #include <vector>
 
-#include "ESPectre.h"
+#include "core/espectre_log.h"
+#include "runtime/esp_idf/espectre_sensor.h"
+#include "runtime/esp_idf/runtime_sensing_kconfig.h"
 #include "frontend_runtime_shim.h"
 
 using namespace espectre;
@@ -29,11 +32,27 @@ RuntimeSnapshot make_snapshot(bool ready, bool motion) {
   return snapshot;
 }
 
+void make_ready(ESPectre &sensor) {
+  // The controller derives readiness from the backend snapshot in loop().
+  frontend_runtime_shim::state.snapshot = make_snapshot(true, false);
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  sensor.loop();
+}
+
+int sketch_sink_writes = 0;
+
+bool sketch_sink_enabled(void *, LogLevel, const char *) { return true; }
+
+void sketch_sink_write(void *, LogLevel, const char *, int, const char *, va_list) { ++sketch_sink_writes; }
+
 }  // namespace
 
 void setUp(void) {
   esp_timer_mock::reset();
   frontend_runtime_shim::reset();
+  arduino_log_mock::reset();
+  clear_log_sink();
+  sketch_sink_writes = 0;
 }
 
 void tearDown(void) {}
@@ -99,6 +118,56 @@ void test_arduino_sensor_reports_motion_only_while_ready(void) {
   TEST_ASSERT_TRUE(sensor.motion());
 }
 
+void test_arduino_sensor_reports_idle_when_readiness_drops_during_motion(void) {
+  ESPectre sensor;
+  std::vector<std::string> events;
+  sensor.onMotion([&events](bool motion) { events.push_back(motion ? "motion" : "idle"); });
+  sensor.onReady([&events](bool ready) { events.push_back(ready ? "ready" : "not ready"); });
+  TEST_ASSERT_TRUE(sensor.begin());
+  IRuntimeListener *listener = frontend_runtime_shim::state.last_listener;
+  make_ready(sensor);
+  listener->on_motion_state_changed(make_snapshot(true, true));
+
+  // A capture stop resets motion while sensing is no longer ready.
+  listener->on_motion_state_changed(make_snapshot(false, false));
+  TEST_ASSERT_EQUAL(3U, events.size());
+  TEST_ASSERT_EQUAL_STRING("idle", events[2].c_str());
+  TEST_ASSERT_FALSE(sensor.motion());
+
+  // Stopping the sensor during motion also reports idle before readiness.
+  listener->on_motion_state_changed(make_snapshot(true, true));
+  sensor.end();
+  const std::vector<std::string> expected = {"ready", "motion", "idle", "motion", "idle", "not ready"};
+  TEST_ASSERT_EQUAL(expected.size(), events.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    TEST_ASSERT_EQUAL_STRING(expected[i].c_str(), events[i].c_str());
+  }
+}
+
+void test_arduino_sensor_sends_logs_to_the_core_without_a_sink(void) {
+  ESPectre sensor;
+  TEST_ASSERT_TRUE(sensor.begin());
+  TEST_ASSERT_TRUE(log_sink_registered());
+  arduino_log_mock::reset();
+
+  ESPECTRE_LOGI("espectre.test", "core %d", 1);
+  ESPECTRE_LOGD("espectre.test", "below the core level");
+  TEST_ASSERT_TRUE(arduino_log_mock::output.find("core 1") != std::string::npos);
+  TEST_ASSERT_TRUE(arduino_log_mock::output.find("below the core level") == std::string::npos);
+}
+
+void test_arduino_sensor_keeps_a_sink_registered_by_the_sketch(void) {
+  TEST_ASSERT_TRUE(set_log_sink({nullptr, sketch_sink_enabled, sketch_sink_write}));
+  ESPectre sensor;
+  TEST_ASSERT_TRUE(sensor.begin());
+  arduino_log_mock::reset();
+  sketch_sink_writes = 0;
+
+  ESPECTRE_LOGI("espectre.test", "sketch");
+  TEST_ASSERT_EQUAL(1, sketch_sink_writes);
+  TEST_ASSERT_TRUE(arduino_log_mock::output.empty());
+}
+
 void test_arduino_sensor_forwards_readiness_and_faults(void) {
   ESPectre sensor;
   std::vector<bool> readiness;
@@ -145,6 +214,9 @@ int main(int argc, char **argv) {
   RUN_TEST(test_arduino_sensor_begin_starts_the_runtime_once);
   RUN_TEST(test_arduino_sensor_begin_can_retry_after_a_failed_setup);
   RUN_TEST(test_arduino_sensor_reports_motion_only_while_ready);
+  RUN_TEST(test_arduino_sensor_reports_idle_when_readiness_drops_during_motion);
+  RUN_TEST(test_arduino_sensor_sends_logs_to_the_core_without_a_sink);
+  RUN_TEST(test_arduino_sensor_keeps_a_sink_registered_by_the_sketch);
   RUN_TEST(test_arduino_sensor_forwards_readiness_and_faults);
   RUN_TEST(test_arduino_sensor_callbacks_are_optional);
   return UNITY_END();

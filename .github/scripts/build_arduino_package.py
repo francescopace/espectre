@@ -4,8 +4,8 @@
 """
 ESPectre - Arduino Library Builder
 
-Build the ESPectre Arduino library: the sensing SDK sources and the Arduino
-adapter, laid out for Arduino CLI and the IDE's Add .ZIP Library.
+Build the ESPectre Arduino library: the sensing SDK sources and the `ESPectre.h`
+entry header, laid out for Arduino CLI and the IDE's Add .ZIP Library.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """

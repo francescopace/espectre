@@ -153,6 +153,14 @@ Register a `LogSink` with `set_log_sink()` before setup, and check the result. I
 
 Both callbacks must be thread-safe and must not block: they can run on your task, on service tasks, or in the CSI capture path. Do not log through ESPectre from inside a sink. Keep the sink's context alive, and replace or clear the sink only after the runtime has stopped. The example forwards to ESP-IDF logging through `esp_log_va`.
 
+### Arduino-style sensor
+
+`espectre::ESPectre`, from `espectre_sdk.h`, wraps `RuntimeFrontendController` in `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks. `runtime()` returns the controller for everything else.
+
+It suits Arduino-style code, including ESP-IDF projects that use Arduino as a component. Its configuration starts from the SDK defaults and does not restore saved controls. Register a [log sink](#logging) before `begin()` as usual. Without one, `begin()` uses the Arduino core's log output when the build can see it.
+
+Arduino IDE and Arduino CLI sketches cannot use the component. They install the [Arduino library](../src/cpp/frontend/arduino/README.md), which ships the same sensing sources, names the class `ESPectre` through its `ESPectre.h` entry header, and sends logs to the Arduino core; it is in development.
+
 ### Reference firmware
 
 The repository has three complete firmware built on the public SDK. They are not part of the SDK package.
@@ -162,8 +170,6 @@ The repository has three complete firmware built on the public SDK. They are not
 | Native | Standalone ESP-IDF application with Direct HTTP, optional MQTT, and Home Assistant MQTT Discovery | [Native guide](../src/cpp/frontend/native/README.md) |
 | ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
-
-For Arduino-ESP32 sketches, the [Arduino library](../src/cpp/frontend/arduino/README.md) wraps the runtime; it is in development.
 
 ## Public headers
 

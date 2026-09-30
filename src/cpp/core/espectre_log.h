@@ -65,6 +65,9 @@ bool set_log_sink(const LogSink &sink);
 /** Clear the current sink while no ESPectre runtime is active. */
 void clear_log_sink();
 
+/** Return whether a complete sink is registered. */
+bool log_sink_registered();
+
 /**
  * Return whether the current sink accepts one level and tag.
  *

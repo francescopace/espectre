@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
-#include "ESPectre.h"
+#include "espectre_sensor.h"
 
 #include <cstdio>
+
+#include "core/espectre_log.h"
+#include "runtime/esp_idf/runtime_sensing_kconfig.h"
 
 #if __has_include(<esp32-hal-log.h>)
 #include <esp32-hal-log.h>
@@ -33,9 +36,9 @@ void arduino_log_write(void *, LogLevel level, const char *tag, int, const char 
 
 void install_log_sink() {
 #ifdef ESPECTRE_ARDUINO_HAS_LOG
-  static bool installed = false;
-  if (!installed) {
-    installed = set_log_sink({nullptr, arduino_log_enabled, arduino_log_write});
+  // A sink the sketch registered before begin() takes precedence.
+  if (!log_sink_registered()) {
+    set_log_sink({nullptr, arduino_log_enabled, arduino_log_write});
   }
 #endif
 }
@@ -63,16 +66,29 @@ bool ESPectre::motion() const {
   return snapshot.ready_to_publish && snapshot.motion_state == MotionState::MOTION;
 }
 
+void ESPectre::report_motion_(bool motion) {
+  if (motion == reported_motion_) {
+    return;
+  }
+  reported_motion_ = motion;
+  if (motion_callback_) {
+    motion_callback_(motion);
+  }
+}
+
 void ESPectre::on_sensing_readiness_changed(const RuntimeSnapshot &snapshot) {
+  // The runtime resets motion while it is not ready, and that edge is not
+  // published, so close a reported motion before the readiness change.
+  if (!snapshot.ready_to_publish) {
+    report_motion_(false);
+  }
   if (ready_callback_) {
     ready_callback_(snapshot.ready_to_publish);
   }
 }
 
 void ESPectre::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
-  if (snapshot.ready_to_publish && motion_callback_) {
-    motion_callback_(snapshot.motion_state == MotionState::MOTION);
-  }
+  report_motion_(snapshot.ready_to_publish && snapshot.motion_state == MotionState::MOTION);
 }
 
 void ESPectre::on_runtime_fault(const char *message) {

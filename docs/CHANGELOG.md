@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.2.0] - work in progress
+
+ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino library is in development and not yet supported; the [roadmap](ROADMAP.md#v320---arduino-sdk-runtime) lists what it still needs.
+
+### Arduino
+
+- A new Arduino library adds motion sensing to a sketch, which keeps control of Wi-Fi. See the [Arduino guide](../src/cpp/frontend/arduino/README.md).
+- The `ESPectre` class has `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks, which run on the sketch's task inside `begin()`, `loop()`, and `end()`. `onMotion()` follows `motion()`, so it reports idle when sensing stops being ready. `runtime()` returns the full SDK controller.
+- Configuration starts from the SDK defaults. Settings changed at runtime are not saved unless `persist_runtime_overrides` is set. Logs follow the Core Debug Level, unless the sketch registers its own log sink before `begin()`.
+- The library includes sensing only, without MQTT, Direct HTTP, or provisioning. On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
+- CI builds the library and compiles its MotionDetection example with Arduino CLI and Arduino-ESP32 3.3.12 for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Releases do not include it yet; CI publishes it as the `arduino-library` workflow artifact.
+- On ESP32-S3 and ESP32-C5, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots work at about 100 CSI packets per second. The other chips still need hardware checks.
+
+### SDK
+
+- `espectre_sdk.h` adds `espectre::ESPectre`, the same sensor, for ESP-IDF projects that use Arduino as a component. See [Arduino-style sensor](SDK.md#arduino-style-sensor).
+- `log_sink_registered()` reports whether a log sink is registered.
+
+---
+
 ## [3.1.0] - 2026-11-01 - Matter controller compatibility and external traffic sources
 
 ESPectre 3.1 makes Matter sensors work with more controllers and adds new ways to feed a sensor with traffic: another ESPectre device, multicast ping, or a standalone Docker service. It adds to the 3.0 API and SDK; the few changes existing code needs are listed under Upgrading from 3.0.0.

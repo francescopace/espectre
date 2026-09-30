@@ -45,6 +45,8 @@ bool set_log_sink(const LogSink &sink) {
 
 void clear_log_sink() { current_sink = {}; }
 
+bool log_sink_registered() { return current_sink.enabled != nullptr && current_sink.write != nullptr; }
+
 bool log_enabled(LogLevel level, const char *tag) {
   return current_sink.enabled != nullptr && current_sink.write != nullptr &&
          current_sink.enabled(current_sink.context, level, tag);

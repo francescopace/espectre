@@ -116,7 +116,7 @@
     <div class="docs-section-head">
       <span class="guide-tag">INTEGRATION PATHS</span>
       <h2 id="docs-paths-title" data-toc-label="Choose an API layer">Choose the highest layer that fits.</h2>
-      <p>Lower layers give more control, but leave lifecycle, timing, and sensing work to your firmware.</p>
+      <p>Lower layers give more control, but leave lifecycle, timing, and sensing work to your firmware. For Arduino-style code, the <code>ESPectre</code> class in <code>espectre_sdk.h</code> wraps the full runtime, with <code>begin()</code>, <code>loop()</code>, and motion callbacks. A library for the Arduino IDE is in development.</p>
     </div>
     <div class="docs-paths">
       <div class="docs-path docs-path-recommended">
@@ -135,7 +135,7 @@
         <span class="docs-path-label">Platform port</span>
         <h3>New runtime</h3>
         <p>Build on the core SDK to bring ESPectre to another platform that captures CSI its own way, reusing the shared detection code and events.</p>
-        <span class="docs-path-meta">Arduino or Linux · not shipped today</span>
+        <span class="docs-path-meta">Linux or another CSI platform · not shipped today</span>
       </div>
     </div>
   </section>
