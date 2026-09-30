@@ -22,6 +22,16 @@ arduino-cli config set library.enable_unsafe_install true
 arduino-cli lib install --zip-path espectre-arduino-<version>.zip
 ```
 
+### ESP-IDF with Arduino as a component
+
+ESP-IDF projects that use Arduino as a component do not need this library. Add the SDK from the ESP Component Registry, include `espectre_sdk.h`, and use `espectre::ESPectre`:
+
+```bash
+idf.py add-dependency "francescopace/espectre"
+```
+
+The component includes the same class and the full SDK, with menuconfig, optional services, and the traffic diagnostics. Register a [log sink](https://espectre.dev/sdk/#logging) to see ESPectre logs. See the [SDK guide](https://espectre.dev/sdk/#arduino-style-sensor) for the details.
+
 ## Getting started
 
 Open **File > Examples > ESPectre > MotionDetection**, set your network in `arduino_secrets.h`, and upload it. Open the serial monitor at 115200 baud.
@@ -77,6 +87,8 @@ ESPectre sends a small stream of ping packets to the gateway to keep CSI flowing
 ESPectre logs follow the **Core Debug Level** setting, like the core's own messages. They are off by default.
 
 ## Limitations
+
+These apply to the Arduino library, not to the ESP-IDF component.
 
 - The library includes sensing only. MQTT, Direct HTTP, and provisioning are not included.
 - The `traffic.tx_packets_total` and `traffic.rx_packets_total` diagnostics stay at zero.

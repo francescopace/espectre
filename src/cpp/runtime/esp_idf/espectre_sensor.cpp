@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
-#include "ESPectre.h"
+#include "espectre_sensor.h"
 
 #include <cstdio>
+
+#include "core/espectre_log.h"
+#include "runtime/esp_idf/runtime_sensing_kconfig.h"
 
 #if __has_include(<esp32-hal-log.h>)
 #include <esp32-hal-log.h>

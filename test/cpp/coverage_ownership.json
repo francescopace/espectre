@@ -181,8 +181,8 @@
     },
     {
       "kind": "host_test",
-      "owners": ["test_arduino_frontend"],
-      "sources": ["src/cpp/frontend/arduino/src/ESPectre.cpp"]
+      "owners": ["test_arduino_adapter"],
+      "sources": ["src/cpp/runtime/esp_idf/espectre_sensor.cpp"]
     },
     {
       "kind": "host_test",

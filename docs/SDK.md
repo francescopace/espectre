@@ -173,6 +173,14 @@ Use the [traffic destination](#traffic-destination) setting to select the intern
 
 If you use the ESPectre Protocol or CSI streaming, set `RuntimeConfig::device_id` to `derive_runtime_device_id()` before setup. It returns a stable pseudonym derived from the station MAC. The controller does not fill in a zero ID for you.
 
+### Arduino-style sensor
+
+`espectre::ESPectre`, from `espectre_sdk.h`, wraps `RuntimeFrontendController` in `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks. `runtime()` returns the controller for everything else.
+
+It suits Arduino-style code, including ESP-IDF projects that use Arduino as a component. Its configuration starts from the SDK defaults and does not restore saved controls. Register a [log sink](#logging) as usual.
+
+Arduino IDE and Arduino CLI sketches cannot use the component. They install the [Arduino library](../src/cpp/frontend/arduino/README.md), which ships the same sensing sources, names the class `ESPectre` through its `ESPectre.h` entry header, and sends logs to the Arduino core; it is in development.
+
 ### Reference integrations
 
 The repository has three complete firmware integrations (frontends) built on the public SDK:
@@ -183,7 +191,7 @@ The repository has three complete firmware integrations (frontends) built on the
 | ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with network commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
-They are not part of the SDK package. For Arduino-ESP32 sketches, the [Arduino library](../src/cpp/frontend/arduino/README.md) wraps the runtime; it is in development. For a minimal project, start from the [Wi-Fi motion detection example](../src/cpp/examples/wifi_motion_detection/README.md).
+They are not part of the SDK package. For a minimal project, start from the [Wi-Fi motion detection example](../src/cpp/examples/wifi_motion_detection/README.md).
 
 ### Logging
 

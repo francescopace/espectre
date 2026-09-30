@@ -385,9 +385,9 @@ add_espectre_test(test_recovery_button_service
     LIBRARIES espectre_frontend_native_testlib
 )
 
-add_espectre_test(test_arduino_frontend
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_arduino_frontend.cpp"
-    LIBRARIES espectre_frontend_arduino_testlib
+add_espectre_test(test_arduino_adapter
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_arduino_adapter.cpp"
+    LIBRARIES espectre_arduino_adapter_testlib
 )
 
 add_espectre_test(test_matter_frontend

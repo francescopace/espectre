@@ -2435,9 +2435,7 @@ def test_arduino_library_ships_only_the_sensing_sources_it_can_compile(tmp_path:
     groups = builder.cmake_source_groups()
     shipped = {path.relative_to(src).as_posix() for path in src.rglob("*") if path.suffix in {".c", ".cpp"}}
     expected = {source for group in builder.SOURCE_GROUPS for source in groups[group]}
-    adapter = {path.relative_to(builder.ARDUINO_ROOT / "src").as_posix()
-               for path in (builder.ARDUINO_ROOT / "src").glob("*.cpp")}
-    assert shipped == expected | adapter
+    assert shipped == expected
     optional = {source for group in sdk_builder.OPTIONAL_SOURCE_GROUPS for source in groups[group]}
     assert not shipped & optional
 

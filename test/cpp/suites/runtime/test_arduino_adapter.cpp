@@ -1,7 +1,7 @@
 /*
- * ESPectre - Arduino Frontend Unit Tests
+ * ESPectre - Arduino Adapter Unit Tests
  *
- * Unit tests for the Arduino sensor adapter.
+ * Unit tests for the `ESPectre` sensor adapter.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -13,7 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "ESPectre.h"
+#include "runtime/esp_idf/espectre_sensor.h"
+#include "runtime/esp_idf/runtime_sensing_kconfig.h"
 #include "frontend_runtime_shim.h"
 
 using namespace espectre;
