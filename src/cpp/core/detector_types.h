@@ -12,7 +12,7 @@
 
 namespace espectre {
 
-/** Debounced detector state. */
+/** Debounced motion state. Closed enum: stationary presence will be a separate output. */
 enum class MotionState {
   IDLE,
   MOTION,

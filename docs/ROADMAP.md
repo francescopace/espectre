@@ -24,7 +24,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 **Product outcome**: release the stable v3 platform once the release candidates are validated, the remaining dataset work is done, and the rc-era compatibility code is gone.
 
-**Scope**: fix what `rc3` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. New sensing features and frontends wait for later versions.
+**Scope**: fix what `rc3` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. The core-only detector interface stays open until `v3.4.0`, and the capture profile enums can gain values. New sensing features and frontends wait for later versions.
 
 **Remaining release gates**:
 
@@ -93,7 +93,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 - Ship the capture profile, CSI rate, and window changes that the presence detector depends on (R1 to R3 in the [research pipeline](#research-pipeline)), with C++/Python parity
 - Validate stationary presence across representative hardware and environments using paired same-session evidence
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
-- Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state
+- Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
 
 **Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature ledger](FEATURES.md) and postpone this release.
 
@@ -223,7 +223,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **September 23, 2026**
+Last update: **October 1, 2026**
 
 For discussion and proposed changes:
 

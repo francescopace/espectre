@@ -52,7 +52,7 @@ Improv Serial supports firmware discovery and retrieval of Matter codes, but doe
 
 ## What you can configure today
 
-Matter exposes read-only occupancy. To change detector settings, open Device settings or Monitor through Direct HTTP after commissioning. Run `./espectre devices --frontend matter` to find the endpoint.
+Matter exposes read-only occupancy, which means motion: a person sitting still can read as unoccupied. Stationary presence will not change this attribute when it ships; it will be reported separately. To change detector settings, open Device settings or Monitor through Direct HTTP after commissioning. Run `./espectre devices --frontend matter` to find the endpoint.
 
 Direct provides sensing controls, diagnostics, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI collection. See the [API reference](../../../../docs/API.md) for the resource contract and the [discovery reference](../../../../docs/DISCOVERY.md) for discovery.
 

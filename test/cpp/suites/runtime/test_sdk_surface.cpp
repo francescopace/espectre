@@ -167,10 +167,6 @@ void test_sdk_version_macros_agree_with_each_other(void) {
                    ESPECTRE_SDK_VERSION_STRING[core_len] == '-');
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_SDK_VERSION_STRING, espectre_sdk_version());
 
-  const int expected_number = (ESPECTRE_SDK_VERSION_MAJOR * 10000) +
-                              (ESPECTRE_SDK_VERSION_MINOR * 100) + ESPECTRE_SDK_VERSION_PATCH;
-  TEST_ASSERT_EQUAL_INT(expected_number, ESPECTRE_SDK_VERSION_NUMBER);
-
   // The guard integrators write must accept the running version and reject a
   // release that has not happened yet.
   TEST_ASSERT_TRUE(ESPECTRE_SDK_VERSION_AT_LEAST(ESPECTRE_SDK_VERSION_MAJOR, ESPECTRE_SDK_VERSION_MINOR,

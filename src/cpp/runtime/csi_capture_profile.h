@@ -14,7 +14,11 @@
 
 namespace espectre {
 
-/** Training field and PHY the runtime captures CSI from, always at 20 MHz. */
+/**
+ * Training field and PHY the runtime captures CSI from, always at 20 MHz.
+ *
+ * Open enum: minor releases may add profiles, so handle values you do not know.
+ */
 enum class CsiCaptureProfile : uint8_t {
   /** HT long training field. */
   HT20 = 0,
@@ -24,7 +28,11 @@ enum class CsiCaptureProfile : uint8_t {
   VHT20 = 2,
 };
 
-/** Build-time policy resolved to a physical capture profile after association. */
+/**
+ * Build-time policy resolved to a physical capture profile after association.
+ *
+ * Open enum: minor releases may add policies, so handle values you do not know.
+ */
 enum class CsiCapturePolicy : uint8_t {
   /** LLTF20 for internal `wifi_raw` traffic, otherwise as `HT_VHT`. */
   AUTO = 0,

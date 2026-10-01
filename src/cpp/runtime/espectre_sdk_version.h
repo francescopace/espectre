@@ -57,16 +57,6 @@
  * SDK version as a string literal, such as `"3.0.0"`; `"0.0.0"` when unknown. */
 
 /**
- * Legacy packed numeric identity for the SDK version, as `MMmmpp`.
- *
- * Example: `3.0.0` becomes `30000`. Retained for compatibility and compact
- * telemetry; do not use it for ordering because components are not limited to
- * two digits. Use `ESPECTRE_SDK_VERSION_AT_LEAST()` for feature guards.
- */
-#define ESPECTRE_SDK_VERSION_NUMBER \
-  ((ESPECTRE_SDK_VERSION_MAJOR * 10000) + (ESPECTRE_SDK_VERSION_MINOR * 100) + ESPECTRE_SDK_VERSION_PATCH)
-
-/**
  * Compile-time feature guard.
  *
  * Use it to keep one integration compiling against several SDK releases:

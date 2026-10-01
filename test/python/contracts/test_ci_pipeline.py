@@ -963,7 +963,6 @@ def test_sdk_version_metadata(
         f'static_assert(ESPECTRE_SDK_VERSION_MAJOR == {major});\n'
         f'static_assert(ESPECTRE_SDK_VERSION_MINOR == {minor});\n'
         f'static_assert(ESPECTRE_SDK_VERSION_PATCH == {patch});\n'
-        f'static_assert(ESPECTRE_SDK_VERSION_NUMBER == {major * 10000 + minor * 100 + patch});\n'
         f'#if !ESPECTRE_SDK_VERSION_AT_LEAST({major}, {minor}, {patch})\n'
         '#error "SDK must satisfy its own numeric version"\n'
         '#endif\n'

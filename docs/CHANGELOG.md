@@ -10,7 +10,10 @@ All notable changes to this project will be documented in this file.
 
 - **Breaking:** `TrafficGeneratorMode::EXTERNAL` is now `TrafficGeneratorMode::EXTERNAL_HOST`, because Arduino defines `EXTERNAL` as a macro. The `external` wire value, ESPHome YAML, Kconfig, and saved settings are unchanged.
 - **Breaking:** Removed the release-candidate compatibility code. A `csi_traffic` setting saved by rc1 or rc2 no longer migrates, so select `external` again if you used it. A BSSID pin saved by ESPHome before rc1 no longer migrates, so pin the access point again if you skipped the release candidates. ESPHome reports `csi_traffic_mode` and `csi_traffic_mode_select` as unknown keys. Native no longer clears Home Assistant entities retired during the release candidates; delete any leftovers in Home Assistant. The Traffic Generator add-on controls only firmware with the single "CSI Traffic Source" select.
+- **Breaking:** Removed the packed `ESPECTRE_SDK_VERSION_NUMBER`. Compare `ESPECTRE_SDK_VERSION_MAJOR`, `ESPECTRE_SDK_VERSION_MINOR`, and `ESPECTRE_SDK_VERSION_PATCH`, or use `ESPECTRE_SDK_VERSION_AT_LEAST()`.
 - **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
+
+- The SDK versioning rules now mark `CsiCaptureProfile` and `CsiCapturePolicy` as open enums and put the core-only detector interface outside the compatibility promise until stationary presence ships. The Matter occupancy attribute and the `motion` event are documented as motion only.
 
 ### Fixed
 

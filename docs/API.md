@@ -106,6 +106,8 @@ Clients must ignore resources, operations, events, and fields they do not know.
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
 
+`detector`, `threshold`, `motion_on_hits`, and `motion_off_hits` always describe motion detection. Future sensing outputs use prefixed fields.
+
 During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derived_events_paused` is true.
 
 ### `wifi`
@@ -295,7 +297,7 @@ A `motion` event is produced for each detector evaluation:
 {"timestamp_ms":42000,"state":"idle","score":0.0123}
 ```
 
-`state` is `idle` or `motion`, and `score` is the detector output; the threshold is in `sensing`. If the client is slow, motion events may be dropped; the count is in `direct_http.dropped_motion_events`. Future events such as presence and gestures will use the same stream.
+`state` is `idle` or `motion`, and `score` is the detector output; the threshold is in `sensing`. `idle` means no motion, not an empty room. If the client is slow, motion events may be dropped; the count is in `direct_http.dropped_motion_events`. Future events such as presence and gestures will use the same stream.
 
 A `fault` event reports a runtime error without changing a resource payload:
 
