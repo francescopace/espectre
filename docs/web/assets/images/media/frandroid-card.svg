@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="534" height="300" viewBox="0 0 534 300" role="img" aria-labelledby="title">
+  <title id="title">Frandroid logo</title>
+  <!-- Official logo from https://www.frandroid.com/ -->
+  <rect width="534" height="300" fill="#ffffff"/>
+  <svg x="42" y="127" width="450" height="46.25" viewBox="0 0 574 59">
+            <title>Frandroid - La référence tech pour s’informer, comparer et bien acheter</title>
+            <defs>
+        <radialGradient id="frandroid-logo-a" cx="6.6%" cy="50%" r="277.8%" fx="6.6%" fy="50%"
+                        gradientTransform="matrix(.299 0 0 1.5208 0 -.3)">
+            <stop offset="0%" stop-color="#CB45FE"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+        </radialGradient>
+        <radialGradient id="frandroid-logo-b" cx="7.5%" cy="50%" r="244.8%" fx="7.5%" fy="50%"
+                        gradientTransform="matrix(.42592 .02738 -.03765 3.22537 0 -1.1)">
+            <stop offset="0%" stop-color="#FE559C"/>
+            <stop offset="24.8%" stop-color="#D957AF"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+        </radialGradient>
+        <radialGradient id="frandroid-logo-c" cx="6.6%" cy="50%" r="128%" fx="6.6%" fy="50%"
+                        gradientTransform="matrix(1 0 0 .86281 0 0)">
+            <stop offset="0%" stop-color="#FE6A55"/>
+            <stop offset="56.1%" stop-color="#FE6A55"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+            <stop offset="100%" stop-color="#415EFF"/>
+        </radialGradient>
+    </defs>
+    <g fill="none" fill-rule="evenodd">
+        <g transform="translate(0 .7)">
+            <rect width="55.1" height="16.5" fill="url(#frandroid-logo-a)" rx="8.2"/>
+            <rect width="38.7" height="16.5" y="20.4" fill="url(#frandroid-logo-b)" rx="8.2"/>
+            <circle cx="8.2" cy="49" r="8.2" fill="url(#frandroid-logo-c)"/>
+        </g>
+        <path fill="#415EFF" fill-rule="nonzero"
+              d="M93.6 42.7H85V58h-16V.7h25.9c5.1 0 9.6.9 13.3 2.6 3.8 1.7 6.7 4.2 8.8 7.3 2 3.2 3 7 3 11.3 0 4.1-.9 7.7-2.8 10.8-2 3-4.7 5.5-8.2 7.2L121 58h-17.2L93.6 42.7zm8.4-21.6c0-2.6-.8-4.6-2.4-6-1.6-1.4-4-2.1-7.1-2.1H84V29h8.5c3.1 0 5.5-.7 7.1-2a7.5 7.5 0 002.4-6zm70.2 25.7h-23.7L144.1 58H128L152.7.7h15.6L193.1 58h-16.5l-4.4-11zm-5-12.6l-7-18-7 18h14zM258.4.7V58H245l-25-30.5V58h-15.8V.7h13.2l25.1 30.5V.7h15.8zm14.9 0h26.6c6.1 0 11.6 1.2 16.4 3.5a26.2 26.2 0 0115 25.1c0 5.8-1.3 10.8-4 15.1a26.2 26.2 0 01-11 10 36.7 36.7 0 01-16.4 3.5h-26.6V.7zM516 .7h26.6c6.2 0 11.6 1.2 16.4 3.5a26.2 26.2 0 0115 25.1c0 5.8-1.3 10.8-4 15.1a26.2 26.2 0 01-11 10 36.7 36.7 0 01-16.4 3.5H516V.7zM298.6 45c4.8 0 8.7-1.4 11.7-4.3 3-2.8 4.4-6.7 4.4-11.7 0-5-1.5-9-4.4-11.8-3-2.8-6.9-4.2-11.7-4.2h-10.2v32h10.2zm242.7 0c4.8 0 8.8-1.4 11.7-4.3 3-2.8 4.4-6.7 4.4-11.7 0-5-1.4-9-4.4-11.8-3-2.8-6.9-4.2-11.7-4.2H531v32h10.2zM370 42.7h-8.7V58h-16V.7h25.9c5 0 9.5.9 13.3 2.6 3.8 1.7 6.7 4.2 8.8 7.3 2 3.2 3 7 3 11.3 0 4.1-1 7.7-2.8 10.8-2 3-4.7 5.5-8.2 7.2l12.2 18h-17.2l-10.3-15.2zm9.5-21.6c0-2.6-.8-4.6-2.4-6-1.6-1.4-4-2.1-7.1-2.1h-8.5V29h8.5c3.1 0 5.5-.7 7-2a7.5 7.5 0 002.5-6zm60 37.9c-5.9 0-11.2-1.3-16-3.8a28.4 28.4 0 01-15.1-25.7 28.8 28.8 0 0115.2-25.7c4.7-2.5 10-3.8 16-3.8 5.9 0 11.2 1.3 16 3.8a28.4 28.4 0 0115.1 25.7 28.8 28.8 0 01-15.2 25.7c-4.7 2.5-10 3.8-16 3.8zm.1-13.3a14.6 14.6 0 0013.2-8c1.3-2.4 2-5.3 2-8.6 0-3.2-.7-6.1-2-8.6a14.7 14.7 0 00-13.2-8 14.6 14.6 0 00-13.1 8c-1.3 2.5-2 5.4-2 8.6 0 3.3.7 6.2 2 8.7a14.7 14.7 0 0013.1 7.9zM485 .7H501V58h-16.2V.7z"/>
+    </g>
+</svg>
+</svg>

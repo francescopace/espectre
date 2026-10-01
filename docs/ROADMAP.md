@@ -28,8 +28,7 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 **Remaining release gates**:
 
-- [ ] Declare the final v3 corpus: list the missing captures by chip, environment, and label in the data collection guide, collect them, and pass dataset-quality, training, and C++/Python parity gates on the result. See the [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md).
-- [x] Remove the backward-compatibility code added during the release candidates, such as saved-setting migrations, guards for removed configuration keys, and cleanup of retired Home Assistant entities, together with its tests and documentation. v3.0.0 carries no rc-era compatibility paths.
+- [ ] Declare the final v3 dataset: list the missing captures by chip, environment, and label in the data collection guide, collect them, and pass dataset-quality, training, and C++/Python parity gates on the result. 
 
 **Exit criteria**:
 

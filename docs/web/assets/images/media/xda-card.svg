@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="534" height="300" viewBox="0 0 534 300">
+  <rect width="534" height="300" fill="#171717"/>
+  <!-- Official XDA logo from static0.xdaimages.com/assets/images/xda-logo-full-colored-light.svg -->
+  <svg xmlns="http://www.w3.org/2000/svg" x="96.3" y="99.6" width="341.4" height="100.8" viewBox="0 0 113.8 33.6">
+  <g id="logoMark">
+    <path id="logoMark_PathItem_" data-name="logoMark &amp;lt;PathItem&amp;gt;" d="M16,4.4V.1h10.9V24.6h-10.9v-4.2h6.4V4.4s-6.4,0-6.4,0Z" style="fill: #2daae9;" />
+    <polygon id="logoMark_PathItem_-2" data-name="logoMark &amp;lt;PathItem&amp;gt;" points="10.9 4.4 10.9 .1 0 .1 0 24.6 5.5 24.6 10.9 33.6 10.9 20.4 4.5 20.4 4.5 4.4 10.9 4.4" style="fill: #e43f64;" />
+    </g>
+  <polygon id="fullLogo" points="58.1 1.3 58.2 1 59.2 0 53.8 0 46 9.2 38.3 0 32.8 0 33.8 1.1 43.3 12.4 33.8 23.8 32.8 24.8 38.3 24.8 46 15.6 53.8 24.8 59.2 24.8 58.3 23.8 48.7 12.4 58.1 1.3" style="fill: #fff;" />
+  <path id="fullLogo-2" data-name="fullLogo" d="M81.6,0h-20.1V24.8h20.2c1.3,0,2.4-.5,3.3-1.4s1.4-2,1.4-3.3V4.6c0-1.3-.5-2.4-1.4-3.3-1-.8-2.1-1.3-3.4-1.3Zm-16,4.6c0-.1,0-.2,.1-.3,.1-.1,.2-.1,.3-.1h15.5c.1,0,.2,0,.3,.1,.1,.1,.1,.2,.1,.3v15.5c0,.1,0,.2-.1,.3-.1,.1-.2,.1-.3,.1h-15.4c-.1,0-.2,0-.3-.1-.1-.1-.1-.2-.1-.3V4.6h-.1Z" style="fill: #fff;" />
+  <path id="fullLogo-3" data-name="fullLogo" d="M112.4,1.4c-.9-.9-2-1.4-3.3-1.4h-15.5c-1.3,0-2.4,.5-3.3,1.4s-1.4,2-1.4,3.3V24.9h4.1v-8.5h16.5v8.5h4.1V4.6c.2-1.2-.3-2.3-1.2-3.2Zm-19.3,3.2c0-.1,0-.2,.1-.3,.1-.1,.2-.1,.3-.1h15.5c.1,0,.2,0,.3,.1,.1,.1,.1,.2,.1,.3v7.5h-16.3V4.6Z" style="fill: #fff;" />
+</svg>
+</svg>
