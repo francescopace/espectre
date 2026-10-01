@@ -259,6 +259,54 @@ void test_mqtt_config_validation_rejects_uri_framing_and_preserves_the_previous_
   TEST_ASSERT_EQUAL_STRING("invalid MQTT scheme (accepted: mqtt and mqtts)", error.c_str());
 }
 
+void test_mqtt_host_validation_follows_ip_literal_and_dns_label_grammar(void) {
+  const char *invalid_hosts[] = {
+      // IPv4: octet count, octet length, and non-digit characters.
+      "1.2.3", "1.2.3.4.5", "1..3.4", "1.2.3.", "1234.1.1.1", "1.2.3.256",
+      // IPv6: compression, group width, group count, and embedded IPv4 placement.
+      "1::2::3", "2001:db8:::1", ":1:2:3:4:5:6:7", "1:2:3:4:5:6:7", "1:2:3:4:5:6:7:8:9",
+      "12345::1", "g::1", "1:2:3:4:5:6:7:8::", "1.2.3.4::1", "::1.2.3.4:5", "::1.2.3",
+      "1:2:3:4:5:6:7:1.2.3.4",
+      // DNS: label boundaries and character set.
+      ".broker", "broker.", "-broker.local", "broker-.local", "bro ker.local", "broker..local"};
+  for (const char *host : invalid_hosts) {
+    EspectreDeviceConfig invalid;
+    invalid.mqtt_scheme = "mqtt";
+    invalid.mqtt_host = host;
+    invalid.mqtt_port = 1883U;
+    std::string error;
+    TEST_ASSERT_FALSE_MESSAGE(validate_espectre_mqtt_config(invalid, &error), host);
+  }
+
+  const std::string long_label(64U, 'a');
+  const std::string long_name = std::string(63U, 'a') + "." + std::string(63U, 'b') + "." +
+                                std::string(63U, 'c') + "." + std::string(61U, 'd');
+  EspectreDeviceConfig too_long_label;
+  too_long_label.mqtt_scheme = "mqtt";
+  too_long_label.mqtt_host = long_label;
+  too_long_label.mqtt_port = 1883U;
+  std::string error;
+  TEST_ASSERT_FALSE(validate_espectre_mqtt_config(too_long_label, &error));
+  TEST_ASSERT_EQUAL(253U, long_name.size());
+
+  const char *valid_hosts[] = {"1.2.3.4", "0.0.0.0", "255.255.255.255", "::", "1::", "::2",
+                               "1:2:3:4:5:6:7:8", "1:2:3:4:5:6:1.2.3.4", "::ffff:1.2.3.4",
+                               "fe80::1", "a-b.example", "a1.b2", "A.B"};
+  for (const char *host : valid_hosts) {
+    EspectreDeviceConfig valid;
+    valid.mqtt_scheme = "mqtt";
+    valid.mqtt_host = host;
+    valid.mqtt_port = 1883U;
+    TEST_ASSERT_TRUE_MESSAGE(validate_espectre_mqtt_config(valid, &error), host);
+  }
+
+  EspectreDeviceConfig longest;
+  longest.mqtt_scheme = "mqtt";
+  longest.mqtt_host = long_name;
+  longest.mqtt_port = 1883U;
+  TEST_ASSERT_TRUE(validate_espectre_mqtt_config(longest, &error));
+}
+
 void test_status_telemetry_and_diagnostics_payloads_include_expected_fields(void) {
   EspectreDeviceConfig config;
   config.device_id = 0x0000000000000007ULL;
@@ -1321,13 +1369,194 @@ void test_update_sensing_rejects_unadvertised_fields_as_unsupported(void) {
   TEST_ASSERT_TRUE(result.changes == FrontendCommandChange::NONE);
 }
 
+namespace {
+
+struct EngineCase {
+  const char *command;
+  EspectreDirectMethod method;
+};
+
+constexpr EngineCase kReadCases[] = {
+    {"capabilities", EspectreDirectMethod::CAPABILITIES},
+    {"device", EspectreDirectMethod::INFO},
+    {"health", EspectreDirectMethod::STATUS},
+    {"sensing", EspectreDirectMethod::CONFIG},
+    {"wifi", EspectreDirectMethod::CONFIG},
+    {"mqtt", EspectreDirectMethod::CONFIG},
+    {"read_diagnostics", EspectreDirectMethod::DIAGNOSTICS},
+    {"wifi_access_points", EspectreDirectMethod::WIFI_ACCESS_POINTS},
+};
+
+constexpr EngineCase kWifiCases[] = {
+    {"scan_wifi", EspectreDirectMethod::SCAN_WIFI_ACCESS_POINTS},
+    {"set_wifi_bssid", EspectreDirectMethod::SET_WIFI_BSSID},
+    {"clear_wifi_bssid", EspectreDirectMethod::CLEAR_WIFI_BSSID},
+    {"clear_wifi_credentials", EspectreDirectMethod::CLEAR_WIFI_CONFIG},
+};
+
+EspectreCommand engine_command(const char *name) {
+  EspectreCommand command;
+  command.command = name;
+  return command;
+}
+
+EspectreCapabilityProfile engine_capabilities(EspectreDirectMethod method) {
+  EspectreCapabilityProfile capabilities;
+  capabilities.set(method);
+  return capabilities;
+}
+
+}  // namespace
+
+void test_engine_read_commands_require_the_matching_capability_and_a_payload(void) {
+  const FrontendCommandEngine engine;
+  const FrontendReadPayloadCallback payload = [](const EspectreCommand &) { return std::string("{\"ok\":true}"); };
+  const FrontendReadPayloadCallback empty = [](const EspectreCommand &) { return std::string(); };
+  for (const EngineCase &item : kReadCases) {
+    const EspectreCommand command = engine_command(item.command);
+    const EspectreCapabilityProfile advertised = engine_capabilities(item.method);
+
+    const auto unadvertised = engine.execute(command, {}, EspectreCapabilityProfile{}, payload);
+    TEST_ASSERT_FALSE_MESSAGE(unadvertised.accepted, item.command);
+    TEST_ASSERT_TRUE_MESSAGE(unadvertised.code == "unsupported", item.command);
+
+    const auto no_provider = engine.execute(command, {}, advertised, {});
+    TEST_ASSERT_TRUE_MESSAGE(no_provider.code == "unsupported", item.command);
+
+    const auto unavailable = engine.execute(command, {}, advertised, empty);
+    TEST_ASSERT_FALSE_MESSAGE(unavailable.accepted, item.command);
+    TEST_ASSERT_TRUE_MESSAGE(unavailable.code == "unavailable", item.command);
+
+    const auto accepted = engine.execute(command, {}, advertised, payload);
+    TEST_ASSERT_TRUE_MESSAGE(accepted.accepted, item.command);
+    TEST_ASSERT_TRUE_MESSAGE(accepted.code == "ok", item.command);
+    TEST_ASSERT_TRUE_MESSAGE(accepted.data_json == "{\"ok\":true}", item.command);
+    TEST_ASSERT_TRUE_MESSAGE(accepted.changes == FrontendCommandChange::NONE, item.command);
+  }
+}
+
+void test_engine_wifi_commands_flag_wifi_changes_except_a_scan(void) {
+  const FrontendCommandEngine engine;
+  for (const EngineCase &item : kWifiCases) {
+    const EspectreCommand command = engine_command(item.command);
+    const EspectreCapabilityProfile advertised = engine_capabilities(item.method);
+    const bool is_scan = std::strcmp(item.command, "scan_wifi") == 0;
+
+    const auto unadvertised = engine.execute(
+        command, {}, EspectreCapabilityProfile{}, {}, {}, {}, {}, {}, {}, {},
+        [](const EspectreCommand &, std::string *) { return true; });
+    TEST_ASSERT_TRUE_MESSAGE(unadvertised.code == "unsupported", item.command);
+    const auto no_callback = engine.execute(command, {}, advertised, {});
+    TEST_ASSERT_TRUE_MESSAGE(no_callback.code == "unsupported", item.command);
+
+    const auto accepted = engine.execute(
+        command, {}, advertised, {}, {}, {}, {}, {}, {}, {},
+        [](const EspectreCommand &, std::string *) { return true; });
+    TEST_ASSERT_TRUE_MESSAGE(accepted.accepted, item.command);
+    TEST_ASSERT_FALSE_MESSAGE(accepted.message.empty(), item.command);
+    TEST_ASSERT_TRUE_MESSAGE(
+        accepted.changes == (is_scan ? FrontendCommandChange::NONE : FrontendCommandChange::WIFI), item.command);
+
+    const auto rejected = engine.execute(
+        command, {}, advertised, {}, {}, {}, {}, {}, {}, {},
+        [](const EspectreCommand &, std::string *message) {
+          *message = "radio busy";
+          return false;
+        });
+    TEST_ASSERT_FALSE_MESSAGE(rejected.accepted, item.command);
+    TEST_ASSERT_TRUE_MESSAGE(rejected.code == "unavailable", item.command);
+    TEST_ASSERT_TRUE_MESSAGE(rejected.message == "radio busy", item.command);
+    TEST_ASSERT_TRUE_MESSAGE(rejected.changes == FrontendCommandChange::NONE, item.command);
+  }
+}
+
+void test_engine_label_mqtt_and_recalibrate_commands_report_their_outcome(void) {
+  const FrontendCommandEngine engine;
+  const EspectreCommand label = engine_command("update_device");
+  const EspectreCommand update_mqtt = engine_command("update_mqtt");
+  const EspectreCommand clear_mqtt = engine_command("clear_mqtt");
+  const EspectreCommand recalibrate = engine_command("recalibrate");
+  const auto accept_label = [](const std::string &, std::string *) { return true; };
+  const auto reject_label = [](const std::string &, std::string *) { return false; };
+
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(label, {}, EspectreCapabilityProfile{}, {}, accept_label).code.c_str());
+  const auto label_cap = engine_capabilities(EspectreDirectMethod::SET_DEVICE_LABEL);
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(label, {}, label_cap, {}).code.c_str());
+  const auto label_ok = engine.execute(label, {}, label_cap, {}, accept_label);
+  TEST_ASSERT_TRUE(label_ok.accepted);
+  TEST_ASSERT_TRUE(label_ok.changes == FrontendCommandChange::DEVICE);
+  const auto label_no = engine.execute(label, {}, label_cap, {}, reject_label);
+  TEST_ASSERT_EQUAL_STRING("unavailable", label_no.code.c_str());
+  TEST_ASSERT_TRUE(label_no.changes == FrontendCommandChange::NONE);
+
+  const FrontendMqttConfigCallback accept_mqtt = [](const EspectreCommand &, bool, std::string *) { return true; };
+  const FrontendMqttConfigCallback reject_mqtt = [](const EspectreCommand &, bool, std::string *) { return false; };
+  bool cleared = false;
+  const FrontendMqttConfigCallback record_mqtt = [&cleared](const EspectreCommand &, bool clear, std::string *) {
+    cleared = clear;
+    return true;
+  };
+  const auto set_cap = engine_capabilities(EspectreDirectMethod::SET_MQTT_CONFIG);
+  const auto clear_cap = engine_capabilities(EspectreDirectMethod::CLEAR_MQTT_CONFIG);
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(update_mqtt, {}, clear_cap, {}, {}, {}, {}, {}, {}, {}, {}, accept_mqtt).code.c_str());
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(clear_mqtt, {}, set_cap, {}, {}, {}, {}, {}, {}, {}, {}, accept_mqtt).code.c_str());
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(update_mqtt, {}, set_cap, {}).code.c_str());
+  const auto mqtt_ok = engine.execute(update_mqtt, {}, set_cap, {}, {}, {}, {}, {}, {}, {}, {}, record_mqtt);
+  TEST_ASSERT_TRUE(mqtt_ok.accepted);
+  TEST_ASSERT_FALSE(cleared);
+  TEST_ASSERT_TRUE(mqtt_ok.changes == FrontendCommandChange::MQTT);
+  TEST_ASSERT_TRUE(engine.execute(clear_mqtt, {}, clear_cap, {}, {}, {}, {}, {}, {}, {}, {}, record_mqtt).accepted);
+  TEST_ASSERT_TRUE(cleared);
+  const auto mqtt_no = engine.execute(update_mqtt, {}, set_cap, {}, {}, {}, {}, {}, {}, {}, {}, reject_mqtt);
+  TEST_ASSERT_EQUAL_STRING("unavailable", mqtt_no.code.c_str());
+  TEST_ASSERT_TRUE(mqtt_no.changes == FrontendCommandChange::NONE);
+
+  const auto recal_cap = engine_capabilities(EspectreDirectMethod::RECALIBRATE);
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(recalibrate, {}, EspectreCapabilityProfile{}, {}).code.c_str());
+  TEST_ASSERT_EQUAL_STRING("unsupported", engine.execute(recalibrate, {}, recal_cap, {}).code.c_str());
+  const auto recal_ok = engine.execute(recalibrate, {}, recal_cap, {}, {}, {}, {}, {}, {},
+                                       [](std::string *) { return true; });
+  TEST_ASSERT_TRUE(recal_ok.accepted);
+  TEST_ASSERT_TRUE(recal_ok.changes == FrontendCommandChange::SENSING);
+  const auto recal_busy = engine.execute(recalibrate, {}, recal_cap, {}, {}, {}, {}, {}, {},
+                                         [](std::string *) { return false; });
+  TEST_ASSERT_EQUAL_STRING("busy", recal_busy.code.c_str());
+  TEST_ASSERT_TRUE(recal_busy.changes == FrontendCommandChange::NONE);
+}
+
+void test_engine_rejects_unknown_commands_and_commands_forbidden_over_mqtt(void) {
+  const FrontendCommandEngine engine;
+  EspectreCapabilityProfile everything;
+  for (size_t index = 0; index < static_cast<size_t>(EspectreDirectMethod::COUNT); ++index) {
+    everything.set(static_cast<EspectreDirectMethod>(index));
+  }
+  const FrontendReadPayloadCallback payload = [](const EspectreCommand &) { return std::string("{}"); };
+
+  TEST_ASSERT_EQUAL_STRING("unsupported",
+                           engine.execute(engine_command("reboot"), {}, everything, payload).code.c_str());
+
+  FrontendCommandContext mqtt;
+  mqtt.origin = FrontendCommandOrigin::MQTT;
+  for (const char *name : {"capabilities", "device", "wifi", "update_mqtt", "scan_wifi", "clear_mqtt"}) {
+    const auto result = engine.execute(engine_command(name), mqtt, everything, payload);
+    TEST_ASSERT_FALSE_MESSAGE(result.accepted, name);
+    TEST_ASSERT_TRUE_MESSAGE(result.code == "forbidden", name);
+  }
+  TEST_ASSERT_TRUE(engine.execute(engine_command("read_diagnostics"), mqtt, everything, payload).accepted);
+}
+
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_engine_read_commands_require_the_matching_capability_and_a_payload);
+  RUN_TEST(test_engine_wifi_commands_flag_wifi_changes_except_a_scan);
+  RUN_TEST(test_engine_label_mqtt_and_recalibrate_commands_report_their_outcome);
+  RUN_TEST(test_engine_rejects_unknown_commands_and_commands_forbidden_over_mqtt);
   RUN_TEST(test_frontend_protocol_extensions_share_capabilities_routing_and_validation);
   RUN_TEST(test_sdk_validators_reject_out_of_range_parameters_before_dispatch);
   RUN_TEST(test_ota_version_ordering_blocks_downgrades_and_divergent_builds);
   RUN_TEST(test_device_id_helpers_format_and_parse_canonical_hex_consistently);
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
+  RUN_TEST(test_mqtt_host_validation_follows_ip_literal_and_dns_label_grammar);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);
   RUN_TEST(test_mqtt_config_validation_rejects_uri_framing_and_preserves_the_previous_config);

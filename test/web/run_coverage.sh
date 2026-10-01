@@ -16,6 +16,7 @@ coverage_command=(
   --experimental-test-coverage
   --test
   --test-coverage-include=docs/web/assets/js/espectre-direct.js
+  --test-coverage-include=docs/web/assets/js/firmware-auth.mjs
   "--test-coverage-lines=${line_threshold}"
   "--test-coverage-branches=${branch_threshold}"
   "--test-coverage-functions=${function_threshold}"

@@ -207,6 +207,21 @@ void test_wifi_bssid_pin_service_keeps_a_pin_dormant_when_matter_changes_ssid(vo
   TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", reloaded.stored_bssid().c_str());
 }
 
+void test_wifi_bssid_pin_service_discards_and_erases_a_corrupt_stored_pin(void) {
+  nvs_mock_put_str("pin_ssid", "MatterLab");
+  nvs_mock_put_str("pin_bssid", "not-a-bssid");
+  WifiBssidPinService service;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(make_config()));
+  TEST_ASSERT_TRUE(service.stored_ssid().empty());
+  TEST_ASSERT_TRUE(service.stored_bssid().empty());
+
+  // The corrupt pin is gone from flash, so the next boot starts clean too.
+  WifiBssidPinService rebooted;
+  TEST_ASSERT_EQUAL(ESP_OK, rebooted.setup(make_config()));
+  TEST_ASSERT_TRUE(rebooted.stored_ssid().empty());
+  TEST_ASSERT_TRUE(rebooted.stored_bssid().empty());
+}
+
 void test_wifi_bssid_pin_service_persists_an_explicit_clear(void) {
   seed_pin("MatterLab", "AA:BB:CC:DD:EE:FF");
   WifiBssidPinService service;
@@ -322,6 +337,7 @@ void test_wifi_bssid_pin_service_requires_recovery_when_rollback_journal_cannot_
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_wifi_bssid_pin_service_discards_and_erases_a_corrupt_stored_pin);
   RUN_TEST(test_wifi_bssid_pin_service_commits_only_after_verified_ipv4);
   RUN_TEST(test_wifi_bssid_pin_service_force_reapplies_the_active_bssid);
   RUN_TEST(test_wifi_bssid_pin_service_restores_the_previous_pin_after_timeout);

@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cstdint>
 #include <cstring>
+#include <vector>
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "traffic_generator_manager.h"
@@ -70,6 +71,92 @@ void prepare_lifecycle_test() {
     g_freertos_delay_hook = finish_stopping_task;
 }
 
+// Socket-backed protocols run the real send loop against loopback or a socket
+// pair; the notify hook ends the synchronously executed task after a fixed
+// number of paced waits.
+unsigned notify_calls = 0U;
+unsigned notify_limit = 0U;
+std::vector<int> factory_sockets;
+std::vector<int> factory_peers;
+unsigned socket_factory_calls = 0U;
+
+void stop_after_paced_waits() {
+    if (++notify_calls >= notify_limit && active_generator != nullptr) active_generator->stop();
+}
+
+// The lwIP mock redirects socket() to the factory; reach the host call directly.
+#pragma push_macro("socket")
+#undef socket
+int loopback_udp_socket(int, int, int) {
+    last_test_socket = ::socket(AF_INET, SOCK_DGRAM, 0);
+    return last_test_socket;
+}
+#pragma pop_macro("socket")
+
+// A TCP client that is already connected to a loopback listener: connect()
+// then reports EISCONN, which is how the generator recognizes an established
+// connection. The lwIP mock redirects socket() to the factory, so the host
+// call is reached with the macro suspended.
+int tcp_loopback_listener = -1;
+
+#pragma push_macro("socket")
+#undef socket
+int connected_pair_socket(int, int, int) {
+    ++socket_factory_calls;
+    sockaddr_in address{};
+    socklen_t address_len = sizeof(address);
+    if (tcp_loopback_listener < 0) {
+        tcp_loopback_listener = ::socket(AF_INET, SOCK_STREAM, 0);
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (bind(tcp_loopback_listener, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0 ||
+            listen(tcp_loopback_listener, 4) != 0) {
+            return -1;
+        }
+    }
+    getsockname(tcp_loopback_listener, reinterpret_cast<sockaddr *>(&address), &address_len);
+    const int client = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (client < 0 || connect(client, reinterpret_cast<sockaddr *>(&address), sizeof(address)) != 0) return -1;
+    const int peer = accept(tcp_loopback_listener, nullptr, nullptr);
+    factory_sockets.push_back(client);
+    factory_peers.push_back(peer);
+    last_test_socket = client;
+    return client;
+}
+#pragma pop_macro("socket")
+
+// The remote end is already gone, as after a reset by the DNS server.
+int peer_closed_socket(int, int, int) {
+    const int sock = connected_pair_socket(0, 0, 0);
+    if (sock >= 0) {
+        close(factory_peers.back());
+        factory_peers.back() = -1;
+    }
+    return sock;
+}
+
+void close_factory_sockets() {
+    if (tcp_loopback_listener >= 0) close(tcp_loopback_listener);
+    tcp_loopback_listener = -1;
+    for (int fd : factory_peers) if (fd >= 0) close(fd);
+    factory_peers.clear();
+    factory_sockets.clear();
+}
+
+void run_socket_generator(TrafficGeneratorManager &manager, TrafficGeneratorMode mode, uint32_t target,
+                          unsigned waits) {
+    esp_timer_mock::step_us = 1000;
+    notify_calls = 0U;
+    notify_limit = waits;
+    socket_factory_calls = 0U;
+    active_generator = &manager;
+    g_freertos_notify_hook = stop_after_paced_waits;
+    // One packet per second keeps every iteration ahead of its deadline, so
+    // each pass reaches the paced wait that the hook counts.
+    manager.init(1U, mode);
+    TEST_ASSERT_TRUE(manager.start(target));
+}
+
 void stop_raw_test_generator() {
     // The FreeRTOS mock runs the task synchronously; stop after bounded sends.
     if (g_esp_wifi_mock.raw_tx_call_count == 3) active_generator->stop();
@@ -81,6 +168,9 @@ void setUp(void) {
     g_esp_wifi_fixed_rate_mock = {};
     g_freertos_task_mock = {};
     g_freertos_delay_hook = nullptr;
+    g_freertos_notify_hook = nullptr;
+    esp_timer_mock::step_us = 1000;
+    close_factory_sockets();
     g_lwip_socket_mock_factory = nullptr;
     last_test_socket = -1;
     fail_socket_creation = false;
@@ -95,6 +185,51 @@ void tearDown(void) {
     if (last_test_socket >= 0 && fcntl(last_test_socket, F_GETFD) >= 0) {
         close(last_test_socket);
     }
+}
+
+void test_dns_udp_generator_sends_one_paced_query_per_wait(void) {
+    g_lwip_socket_mock_factory = loopback_udp_socket;
+    TrafficGeneratorManager manager;
+    run_socket_generator(manager, TrafficGeneratorMode::DNS, 0x0100007FU, 3U);
+    TEST_ASSERT_EQUAL(3U, manager.send_success_count());
+    TEST_ASSERT_EQUAL(0U, manager.send_error_count());
+    TEST_ASSERT_FALSE(manager.is_running());
+}
+
+void test_ping_generator_counts_rejected_sends_as_errors(void) {
+    // A datagram socket cannot carry an ICMP echo to port 0, so every send fails.
+    g_lwip_socket_mock_factory = loopback_udp_socket;
+    TrafficGeneratorManager manager;
+    run_socket_generator(manager, TrafficGeneratorMode::PING, 0x0100007FU, 3U);
+    TEST_ASSERT_EQUAL(0U, manager.send_success_count());
+    TEST_ASSERT_TRUE(manager.send_error_count() >= 3U);
+}
+
+void test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_connection(void) {
+    g_lwip_socket_mock_factory = connected_pair_socket;
+    TrafficGeneratorManager manager;
+    run_socket_generator(manager, TrafficGeneratorMode::DNS_TCP, 0x0100007FU, 3U);
+    TEST_ASSERT_EQUAL(3U, manager.send_success_count());
+    TEST_ASSERT_EQUAL(0U, manager.send_error_count());
+    TEST_ASSERT_EQUAL(1U, socket_factory_calls);
+
+    uint8_t expected[TRAFFIC_DNS_TCP_FRAME_SIZE];
+    uint8_t received[TRAFFIC_DNS_TCP_FRAME_SIZE * 4U];
+    const size_t frame_len = build_dns_tcp_query_frame(1U, expected, sizeof(expected));
+    const ssize_t bytes = recv(factory_peers.front(), received, sizeof(received), MSG_DONTWAIT);
+    TEST_ASSERT_EQUAL(static_cast<ssize_t>(frame_len * 3U), bytes);
+    for (uint16_t transaction = 1U; transaction <= 3U; ++transaction) {
+        build_dns_tcp_query_frame(transaction, expected, sizeof(expected));
+        TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, received + (transaction - 1U) * frame_len, frame_len);
+    }
+}
+
+void test_dns_tcp_generator_reopens_the_socket_when_the_peer_closes(void) {
+    g_lwip_socket_mock_factory = peer_closed_socket;
+    TrafficGeneratorManager manager;
+    run_socket_generator(manager, TrafficGeneratorMode::DNS_TCP, 0x0100007FU, 3U);
+    TEST_ASSERT_EQUAL(0U, manager.send_success_count());
+    TEST_ASSERT_TRUE(socket_factory_calls >= 2U);
 }
 
 void test_internal_generators_preserve_station_rate_through_start_pause_and_stop(void) {
@@ -695,6 +830,10 @@ void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(voi
 
 int process(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_dns_udp_generator_sends_one_paced_query_per_wait);
+    RUN_TEST(test_ping_generator_counts_rejected_sends_as_errors);
+    RUN_TEST(test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_connection);
+    RUN_TEST(test_dns_tcp_generator_reopens_the_socket_when_the_peer_closes);
     RUN_TEST(test_internal_generators_preserve_station_rate_through_start_pause_and_stop);
     RUN_TEST(test_stop_signals_the_task_without_waiting_for_it);
     RUN_TEST(test_restart_waits_for_the_stopping_task_to_exit);

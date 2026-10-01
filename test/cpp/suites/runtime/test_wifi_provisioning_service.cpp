@@ -164,6 +164,19 @@ void setUp(void) {
 
 void tearDown(void) {}
 
+void test_wifi_provisioning_apply_states_have_stable_protocol_names(void) {
+  TEST_ASSERT_EQUAL_STRING("idle", wifi_provisioning_apply_state_name(WifiProvisioningApplyState::IDLE));
+  TEST_ASSERT_EQUAL_STRING("verifying", wifi_provisioning_apply_state_name(WifiProvisioningApplyState::VERIFYING));
+  TEST_ASSERT_EQUAL_STRING("rolling_back",
+                           wifi_provisioning_apply_state_name(WifiProvisioningApplyState::ROLLING_BACK));
+  TEST_ASSERT_EQUAL_STRING("applied", wifi_provisioning_apply_state_name(WifiProvisioningApplyState::APPLIED));
+  TEST_ASSERT_EQUAL_STRING("rolled_back",
+                           wifi_provisioning_apply_state_name(WifiProvisioningApplyState::ROLLED_BACK));
+  TEST_ASSERT_EQUAL_STRING("recovery_required",
+                           wifi_provisioning_apply_state_name(WifiProvisioningApplyState::RECOVERY_REQUIRED));
+  TEST_ASSERT_EQUAL_STRING("idle", wifi_provisioning_apply_state_name(static_cast<WifiProvisioningApplyState>(255)));
+}
+
 void test_wifi_provisioning_rejects_invalid_candidates_without_persistence(void) {
   StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
@@ -842,6 +855,7 @@ void test_wifi_provisioning_requires_recovery_when_rollback_journal_cannot_clear
 
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_wifi_provisioning_apply_states_have_stable_protocol_names);
   RUN_TEST(test_wifi_provisioning_rejects_invalid_candidates_without_persistence);
   RUN_TEST(test_wifi_provisioning_scan_failure_resumes_runtime_and_permits_retry);
   RUN_TEST(test_wifi_provisioning_missing_manager_or_credentials_block_radio_operations);

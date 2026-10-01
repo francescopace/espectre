@@ -225,6 +225,27 @@ void test_reconnects_are_observable() {
   TEST_ASSERT_EQUAL(1U, transport.diagnostics().reconnects);
 }
 
+void test_subscribe_rejects_unusable_requests_and_defers_until_connected() {
+  mqtt_client_mock_reset();
+  EspIdfMqttTransport transport;
+  TEST_ASSERT_TRUE(transport.setup(config()));
+  const EspIdfMqttTransport::MessageCallback callback = [](const std::string &, const std::string &) {};
+  TEST_ASSERT_FALSE(transport.subscribe("", callback));
+  TEST_ASSERT_FALSE(transport.subscribe("espectre/topic", nullptr));
+
+  TEST_ASSERT_TRUE(transport.subscribe("espectre/topic", callback));
+  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.subscribe_calls);
+  connect(transport);
+  const int after_connect = g_mqtt_client_mock.subscribe_calls;
+  TEST_ASSERT_TRUE(after_connect >= 1);
+
+  // Subscribing again replaces the handler and, while connected, renews the broker subscription.
+  TEST_ASSERT_TRUE(transport.subscribe("espectre/topic", callback));
+  TEST_ASSERT_EQUAL(after_connect + 1, g_mqtt_client_mock.subscribe_calls);
+  TEST_ASSERT_TRUE(transport.subscribe("espectre/other", callback));
+  TEST_ASSERT_EQUAL(after_connect + 2, g_mqtt_client_mock.subscribe_calls);
+}
+
 }  // namespace
 
 int main() {
@@ -239,5 +260,6 @@ int main() {
   RUN_TEST(test_queue_rejects_overflow_without_discarding_critical_messages);
   RUN_TEST(test_full_outbox_retries_without_growing_the_frontend_queue);
   RUN_TEST(test_reconnects_are_observable);
+  RUN_TEST(test_subscribe_rejects_unusable_requests_and_defers_until_connected);
   return espectre::test::end_suite();
 }

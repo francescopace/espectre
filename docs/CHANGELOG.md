@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - **Breaking:** `TrafficGeneratorMode::EXTERNAL` is now `TrafficGeneratorMode::EXTERNAL_HOST`, because Arduino defines `EXTERNAL` as a macro. The `external` wire value, ESPHome YAML, Kconfig, and saved settings are unchanged.
-- **Breaking:** Removed the release-candidate compatibility code. A `csi_traffic` setting saved by rc1 or rc2 no longer migrates, so select `external` again if you used it. ESPHome reports `csi_traffic_mode` and `csi_traffic_mode_select` as unknown keys. Native no longer clears Home Assistant entities retired during the release candidates; delete any leftovers in Home Assistant. The Traffic Generator add-on controls only firmware with the single "CSI Traffic Source" select.
+- **Breaking:** Removed the release-candidate compatibility code. A `csi_traffic` setting saved by rc1 or rc2 no longer migrates, so select `external` again if you used it. A BSSID pin saved by ESPHome before rc1 no longer migrates, so pin the access point again if you skipped the release candidates. ESPHome reports `csi_traffic_mode` and `csi_traffic_mode_select` as unknown keys. Native no longer clears Home Assistant entities retired during the release candidates; delete any leftovers in Home Assistant. The Traffic Generator add-on controls only firmware with the single "CSI Traffic Source" select.
 - **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
 
 ### Fixed
@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Fixed a traffic source change during Lightweight calibration being ignored when the CSI capture profile stays the same, such as from `ping` to `dns`. The calibration now restarts for the new source instead of mixing evidence from both.
 - Fixed sensing staying in calibration after a Wi-Fi reconnect on ESP32-S3, when one stray CSI callback hid a silent receive path. The runtime now refreshes the path unless callbacks keep pace with the traffic.
 - Fixed `collect` silently skipping the post-collect quality checks since 3.0.0-rc1, because the CLI imported the validator from a module that no longer exports it. The checks run again after every capture.
+- Fixed the web flasher corrupting the next command when leftover serial bytes remained after a firmware metadata read. The flasher now uses esptool-js 0.7.0, which provides the ESP32-C5 and ESP32-C6 SPI register base directly.
 
 ## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support
 

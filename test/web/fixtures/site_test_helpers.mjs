@@ -7,8 +7,17 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 export const read = (path) => readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8');
+
+/** Run a site script with its real file URL so test coverage attributes it. */
+export const runSiteScript = (path, context) => vm.runInContext(
+    read(path),
+    context,
+    { filename: fileURLToPath(new URL(`../../../${path}`, import.meta.url)) }
+);
 
 export const index = read('docs/web/index.html');
 export const flashSource = read('docs/web/assets/js/flash-tool.js');

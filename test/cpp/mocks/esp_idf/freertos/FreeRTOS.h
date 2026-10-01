@@ -43,6 +43,8 @@ typedef uint32_t UBaseType_t;
 // Mock FreeRTOS functions (no-ops for testing)
 #ifdef __cplusplus
 inline void (*g_freertos_delay_hook)(void) = nullptr;
+// Runs on every ulTaskNotifyTake(); lets a test end a synchronously run task loop.
+inline void (*g_freertos_notify_hook)(void) = nullptr;
 #endif
 
 static inline void vTaskDelay(TickType_t xTicksToDelay) {

@@ -3243,6 +3243,65 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
     assert "Selected device: 0x00000000000000aa" in captured
 
 
+def _feed_inputs(monkeypatch, *responses):
+    queue = iter(responses)
+
+    def read(_prompt):
+        value = next(queue)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr("builtins.input", read)
+
+
+def test_mqtt_shell_auto_selects_a_single_discovered_device(monkeypatch, capsys) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch, device_id=None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: pytest.fail("a single device needs no prompt"))
+
+    assert shell._prompt_for_device_choice([{"device_id": "0x0000000000000001"}]) == "0x0000000000000001"
+    assert "Selected device: 0x0000000000000001" in capsys.readouterr().out
+
+
+def test_mqtt_shell_device_prompt_rejects_wildcards_and_empty_answers(monkeypatch, capsys) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch, device_id=None)
+    devices = [{"device_id": "0x01"}, {"device_id": "0x02"}]
+    _feed_inputs(monkeypatch, "", "a/b", "+", "#", "2")
+
+    assert shell._prompt_for_device_choice(devices) == "0x02"
+    output = capsys.readouterr().out
+    assert "Please choose a device or enter a device id" in output
+    assert output.count("Invalid choice") == 3
+
+
+def test_mqtt_shell_device_prompt_accepts_a_manual_id_and_cancellation(monkeypatch, capsys) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch, device_id=None)
+    devices = [{"device_id": "0x01"}, {"device_id": "0x02"}]
+
+    _feed_inputs(monkeypatch, "0x0000000000000099")
+    assert shell._prompt_for_device_choice(devices) == "0x0000000000000099"
+    _feed_inputs(monkeypatch, KeyboardInterrupt())
+    assert shell._prompt_for_device_choice(devices) is None
+    assert "Cancelled" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("answer, expected", [
+    ("0x00000000000000bb", True),
+    ("", False),
+    (KeyboardInterrupt(), False),
+])
+def test_mqtt_shell_offers_manual_entry_when_nothing_is_discovered(monkeypatch, answer, expected) -> None:
+    shell, client, _rendered = _build_shell(monkeypatch, device_id=None)
+    _feed_inputs(monkeypatch, answer)
+
+    assert shell.select_device() is expected
+    if expected:
+        assert shell.device_id == "0x00000000000000bb"
+        assert shell.discovery_active is False
+    else:
+        assert client.unsubscriptions == []
+
+
 def test_mqtt_shell_guards_discovery_updates_and_snapshots(monkeypatch) -> None:
     shell, _client, _rendered = _build_shell(monkeypatch, device_id=None)
 

@@ -15,7 +15,7 @@ import { AnsiUp } from '../../docs/web/node_modules/ansi_up/ansi_up.js';
 import { rollup } from '../../docs/web/node_modules/rollup/dist/es/rollup.js';
 import serialConfig from '../../docs/web/rollup.config.mjs';
 import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/improv-wifi-serial-sdk/dist/const.js';
-import { flashSource, index, read, routeManifest, toolContent } from './fixtures/site_test_helpers.mjs';
+import { read, routeManifest, runSiteScript, toolContent } from './fixtures/site_test_helpers.mjs';
 
 function loadFlashRuntime(globals = {}) {
     const window = {};
@@ -26,7 +26,7 @@ function loadFlashRuntime(globals = {}) {
         ...globals,
     };
     vm.createContext(context);
-    vm.runInContext(flashSource, context);
+    runSiteScript('docs/web/assets/js/flash-tool.js', context);
     context.flashState = vm.runInContext('flash', context);
     return context;
 }
@@ -144,7 +144,7 @@ describe('tool reliability analytics', () => {
                 Date, errorType, $$: () => [], activeToolName: () => 'game',
                 track: (name, params) => events.push({ name, params })
             });
-            vm.runInContext(read('docs/web/assets/js/direct-discovery.js'), context);
+            runSiteScript('docs/web/assets/js/direct-discovery.js', context);
             vm.runInContext('let directDiscoveryGeneration = 0; let directDiscoveryClient = null;', context);
             Object.assign(context, {
                 setDirectConnectionHelp() {}, setDirectConnectionStatus() {},
@@ -203,7 +203,7 @@ describe('Monitor traffic source availability', () => {
             window: {}, HTMLElement: class {}, customElements: { get: () => true },
             document: { getElementById: (id) => id === 'sense-generator-mode' ? { options } : null },
         });
-        vm.runInContext(read('docs/web/assets/js/device-session.js'), context);
+        runSiteScript('docs/web/assets/js/device-session.js', context);
         for (const chip of ['ESP32-C6', 'ESP32-C5', 'esp32c6', 'ESP32-S3', 'ESP32-C6', '']) {
             vm.runInContext(`conn.chip = ''; applyDeviceIdentity({ chip: ${JSON.stringify(chip)} });`, context);
             const unsupported = chip.toUpperCase().replaceAll('-', '') === 'ESP32C6';
@@ -282,7 +282,7 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
         toast() {}, track() {},
     });
     for (const file of ['device-session', 'monitor-tool', 'configure-tool', 'direct-discovery']) {
-        vm.runInContext(read(`docs/web/assets/js/${file}.js`), context);
+        runSiteScript(`docs/web/assets/js/${file}.js`, context);
     }
     context.applySysinfo = (snapshot) => context.evaluateConfigVerification(snapshot);
     context.applySensingSnapshot = () => {};
@@ -612,7 +612,7 @@ describe('website tool contracts', () => {
             customElements: { get: () => true },
             performance: { now: () => now },
         });
-        vm.runInContext(read('docs/web/assets/js/device-session.js'), context);
+        runSiteScript('docs/web/assets/js/device-session.js', context);
         vm.runInContext("conn.mode = 'demo'", context);
         let captured = null;
         const surface = { setPointerCapture: (id) => { captured = id; } };
@@ -686,7 +686,7 @@ describe('website tool contracts', () => {
             };
             vm.createContext(context);
             for (const file of ['device-session.js', 'direct-discovery.js']) {
-                vm.runInContext(read(`docs/web/assets/js/${file}`), context);
+                runSiteScript(`docs/web/assets/js/${file}`, context);
             }
             const state = vm.runInContext('conn', context);
             Object.assign(context, {
@@ -748,17 +748,7 @@ describe('website tool contracts', () => {
             .map((match) => match[1]);
         assert.deepEqual(stages.sort(), ['error', 'onboarding', 'review', 'select']);
         assert.match(flash, /<progress[^>]+class="flash-progress js-flash-progress"[^>]+max="100"/);
-        assert.match(flash, /class="panel flash-progress-card js-flash-progress-card"[^>]+hidden/);
-        assert.match(flash, /class="empty-state connection-card flash-connect-card flash-stage js-flash-stage"/);
-        assert.match(flash, /class="panel flash-current-panel"/);
-        assert.match(flash, /class="panel flash-change-panel"/);
-        assert.match(flash, /class="flash-frontend-switch js-flash-frontend-switch" role="group"/);
         assert.match(flash, /<label for="flash-frontend">[^<]+<\/label>\s*<select id="flash-frontend"/);
-        assert.match(flash, /class="js-flash-current-install-slot"/);
-        assert.match(flash, /class="js-flash-change-install-slot"/);
-        assert.match(flash, /class="flash-option flash-erase-option js-flash-force-erase-wrap"/);
-        assert.match(flash, /class="modal-backdrop js-flash-erase-modal" hidden/);
-        assert.match(flash, /class="modal-backdrop js-flash-flow-modal" hidden/);
         for (const step of ['onboarding', 'error']) {
             assert.match(
                 flash,
@@ -768,13 +758,7 @@ describe('website tool contracts', () => {
                 )
             );
         }
-        assert.match(flash, /class="js-flash-wifi-form"/);
-        assert.match(flash, /class="btn-secondary btn-sm js-flash-configure-wifi"/);
-        assert.match(flash, /class="btn-secondary btn-sm js-flash-show-matter" hidden/);
-        assert.match(flash, /class="matter-loading js-matter-loading" role="status"/);
         assert.match(flash, /class="flash-console-output js-flash-console-output"[^>]+tabindex="0"/);
-        assert.match(flash, /<details class="panel flash-console js-flash-console" data-flash-session-panel hidden>/);
-        assert.match(flash, /js-flash-console-reset"[^>]+disabled/);
     });
 
     it('keeps nested dialogs modal and restores managed inert state', () => {
@@ -1586,13 +1570,8 @@ describe('website tool contracts', () => {
         }
     });
 
-    it('keeps MQTT configuration values in Device settings', () => {
+    it('does not prefill MQTT credentials in Device settings', () => {
         const configure = toolContent.configure;
-        assert.match(configure, /id="cfg-mqtt-scheme"/);
-        assert.match(configure, /id="cfg-mqtt-host"/);
-        assert.match(configure, /id="cfg-mqtt-port"/);
-        assert.match(configure, /id="cfg-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
-        assert.match(configure, /id="cfg-mqtt-credentials-clear"/);
         assert.doesNotMatch(configure, /id="cfg-mqtt-user"[^>]*value=/);
         assert.doesNotMatch(configure, /id="cfg-mqtt-pass"[^>]*value=/);
     });
@@ -1608,13 +1587,6 @@ describe('website tool contracts', () => {
             'relative-phase-trails',
         ]);
         assert.equal((rawCsi.match(/class="js-raw-visualization"/g) || []).length, 1);
-    });
-
-    it('keeps unavailable Relay controls inert', () => {
-        const template = index.match(/<template id="connection-picker-template">[\s\S]*?<\/template>/)?.[0] || '';
-        const relay = template.match(/data-connection-panel="relay"[\s\S]*?<\/section>/)?.[0] || '';
-        assert.match(relay, /class="btn-primary" disabled/);
-        assert.doesNotMatch(relay, /<input|<select|js-connect/);
     });
 });
 

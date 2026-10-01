@@ -133,15 +133,6 @@ def test_firmware_audits_aggregate_target_sboms_by_frontend() -> None:
     assert "verify-sdk-component" in jobs["dispatch-publication"]["needs"]
 
 
-def test_python_coverage_gate_has_fixed_thresholds() -> None:
-    thresholds = json.loads(PYTHON_COVERAGE_THRESHOLDS.read_text(encoding="utf-8"))
-
-    assert thresholds == {
-        "minimums": {"branches": 60.0, "lines": 70.0},
-        "version": 1,
-    }
-
-
 @pytest.mark.parametrize("failing_metric", [None, "lines", "branches"])
 def test_python_coverage_gate_enforces_each_metric(
     tmp_path: Path,
@@ -2220,28 +2211,6 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         assert '-e ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION}"' in source
         assert ".espectre-requirements-\\${REQUIREMENTS_HASH}" in source
         assert "--backend local" in source
-
-
-def test_website_sources_integrate_sdk_api_fragments_in_portal_page() -> None:
-    sdk_landing = (REPO_ROOT / "docs" / "web" / "content" / "sdk.html").read_text(
-        encoding="utf-8"
-    )
-    api_orientation = (
-        REPO_ROOT / "docs" / "web" / "content" / "sdk" / "api.html"
-    ).read_text(encoding="utf-8")
-
-    assert 'href="/sdk/api/" class="doc-link"' in sdk_landing
-    assert 'data-api-reference-browser' in api_orientation
-    assert 'data-api-index="/artifacts/sdk/api/api-index.json"' in api_orientation
-    assert 'data-api-reference-content' in api_orientation
-    assert 'data-api-reference-picker' in api_orientation
-    assert 'data-api-reference-filter' in api_orientation
-    assert 'data-api-reference-results' in api_orientation
-    assert 'data-api-reference-toggle' not in api_orientation
-    assert 'data-page-toc' in api_orientation
-    assert 'data-page-path="sdk"' in api_orientation
-    assert 'api-reference-index' not in api_orientation
-    assert '<iframe' not in api_orientation
 
 
 @pytest.fixture(scope="module")

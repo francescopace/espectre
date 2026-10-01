@@ -8,6 +8,7 @@
 
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { DIRECT_PORT, peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
 
@@ -187,6 +188,146 @@ describe('Raw CSI HTTP parser', () => {
             () => new RawParser('00112233445566778899aabbccddeeff').append(wrongRecordSequence),
             (error) => error.code === 'invalid_raw_record'
         );
+    });
+});
+
+describe('Raw CSI session binding', () => {
+    const sessionId = '00112233445566778899aabbccddeeff';
+    const sessionBytes = Uint8Array.from(Buffer.from(sessionId, 'hex'));
+
+    it('accepts a session as lowercase hex or as 16 bytes', () => {
+        for (const session of [sessionId, sessionBytes]) {
+            const parser = new RawParser(session);
+            const [record] = parser.append(rawFrame({ sequence: 5n }));
+            assert.equal(record.streamSequence, 5n);
+            assert.equal(parser.streamSequence, 5n);
+        }
+    });
+
+    it('adopts the session announced by the first frame when none is given', () => {
+        const parser = new RawParser();
+        assert.equal(parser.append(rawFrame()).length, 1);
+        assert.throws(
+            () => parser.append(rawFrame({ sessionId: '10112233445566778899aabbccddeeff', sequence: 2n, fresh: 2n })),
+            (error) => error.code === 'invalid_raw_frame'
+        );
+    });
+
+    it('rejects malformed session identifiers and non-byte input', () => {
+        for (const session of ['0011', sessionId.toUpperCase(), new Uint8Array(8), 7]) {
+            assert.throws(() => new RawParser(session), (error) => error.code === 'invalid_raw_session');
+        }
+        assert.throws(
+            () => new RawParser(sessionId).append('not bytes'),
+            (error) => error.code === 'invalid_raw_frame'
+        );
+    });
+
+    it('rejects a stream that loses frame alignment or declares an impossible record', () => {
+        const misaligned = rawFrame();
+        misaligned[0] ^= 0xff;
+        assert.throws(
+            () => new RawParser(sessionId).append(misaligned),
+            (error) => error.code === 'invalid_raw_frame'
+        );
+        const oversized = rawFrame();
+        new DataView(oversized.buffer, oversized.byteOffset).setUint16(32, 0xffff, true);
+        assert.throws(
+            () => new RawParser(sessionId).append(oversized),
+            (error) => error.code === 'invalid_raw_frame'
+        );
+    });
+});
+
+describe('Direct HTTP client endpoints', () => {
+    it('derives the event and raw endpoints from the documented base path', () => {
+        const client = new Client('http://192.168.1.42:62587/espectre/v1');
+        const origin = new URL(client.endpoint).origin;
+
+        assert.equal(client.endpoint, `${origin}${Client.ENDPOINT_PATH}`);
+        assert.equal(client.eventsEndpoint, `${origin}${Client.EVENTS_PATH}`);
+        assert.equal(client.rawEndpoint, `${origin}${Client.RAW_PATH}`);
+        assert.equal(Client.EVENTS_PATH.startsWith(Client.ENDPOINT_PATH), true);
+        assert.equal(Client.RAW_PATH.startsWith(Client.ENDPOINT_PATH), true);
+        assert.equal(Client.MAX_FRAME_BYTES, Client.MAX_REQUEST_FRAME_BYTES);
+    });
+
+    it('publishes the protocol identity documented in the API reference', () => {
+        const api = readFileSync(new URL('../../docs/API.md', import.meta.url), 'utf8');
+
+        assert.ok(api.includes(`The protocol version is \`${Client.PROTOCOL_VERSION}\``));
+        assert.ok(api.includes(`\`${Client.ENDPOINT_PATH}\``));
+        assert.ok(api.includes(`\`${Client.DEFAULT_PORT}\``));
+        assert.ok(Object.keys(Client.EVENTS).length > 0);
+        assert.match(Client.VERSION, /^\d+\.\d+\.\d+$/);
+    });
+});
+
+describe('Direct HTTP connection failures', () => {
+    it('rejects endpoints that are empty, malformed, or not HTTP', () => {
+        for (const [value, code] of [
+            ['', 'invalid_endpoint'],
+            ['   ', 'invalid_endpoint'],
+            [null, 'invalid_endpoint'],
+            ['http://', 'invalid_endpoint'],
+            ['ws://192.168.1.42', 'invalid_scheme'],
+        ]) {
+            assert.throws(() => new Client(value), (error) => error.code === code);
+        }
+    });
+
+    it('reports an unavailable streaming fetch before opening anything', async () => {
+        delete globalThis.fetch;
+        await assert.rejects(new Client('192.168.1.42').connect(), (error) => error.code === 'unsupported');
+    });
+
+    it('classifies connection failures and timeouts separately', async () => {
+        globalThis.fetch = async () => { throw new Error('refused'); };
+        await assert.rejects(
+            new Client('192.168.1.42').connect(),
+            (error) => error.code === 'connection_failed' && /refused/.test(error.message)
+        );
+
+        globalThis.fetch = (_url, { signal }) => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        await assert.rejects(
+            new Client('192.168.1.42').connect({ timeoutMs: 5 }),
+            (error) => error.code === 'timeout'
+        );
+    });
+
+    it('rejects an event stream that is not readable and permits a later retry', async () => {
+        for (const response of [
+            { ok: false, status: 503, body: pendingBody() },
+            { ok: true, status: 200, body: null },
+            { ok: true, status: 200, body: {} },
+        ]) {
+            globalThis.fetch = async () => response;
+            const client = new Client('192.168.1.42');
+            await assert.rejects(client.connect(), (error) => error.code === 'connection_failed');
+            globalThis.fetch = async () => ({ ok: true, status: 200, body: pendingBody() });
+            await client.connect();
+            client.close();
+        }
+    });
+
+    it('refuses a second connection while one is active', async () => {
+        const { client } = await connectedClient();
+        await assert.rejects(client.connect(), /already active/);
+        client.close();
+    });
+
+    it('treats a response body that is not a byte stream as an invalid envelope', async () => {
+        const { client } = await connectedClient();
+        globalThis.fetch = async () => ({
+            ok: true,
+            status: 200,
+            body: { getReader: () => ({ read: async () => ({ value: 'text', done: false }), releaseLock() {} }) },
+            text: undefined
+        });
+        await assert.rejects(client.request('get', 'sensing'), (error) => error.code === 'invalid_envelope');
+        client.close();
     });
 });
 

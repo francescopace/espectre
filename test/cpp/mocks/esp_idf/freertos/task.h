@@ -81,6 +81,9 @@ static inline BaseType_t xTaskNotifyGive(TaskHandle_t xTaskToNotify) {
 static inline uint32_t ulTaskNotifyTake(BaseType_t xClearCountOnExit, TickType_t xTicksToWait) {
   (void)xClearCountOnExit;
   (void)xTicksToWait;
+#ifdef __cplusplus
+  if (g_freertos_notify_hook != nullptr) g_freertos_notify_hook();
+#endif
   return 0U;
 }
 
