@@ -201,7 +201,7 @@ def _post_collect_quality_issue_sort_key(result) -> tuple[int, str]:
 def _run_post_collect_quality_checks(saved_paths) -> bool:
     """Run canonical quality checks and report whether every file passed."""
     try:
-        from tools.validate_dataset_quality import validate_capture_file
+        from tools.lib.dataset_quality.capture import validate_capture_file
     except ImportError as exc:
         print(
             f"  {Fore.YELLOW}⚠️ Post-collect quality checks unavailable: {exc}{Style.RESET_ALL}"

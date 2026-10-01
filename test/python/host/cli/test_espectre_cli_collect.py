@@ -762,3 +762,239 @@ def test_start_raw_collection_stops_traffic_when_http_bind_fails() -> None:
         host._start_raw_http_collection(FailingReceiver(), FakeGenerator())
 
     assert calls == ["session", "generator", "bind", "generator_stop", "receiver_stop"]
+
+
+@pytest.mark.parametrize("target", ["https://espectre.local/espectre/v1", "http://"])
+def test_collect_rejects_unusable_direct_targets(target, capsys) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        host._resolve_collect_target_via_discovery(collect_args(target=target))
+
+    assert exit_info.value.code == 1
+    assert "Invalid Direct target" in capsys.readouterr().out
+
+
+def test_collect_reports_an_unresolvable_hostname(monkeypatch, capsys) -> None:
+    def fail(_host):
+        raise OSError("no such host")
+
+    monkeypatch.setattr(host.socket, "gethostbyname", fail)
+
+    with pytest.raises(SystemExit) as exit_info:
+        host._resolve_collect_target_via_discovery(collect_args(target="missing.local"))
+
+    assert exit_info.value.code == 1
+    assert "Cannot resolve Direct target missing.local" in capsys.readouterr().out
+
+
+def test_collect_falls_back_to_the_default_port_when_discovery_is_unavailable(monkeypatch) -> None:
+    def unavailable(**_kwargs):
+        raise device_discovery.DeviceDiscoveryError("mDNS unavailable")
+
+    monkeypatch.setattr(host.socket, "gethostbyname", lambda _host: "192.168.1.23")
+    monkeypatch.setattr(host, "discover_devices", unavailable)
+    args = collect_args(target="espectre.local")
+
+    host._resolve_collect_target_via_discovery(args)
+
+    assert args.direct_endpoint == f"http://espectre.local:{ESPECTRE_DIRECT_PORT}/espectre/v1"
+    assert args.target_frontend == "unknown"
+
+
+def test_collect_ignores_an_ambiguous_discovery_match_for_a_hostname(monkeypatch) -> None:
+    first = discovered_device(device_id=0x1)
+    second = discovered_device(device_id=0x2)
+    monkeypatch.setattr(host.socket, "gethostbyname", lambda _host: first.ip_address)
+    monkeypatch.setattr(host, "discover_devices", lambda **_kwargs: [first, second])
+    args = collect_args(target="espectre.local")
+
+    host._resolve_collect_target_via_discovery(args)
+
+    assert args.expected_discovery_device_id is None
+
+
+def test_collect_exits_when_discovery_itself_fails(monkeypatch, capsys) -> None:
+    def unavailable(**_kwargs):
+        raise device_discovery.DeviceDiscoveryError("mDNS unavailable")
+
+    monkeypatch.setattr(host, "discover_devices", unavailable)
+
+    with pytest.raises(SystemExit) as exit_info:
+        host._resolve_collect_target_via_discovery(collect_args(target=None))
+
+    assert exit_info.value.code == 1
+    assert "mDNS unavailable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("frontend, label", [(None, "raw-capable Direct"), ("matter", "Matter")])
+def test_collect_exits_when_no_raw_capable_device_is_discovered(monkeypatch, capsys, frontend, label) -> None:
+    monkeypatch.setattr(host, "discover_devices", lambda **_kwargs: [])
+
+    with pytest.raises(SystemExit) as exit_info:
+        host._resolve_collect_target_via_discovery(collect_args(target=None, frontend=frontend))
+
+    assert exit_info.value.code == 1
+    assert f"No {label} devices discovered" in capsys.readouterr().out
+
+
+def test_collect_lets_the_operator_choose_among_several_devices(monkeypatch) -> None:
+    first = discovered_device(device_id=0x1)
+    second = discovered_device(device_id=0x2)
+    monkeypatch.setattr(host, "discover_devices", lambda **_kwargs: [first, second])
+    monkeypatch.setattr(host, "choose_device_interactively", lambda records, **_kwargs: records[1])
+    args = collect_args(target=None)
+
+    host._resolve_collect_target_via_discovery(args)
+
+    assert args.expected_discovery_device_id == second.device_id
+    assert args.target == second.ip_address
+
+
+def test_collect_exits_when_device_selection_is_cancelled(monkeypatch) -> None:
+    def cancel(_records, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        host, "discover_devices",
+        lambda **_kwargs: [discovered_device(device_id=0x1), discovered_device(device_id=0x2)],
+    )
+    monkeypatch.setattr(host, "choose_device_interactively", cancel)
+
+    with pytest.raises(SystemExit) as exit_info:
+        host._resolve_collect_target_via_discovery(collect_args(target=None))
+
+    assert exit_info.value.code == 1
+
+
+@pytest.mark.parametrize("device_id, expected", [(None, "unknown"), (0x1234, "0000000000001234")])
+def test_expected_device_id_is_rendered_as_sixteen_hex_digits(device_id, expected) -> None:
+    assert host._format_expected_device_id(device_id) == expected
+
+
+def test_collection_countdown_is_skipped_without_a_delay(monkeypatch) -> None:
+    monkeypatch.setattr(host.time, "sleep", lambda _seconds: pytest.fail("must not sleep"))
+
+    host._wait_before_collection(0)
+
+
+def test_collection_countdown_sleeps_in_steps_of_at_most_one_second(monkeypatch) -> None:
+    sleeps = []
+    monkeypatch.setattr(host.time, "sleep", sleeps.append)
+
+    host._wait_before_collection(2.5)
+
+    assert sleeps == [1.0, 1.0, 0.5]
+
+
+@pytest.mark.parametrize("bad_pps", [0, -5])
+def test_prepare_raw_collection_rejects_a_non_positive_rate(bad_pps) -> None:
+    args = SimpleNamespace(
+        direct_endpoint="http://192.168.1.23/espectre/v1",
+        traffic_target="192.168.1.23",
+        source_ip=None,
+        pps=bad_pps,
+    )
+
+    with pytest.raises(ValueError, match="must be > 0 pps"):
+        host._prepare_raw_http_collection(args, object, object, ExternalTrafficGenerator)
+
+
+def test_post_collect_quality_orders_issues_by_priority() -> None:
+    names = ["stream_seq_gaps", "other", "temporal_occupancy", "inter_packet_gap", "stream_seq_max_gap"]
+
+    ordered = sorted(
+        (SimpleNamespace(name=name) for name in names),
+        key=host._post_collect_quality_issue_sort_key,
+    )
+
+    assert [result.name for result in ordered] == [
+        "temporal_occupancy", "stream_seq_max_gap", "inter_packet_gap", "stream_seq_gaps", "other",
+    ]
+
+
+def _quality_result(name, status, message=""):
+    return SimpleNamespace(name=name, status=status, message=message)
+
+
+def test_post_collect_quality_fails_only_when_a_check_fails(monkeypatch, tmp_path, capsys) -> None:
+    outcomes = {
+        "clean.csv": [_quality_result("a", "PASS")],
+        "warned.csv": [_quality_result("temporal_occupancy", "WARN", "low"), _quality_result("b", "PASS")],
+        "failed.csv": [_quality_result("inter_packet_gap", "FAIL", "gap")],
+    }
+
+    def validate(path, **_kwargs):
+        return outcomes[path.name]
+
+    monkeypatch.setattr("tools.lib.dataset_quality.capture.validate_capture_file", validate)
+
+    assert host._run_post_collect_quality_checks([tmp_path / "clean.csv", tmp_path / "warned.csv"]) is True
+    assert host._run_post_collect_quality_checks([tmp_path / "failed.csv"]) is False
+    output = capsys.readouterr().out
+    assert "clean.csv: quality checks all pass" in output
+    assert "1 warn, 0 fail" in output
+    assert "inter_packet_gap: gap" in output
+
+
+def test_post_collect_quality_skips_files_it_cannot_validate(monkeypatch, tmp_path, capsys) -> None:
+    def broken(_path, **_kwargs):
+        raise ValueError("unreadable")
+
+    monkeypatch.setattr("tools.lib.dataset_quality.capture.validate_capture_file", broken)
+
+    assert host._run_post_collect_quality_checks([tmp_path / "broken.csv"]) is True
+    assert "quality checks skipped (unreadable)" in capsys.readouterr().out
+
+
+def test_post_collect_quality_is_available_in_a_source_checkout(capsys) -> None:
+    assert host._run_post_collect_quality_checks([]) is True
+
+    assert "unavailable" not in capsys.readouterr().out
+
+
+def test_dataset_stats_explain_how_to_collect_when_empty(capsys) -> None:
+    host._print_dataset_catalog_stats({"environments": [], "chips": []})
+
+    assert "No samples collected yet." in capsys.readouterr().out
+
+
+def test_dataset_stats_total_every_environment(capsys) -> None:
+    stats = {
+        "chips": ["c3", "s3"],
+        "total_samples": 7,
+        "environments": [{
+            "environment": "lab",
+            "total_samples": 7,
+            "rows": [
+                {"label": "baseline", "counts": {"c3": 2, "s3": 1}, "total": 3},
+                {"label": "wave", "counts": {"c3": 1, "s3": 3}, "total": 4},
+            ],
+        }],
+    }
+
+    host._print_dataset_catalog_stats(stats)
+
+    output = capsys.readouterr().out
+    assert "lab" in output
+    rows = {line.split()[0]: line.split()[1:] for line in output.splitlines() if line.strip()[:1].isalpha()}
+    assert rows["baseline"] == ["2", "1", "3"]
+    assert rows["wave"] == ["1", "3", "4"]
+    assert "Grand total:" in output
+
+
+def test_dataset_info_prints_the_catalog_statistics(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "tools.lib.dataset_metadata.get_dataset_catalog_stats",
+        lambda: {"environments": [], "chips": []},
+    )
+
+    host._show_dataset_info()
+
+    assert "No samples collected yet." in capsys.readouterr().out
+
+
+def test_collect_rejects_a_negative_ready_gate_before_any_work(capsys) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        host.collect_csi_data(collect_args(ready_stable_seconds=-1))
+
+    assert exit_info.value.code == 1
+    assert "Ready gate seconds must be >= 0" in capsys.readouterr().out
