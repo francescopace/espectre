@@ -117,6 +117,24 @@ def test_temporal_occupancy_uses_complete_production_windows() -> None:
     assert rendering._format_occupancy_cell(0.85, markdown=True) == "85.0%"
 
 
+@pytest.mark.parametrize("origin", [0, (1 << 32) - 100_000])
+def test_temporal_occupancy_weights_empty_slots_and_outages_equally(origin) -> None:
+    # Ten occupied slots, nine empty slots, then two occupied slots. Across
+    # the twelve complete windows the valid counts are 10..1, 1, and 2.
+    slots = list(range(10)) + [19, 20]
+    packets = [{"wifi_rx_ts_us": (origin + slot * 100_000) % (1 << 32)} for slot in slots]
+    assert metrics._mean_temporal_occupancy(packets, target_pps=10) == pytest.approx(58 / 120)
+
+
+def test_temporal_occupancy_does_not_hide_long_silent_gaps_or_count_duplicates() -> None:
+    slots = list(range(10)) + list(range(109, 119))
+    packets = [{"wifi_rx_ts_us": slot * 100_000} for slot in slots]
+    assert metrics._mean_temporal_occupancy(packets, target_pps=10) == pytest.approx(0.1)
+    duplicated = [packet for packet in packets for _ in range(3)]
+    assert metrics._mean_temporal_occupancy(duplicated, target_pps=10) == pytest.approx(0.1)
+    assert metrics._mean_temporal_occupancy(packets[:5], target_pps=10) == 0.0
+
+
 def test_post_collect_temporal_occupancy_uses_recorded_detector_grid(monkeypatch) -> None:
     packets = ({"csi_target_pps": 100},)
     observed = {"occupancy": 0.69}

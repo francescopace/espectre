@@ -8,7 +8,7 @@ from .bootstrap import setup_paths
 
 setup_paths()
 
-from tools.lib.temporal_csi_sampler import TemporalCsiSampler
+from tools.lib.temporal_csi_sampler import TemporalCsiSampler, UINT32_MODULUS
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class TemporalAdmission:
     packet: object
     timestamp_us: int
     slot_index: int
-    coverage_us: int
+    coverage_us: int  # Elapsed RX time since the previous admitted packet.
     missing_slots_before: int
     reset_required: bool
     context: object = None
@@ -32,26 +32,25 @@ class TemporalReplayController:
         self.target_pps = max(1, int(target_pps))
         self.window_size_ms = max(1, int(window_size_ms))
         self.fallback_interval_us = fallback_interval_us
-        self.nominal_interval_us = max(
-            1,
-            int(round(1_000_000.0 / self.target_pps)),
-        )
         self.sampler = TemporalCsiSampler(
             self.target_pps,
             self.window_size_ms,
         )
         self.packet_index = 0
         self._pending = None
+        self._last_admitted_timestamp_us = None
 
     def reset(self):
         self.sampler.reset()
         self.packet_index = 0
         self._pending = None
+        self._last_admitted_timestamp_us = None
 
     def clear_history(self):
         """Drop buffered data and start a new sampler temporal epoch."""
         self.sampler.clear_history()
         self._pending = None
+        self._last_admitted_timestamp_us = None
 
     def clear_window_preserving_phase(self):
         """Drop buffered data while retaining the sampler grid phase."""
@@ -62,14 +61,18 @@ class TemporalReplayController:
         if pending is None:
             return None
         packet_index, packet, timestamp_us, context = pending
+        coverage_us = 0
+        if self._last_admitted_timestamp_us is not None:
+            delta = (int(timestamp_us) - self._last_admitted_timestamp_us) % UINT32_MODULUS
+            if not self.sampler.reset_required:
+                coverage_us = delta
+        self._last_admitted_timestamp_us = int(timestamp_us)
         return TemporalAdmission(
             packet_index=packet_index,
             packet=packet,
             timestamp_us=int(timestamp_us),
             slot_index=int(self.sampler.current_slot),
-            coverage_us=(
-                int(self.sampler.slots_advanced) * self.nominal_interval_us
-            ),
+            coverage_us=coverage_us,
             missing_slots_before=int(self.sampler.missing_slots_before),
             reset_required=bool(self.sampler.reset_required),
             context=context,

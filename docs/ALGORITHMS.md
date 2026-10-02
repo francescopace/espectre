@@ -83,6 +83,8 @@ Changing the detector or starting calibration clears the window but keeps the sl
 
 Live sensing, replay, training, Python validation, and C++ replay all apply the same admission before feature processing. Replay data must carry trustworthy timestamps; packets without advancing timestamps add no evidence. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md), [Wi-Fi and CSI lifecycle](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle), [CSI collection](API.md#csi-collection), and the [ML training guide](ML_TRAINING.md).
 
+Evaluation cadence uses the RX time between admitted packets, jitter included. Slot counts describe window coverage; they do not replace those timestamps.
+
 ### Window size
 
 The window length and `csi_target_pps` set the number of slots:

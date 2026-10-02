@@ -17,6 +17,7 @@ from temporal_csi_sampler import (
     minimum_valid_slots,
     temporal_window_slots,
 )
+from tools.lib.temporal_replay import TemporalReplayController, iter_temporal_admissions
 
 
 class TestTemporalCsiSampler:
@@ -180,6 +181,62 @@ class TestTemporalCsiSampler:
             sampler.occupancy_slots,
             sampler.is_ready,
         ) == (6, 2, 1, 3, 1, 2, False)
+
+
+class TestTemporalReplayCadence:
+    def test_replay_matches_live_evaluation_packets_with_jitter_and_wrap(self):
+        origin = (1 << 32) - 50_000
+        packets = [
+            {"wifi_rx_ts_us": (origin + index * 10_000 - (1_000 if index % 2 else 0)) % (1 << 32)}
+            for index in range(1001)
+        ]
+        live = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        replay = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        evaluation_indices = []
+        for admission in iter_temporal_admissions(packets, target_pps=100, window_size_ms=1000):
+            live.note_arrival(admission.timestamp_us)
+            replay.note_packet(elapsed_us=admission.coverage_us)
+            assert replay.should_evaluate() == live.should_evaluate()
+            if replay.should_evaluate():
+                evaluation_indices.append(admission.packet_index)
+                live.after_evaluation()
+                replay.after_evaluation()
+        assert evaluation_indices == list(range(26, 1001, 26))
+
+    def test_gap_starts_a_new_cadence_without_adding_outage_time(self):
+        packets = [{"wifi_rx_ts_us": value} for value in (0, 9_000, 1_020_000, 1_031_000)]
+        admissions = list(iter_temporal_admissions(packets, target_pps=100, window_size_ms=1000))
+        assert [item.coverage_us for item in admissions] == [0, 9_000, 0, 11_000]
+        assert [item.reset_required for item in admissions] == [False, False, True, False]
+
+    def test_admitted_gap_discards_elapsed_time_even_without_a_sampler_reset(self):
+        # The extra same-slot callback keeps the raw gap below one window,
+        # although the two selected payloads are over one window apart.
+        timestamps = (0, 200_000, 204_000, 1_203_000, 1_213_000)
+        packets = [{"wifi_rx_ts_us": timestamp} for timestamp in timestamps]
+        live = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        replay = RuntimeMotionPolicy(evaluation_interval_ms=250)
+        for admission in iter_temporal_admissions(packets, target_pps=100, window_size_ms=1000):
+            assert not admission.reset_required
+            live.note_arrival(admission.timestamp_us)
+            replay.note_packet(elapsed_us=admission.coverage_us)
+            assert replay.elapsed_us_since_evaluation == live.elapsed_us_since_evaluation
+            assert not replay.should_evaluate()
+        assert replay.elapsed_us_since_evaluation == 10_000
+
+    def test_window_clear_preserves_elapsed_rx_time_but_history_clear_does_not(self):
+        controller = TemporalReplayController(100, 1000)
+        assert controller.admit({"wifi_rx_ts_us": 0}) is None
+        assert controller.admit({"wifi_rx_ts_us": 9_000}).coverage_us == 0
+        controller.clear_window_preserving_phase()
+        assert controller.admit({"wifi_rx_ts_us": 21_000}) is None
+        assert controller.finish().coverage_us == 21_000
+        controller.clear_history()
+        assert controller.admit({"wifi_rx_ts_us": 31_000}) is None
+        assert controller.finish().coverage_us == 0
+        controller.reset()
+        assert controller.admit({"wifi_rx_ts_us": 41_000}) is None
+        assert controller.finish().coverage_us == 0
 
 
 class TestRuntimeMotionPolicy:

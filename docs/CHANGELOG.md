@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Fixed a traffic source change during Lightweight calibration being ignored when the CSI capture profile stays the same, such as from `ping` to `dns`. The calibration now restarts for the new source instead of mixing evidence from both.
 - Fixed sensing staying in calibration after a Wi-Fi reconnect on ESP32-S3, when one stray CSI callback hid a silent receive path. The runtime now refreshes the path unless callbacks keep pace with the traffic.
 - Fixed `collect` silently skipping the post-collect quality checks since 3.0.0-rc1, because the CLI imported the validator from a module that no longer exports it. The checks run again after every capture.
+- Fixed the occupancy check in `collect` and the dataset validator counting only the windows where a packet arrived. Empty slots and stream outages now count, so a capture with long gaps warns or fails instead of passing.
 - Fixed the web flasher corrupting the next command when leftover serial bytes remained after a firmware metadata read. The flasher now uses esptool-js 0.7.0, which provides the ESP32-C5 and ESP32-C6 SPI register base directly.
 
 ## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support

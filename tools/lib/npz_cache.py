@@ -489,10 +489,12 @@ def _ml_feature_source_manifests() -> dict[str, Any]:
         "python_high_accuracy_detector": tools_lib_dir() / "high_accuracy_detector.py",
         "python_ml_feature_trackers": tools_lib_dir() / "ml_feature_trackers.py",
         "python_runtime_policy": tools_lib_dir() / "runtime_policy.py",
+        "python_runtime_motion_policy": python_src_dir() / "runtime_motion_policy.py",
         "python_segmentation": tools_lib_dir() / "segmentation.py",
         "host_csi_io": repo_root() / "tools" / "lib" / "csi_io.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_ml_replay": repo_root() / "tools" / "lib" / "performance_report.py",
+        "host_temporal_replay": tools_lib_dir() / "temporal_replay.py",
     }
     for name, path in sources.items():
         if path.exists():
@@ -505,6 +507,7 @@ def _replay_policy_source_manifests() -> dict[str, Any]:
     manifests: dict[str, Any] = {}
     sources = {
         "python_runtime_policy": tools_lib_dir() / "runtime_policy.py",
+        "python_runtime_motion_policy": python_src_dir() / "runtime_motion_policy.py",
         "python_temporal_csi_sampler": tools_lib_dir() / "temporal_csi_sampler.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_classic_replay": repo_root() / "tools" / "lib" / "performance_report.py",

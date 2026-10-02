@@ -230,7 +230,7 @@ inline bool calibrate_lightweight_detector(
       static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
       detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
-      nominal_interval_us);
+      nominal_interval_us, sampler.window_size_ms());
   detector.on_startup_calibration_begin();
   calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
 
@@ -267,8 +267,7 @@ inline bool calibrate_lightweight_detector(
         selected_band,
         selected_band_size,
         baseline_rssi != nullptr ? baseline_rssi[selected_index] : INT8_MIN);
-    cadence.note_packet(static_cast<uint32_t>(
-        sampler.slots_advanced() * nominal_interval_us));
+    cadence.note_arrival(timestamp_us);
     if (!cadence.should_evaluate()) {
       continue;
     }
@@ -331,7 +330,7 @@ ReplayMetrics evaluate_detector(
       static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
       detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
-      nominal_interval_us);
+      nominal_interval_us, sampler.window_size_ms());
   int packets_since_reset = 0;
   int debug_contam_base = 0;
   int debug_contam_motion = 0;
@@ -372,8 +371,7 @@ ReplayMetrics evaluate_detector(
         baseline_rssi != nullptr ? baseline_rssi[selected_index] : INT8_MIN);
     packets_since_reset = static_cast<int>(std::min<uint64_t>(
         sampler.current_slot() + 1U, INT_MAX));
-    cadence.note_packet(static_cast<uint32_t>(
-        sampler.slots_advanced() * nominal_interval_us));
+    cadence.note_arrival(timestamp_us);
     if (!cadence.should_evaluate()) {
       continue;
     }
@@ -431,8 +429,7 @@ ReplayMetrics evaluate_detector(
         motion_rssi != nullptr ? motion_rssi[selected_index] : INT8_MIN);
     packets_since_reset = static_cast<int>(std::min<uint64_t>(
         sampler.current_slot() + 1U, INT_MAX));
-    cadence.note_packet(static_cast<uint32_t>(
-        sampler.slots_advanced() * nominal_interval_us));
+    cadence.note_arrival(timestamp_us);
     if (!cadence.should_evaluate()) {
       continue;
     }

@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "detector_limits.h"
+#include "detector_timing.h"
 #include "replay_packet_timing.h"
 
 namespace espectre {
@@ -186,20 +187,34 @@ class TimeAwareCadence {
  public:
   TimeAwareCadence(uint16_t window_packets,
                    uint32_t evaluation_interval_ms,
-                   uint32_t measured_interval_us = 0U)
+                   uint32_t measured_interval_us = 0U,
+                   uint32_t window_size_ms = DETECTOR_WINDOW_SIZE_MS_DEFAULT)
       : nominal_interval_us_(measured_interval_us > 0U
                                  ? measured_interval_us
                                  : nominal_packet_interval_us(window_packets)),
-        evaluation_interval_us_(std::max<uint32_t>(1U, evaluation_interval_ms) * 1000U) {}
+        evaluation_interval_us_(std::max<uint32_t>(1U, evaluation_interval_ms) * 1000U),
+        window_duration_us_(std::max<uint32_t>(1U, window_size_ms) * 1000U) {}
 
   void reset() {
     packets_since_evaluation_ = 0U;
     elapsed_us_since_evaluation_ = 0U;
+    has_last_timestamp_ = false;
+    last_timestamp_us_ = 0U;
   }
 
-  void note_packet(uint32_t elapsed_us) {
+  /** Match the runtime's RX-timestamp cadence, including wrap and long gaps. */
+  void note_arrival(uint32_t timestamp_us) {
     packets_since_evaluation_++;
-    elapsed_us_since_evaluation_ += elapsed_us;
+    if (has_last_timestamp_) {
+      const uint32_t delta_us = elapsed_since_timestamp_us(timestamp_us, last_timestamp_us_);
+      if (delta_us < window_duration_us_) {
+        elapsed_us_since_evaluation_ += delta_us;
+      } else {
+        elapsed_us_since_evaluation_ = 0U;
+      }
+    }
+    has_last_timestamp_ = true;
+    last_timestamp_us_ = timestamp_us;
   }
 
   /** Mirrors RuntimeMotionPolicy.should_evaluate in runtime_policy.py. */
@@ -214,13 +229,19 @@ class TimeAwareCadence {
         static_cast<uint16_t>(std::min<uint32_t>(packets_since_evaluation_, UINT16_MAX)));
   }
 
-  void after_evaluation() { reset(); }
+  void after_evaluation() {
+    packets_since_evaluation_ = 0U;
+    elapsed_us_since_evaluation_ = 0U;
+  }
 
  private:
   uint32_t nominal_interval_us_{0U};
   uint32_t evaluation_interval_us_{0U};
+  uint32_t window_duration_us_{0U};
   uint32_t packets_since_evaluation_{0U};
   uint64_t elapsed_us_since_evaluation_{0U};
+  bool has_last_timestamp_{false};
+  uint32_t last_timestamp_us_{0U};
 };
 
 }  // namespace csi_replay_timing

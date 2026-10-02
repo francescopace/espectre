@@ -108,7 +108,7 @@ python tools/train_ml_model.py --info
 - `validate_dataset_quality.py` checks every file, creates the pair fields, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. A failure (FAIL) blocks training; the feature-space scores are only informative. It never sets dataset roles.
 - `train_ml_model.py --info` shows which recordings the trainer will use.
 
-The validator warns when a file has less than 85% occupancy and fails below 70%. A file without usable timing information fails; it is never assumed to be 100 pps. See the [tools guide](../tools/README.md#dataset-inspection-and-validation) for options.
+The validator warns when a file has less than 85% occupancy and fails below 70%. Occupancy is the share of filled slots across every full window, from the first complete window to the last packet. Empty slots and stream outages count, so a capture with long gaps cannot pass on its good stretches alone. A file without usable timing information fails; it is never assumed to be 100 pps. See the [tools guide](../tools/README.md#dataset-inspection-and-validation) for options.
 
 ## Contributing data
 

@@ -71,7 +71,10 @@ class RuntimeMotionPolicy:
         """Record that one new CSI packet has been processed."""
         self.packets_since_evaluation += 1
         if elapsed_us is not None:
-            self.elapsed_us_since_evaluation += max(0, int(elapsed_us))
+            if int(elapsed_us) >= self.segmentation_window_us:
+                self.elapsed_us_since_evaluation = 0
+            else:
+                self.elapsed_us_since_evaluation += max(0, int(elapsed_us))
 
     def should_evaluate(self):
         """Check whether the detector should be evaluated now."""

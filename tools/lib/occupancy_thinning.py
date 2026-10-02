@@ -15,11 +15,12 @@ from config import CSI_TARGET_PPS, SEGMENTATION_WINDOW_SIZE_MS  # noqa: E402
 from tools.lib.temporal_csi_sampler import (  # noqa: E402
     MINIMUM_COVERAGE_DENOMINATOR,
     MINIMUM_COVERAGE_NUMERATOR,
-    TemporalCsiSampler,
+    MICROSECONDS_PER_SECOND,
+    UINT32_MODULUS,
+    temporal_window_slots,
 )
 from tools.lib.temporal_replay import (  # noqa: E402
     iter_temporal_admissions,
-    packet_timestamp_us,
 )
 
 OCCUPANCY_GATE_PERCENT = (
@@ -87,30 +88,47 @@ def mean_window_occupancy(
     *,
     target_pps: int = TARGET_PPS,
 ) -> float:
-    """Mean sampler occupancy over windows that have filled once."""
+    """Mean occupancy at every grid slot after the initial window fills.
+
+    Empty slots, including stream outages, have the same weight as occupied
+    ones. The interval ends at the last admitted slot. After a gap resets the
+    sampler's phase, place its new epoch at the nearest capture-wide slot.
+    """
     if not packets:
         return 0.0
-    sampler = TemporalCsiSampler(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
-    ratios: list[float] = []
-    for index, packet in enumerate(packets):
-        timestamp = packet_timestamp_us(
-            packet,
-            fallback_index=index,
-            fallback_interval_us=max(1, int(round(1_000_000.0 / target_pps))),
-        )
-        if timestamp is None:
-            continue
-        if sampler.admit(int(timestamp)):
-            slot = sampler.current_slot
-            if slot is not None and slot + 1 >= sampler.window_slots:
-                ratios.append(float(sampler.occupancy_ratio))
-    if sampler.flush():
-        slot = sampler.current_slot
-        if slot is not None and slot + 1 >= sampler.window_slots:
-            ratios.append(float(sampler.occupancy_ratio))
-    if not ratios:
+    window_slots = temporal_window_slots(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
+    occupied_slots: list[int] = []
+    last_timestamp = None
+    elapsed_us = 0
+    epoch_slot = 0
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=max(1, int(round(MICROSECONDS_PER_SECOND / target_pps))),
+    ):
+        if last_timestamp is not None:
+            elapsed_us += (admission.timestamp_us - last_timestamp) % UINT32_MODULUS
+        last_timestamp = admission.timestamp_us
+        if admission.reset_required:
+            epoch_slot = (
+                elapsed_us * target_pps + MICROSECONDS_PER_SECOND // 2
+            ) // MICROSECONDS_PER_SECOND
+        occupied_slots.append(epoch_slot + admission.slot_index)
+
+    first_window_end = window_slots - 1
+    if not occupied_slots or occupied_slots[-1] < first_window_end:
         return 0.0
-    return sum(ratios) / len(ratios)
+    last_window_end = occupied_slots[-1]
+    # Each admitted sample contributes to at most one window's worth of ends.
+    # Summing those overlaps avoids allocating or iterating through long gaps.
+    occupied_total = sum(
+        max(0, min(last_window_end, slot + window_slots - 1)
+            - max(first_window_end, slot) + 1)
+        for slot in occupied_slots
+    )
+    window_count = last_window_end - first_window_end + 1
+    return occupied_total / float(window_count * window_slots)
 
 
 def thin_to_occupancy(

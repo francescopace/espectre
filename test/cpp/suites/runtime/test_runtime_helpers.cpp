@@ -13,6 +13,7 @@
 #include "csi_format_classifier.h"
 #include "csi_format.h"
 #include "csi_features.h"
+#include "csi_replay_timing.h"
 #include "csi_platform_config.h"
 #include "runtime_config_utils.h"
 #include "mqtt_payload_assembler.h"
@@ -31,6 +32,7 @@
 #include <vector>
 
 #include "espectre_log.h"
+#include "evaluation_cadence.h"
 
 #include "esp_timer.h"
 #include "esp_netif.h"
@@ -1238,8 +1240,40 @@ void test_sensing_readiness_gate_holds_only_brief_coverage_dips(void) {
     }
 }
 
+void test_replay_cadence_matches_runtime_rx_timestamps() {
+    EvaluationCadence live;
+    csi_replay_timing::TimeAwareCadence replay(DETECTOR_DEFAULT_WINDOW_SIZE, 250U, 10000U);
+    const uint32_t origin = UINT32_MAX - 49999U;
+    unsigned evaluations = 0U;
+    for (uint32_t index = 0U; index <= 1000U; ++index) {
+        const uint32_t timestamp = origin + index * 10000U - (index % 2U ? 1000U : 0U);
+        const bool due = live.observe(timestamp);
+        replay.note_arrival(timestamp);
+        TEST_ASSERT_EQUAL(due, replay.should_evaluate());
+        if (due) {
+            ++evaluations;
+            TEST_ASSERT_EQUAL(evaluations * 26U, index);
+            TEST_ASSERT_EQUAL(26U, replay.packet_weight());
+            live.after_evaluation();
+            replay.after_evaluation();
+        }
+    }
+    TEST_ASSERT_EQUAL(38U, evaluations);
+
+    // A full reset and a window-sized outage both discard accumulated time.
+    live.reset();
+    replay.reset();
+    for (uint32_t timestamp : {0U, 200000U, 1200000U, 1449999U, 1450000U}) {
+        const bool due = live.observe(timestamp);
+        replay.note_arrival(timestamp);
+        TEST_ASSERT_EQUAL(due, replay.should_evaluate());
+        TEST_ASSERT_EQUAL(timestamp == 1450000U, due);
+    }
+}
+
 int process(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_replay_cadence_matches_runtime_rx_timestamps);
     RUN_TEST(test_csi_quality_rejects_hardware_errors_and_preserves_valid_tones);
     RUN_TEST(test_sensing_readiness_gate_holds_only_brief_coverage_dips);
 #if !CONFIG_SOC_WIFI_HE_SUPPORT
