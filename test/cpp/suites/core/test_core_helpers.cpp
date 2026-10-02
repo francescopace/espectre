@@ -309,6 +309,44 @@ void test_temporal_csi_sampler_tolerates_alternating_scheduler_jitter(void) {
     TEST_ASSERT_TRUE(sampler.is_ready());
 }
 
+void test_temporal_csi_sampler_fills_free_neighbour_slots(void) {
+    // Mirrors the Python neighbour-slot traces in test_runtime_policy.py.
+    TemporalCsiSampler sampler(100U, 1000U);
+    const uint32_t timestamps[] = {0U, 15500U, 20500U, 25600U, 29000U, 34500U};
+    uint64_t slots[6] = {};
+    size_t committed = 0U;
+    for (uint32_t timestamp : timestamps) {
+        if (sampler.admit(timestamp)) slots[committed++] = sampler.current_slot();
+    }
+    TEST_ASSERT_TRUE(sampler.flush());
+    slots[committed++] = sampler.current_slot();
+    TEST_ASSERT_EQUAL(5U, committed);
+    for (size_t index = 0U; index < committed; ++index) {
+        TEST_ASSERT_EQUAL(index, slots[index]);
+    }
+    TEST_ASSERT_EQUAL(5U, sampler.accepted_packets());
+    TEST_ASSERT_EQUAL(1U, sampler.excess_packets());
+    TEST_ASSERT_EQUAL(0U, sampler.missing_slots());
+    TEST_ASSERT_EQUAL(5U, sampler.occupancy_slots());
+
+    // Outside the tolerance or closer than half a slot, nothing moves.
+    TemporalCsiSampler bounded(100U, 1000U);
+    for (uint32_t timestamp : {0U, 10000U, 12000U, 20000U, 22600U, 30000U}) {
+        bounded.admit(timestamp);
+    }
+    TEST_ASSERT_TRUE(bounded.flush());
+    TEST_ASSERT_EQUAL(4U, bounded.accepted_packets());
+    TEST_ASSERT_EQUAL(2U, bounded.excess_packets());
+
+    TemporalCsiSampler spaced(100U, 1000U);
+    for (uint32_t timestamp : {0U, 17000U, 20500U, 24500U}) {
+        spaced.admit(timestamp);
+    }
+    TEST_ASSERT_TRUE(spaced.flush());
+    TEST_ASSERT_EQUAL(2U, spaced.accepted_packets());
+    TEST_ASSERT_EQUAL(2U, spaced.excess_packets());
+}
+
 void test_temporal_csi_sampler_handles_wrap_and_window_gap(void) {
     TemporalCsiSampler sampler(100U, 1000U);
     TEST_ASSERT_FALSE(sampler.admit(UINT32_MAX - 4999U));
@@ -827,6 +865,7 @@ int process(void) {
     RUN_TEST(test_temporal_csi_sampler_matches_fixed_slot_contract);
     RUN_TEST(test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets);
     RUN_TEST(test_temporal_csi_sampler_tolerates_alternating_scheduler_jitter);
+    RUN_TEST(test_temporal_csi_sampler_fills_free_neighbour_slots);
     RUN_TEST(test_temporal_csi_sampler_handles_wrap_and_window_gap);
     RUN_TEST(test_temporal_csi_sampler_clears_window_without_rephasing);
     RUN_TEST(test_temporal_csi_sampler_matches_python_cross_runtime_trace);

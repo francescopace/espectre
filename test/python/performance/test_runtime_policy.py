@@ -70,6 +70,40 @@ class TestTemporalCsiSampler:
         assert sampler.occupancy_slots == 100
         assert sampler.is_ready
 
+    def test_competing_candidates_fill_free_neighbour_slots(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        # 15.5 ms loses slot 2 to 20.5 ms and moves back to the free slot 1.
+        # 25.6 ms loses slot 3 with no free slot behind it. 34.5 ms loses
+        # slot 3 to 29 ms and moves forward to slot 4.
+        timestamps = (0, 15_500, 20_500, 25_600, 29_000, 34_500)
+        slots = []
+        for timestamp in timestamps:
+            if sampler.admit(timestamp):
+                slots.append(sampler.current_slot)
+        assert sampler.flush()
+        slots.append(sampler.current_slot)
+
+        assert slots == [0, 1, 2, 3, 4]
+        assert sampler.accepted_packets == 5
+        assert sampler.excess_packets == 1
+        assert sampler.missing_slots == 0
+        assert sampler.occupancy_slots == 5
+
+    def test_neighbour_slots_keep_tolerance_and_spacing(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        # 12 ms is 8 ms from slot 2, beyond three quarters of a slot.
+        # 22.6 ms is close enough to slot 3 but only 2.6 ms after 20 ms.
+        assert self.replay(sampler, (0, 10_000, 12_000, 20_000, 22_600, 30_000)) == [
+            0, 10_000, 20_000, 30_000
+        ]
+        # 17 ms cannot move back to slot 1, and 24.5 ms cannot move forward to
+        # slot 3, because each is less than half a slot from 20.5 ms.
+        sampler = TemporalCsiSampler(100, 1000)
+        assert self.replay(sampler, (0, 17_000, 20_500, 24_500)) == [0, 20_500]
+        assert sampler.excess_packets == 2
+
     def test_preserves_missing_slots_and_uses_temporal_occupancy(self):
         sampler = TemporalCsiSampler(10, 1000)
 

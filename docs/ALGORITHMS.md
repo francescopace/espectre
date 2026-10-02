@@ -73,7 +73,8 @@ The detector runs on elapsed time, not on packet counts:
 The runtime divides time into fixed slots derived from `csi_target_pps`, not from the measured packet rate:
 
 - At most one packet per slot is admitted: the one closest to the slot center. The choice is final only when a packet arrives in a later slot, so a late but better packet is not lost.
-- Two selected packets are at least half a slot apart. Other packets in the same slot count as *excess*.
+- When two packets compete for one slot, the loser can take the free slot next to it, on its side, if it is within three quarters of a slot of that slot's center. Jitter then leaves fewer empty slots.
+- Two selected packets are at least half a slot apart. Packets that find no slot count as *excess*.
 - Duplicate, stale, and out-of-order timestamps are rejected. Wall-clock time is used only to reject packets that waited too long in the processing queue.
 - Missing slots stay empty. Window statistics use the valid samples; lagged features need valid samples at the exact slot offsets.
 - A gap as long as the window clears detector history at once.

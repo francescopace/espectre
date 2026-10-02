@@ -42,7 +42,10 @@ uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps);
  *
  * The sampler retains at most one candidate per target-rate slot, preserves
  * missing slots, rejects invalid timestamp progress, and reports when a gap
- * requires detector history to be cleared. A core-only integration should
+ * requires detector history to be cleared. When two packets compete for one
+ * slot, the one closer to the slot center keeps it, and the other may fill the
+ * free neighbour slot on its side when it lies within three quarters of a slot
+ * of that center. A core-only integration should
  * apply its admission result before forwarding CSI to a detector.
  *
  * The sampler stores timing and slot state, not CSI payloads. The caller keeps
@@ -157,6 +160,10 @@ class TemporalCsiSampler {
 
   void clear_window_();
   bool drop_();
+  uint64_t center_error_(uint64_t slot, uint64_t elapsed_us) const;
+  bool within_neighbor_tolerance_(uint64_t slot, uint64_t elapsed_us) const;
+  void set_pending_(uint64_t slot, uint64_t elapsed_us);
+  bool contest_pending_slot_(uint64_t slot, uint64_t elapsed_us);
   bool select_candidate_(uint64_t slot, uint64_t elapsed_us,
                          bool reset_required);
   bool commit_candidate_();

@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed the packed `ESPECTRE_SDK_VERSION_NUMBER`. Compare `ESPECTRE_SDK_VERSION_MAJOR`, `ESPECTRE_SDK_VERSION_MINOR`, and `ESPECTRE_SDK_VERSION_PATCH`, or use `ESPECTRE_SDK_VERSION_AT_LEAST()`.
 - **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
 
+- Temporal CSI admission now fills more slots. When two packets jitter into one slot, the one closer to the center keeps it and the other can take the free slot next to it. On the recorded captures this raises median occupancy from 92.3% to 93.9%, so sensing stays ready more often on jittery links.
 - The SDK versioning rules now mark `CsiCaptureProfile` and `CsiCapturePolicy` as open enums and put the core-only detector interface outside the compatibility promise until stationary presence ships. The Matter occupancy attribute and the `motion` event are documented as motion only.
 
 ### Fixed

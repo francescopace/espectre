@@ -14,6 +14,15 @@
 
 namespace espectre {
 
+namespace {
+
+// A candidate that loses its nearest slot may fill a free neighbour slot whose
+// center is at most three quarters of a slot away.
+constexpr uint64_t kNeighborSlotToleranceNumerator = 3U;
+constexpr uint64_t kNeighborSlotToleranceDenominator = 4U;
+
+}  // namespace
+
 uint32_t temporal_window_slots(uint32_t target_pps,
                                uint32_t window_size_ms) {
   if (target_pps == 0U || window_size_ms == 0U) return 0U;
@@ -137,13 +146,69 @@ bool TemporalCsiSampler::drop_() {
   return false;
 }
 
-bool TemporalCsiSampler::select_candidate_(uint64_t slot, uint64_t elapsed_us,
-                                           bool reset_required) {
+uint64_t TemporalCsiSampler::center_error_(uint64_t slot,
+                                           uint64_t elapsed_us) const {
   const uint64_t scaled_elapsed = elapsed_us * target_pps_;
   const uint64_t scaled_center = slot * TEMPORAL_CSI_MICROSECONDS_PER_SECOND;
-  const uint64_t center_error = scaled_elapsed >= scaled_center
-      ? scaled_elapsed - scaled_center
-      : scaled_center - scaled_elapsed;
+  return scaled_elapsed >= scaled_center ? scaled_elapsed - scaled_center
+                                         : scaled_center - scaled_elapsed;
+}
+
+bool TemporalCsiSampler::within_neighbor_tolerance_(uint64_t slot,
+                                                    uint64_t elapsed_us) const {
+  return center_error_(slot, elapsed_us) * kNeighborSlotToleranceDenominator <=
+         TEMPORAL_CSI_MICROSECONDS_PER_SECOND * kNeighborSlotToleranceNumerator;
+}
+
+void TemporalCsiSampler::set_pending_(uint64_t slot, uint64_t elapsed_us) {
+  has_pending_candidate_ = true;
+  pending_slot_ = slot;
+  pending_elapsed_us_ = elapsed_us;
+  pending_center_error_ = center_error_(slot, elapsed_us);
+  pending_reset_required_ = false;
+  selected_current_ = true;
+}
+
+// The candidate closer to the slot center keeps it. The other one may still
+// fill the free neighbour on its side, so two packets that jitter into one
+// slot do not leave an empty slot next to it.
+bool TemporalCsiSampler::contest_pending_slot_(uint64_t slot,
+                                               uint64_t elapsed_us) {
+  const uint64_t pending_elapsed_us = pending_elapsed_us_;
+  if (center_error_(slot, elapsed_us) < pending_center_error_) {
+    if (has_last_admitted_slot_ &&
+        elapsed_us - last_admitted_elapsed_us_ < minimum_sample_spacing_us_) {
+      ++excess_packets_;
+      return false;
+    }
+    bool emitted = false;
+    if (slot > 0U &&
+        (!has_last_admitted_slot_ || slot - 1U > last_admitted_slot_) &&
+        (!has_window_origin_ || slot - 1U >= window_origin_slot_) &&
+        elapsed_us - pending_elapsed_us >= minimum_sample_spacing_us_ &&
+        within_neighbor_tolerance_(slot - 1U, pending_elapsed_us)) {
+      pending_slot_ = slot - 1U;
+      emitted = commit_candidate_();
+    } else {
+      ++excess_packets_;
+    }
+    set_pending_(slot, elapsed_us);
+    return emitted;
+  }
+  if (elapsed_us - pending_elapsed_us >= minimum_sample_spacing_us_ &&
+      within_neighbor_tolerance_(slot + 1U, elapsed_us)) {
+    const bool emitted = commit_candidate_();
+    active_slot_ = slot + 1U;
+    set_pending_(slot + 1U, elapsed_us);
+    return emitted;
+  }
+  ++excess_packets_;
+  return false;
+}
+
+bool TemporalCsiSampler::select_candidate_(uint64_t slot, uint64_t elapsed_us,
+                                           bool reset_required) {
+  const uint64_t center_error = center_error_(slot, elapsed_us);
 
   if (has_last_admitted_slot_ && slot <= last_admitted_slot_) {
     ++excess_packets_;
@@ -276,6 +341,9 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
   if (has_active_slot_ && slot < active_slot_) {
     ++excess_packets_;
     return false;
+  }
+  if (has_pending_candidate_ && slot == pending_slot_) {
+    return contest_pending_slot_(slot, elapsed_us_);
   }
   bool emitted = false;
   if (!has_active_slot_ || slot > active_slot_) {

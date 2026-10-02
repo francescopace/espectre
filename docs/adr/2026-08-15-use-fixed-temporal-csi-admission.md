@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-15
-- Updated: 2026-08-25
+- Updated: 2026-10-02
 
 ## Context
 
@@ -23,7 +23,7 @@ Keep the public analysis window in milliseconds and admit CSI onto a fixed tempo
 - `csi_traffic_mode` selects either internal or external traffic ownership;
 - `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`;
 - the minimum valid occupancy is seven tenths of `window_slots`, rounded up, with the ratio defined once in each production language;
-- at most one packet is admitted per slot; the sampler retains the candidate nearest the slot center until a packet reaches a later slot, and counts every other same-slot candidate as excess;
+- at most one packet is admitted per slot; the sampler retains the candidate nearest the slot center until a packet reaches a later slot. When a later packet contests the retained slot, the losing candidate fills the free neighbour slot on its side if that slot center is at most three quarters of a slot away; otherwise it counts as excess;
 - the minimum distance between consecutive admitted candidates is half a target slot, derived from `csi_target_pps`, so candidates on opposite sides of a boundary cannot create an arbitrarily short detector interval;
 - duplicate, backward, and stale packets are rejected, timestamp wrap is handled explicitly, and a gap spanning a detector window invalidates temporal history immediately, even while the first post-gap candidate remains pending until a later slot or an explicit flush;
 - missing slots remain missing: statistics use valid samples, while lagged and adjacent features use only pairs at their exact slot offsets;
@@ -57,12 +57,16 @@ Raw HTTP transports every provenance-classified CSI frame before temporal admiss
 | 2026-08-16 | Occupancy floor of four fifths | Moved to seven tenths after reserved idle-versus-motion AUC stayed close to full occupancy at 70% and collapsed around 50% |
 | 2026-08-16 | Opt-in adaptive traffic that maximizes temporally admitted CSI rather than raw accepted callbacks | Rejected after C3 and classic ESP32 A/B; occupancy-adaptive send-rate trials did not beat fixed cadence, and `tx_bp` did not fire on the benches |
 | 2026-08-23 | Re-anchor the temporal grid after detector or calibration resets | Rejected after C3 runtime switches changed occupancy for an unchanged RX stream; software-only resets now preserve the active grid phase |
+| 2026-10-02 | Let a candidate that loses its nearest slot fill a free neighbour slot | Accepted; raised admitted occupancy without a systematic detection change |
+| 2026-10-02 | Assign each packet to the earliest free slot within three quarters of a slot | Rejected; it raised occupancy further but widened timing error and cut Lightweight worst recall under jitter |
 
 A 60-second sweep over 22 normal-link pairs, under the earlier measured-rate window, removed packets from stable streams to create a genuine `80 pps` cadence. With the default temporal window resolved to 80 samples, aggregate ML recall was `98.844%`, aggregate false positives were `0.019%`, and worst-session recall was `92.797%`. The fixed 100-sample control produced `99.546%` recall and `0.041%` false positives. That evidence still argues against supporting arbitrarily slow sources by shrinking the configured duration; current readiness uses occupancy on the target grid instead of a second rate-derived window size.
 
 On the explicit high-rate C3 regression pair, stable decimation to `120`, `100`, and `80 pps` with matching one-second windows kept ML at `100%` recall and `0%` false positives at every rate. Classic reached `99.1%` recall and `0%` false positives at `80 pps`.
 
 The occupancy floor moved from four fifths to seven tenths after a reserved idle-versus-motion AUC sweep showed that the production features remain close to full occupancy at 70% and collapse only around 50%, where consecutive-pair statistics such as `turb_zcr` and `turb_autocorr` lose adjacent samples. The admission grid, slot selection, gap reset, and missing-slot contract are unchanged.
+
+Nearest-slot selection alone loses admitted occupancy whenever two packets jitter into one slot and leave the neighbour empty. On the 87 recorded captures, the raw rate was about `99.6 pps`, but the median admitted occupancy was only `92.3%`. Letting the losing candidate fill a free neighbour slot within three quarters of a slot raised it to `93.9%`, and raised adjacent valid pairs from `83.9%` to `88.1%`, with a p95 slot-center error of `4.2 ms` instead of `4.1 ms`. On the 14 reserved pairs replayed with the exported models, occupancy rose from `92.5%` to `95.0%` on the recorded timestamps and by about `4.5` points under `2 ms` and `3 ms` Gaussian RX jitter (three seeds each). The per-pair median change in recall and false positives was zero. High Accuracy worst-pair recall improved in five of seven conditions. Lightweight worst-pair recall improved at `2 ms` and fell by `1.7` to `4.3` points at `3 ms`, where its worst-pair false-positive rate fell from `6.6%` to `4.3%` on average. Assigning each packet to the earliest free slot instead raised occupancy to `95.4%`, but its p95 timing error reached `5.4 ms` and Lightweight worst-pair recall fell from `95.5%` to `88.1%` under `3 ms` jitter.
 
 That denser occupancy can complete one four-hit Lightweight debounce burst on a short empty S3 recording. High Accuracy still requires zero empty-room alarms. Lightweight sequential empty tests now allow at most one effective alarm per recording rather than forcing a shared occupancy increase or a more expensive Lightweight feature set.
 

@@ -8,6 +8,10 @@ UINT32_HALF_RANGE = 1 << 31
 MINIMUM_COVERAGE_NUMERATOR = 7
 MINIMUM_COVERAGE_DENOMINATOR = 10
 SLOT_HALF_DENOMINATOR = 2
+# A candidate that loses its nearest slot may fill a free neighbour slot whose
+# center is at most three quarters of a slot away.
+NEIGHBOR_SLOT_TOLERANCE_NUMERATOR = 3
+NEIGHBOR_SLOT_TOLERANCE_DENOMINATOR = 4
 
 
 def temporal_window_slots(target_pps, window_size_ms):
@@ -149,10 +153,75 @@ class TemporalCsiSampler:
             + MICROSECONDS_PER_SECOND // 2
         ) // MICROSECONDS_PER_SECOND
 
+    def _center_error(self, slot, elapsed_us):
+        return abs(
+            int(elapsed_us) * self.target_pps - int(slot) * MICROSECONDS_PER_SECOND
+        )
+
+    def _within_neighbor_tolerance(self, slot, elapsed_us):
+        return (
+            self._center_error(slot, elapsed_us) * NEIGHBOR_SLOT_TOLERANCE_DENOMINATOR
+            <= MICROSECONDS_PER_SECOND * NEIGHBOR_SLOT_TOLERANCE_NUMERATOR
+        )
+
+    def _set_pending(self, slot, elapsed_us):
+        self._pending_slot = int(slot)
+        self._pending_elapsed_us = int(elapsed_us)
+        self._pending_center_error = self._center_error(slot, elapsed_us)
+        self._pending_reset_required = False
+        self.selected_current = True
+
+    def _contest_pending_slot(self, slot, elapsed_us):
+        """Resolve a packet whose nearest slot already holds the pending candidate.
+
+        The candidate closer to the slot center keeps it. The other one may
+        still fill the free neighbour on its side of the slot, so two packets
+        that jitter into one slot do not leave an empty slot next to it.
+        """
+        pending_elapsed_us = self._pending_elapsed_us
+        if self._center_error(slot, elapsed_us) < self._pending_center_error:
+            if (
+                self._last_admitted_elapsed_us is not None
+                and elapsed_us - self._last_admitted_elapsed_us
+                < self.minimum_sample_spacing_us
+            ):
+                self.excess_packets += 1
+                return False
+            previous_slot = slot - 1
+            emitted = False
+            if (
+                slot > 0
+                and (
+                    self._last_admitted_slot is None
+                    or previous_slot > self._last_admitted_slot
+                )
+                and (
+                    self._window_origin_slot is None
+                    or previous_slot >= self._window_origin_slot
+                )
+                and elapsed_us - pending_elapsed_us >= self.minimum_sample_spacing_us
+                and self._within_neighbor_tolerance(previous_slot, pending_elapsed_us)
+            ):
+                self._pending_slot = previous_slot
+                emitted = self._commit_candidate()
+            else:
+                self.excess_packets += 1
+            self._set_pending(slot, elapsed_us)
+            return emitted
+        next_slot = slot + 1
+        if (
+            elapsed_us - pending_elapsed_us >= self.minimum_sample_spacing_us
+            and self._within_neighbor_tolerance(next_slot, elapsed_us)
+        ):
+            emitted = self._commit_candidate()
+            self._active_slot = next_slot
+            self._set_pending(next_slot, elapsed_us)
+            return emitted
+        self.excess_packets += 1
+        return False
+
     def _select_candidate(self, slot, elapsed_us, reset_required=False):
-        scaled_elapsed = int(elapsed_us) * self.target_pps
-        scaled_center = int(slot) * MICROSECONDS_PER_SECOND
-        center_error = abs(scaled_elapsed - scaled_center)
+        center_error = self._center_error(slot, elapsed_us)
         if (
             self._last_admitted_slot is not None
             and slot <= self._last_admitted_slot
@@ -281,6 +350,8 @@ class TemporalCsiSampler:
         if self._active_slot is not None and slot < self._active_slot:
             self.excess_packets += 1
             return False
+        if self._pending_slot is not None and slot == self._pending_slot:
+            return self._contest_pending_slot(slot, self._elapsed_us)
         emitted = False
         if self._active_slot is None or slot > self._active_slot:
             emitted = self._commit_candidate()
