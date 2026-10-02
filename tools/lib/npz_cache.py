@@ -491,6 +491,7 @@ def _ml_feature_source_manifests() -> dict[str, Any]:
         "python_runtime_policy": tools_lib_dir() / "runtime_policy.py",
         "python_runtime_motion_policy": python_src_dir() / "runtime_motion_policy.py",
         "python_segmentation": tools_lib_dir() / "segmentation.py",
+        "python_temporal_csi_sampler": tools_lib_dir() / "temporal_csi_sampler.py",
         "host_csi_io": repo_root() / "tools" / "lib" / "csi_io.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_ml_replay": repo_root() / "tools" / "lib" / "performance_report.py",

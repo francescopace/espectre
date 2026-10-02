@@ -1113,3 +1113,13 @@ def test_artifact_build_lock_emits_progress_heartbeat(
 
     err = capsys.readouterr().err
     assert "still building unit_progress slow_build.npz" in err
+
+
+def test_replay_caches_depend_on_temporal_admission():
+    # Admission decides which CSI rows reach the features, so changing the
+    # sampler must invalidate ML feature rows as well as replay-policy rows.
+    for manifests in (
+        npz_cache._ml_feature_source_manifests(),
+        npz_cache._replay_policy_source_manifests(),
+    ):
+        assert {"python_temporal_csi_sampler", "host_temporal_replay"} <= set(manifests)
