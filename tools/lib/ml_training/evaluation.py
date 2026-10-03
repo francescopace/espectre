@@ -60,11 +60,12 @@ from .dataset import (
 )
 
 from .export import (
-    exported_weight_matrices,
+    exported_inference_arrays,
     extract_model_weights,
     load_exported_ml_weights,
     predict_exported_probabilities_from_weights,
     predict_probabilities_from_arrays,
+    with_input_transform,
 )
 
 from .feature_cache import (
@@ -79,6 +80,7 @@ from .feature_cache import (
 
 from .preprocessing import (
     get_preprocessor_arrays,
+    get_preprocessor_log_scale,
 )
 
 DEFAULT_PAIRED_GATE_CHIPS = ('C3', 'C5', 'C6', 'ESP32', 'S3')
@@ -303,8 +305,7 @@ def evaluate_candidate_gain_stress(model, scaler, feature_names, *,
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
     scales = parse_gain_stress_scales(scales)
-    center, scale = get_preprocessor_arrays(scaler)
-    layers = _layer_arrays_from_model(model)
+    center, scale, layers = _inference_arrays(model, scaler)
     matrix, _ = load_training_matrix(
         environment_filter=environment_filter,
         excluded_chips=excluded_chips,
@@ -677,6 +678,14 @@ def _layer_arrays_from_model(model):
     return layers
 
 
+def _inference_arrays(model, scaler):
+    """Return (center, scale, layers) for an in-memory model and its scaler."""
+    center, scale = get_preprocessor_arrays(scaler)
+    layers = with_input_transform(
+        _layer_arrays_from_model(model), get_preprocessor_log_scale(scaler))
+    return center, scale, layers
+
+
 def _batch_predict_probabilities(features, center, scale, layers):
     """Compatibility wrapper around the shared runtime-array inference."""
     return predict_probabilities_from_arrays(features, center, scale, layers)
@@ -687,8 +696,7 @@ class StreamingEvaluator:
 
     def __init__(self, model, scaler, feature_names):
         self.extractor = StreamingFeatureExtractor(feature_names)
-        self.center, self.scale = get_preprocessor_arrays(scaler)
-        self.layers = _layer_arrays_from_model(model)
+        self.center, self.scale, self.layers = _inference_arrays(model, scaler)
 
     def process_packet(self, csi_data):
         features = self.extractor.process_packet(csi_data)
@@ -791,8 +799,7 @@ def _evaluate_replay_row_idle(center, scale, layers, rows, threshold=0.5):
 def evaluate_split(model, scaler, feature_names, static_presence_packets,
                    motion_packets, threshold=0.5):
     """Evaluate a split through reset-aware production-time replay ticks."""
-    center, scale = get_preprocessor_arrays(scaler)
-    layers = _layer_arrays_from_model(model)
+    center, scale, layers = _inference_arrays(model, scaler)
     if _feature_rows_use_runtime_cache(feature_names):
         static_rows = build_ml_replay_rows(
             static_presence_packets,
@@ -1089,8 +1096,7 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
     ))
     center = scale = layers = dataset_info = file_metadata = None
     if use_cached_features:
-        center, scale = get_preprocessor_arrays(scaler)
-        layers = _layer_arrays_from_model(model)
+        center, scale, layers = _inference_arrays(model, scaler)
         dataset_info = load_dataset_info()
         file_metadata = get_file_metadata(dataset_info)
     if progress is not None:
@@ -1149,16 +1155,7 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
 def _load_exported_model_arrays():
     """Load exported MicroPython weights as inference-ready arrays."""
     module = load_exported_ml_weights()
-    center = np.asarray(module.FEATURE_MEAN, dtype=np.float32)
-    scale = np.asarray(module.FEATURE_SCALE, dtype=np.float32)
-    matrices = exported_weight_matrices(module)
-    layers = []
-    for idx, (weights, biases) in enumerate(zip(matrices, module.BIASES, strict=True)):
-        layers.append((
-            weights,
-            np.asarray(biases, dtype=np.float32),
-            idx == len(matrices) - 1,
-        ))
+    center, scale, layers = exported_inference_arrays(module)
     return list(module.FEATURE_NAMES), center, scale, layers
 
 
@@ -1295,8 +1292,7 @@ def evaluate_quiet_gate(model, scaler, feature_names, threshold=0.5,
     datasets = list(_iter_quiet_gate_replays(roles=roles))
     center = scale = layers = dataset_info = file_metadata = None
     if use_cached_features:
-        center, scale = get_preprocessor_arrays(scaler)
-        layers = _layer_arrays_from_model(model)
+        center, scale, layers = _inference_arrays(model, scaler)
         dataset_info = load_dataset_info()
         file_metadata = get_file_metadata(dataset_info)
     if progress is not None:
@@ -1469,8 +1465,7 @@ def evaluate_occupancy_paired_gate(
         roles=roles,
         allow_legacy_fallback=allow_legacy_fallback,
     ))
-    center, scale = get_preprocessor_arrays(scaler)
-    layers = _layer_arrays_from_model(model)
+    center, scale, layers = _inference_arrays(model, scaler)
     if progress is not None:
         progress(
             f"Occupancy {OCCUPANCY_GATE_PERCENT}% paired gate: "
@@ -1540,8 +1535,7 @@ def evaluate_occupancy_quiet_gate(
 ):
     """Evaluate reserved empty replays thinned to the 70% occupancy envelope."""
     datasets = list(_iter_quiet_gate_replays(roles=roles))
-    center, scale = get_preprocessor_arrays(scaler)
-    layers = _layer_arrays_from_model(model)
+    center, scale, layers = _inference_arrays(model, scaler)
     if progress is not None:
         progress(
             f"Occupancy {OCCUPANCY_GATE_PERCENT}% quiet gate: "

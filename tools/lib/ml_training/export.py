@@ -40,7 +40,9 @@ from .feature_cache import (
 
 from .preprocessing import (
     DEFAULT_SCALER_MODE,
+    apply_log1p_transform,
     get_preprocessor_arrays,
+    get_preprocessor_log_scale,
 )
 
 TorchModuleBase = nn.Module if nn is not None else object
@@ -225,8 +227,27 @@ def exported_weight_matrices(weights_module):
     ]
 
 
-def predict_exported_probabilities_from_weights(weights_module, X_raw):
-    """Vectorized inference matching the Python reference High Accuracy detector."""
+class Log1pInput:
+    """Leading inference-array entry for the exported log1p input transform.
+
+    Inference arrays are ``[Log1pInput?, (weights, biases, is_output), ...]``;
+    the optional first entry applies ``log1p(max(x, 0) / s)`` per feature
+    before normalization, matching ``ML_FEATURE_LOG_SCALE`` in the runtimes.
+    """
+
+    def __init__(self, log_scale):
+        self.log_scale = np.asarray(log_scale, dtype=np.float32)
+
+
+def with_input_transform(layers, log_scale):
+    """Prefix dense layer arrays with the log1p transform when one is active."""
+    if log_scale is None or not np.any(np.asarray(log_scale) > 0.0):
+        return list(layers)
+    return [Log1pInput(log_scale)] + list(layers)
+
+
+def exported_inference_arrays(weights_module):
+    """Return (center, scale, layers) for one exported weights module."""
     center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
     scale[scale < 1e-6] = 1.0
@@ -241,6 +262,13 @@ def predict_exported_probabilities_from_weights(weights_module, X_raw):
             zip(matrices, weights_module.BIASES, strict=True)
         )
     ]
+    return center, scale, with_input_transform(
+        layers, weights_module.FEATURE_LOG_SCALE)
+
+
+def predict_exported_probabilities_from_weights(weights_module, X_raw):
+    """Vectorized inference matching the Python reference High Accuracy detector."""
+    center, scale, layers = exported_inference_arrays(weights_module)
     return predict_probabilities_from_arrays(X_raw, center, scale, layers)
 
 
@@ -249,6 +277,9 @@ def predict_probabilities_from_arrays(features, center, scale, layers):
     features = np.asarray(features, dtype=np.float32)
     if features.size == 0:
         return np.zeros(0, dtype=np.float32)
+    layers = list(layers)
+    if layers and isinstance(layers[0], Log1pInput):
+        features = apply_log1p_transform(features, layers.pop(0).log_scale)
     center = np.asarray(center, dtype=np.float32)
     scale = np.asarray(scale, dtype=np.float32).copy()
     scale[scale < 1e-6] = 1.0
@@ -306,7 +337,7 @@ def get_model_architecture(model):
 def render_micropython_weights(weights, center, scale, architecture, seed=None,
                                feature_names=None,
                                scaler_mode=DEFAULT_SCALER_MODE,
-                               trained_at=None):
+                               trained_at=None, log_scale=None):
     """Render inference-ready MicroPython weights without a runtime transpose."""
     if feature_names is None:
         feature_names = list(TRAINING_FEATURES)
@@ -318,6 +349,9 @@ def render_micropython_weights(weights, center, scale, architecture, seed=None,
     feature_csv = ', '.join(repr(name) for name in feature_names)
     center_csv = ', '.join(f'{x:.9g}' for x in center)
     scale_csv = ', '.join(f'{x:.9g}' for x in scale)
+    if log_scale is None:
+        log_scale = np.zeros(len(center), dtype=np.float32)
+    log_scale_csv = ', '.join(f'{x:.9g}' for x in log_scale)
 
     # Build code - weights only
     code = f'''# SPDX-License-Identifier: GPL-3.0-only
@@ -348,6 +382,8 @@ FEATURE_NAMES = [{feature_csv}]
 # Feature normalization
 FEATURE_MEAN = [{center_csv}]
 FEATURE_SCALE = [{scale_csv}]
+# Inputs with a positive log scale s become log1p(max(x, 0) / s) first.
+FEATURE_LOG_SCALE = [{log_scale_csv}]
 
 '''
 
@@ -398,6 +434,7 @@ def export_micropython(model, scaler, output_path, seed=None,
         feature_names=feature_names,
         scaler_mode=scaler_mode,
         trained_at=trained_at,
+        log_scale=get_preprocessor_log_scale(scaler),
     )
     atomic_write_text(output_path, code)
     return len(code)
@@ -461,6 +498,9 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     architecture = get_model_architecture(model)
     arch = ' -> '.join(map(str, architecture))
     center, scale = get_preprocessor_arrays(scaler)
+    log_scale = get_preprocessor_log_scale(scaler)
+    if log_scale is None:
+        log_scale = np.zeros(len(center), dtype=np.float32)
     if feature_names is None:
         feature_names = list(TRAINING_FEATURES)
 
@@ -471,6 +511,7 @@ def export_cpp_weights(model, scaler, output_path, seed=None,
     architecture_csv = ', '.join(str(x) for x in architecture)
     center_csv = ', '.join(cpp_float(x) for x in center)
     scale_csv = ', '.join(cpp_float(x) for x in scale)
+    log_scale_csv = ', '.join(cpp_float(x) for x in log_scale)
     feature_ids_csv = ', '.join(str(i) for i in feature_ids)
     feature_names_comment = ', '.join(feature_names)
     comment_gap = ' * '
@@ -506,6 +547,8 @@ constexpr char ML_NORMALIZATION_MODE[] = "{scaler_mode}";
 // Feature normalization
 constexpr float ML_FEATURE_MEAN[{len(center)}] = {{{center_csv}}};
 constexpr float ML_FEATURE_SCALE[{len(scale)}] = {{{scale_csv}}};
+// Inputs with a positive log scale s become log1p(max(x, 0) / s) first.
+constexpr float ML_FEATURE_LOG_SCALE[{len(log_scale)}] = {{{log_scale_csv}}};
 
 // Feature identity (MLFeatureId in csi_features.h), one per model input slot.
 // Order: {feature_names_comment}

@@ -1040,6 +1040,82 @@ def test_burst_loss_augmentation_is_deterministic_and_drops_packets():
         np.testing.assert_array_equal(first_packet["csi_data"], second_packet["csi_data"])
 
 
+def _skewed_feature_matrix(rows=2000, seed=4):
+    rng = np.random.default_rng(seed)
+    return np.column_stack((
+        rng.exponential(1.0, size=rows) ** 3,
+        rng.normal(0.0, 1.0, size=rows),
+    )).astype(np.float32)
+
+
+def test_log1p_scaler_compresses_only_skewed_nonnegative_columns():
+    X = _skewed_feature_matrix()
+    scaler = preprocessing.Log1pStandardScaler().fit(X)
+
+    assert scaler.log_scale_[0] == pytest.approx(float(X[:, 0].std()))
+    assert scaler.log_scale_[1] == 0.0
+    transformed = scaler.transform(X)
+    np.testing.assert_allclose(transformed.mean(axis=0), [0.0, 0.0], atol=1e-4)
+    np.testing.assert_allclose(transformed.std(axis=0), [1.0, 1.0], atol=1e-4)
+
+
+def test_log1p_export_reproduces_the_in_memory_model(tmp_path):
+    pytest.importorskip("torch")
+    X = _skewed_feature_matrix()
+    scaler = preprocessing.Log1pStandardScaler().fit(X)
+    model = export.TorchMLP(2, [4], seed=3)
+    model.eval()
+    expected = export.predict_runtime_probabilities(model, scaler.transform(X))
+
+    center, scale, layers = evaluation._inference_arrays(model, scaler)
+    np.testing.assert_allclose(
+        export.predict_probabilities_from_arrays(X, center, scale, layers),
+        expected, atol=1e-6)
+
+    destination = tmp_path / "ml_weights.py"
+    export.export_micropython(
+        model, scaler, destination, feature_names=["skewed", "symmetric"])
+    namespace = {}
+    exec(destination.read_text(encoding="utf-8"), namespace)
+    weights_module = types.SimpleNamespace(**namespace)
+    np.testing.assert_allclose(weights_module.FEATURE_LOG_SCALE, scaler.log_scale_)
+    np.testing.assert_allclose(
+        export.predict_exported_probabilities_from_weights(weights_module, X),
+        expected, atol=1e-6)
+
+
+def test_cross_validate_repeats_average_out_of_fold_probabilities(monkeypatch):
+    class IdentityScaler:
+        def transform(self, values):
+            return np.asarray(values, dtype=np.float32)
+
+    monkeypatch.setattr(training, "build_preprocessor", lambda mode: IdentityScaler())
+    monkeypatch.setattr(training, "fit_preprocessor", lambda *args, **kwargs: None)
+    fitted = []
+
+    def fake_train_model(values, labels, seed=None, **kwargs):
+        fitted.append(seed)
+        return seed
+
+    monkeypatch.setattr(training, "train_model", fake_train_model)
+    # Each fold model scores every held-out window with its own seed parity.
+    monkeypatch.setattr(
+        training,
+        "predict_probabilities",
+        lambda model, values: np.full(len(values), float(model % 2), dtype=np.float32),
+    )
+    X = np.arange(24, dtype=np.float32).reshape(12, 2)
+    y = np.tile(np.asarray([0, 1], dtype=np.int8), 6)
+    groups = np.repeat(np.asarray([f"g{i}" for i in range(6)]), 2)
+
+    result = training.cross_validate(
+        X, y, n_folds=3, groups=groups, block_stride=1, seed=7, cv_repeats=2)
+
+    assert len(fitted) == 6 and len(set(fitted)) == 6
+    assert result["cv_repeats"] == 2
+    assert result["n_folds"] == 6
+
+
 def test_host_feature_rows_match_runtime_rows_for_production_features():
     from tools.lib.performance_report import build_ml_replay_rows
     from config import DEFAULT_SUBCARRIERS

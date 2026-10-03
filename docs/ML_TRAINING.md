@@ -54,7 +54,7 @@ Inspect the admitted corpus and split first:
 python tools/train_ml_model.py --info
 ```
 
-Without `--features`, the trainer uses the promoted Subband 8F production order: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`.
+Without `--features`, the trainer uses the promoted Subband 8F production order: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`. The default `log1p_standard` normalization compresses the right-skewed non-negative inputs with `log1p(x / std(x))` before z-scoring; the exported weights carry the per-feature log scales, and the runtimes apply them.
 
 Use read-only variants while investigating a change:
 
@@ -107,6 +107,8 @@ The trainer:
 5. fits the final model on the complete training matrix;
 6. evaluates paired and quiet deployment replays; and
 7. exports runtime artifacts only after the promotion gates pass.
+
+Early stopping and learning-rate decay watch a random 10% row split. Neighboring windows overlap almost entirely, so this split checks convergence, not transfer to new sessions; grouped CV and the replay gates measure transfer.
 
 Feature definitions and evidence are in the [feature ledger](FEATURES.md); detector behavior is in the [algorithms reference](ALGORITHMS.md). Changing a production feature, its subcarriers, preprocessing, or arithmetic means updating Python and C++ together, then retraining and checking parity.
 
@@ -191,6 +193,16 @@ python tools/train_ml_model.py --augment --shap 500 --seed SEED --no-export
 python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REMOVAL --seed SEED
 ```
 
+Fit-recipe comparisons can change the normalization or average several fold assignments:
+
+```bash
+python tools/train_ml_model.py --augment --seed SEED --scaler standard --evaluate-selection
+python tools/train_ml_model.py --augment --seed SEED --no-export --cv-repeats 3
+```
+
+- `--scaler standard` drops the `log1p` compression and z-scores the raw inputs.
+- `--cv-repeats R` averages out-of-fold probabilities over `R` grouped fold assignments. It lowers the variance of a comparison at `R` times the cost; compare candidates only at the same `R`.
+
 Candidate features live in `tools/lib/candidate_features.py` and can be selected with `--features`. They cannot be exported until they have matching Python and C++ implementations and a feature ID. Evidence for retired candidates stays in the [feature ledger](FEATURES.md); their code is removed.
 
 Trajectory-bin experiments use the same host streaming path and keep the production `80 ms` default unless explicitly overridden:
@@ -227,7 +239,7 @@ A successful promotion updates:
 - `src/cpp/core/ml_weights.h`; and
 - `data/auto_generated/ml_test_data.npz`.
 
-The weight files store the seed, time, feature order, scaler, topology, and weights, but not the dataset revision or the selection settings. Record those (dataset revision, roles, timing policy, augmentation, and fitting parameters) in the production section of the [feature ledger](FEATURES.md). `ml_test_data.npz` is a regression test for inference, not a quality score.
+The weight files store the seed, time, feature order, scaler and log scales, topology, and weights, but not the dataset revision or the selection settings. Record those (dataset revision, roles, timing policy, augmentation, and fitting parameters) in the production section of the [feature ledger](FEATURES.md). `ml_test_data.npz` is a regression test for inference, not a quality score.
 
 Never edit these files by hand: export them with the trainer so Python, C++, and test data stay in sync.
 

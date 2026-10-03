@@ -51,6 +51,7 @@ except ImportError:
 
 FEATURE_MEAN = _ml_weights.FEATURE_MEAN
 FEATURE_SCALE = _ml_weights.FEATURE_SCALE
+FEATURE_LOG_SCALE = _ml_weights.FEATURE_LOG_SCALE
 BIASES = _ml_weights.BIASES
 FEATURE_NAMES = _ml_weights.FEATURE_NAMES
 
@@ -142,8 +143,12 @@ def _predict_with_workspace(features, activation_a, activation_b):
     if len(activation_a) < n_feat or len(activation_b) < n_feat:
         raise ValueError("Activation workspace is too small")
     for i in range(n_feat):
+        value = features[i]
+        if FEATURE_LOG_SCALE[i] > 0:
+            # Compress the exported right-skewed inputs before normalization.
+            value = _f32(math.log1p(_f32(max(value, 0.0) / FEATURE_LOG_SCALE[i])))
         activation_a[i] = _f32(
-            _f32(features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
+            _f32(value - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
         )
 
     activations = activation_a

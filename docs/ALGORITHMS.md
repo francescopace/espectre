@@ -327,9 +327,12 @@ CSI packet
   -> optional filters
   -> sliding window
   -> scale-invariant feature extraction
+  -> exported log1p compression of right-skewed inputs
   -> MLP inference
   -> probability threshold at 0.5
 ```
+
+Features whose exported log scale is zero pass through the compression unchanged.
 
 ### Runtime alignment
 

@@ -115,6 +115,7 @@ from tools.lib.ml_training.training import (
     DEFAULT_FP_WEIGHT,
     DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
     DEFAULT_SEED_SEARCH_OUTPUT,
+    DEFAULT_CV_REPEATS,
     calculate_correlation_importance,
     cross_chip_validation,
     cross_environment_validation,
@@ -125,6 +126,7 @@ from tools.lib.ml_training.training import (
     parse_fp_weight_sweep,
     parse_hidden_layers,
     print_correlation_table,
+    set_cv_repeats,
     show_info,
     train_all,
     train_until_improvement,
@@ -193,9 +195,16 @@ def main():
                        help='Multiplier for IDLE class weight to penalize false positives. '
                             f'Values >1.0 make the model more conservative (default: {DEFAULT_FP_WEIGHT:g})')
     parser.add_argument('--scaler', choices=[
-                           'standard', 'robust', 'session_balanced_robust', 'clipped_standard'],
+                           'standard', 'robust', 'session_balanced_robust',
+                           'clipped_standard', 'log1p_standard'],
                        default=DEFAULT_SCALER_MODE,
-                       help='Feature normalization mode; clipped_standard supports host-side CV only')
+                       help='Feature normalization mode; log1p_standard compresses '
+                            'right-skewed non-negative features before z-scoring; '
+                            'clipped_standard supports host-side CV only')
+    parser.add_argument('--cv-repeats', type=int, default=DEFAULT_CV_REPEATS,
+                       metavar='R',
+                       help='Average out-of-fold probabilities over R grouped fold '
+                            f'assignments (default: {DEFAULT_CV_REPEATS})')
     parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
                        help='Mini-batch size for PyTorch training '
                             f'(default: {DEFAULT_BATCH_SIZE})')
@@ -288,6 +297,11 @@ def main():
         print("Error: --timing-warn-weight must be in the range (0.0, 1.0]")
         return 1
     set_active_torch_device(args.device)
+    try:
+        set_cv_repeats(args.cv_repeats)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        return 1
     selected_training_features = list(TRAINING_FEATURES)
     if args.features is not None:
         selected_training_features = [

@@ -261,6 +261,20 @@ DEFAULT_CV_FOLDS = 3
 DEFAULT_SHAP_BACKGROUND_SAMPLES = 100
 
 
+DEFAULT_CV_REPEATS = 1
+
+
+ACTIVE_CV_REPEATS = DEFAULT_CV_REPEATS
+
+
+def set_cv_repeats(repeats):
+    """Set how many grouped fold assignments CV averages."""
+    global ACTIVE_CV_REPEATS
+    if int(repeats) < 1:
+        raise ValueError("CV repeats must be at least 1")
+    ACTIVE_CV_REPEATS = int(repeats)
+
+
 def parse_hidden_layers(value):
     """Parse comma-separated hidden layer widths into a positive integer list."""
     if value is None:
@@ -560,25 +574,30 @@ def train_model(X, y, hidden_layers=None, max_epochs=DEFAULT_MAX_EPOCHS, use_dro
     best_val_loss = float('inf')
     epochs_without_improvement = 0
     batch_size = max(1, int(batch_size))
+    shuffle_rng = np.random.default_rng(
+        derive_seed(seed, 50_000) if seed is not None else None)
 
     for epoch in range(int(max_epochs)):
         model.train()
-        for start in range(0, len(X_t_tensor), batch_size):
-            stop = start + batch_size
+        # Draw a fresh batch order every epoch.
+        order = shuffle_rng.permutation(len(X_t_tensor))
+        for start in range(0, len(order), batch_size):
+            batch_index = order[start:start + batch_size]
+            batch_index_tensor = torch.from_numpy(batch_index).to(device)
             if feature_augmentation:
                 augmented = augment_normalized_features(
-                    X_t[start:stop],
+                    X_t[batch_index],
                     feature_augmentation,
                     derive_seed(seed, epoch, start),
                     bounds=feature_bounds,
                 )
                 batch_x = torch.from_numpy(augmented).to(device)
             else:
-                batch_x = X_t_tensor[start:stop]
-            batch_y = y_t_tensor[start:stop]
+                batch_x = X_t_tensor[batch_index_tensor]
+            batch_y = y_t_tensor[batch_index_tensor]
             batch_weights = None
             if sw_t_tensor is not None:
-                batch_weights = sw_t_tensor[start:stop].clone()
+                batch_weights = sw_t_tensor[batch_index_tensor].clone()
             if class_weight is not None:
                 class_multiplier = torch.where(
                     batch_y > 0.5,
@@ -631,7 +650,8 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
                    block_group_key=DEFAULT_BLOCK_GROUP_KEY,
                    report_group_keys=DEFAULT_REPORT_GROUP_KEYS, seed=None,
                    shap_samples=0, shap_feature_names=None, shap_seed=None,
-                   feature_augmentation=None, X_aug=None, y_aug=None, groups_aug=None):
+                   feature_augmentation=None, X_aug=None, y_aug=None, groups_aug=None,
+                   cv_repeats=None):
     """
     Perform grouped cross-validation with de-overlapped scoring.
 
@@ -658,6 +678,7 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         X_aug: Optional packet-augmented feature matrix (train-only)
         y_aug: Labels aligned with X_aug
         groups_aug: Split-group labels aligned with X_aug
+        cv_repeats: Fold assignments to average; None uses the active setting
 
     Returns:
         dict: Mean and std of each metric across folds
@@ -667,20 +688,35 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
     feature_augmentation = dict(feature_augmentation or {})
     feature_names = list(shap_feature_names) if shap_feature_names else None
 
+    cv_repeats = ACTIVE_CV_REPEATS if cv_repeats is None else max(1, int(cv_repeats))
     if groups is not None:
         from sklearn.model_selection import StratifiedGroupKFold
-        unique_groups = len(set(groups))
-        effective_folds = min(n_folds, unique_groups)
-        splitter = StratifiedGroupKFold(n_splits=effective_folds, shuffle=True, random_state=42)
-        split_iter = splitter.split(X, y, groups)
+        effective_folds = min(n_folds, len(set(groups)))
     else:
         from sklearn.model_selection import StratifiedKFold
         effective_folds = n_folds
-        splitter = StratifiedKFold(n_splits=effective_folds, shuffle=True, random_state=42)
-        split_iter = splitter.split(X, y)
+
+    def fold_splits(repeat):
+        # Repeat 0 keeps the historical fold assignment; later repeats reshuffle it.
+        if groups is not None:
+            splitter = StratifiedGroupKFold(
+                n_splits=effective_folds, shuffle=True, random_state=42 + repeat)
+            return splitter.split(X, y, groups)
+        splitter = StratifiedKFold(
+            n_splits=effective_folds, shuffle=True, random_state=42 + repeat)
+        return splitter.split(X, y)
+
+    split_plan = [
+        (repeat, fold, train_idx, val_idx)
+        for repeat in range(cv_repeats)
+        for fold, (train_idx, val_idx) in enumerate(fold_splits(repeat))
+    ]
 
     fold_metrics = []
-    oof_prob = np.full(len(y), np.nan, dtype=np.float32)
+    # With repeats, each window's OOF probability is the mean over the models
+    # that held it out, so one fold assignment cannot decide the tail metrics.
+    oof_sum = np.zeros(len(y), dtype=np.float64)
+    oof_count = np.zeros(len(y), dtype=np.int32)
     scored_mask = np.zeros(len(y), dtype=bool)
     fold_timings = []
     cv_start = perf_counter()
@@ -694,7 +730,12 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         except ImportError:
             print("Error: SHAP not installed. Run: pip install shap")
 
-    for fold, (train_idx, val_idx) in enumerate(split_iter):
+    for repeat, fold, train_idx, val_idx in split_plan:
+        fold_label = (
+            f"Fold {fold + 1}/{effective_folds}"
+            if cv_repeats == 1
+            else f"Repeat {repeat + 1}/{cv_repeats} fold {fold + 1}/{effective_folds}"
+        )
         fold_start = perf_counter()
         X_train_fold, X_val_fold = X[train_idx], X[val_idx]
         y_train_fold, y_val_fold = y[train_idx], y[val_idx]
@@ -733,7 +774,11 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         preprocess_elapsed = perf_counter() - preprocess_start
 
         train_predict_start = perf_counter()
-        fold_seed = derive_seed(seed, fold)
+        fold_seed = (
+            derive_seed(seed, fold)
+            if repeat == 0
+            else derive_seed(seed, 1_000 * repeat + fold)
+        )
         with suppress_stderr():
             model = train_model(X_train_scaled, y_train_fold,
                                 hidden_layers=hidden_layers, max_epochs=max_epochs,
@@ -744,7 +789,8 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
             val_prob = predict_probabilities(model, X_val_scaled)
         train_predict_elapsed = perf_counter() - train_predict_start
 
-        oof_prob[val_idx] = val_prob
+        oof_sum[val_idx] += val_prob
+        oof_count[val_idx] += 1
         scoring_start = perf_counter()
         val_context = slice_sample_context(sample_context, val_idx)
         local_mask = build_block_mask(
@@ -760,7 +806,7 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         metrics = evaluate_probabilities(y_val_fold[local_mask], val_prob[local_mask])
         fold_metrics.append(metrics)
 
-        requested_fold_samples = fold_shap_counts[fold]
+        requested_fold_samples = fold_shap_counts[fold] if repeat == 0 else 0
         if shap_module is not None and requested_fold_samples > 0:
             train_context = slice_sample_context(sample_context, train_idx)
             background_idx = select_balanced_shap_indices(
@@ -789,14 +835,14 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
                 shap_abs_sum += np.sum(np.abs(shap_values), axis=0)
                 shap_count += len(shap_values)
                 print(
-                    f"  Fold {fold + 1}/{effective_folds} SHAP: "
+                    f"  {fold_label} SHAP: "
                     f"explained {len(shap_values)} held-out samples"
                 )
         scoring_elapsed = perf_counter() - scoring_start
         fold_elapsed = perf_counter() - fold_start
         fold_timings.append(fold_elapsed)
         print(
-            f"  Fold {fold + 1}/{effective_folds} timing: "
+            f"  {fold_label} timing: "
             f"preprocess={format_duration(preprocess_elapsed)}, "
             f"train+predict={format_duration(train_predict_elapsed)}, "
             f"score={format_duration(scoring_elapsed)}, "
@@ -810,12 +856,16 @@ def cross_validate(X, y, hidden_layers=None, n_folds=DEFAULT_CV_FOLDS, max_epoch
         result[f'{key}_mean'] = np.mean(values)
         result[f'{key}_std'] = np.std(values)
 
+    oof_prob = np.full(len(y), np.nan, dtype=np.float32)
+    held_out = oof_count > 0
+    oof_prob[held_out] = (oof_sum[held_out] / oof_count[held_out]).astype(np.float32)
     scored_idx = np.flatnonzero(scored_mask)
     oof_metrics = evaluate_probabilities(y[scored_idx], oof_prob[scored_idx])
     for key, value in oof_metrics.items():
         result[f'oof_{key}'] = value
 
     result['n_folds'] = len(fold_metrics)
+    result['cv_repeats'] = cv_repeats
     result['scored_samples'] = int(len(scored_idx))
     result['dense_samples'] = int(np.sum(~np.isnan(oof_prob)))
     result['scaler_mode'] = scaler_mode

@@ -10,7 +10,7 @@ setup_paths()
 
 import numpy as np
 
-DEFAULT_SCALER_MODE = 'standard'
+DEFAULT_SCALER_MODE = 'log1p_standard'
 
 
 DEFAULT_CLIP_PERCENTILES = (1.0, 99.0)
@@ -47,6 +47,64 @@ class ClippedStandardScaler:
 
     def fit_transform(self, X):
         return self.fit(X).transform(X)
+
+
+class Log1pStandardScaler:
+    """Compress right-skewed non-negative columns with log1p, then z-score.
+
+    A column qualifies when its fitting rows are non-negative with skewness
+    above ``skew_threshold``; it becomes ``log1p(x / std(x))``. The runtimes
+    apply the same transform from the exported ``log_scale_`` (zero leaves a
+    column unchanged) before the affine normalization.
+    """
+
+    def __init__(self, skew_threshold=1.0):
+        self.skew_threshold = float(skew_threshold)
+        self.log_scale_ = None
+        self.mean_ = None
+        self.scale_ = None
+
+    def fit(self, X):
+        X = np.asarray(X, dtype=np.float32)
+        std = X.std(axis=0)
+        skew = np.zeros(X.shape[1], dtype=np.float64)
+        nonflat = std > 1e-12
+        centered = X[:, nonflat] - X[:, nonflat].mean(axis=0)
+        skew[nonflat] = np.mean(centered ** 3, axis=0) / std[nonflat] ** 3
+        compress = nonflat & (X.min(axis=0) >= 0.0) & (skew > self.skew_threshold)
+        self.log_scale_ = np.where(compress, std, 0.0).astype(np.float32)
+        compressed = apply_log1p_transform(X, self.log_scale_)
+        self.mean_ = compressed.mean(axis=0)
+        self.scale_ = compressed.std(axis=0)
+        self.scale_[self.scale_ < 1e-6] = 1.0
+        return self
+
+    def transform(self, X):
+        return (apply_log1p_transform(X, self.log_scale_) - self.mean_) / self.scale_
+
+    def fit_transform(self, X):
+        return self.fit(X).transform(X)
+
+
+def apply_log1p_transform(X, log_scale):
+    """Apply ``log1p(max(x, 0) / s)`` to the columns whose scale ``s`` is positive."""
+    X = np.array(X, dtype=np.float32, copy=True)
+    if log_scale is None:
+        return X
+    log_scale = np.asarray(log_scale, dtype=np.float32)
+    columns = log_scale > 0.0
+    if np.any(columns):
+        X[..., columns] = np.log1p(
+            np.maximum(X[..., columns], np.float32(0.0)) / log_scale[columns])
+    return X
+
+
+def get_preprocessor_log_scale(preprocessor):
+    """Return the per-feature log1p scale (zero = unchanged), or None if affine."""
+    log_scale = getattr(preprocessor, 'log_scale_', None)
+    if log_scale is None:
+        return None
+    return np.asarray(log_scale, dtype=np.float32)
 
 
 class SessionBalancedRobustScaler:
@@ -111,6 +169,8 @@ def build_preprocessor(mode=DEFAULT_SCALER_MODE, clip_percentiles=DEFAULT_CLIP_P
         return SessionBalancedRobustScaler()
     if mode == 'clipped_standard':
         return ClippedStandardScaler(*clip_percentiles)
+    if mode == 'log1p_standard':
+        return Log1pStandardScaler()
     raise ValueError(f"Unsupported scaler mode: {mode}")
 
 

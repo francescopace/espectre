@@ -347,9 +347,14 @@ float HighAccuracyDetector::predict(const float* features) {
     float buffer_a[kBufferSize] = {0.0f};
     float buffer_b[kBufferSize] = {0.0f};
 
-    // Normalize features using pre-computed mean and scale
+    // Compress the exported right-skewed inputs, then normalize with the
+    // pre-computed mean and scale.
     for (int i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
-        buffer_a[i] = (features[i] - ML_FEATURE_MEAN[i]) / ML_FEATURE_SCALE[i];
+        float value = features[i];
+        if (ML_FEATURE_LOG_SCALE[i] > 0.0f) {
+            value = std::log1p(std::max(value, 0.0f) / ML_FEATURE_LOG_SCALE[i]);
+        }
+        buffer_a[i] = (value - ML_FEATURE_MEAN[i]) / ML_FEATURE_SCALE[i];
     }
 
     float *current = buffer_a;

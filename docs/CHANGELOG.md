@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
 
 - Temporal CSI admission now fills more slots. When two packets jitter into one slot, the one closer to the center keeps it and the other can take the free slot next to it. On the recorded captures this raises median occupancy from 92.3% to 93.9%, so sensing stays ready more often on jittery links.
+- High Accuracy now compresses its five right-skewed inputs with `log1p` before normalization and was retrained at the same seed. On the reserved replays, worst paired recall rises from 97.1% to 98.3% at the same 0.14% maximum false-positive rate, and under 70% occupancy the maximum false-positive rate falls from 0.88% to 0.35%. Weight headers exported before this change lack `ML_FEATURE_LOG_SCALE`; export them again with the trainer.
 - The SDK versioning rules now mark `CsiCaptureProfile` and `CsiCapturePolicy` as open enums and put the core-only detector interface outside the compatibility promise until stationary presence ships. The Matter occupancy attribute and the `motion` event are documented as motion only.
 
 ### Fixed
