@@ -2,18 +2,15 @@
 
 ## Scope And Routing
 
-- Keep changes surgical, prefer direct implementations, match neighboring style, and write code, comments, documentation, filenames, and commit messages in English. Use the Oxford comma in project documentation and user-facing text.
+- Write code, comments, documentation, filenames, and commit messages in English. Use the Oxford comma in project documentation and user-facing text.
 - Treat `src/cpp/` as production firmware, `src/python/micro_espectre/` as the MicroPython device path, `src/python/espectre_cli/` as host CLI code, and `tools/` as host-side analysis and maintenance code.
 - Update the existing topic owner by default. Create a new Markdown document only when the user requests a persistent record or repository policy requires a new ADR or review record.
-- Before modifying or reviewing a specialized subtree, read each `AGENTS.md` from the repository root down to that subtree once. Do not load instructions for unrelated subtrees.
 - Specialized rules live in `.github/AGENTS.md`, `src/cpp/AGENTS.md`, `src/python/AGENTS.md`, `test/AGENTS.md`, `docs/AGENTS.md`, `docs/web/AGENTS.md`, and `tools/AGENTS.md`.
 
 ## Context Discipline
 
-- Build a task-scoped file list before reading implementation details. Use the narrowest implementation, schema, test, or document that owns the requested behavior.
-- For repository changes or reviews, start with compact state such as `git status --short`, `git diff --stat`, and `git diff --name-only`. On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
-- Locate symbols or Markdown headings with `rg`, and read only the relevant ranges of large files. As working defaults, treat files over 500 lines or 40 KB as large, and keep reads and command output around 120–160 lines or 20 KB; adjust when the task requires more context. Avoid unbounded dumps and repeated reads of settled material.
-- Batch independent, small reads; keep large reads and follow-up investigation separate.
+- On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
+- As working defaults, treat files over 500 lines or 40 KB as large, and keep reads and command output around 120–160 lines or 20 KB; adjust when the task requires more context. Avoid unbounded dumps and repeated reads of settled material.
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
 - For broad reviews, group files by subsystem and finish one group before loading the next. Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
 - Prefer concise test output, such as `-q --tb=short` for pytest. Redirect verbose build, test, benchmark, and hardware output to a temporary log. Report the exit status and summary on success; on failure, inspect a bounded diagnostic tail and expand or rerun only where needed.
@@ -38,19 +35,28 @@
 
 ## Workflow And Validation
 
-- Preserve unrelated user changes in dirty worktrees and inspect the final scoped diff for accidental edits.
 - Run the narrowest relevant checks first, followed only by parity, integration, generated-artifact, or frontend gates required by the changed surface.
 - Once the relevant and required checks pass, broaden or repeat them only for new changes, failures, or unresolved concerns.
-- When tests fail, investigate the root cause. Never skip, disable, or weaken tests to make them pass. Ask before changing a supported behavior expectation unless the user has already authorized that behavior change.
-- Do not claim that a check passed unless it ran successfully. Report checks not run with the exact command and blocker.
+- Never skip, disable, or weaken tests to make them pass. Ask before changing a supported behavior expectation unless the user has already authorized that behavior change.
 - Update the owning documentation when public behavior, configuration, protocol, or operator workflow changes.
 - Do not mutate GitHub state, including commenting, closing, merging, labeling, pushing, or changing releases, unless the user explicitly requests it.
+
+## Common Commands
+
+```bash
+./espectre --help                                  # CLI namespaces and workflows
+.venv/bin/pytest test/python -q --tb=short         # full Python baseline
+./test/cpp/run_all_tests.sh                        # full host-side C++ suite
+./test/cpp/run_all_tests.sh -R <test_name>         # one C++ test target
+```
+
+Subtree rules list the narrower gates, such as SDK surface, parity, and generated-report checks.
 
 ## Environment, Contributions, And Dependencies
 
 - Prefer the repository `./espectre` wrapper for local workflows. Use the repository virtual environment for direct Python commands when available; the wrapper uses `.venv` automatically.
 - ESP-IDF frontend builds require the ESP-IDF environment that provides `idf.py`.
-- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`.
+- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`. Do not add `Co-Authored-By` or other AI attribution trailers.
 - Use `develop` as the default PR target; `main` is release-only. Do not bypass branch protection, push directly to `main`, force-push protected branches, or merge with failing required checks.
 - Keep pull requests free of merge commits, update their branches by rebasing, and integrate them with Rebase and merge. Do not use merge commits or squash merges.
 - Use `--force-with-lease` only on a pull request source branch when a user-authorized rebase or amendment requires rewriting published commits.

@@ -8,7 +8,6 @@
 - Validate standalone research tools, one-off scripts, generated reports, build configuration, example configuration, and CI plumbing through their owning end-to-end workflows instead of adding unit tests without a maintained runtime contract.
 - A production change should not require editing integration or performance gate code unless the public contract or gate deliberately changes.
 - Before editing more than three test files for one logical production change, explain which distinct contracts require those edits. Shared implementation churn is not sufficient justification.
-- Keep the Python and `C++` coverage uploads and gates active.
 
 ## Assertions And Fixtures
 
