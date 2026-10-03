@@ -468,7 +468,7 @@ bool build_frontend_ha_discovery_message(
     };
     return true;
   }
-  if (index-- == 0U) {
+  if (index == 0U) {
     *message = FrontendHaDiscoveryMessage{
         build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.calibration_active_object_id),
         build_calibration_active_discovery_payload(settings, info),
