@@ -65,6 +65,7 @@ src/cpp/examples/*/dependencies.lock
 .tmp/
 .vscode/
 .kiro/
+.claude/
 *.swp
 *.swo
 *~
