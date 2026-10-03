@@ -43,6 +43,26 @@ DEFAULT_RATE_ESTIMATOR_WARMUP = 16
 NOMINAL_PACKET_RATE_PPS = 100
 PRODUCTION_L1_DELTA_LAG = 10
 PRODUCTION_AUTOCORR_LAG = 1
+# Turbulence conditioning of the production firmware, mirroring the
+# RUNTIME_*_DEFAULT values in src/cpp/runtime/runtime_sensing_schema.h. Host
+# replays, training rows, collection gates, and reports use these; the
+# MicroPython config may disable Hampel to save device RAM.
+PRODUCTION_HAMPEL_ENABLED = True
+PRODUCTION_HAMPEL_WINDOW = 7
+PRODUCTION_HAMPEL_THRESHOLD = 5.0
+PRODUCTION_LOWPASS_ENABLED = False
+PRODUCTION_LOWPASS_CUTOFF = 11.0
+
+
+def production_filter_kwargs():
+    """Return detector filter arguments matching the production firmware."""
+    return {
+        'enable_lowpass': PRODUCTION_LOWPASS_ENABLED,
+        'lowpass_cutoff': PRODUCTION_LOWPASS_CUTOFF,
+        'enable_hampel': PRODUCTION_HAMPEL_ENABLED,
+        'hampel_window': PRODUCTION_HAMPEL_WINDOW,
+        'hampel_threshold': PRODUCTION_HAMPEL_THRESHOLD,
+    }
 
 
 def nominal_packet_interval_us(window_packets):

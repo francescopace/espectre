@@ -29,15 +29,11 @@ from contextlib import contextmanager, nullcontext
 from tools.lib.csi_io import load_npz_packet_view
 from config import (
     DEFAULT_SUBCARRIERS,
-    ENABLE_HAMPEL_FILTER,
-    ENABLE_LOWPASS_FILTER,
-    HAMPEL_THRESHOLD,
-    HAMPEL_WINDOW,
-    LOWPASS_CUTOFF,
     SEGMENTATION_WINDOW_SIZE_MS,
 )
 from tools.lib.runtime_policy import (
     nominal_packet_interval_us,
+    production_filter_kwargs,
 )
 from tools.lib.temporal_csi_sampler import (
     TemporalCsiSampler,
@@ -604,11 +600,7 @@ class StreamingFeatureExtractor:
         self.production_extractor = ProductionFeatureExtractor(
             self.production_names,
             window_size=self.window_packets,
-            enable_lowpass=ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=LOWPASS_CUTOFF,
-            enable_hampel=ENABLE_HAMPEL_FILTER,
-            hampel_window=HAMPEL_WINDOW,
-            hampel_threshold=HAMPEL_THRESHOLD,
+            **production_filter_kwargs(),
             force_aggregated=needs_aggregated,
             force_l1_tracker=self.needs_l1_tracker,
         )

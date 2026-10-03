@@ -38,6 +38,7 @@ from tools.lib.runtime_policy import (
     RuntimeMotionPolicy,
     derive_detector_timing,
     nominal_packet_interval_us,
+    production_filter_kwargs,
 )
 from tools.lib.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
 
@@ -401,11 +402,9 @@ def build_lightweight_detector(
     timing: Optional[Dict[str, int]] = None,
 ) -> LightweightDetector:
     """Build a LightweightDetector with the production runtime configuration."""
-    hampel_enabled = (
-        config.ENABLE_HAMPEL_FILTER
-        if enable_hampel is None
-        else bool(enable_hampel)
-    )
+    filters = production_filter_kwargs()
+    if enable_hampel is not None:
+        filters['enable_hampel'] = bool(enable_hampel)
     resolved = timing or derive_detector_timing(
         nominal_packet_interval_us(config.CSI_TARGET_PPS),
         config.SEGMENTATION_WINDOW_SIZE_MS,
@@ -413,12 +412,8 @@ def build_lightweight_detector(
     detector = LightweightDetector(
         window_size=resolved["window_packets"],
         threshold=threshold,
-        enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=config.LOWPASS_CUTOFF,
-        enable_hampel=hampel_enabled,
-        hampel_window=config.HAMPEL_WINDOW,
-        hampel_threshold=config.HAMPEL_THRESHOLD,
         autocorr_lag=resolved["autocorr_lag"],
+        **filters,
     )
     detector.set_minimum_valid_samples(
         minimum_valid_slots(resolved["window_packets"])

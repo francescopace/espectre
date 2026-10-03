@@ -7,7 +7,7 @@ Run the tools from the repository root, inside the virtual environment. `python 
 ## Common terms
 
 - **CSI:** channel state information, the per-packet Wi-Fi measurement the detectors use.
-- **Replay:** running recorded CSI through the same feature and detector code as the device.
+- **Replay:** running recorded CSI through the same feature and detector code as the device. Replays, training rows, collection gates, and reports use the firmware's Hampel and low-pass defaults from `tools/lib/runtime_policy.py`, not the Micro-ESPectre `config.py`.
 - **Candidate:** a feature, model, or detector setting under research, not in production.
 - **Gate:** a check that must pass before model or detector files can change.
 - **OOF:** out-of-fold metrics, computed on data the model was not trained on.

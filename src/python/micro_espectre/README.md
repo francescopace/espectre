@@ -56,7 +56,7 @@ Defaults live in [config.py](config.py). Put deployment-specific overrides in `c
 | `CSI_BUFFER_SIZE`, `CSI_CAPTURE_MAX_DATA_LEN`, `CSI_LINK_RECOVERY_TIMEOUT_MS` | Capture buffering and stalled-link recovery |
 | `SEGMENTATION_WINDOW_SIZE_MS`, `EVALUATION_INTERVAL_MS` | Detector window and evaluation cadence |
 | `MOTION_ON_HITS`, `MOTION_OFF_HITS` | Consecutive evaluated hits required to change motion state |
-| `ENABLE_LOWPASS_FILTER`, `LOWPASS_CUTOFF`, `ENABLE_HAMPEL_FILTER`, `HAMPEL_WINDOW`, `HAMPEL_THRESHOLD` | Optional preprocessing; both filters are disabled by default |
+| `ENABLE_LOWPASS_FILTER`, `LOWPASS_CUTOFF`, `ENABLE_HAMPEL_FILTER`, `HAMPEL_WINDOW`, `HAMPEL_THRESHOLD` | Optional preprocessing; both filters are disabled by default on Micro-ESPectre. Host tools replay with the firmware defaults instead |
 
 Use the [algorithms reference](../../../docs/ALGORITHMS.md) for temporal admission, filters, and calibration, and [tuning essentials](../../../docs/TROUBLESHOOTING.md#tuning-essentials) for tuning guidance. Apply supported configuration changes through deployment on Micro-ESPectre.
 

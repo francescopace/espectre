@@ -1038,3 +1038,32 @@ def test_burst_loss_augmentation_is_deterministic_and_drops_packets():
     assert len(second) == len(first)
     for first_packet, second_packet in zip(first, second, strict=True):
         np.testing.assert_array_equal(first_packet["csi_data"], second_packet["csi_data"])
+
+
+def test_host_feature_rows_match_runtime_rows_for_production_features():
+    from tools.lib.performance_report import build_ml_replay_rows
+    from config import DEFAULT_SUBCARRIERS
+
+    rng = np.random.default_rng(12)
+    packets = []
+    for index in range(600):
+        raw = rng.normal(0.0, 20.0, size=128)
+        if index % 37 == 0:
+            # Isolated spikes exercise the Hampel stage of the turbulence path.
+            raw *= 6.0
+        packets.append({
+            "csi_data": np.clip(np.rint(raw), -127, 127).astype(np.int8),
+            "source_file": "parity.npz",
+            "device_ticks_us": index * 10_000,
+        })
+    names = list(training.DEFAULT_FEATURES)
+
+    host = feature_cache.build_host_feature_rows(packets, names)
+    runtime = build_ml_replay_rows(
+        packets, DEFAULT_SUBCARRIERS, feature_names=names)
+
+    assert len(host["X"]) > 0
+    np.testing.assert_array_equal(
+        np.asarray(host["X"], dtype=np.float32),
+        np.asarray(runtime["X"], dtype=np.float32),
+    )

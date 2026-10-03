@@ -36,13 +36,9 @@ from tools.lib.lightweight_detector import LightweightDetector
 from tools.lib.temporal_csi_sampler import minimum_valid_slots
 from config import (
     DEFAULT_SUBCARRIERS,
-    ENABLE_HAMPEL_FILTER,
-    ENABLE_LOWPASS_FILTER,
-    HAMPEL_THRESHOLD,
-    HAMPEL_WINDOW,
-    LOWPASS_CUTOFF,
     SEGMENTATION_WINDOW_SIZE_MS,
 )
+from tools.lib.runtime_policy import production_filter_kwargs
 from tools.lib.performance_report import evaluate_detector_packets
 
 THRESHOLD = 0.5
@@ -116,11 +112,7 @@ def _evaluate_classic_configuration(
     detector = LightweightDetector(
         window_size=window_size,
         threshold=threshold,
-        enable_lowpass=ENABLE_LOWPASS_FILTER,
-        lowpass_cutoff=LOWPASS_CUTOFF,
-        enable_hampel=ENABLE_HAMPEL_FILTER,
-        hampel_window=HAMPEL_WINDOW,
-        hampel_threshold=HAMPEL_THRESHOLD,
+        **production_filter_kwargs(),
     )
     detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
 

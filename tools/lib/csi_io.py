@@ -39,6 +39,7 @@ from tools.lib.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
 from tools.lib.runtime_policy import (
     make_evaluation_cadence,
     nominal_packet_interval_us,
+    production_filter_kwargs,
 )
 from tools.lib.temporal_csi_sampler import (
     TemporalCsiSampler,
@@ -1149,11 +1150,7 @@ class CollectionDetectorGate:
         return detector_class(
             window_size=self.window_size,
             threshold=threshold,
-            enable_lowpass=config.ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=config.LOWPASS_CUTOFF,
-            enable_hampel=config.ENABLE_HAMPEL_FILTER,
-            hampel_window=config.HAMPEL_WINDOW,
-            hampel_threshold=config.HAMPEL_THRESHOLD,
+            **production_filter_kwargs(),
         )
 
     def _make_calibrator(self):

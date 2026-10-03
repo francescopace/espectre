@@ -52,9 +52,15 @@ from tools.lib.temporal_csi_sampler import minimum_valid_slots
 from tools.lib.ui import show_plot_window
 from config import (
     SEGMENTATION_WINDOW_SIZE_MS,
-    ENABLE_HAMPEL_FILTER, HAMPEL_WINDOW, HAMPEL_THRESHOLD,
-    ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
     DEFAULT_SUBCARRIERS,
+)
+from tools.lib.runtime_policy import (
+    PRODUCTION_HAMPEL_ENABLED,
+    PRODUCTION_HAMPEL_THRESHOLD,
+    PRODUCTION_HAMPEL_WINDOW,
+    PRODUCTION_LOWPASS_CUTOFF,
+    PRODUCTION_LOWPASS_ENABLED,
+    production_filter_kwargs,
 )
 from tools.lib.filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
@@ -189,8 +195,14 @@ def calculate_adaptive_threshold(values, auto_factor=DEFAULT_ADAPTIVE_FACTOR):
 def apply_config_filters(series):
     """Apply Hampel -> low-pass filter chain from config to a 1D series."""
     filtered = []
-    hampel = HampelFilter(window_size=HAMPEL_WINDOW, threshold=HAMPEL_THRESHOLD) if ENABLE_HAMPEL_FILTER else None
-    lowpass = LowPassFilter(cutoff_hz=LOWPASS_CUTOFF, sample_rate_hz=100.0, enabled=True) if ENABLE_LOWPASS_FILTER else None
+    hampel = (
+        HampelFilter(window_size=PRODUCTION_HAMPEL_WINDOW, threshold=PRODUCTION_HAMPEL_THRESHOLD)
+        if PRODUCTION_HAMPEL_ENABLED else None
+    )
+    lowpass = (
+        LowPassFilter(cutoff_hz=PRODUCTION_LOWPASS_CUTOFF, sample_rate_hz=100.0, enabled=True)
+        if PRODUCTION_LOWPASS_ENABLED else None
+    )
     for value in series:
         out = float(value)
         if hampel is not None:
@@ -240,11 +252,7 @@ class LightweightDetectorAdapter:
         self._detector = LightweightDetector(
             window_size=window_size,
             threshold=threshold,
-            enable_lowpass=ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=LOWPASS_CUTOFF,
-            enable_hampel=ENABLE_HAMPEL_FILTER,
-            hampel_window=HAMPEL_WINDOW,
-            hampel_threshold=HAMPEL_THRESHOLD,
+            **production_filter_kwargs(),
         )
         self._detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
         self._track_data = bool(track_data)
@@ -312,11 +320,7 @@ class HighAccuracyDetectorAdapter:
         self._detector = ProdHighAccuracyDetector(
             window_size=window_size,
             threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD,
-            enable_lowpass=ENABLE_LOWPASS_FILTER,
-            lowpass_cutoff=LOWPASS_CUTOFF,
-            enable_hampel=ENABLE_HAMPEL_FILTER,
-            hampel_window=HAMPEL_WINDOW,
-            hampel_threshold=HAMPEL_THRESHOLD,
+            **production_filter_kwargs(),
         )
         self._detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
         self._detector.track_data = track_data
