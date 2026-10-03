@@ -263,7 +263,7 @@ The firmware fits in 4 MB of flash with OTA and uses the default partition table
 
 ## ESPHome-specific troubleshooting
 
-For sensing and connection problems, see the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md). If the board does not enter download mode, see [web flash](../../../../docs/SETUP.md#web-flash-no-coding-required).
+For sensing and connection problems, see the [troubleshooting guide](https://espectre.dev/guides/troubleshooting/) and, for the device log and configuration options, the [troubleshooting reference](../../../../docs/TROUBLESHOOTING.md). If the board does not enter download mode, see [web flash](../../../../docs/SETUP.md#web-flash-no-coding-required).
 
 ### Bluetooth proxy and CSI occupancy
 

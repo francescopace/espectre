@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - ESP-IDF 6.x support in the SDK. Official firmware stays on 5.5.5; see [SDK.md](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/SDK.md#esp-idf-compatibility-validation).
 - Registry packages with a Wi-Fi sensing example, validated by consumer builds before and after publication.
 - The SDK API reference on the website, covering every public type.
+- A [troubleshooting guide](https://espectre.dev/guides/troubleshooting/) on the website, organized by symptom, including the traffic source fix for calibration that never finishes (#188).
 - The Traffic Generator add-on for 64-bit Home Assistant OS, with an Ingress panel for traffic control and live diagnostics, including ESPHome devices (#168).
 - Generator Rate and Traffic RX Rate sensors in Home Assistant (#182).
 - Warnings when a runtime loop iteration or a traffic generator send stalls for 100 ms or more, naming the slow steps.

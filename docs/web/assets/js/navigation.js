@@ -113,9 +113,11 @@
         const group = container.dataset.pagePath;
         const entries = window.ESPectreRoutes?.membersOf(group) || [];
         if (entries.length < 2) return;
+        // A page left out of the section menu does not show it either.
+        const currentRoute = currentPagePathRoute(container);
+        if (!entries.some((entry) => entry.name === currentRoute)) return;
 
         const label = pagePathLabels[group] || group;
-        const currentRoute = currentPagePathRoute(container);
         const path = document.createElement('details');
         path.className = 'page-path';
         path.dataset.pathGenerated = 'true';

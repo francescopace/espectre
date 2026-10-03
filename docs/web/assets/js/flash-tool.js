@@ -68,6 +68,7 @@
         closePromise: null, lastSerialCloseAt: 0,
         activityTimer: null
     };
+    const flashRestartedTransports = new WeakSet();
 
     function flashDelay(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -585,6 +586,7 @@
         if (closingConsole) flash.consoleOpen = false;
         const improv = flash.improv;
         const transport = flash.transport;
+        const loader = flash.loader;
         const hadOpenSession = Boolean(improv || transport
             || port?.readable || port?.writable || flash.reader);
         if (hadOpenSession) flashReportUsbStep('Closing the USB session…');
@@ -597,6 +599,10 @@
             await flashCloseReader();
             if (improv) await improv.close().catch(() => {});
             if (transport) {
+                // A board left in the ROM bootloader stays offline until it is reset.
+                if (loader && !flashRestartedTransports.has(transport)) {
+                    await flashHardResetLoader(loader, transport).catch(() => {});
+                }
                 await transport.disconnect().catch(() => {});
             } else if (port && (port.readable || port.writable)) {
                 await port.close().catch(() => {});
@@ -897,6 +903,7 @@
         await transport.setRTS(true);
         await flashDelay(100);
         await loader.after();
+        flashRestartedTransports.add(transport);
     }
 
     async function flashDetect(reusePort = false) {
@@ -1638,7 +1645,8 @@
         if (!flash.port) return;
         await flash.port.setSignals({ dataTerminalReady: false, requestToSend: true });
         await flashDelay(100);
-        await flash.port.setSignals({ dataTerminalReady: true, requestToSend: false });
+        // Keep DTR released: DTR alone holds IO0 low and boots a USB-UART board into the bootloader.
+        await flash.port.setSignals({ dataTerminalReady: false, requestToSend: false });
     }
 
     function flashSerialIdentity(input) {

@@ -986,6 +986,38 @@ describe('website tool contracts', () => {
         assert.deepEqual(calls, [['rts', true], ['after']]);
     });
 
+    it('restarts a board left in the bootloader when the USB session closes', async () => {
+        for (const restartedBeforeClose of [false, true]) {
+            const context = loadFlashRuntime();
+            const calls = [];
+            const loader = { after: async () => calls.push('after') };
+            const transport = {
+                setRTS: async (value) => calls.push(['rts', value]),
+                disconnect: async () => calls.push('disconnect')
+            };
+            Object.assign(context.flashState, { port: {}, mode: 'loader', loader, transport });
+            if (restartedBeforeClose) {
+                await context.window.ESPectreFlashCore.hardResetLoader(loader, transport);
+                calls.length = 0;
+            }
+            await context.flashCloseMode({ keepPort: true });
+            assert.deepEqual(calls, restartedBeforeClose
+                ? ['disconnect']
+                : [['rts', true], 'after', 'disconnect']);
+            assert.equal(context.flashState.loader, null);
+            assert.equal(context.flashState.transport, null);
+        }
+    });
+
+    it('resets a USB-UART board into its app instead of the bootloader', async () => {
+        const context = loadFlashRuntime();
+        const signals = [];
+        context.flashState.port = { setSignals: async (value) => signals.push({ ...value }) };
+        await context.flashResetDevice();
+        assert.deepEqual(signals.at(0), { dataTerminalReady: false, requestToSend: true });
+        assert.deepEqual(signals.at(-1), { dataTerminalReady: false, requestToSend: false });
+    });
+
     it('recognizes Native and Matter from serial app metadata', () => {
         const core = loadFlashCore();
         for (const frontend of ['native', 'matter']) {

@@ -102,7 +102,7 @@ Official images accept only signed OTA updates. There is no automatic rollback y
 
 ## Troubleshooting
 
-Use the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
+Use the [troubleshooting guide](https://espectre.dev/guides/troubleshooting/) for browser connectivity and sensing problems, and the [troubleshooting reference](../../../../docs/TROUBLESHOOTING.md) for the device log and configuration options.
 
 ### The device does not join Wi-Fi
 

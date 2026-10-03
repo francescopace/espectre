@@ -77,7 +77,7 @@ Then:
 2. Stand still and check that it returns to idle.
 3. Repeat from every spot you want to cover.
 
-If CSI is missing, calibration stalls, or detection is unreliable, see [troubleshooting](TROUBLESHOOTING.md).
+If CSI is missing, calibration stalls, or detection is unreliable, see the [troubleshooting guide](https://espectre.dev/guides/troubleshooting/).
 
 ## Official images and personal builds
 

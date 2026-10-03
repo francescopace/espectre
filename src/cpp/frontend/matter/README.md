@@ -125,7 +125,7 @@ Update Matter over USB using a full firmware image. The frontend implements neit
 
 ## Matter-specific troubleshooting
 
-Use the [troubleshooting guide](../../../../docs/TROUBLESHOOTING.md) for browser connectivity and sensing problems.
+Use the [troubleshooting guide](https://espectre.dev/guides/troubleshooting/) for browser connectivity and sensing problems, and the [troubleshooting reference](../../../../docs/TROUBLESHOOTING.md) for the device log and configuration options.
 
 ### The device does not appear for commissioning
 

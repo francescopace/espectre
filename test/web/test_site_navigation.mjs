@@ -256,6 +256,39 @@ describe('website navigation contracts', () => {
         );
     });
 
+    it('lists the guides in the section menu in the same order as the guides index', () => {
+        const window = { ESPectreRouteManifest: routeManifest };
+        runInNewContext(routeRegistry, { Map, Object, Set, URL, window });
+        const menuPaths = [...window.ESPectreRoutes.membersOf('guides')]
+            .filter((entry) => entry.name !== 'guides')
+            .map((entry) => entry.staticPath);
+        const indexPaths = [...read('docs/web/content/guides.html')
+            .matchAll(/<a href="(\/guides\/[^"#?]+\/)" class="guide-card">/g)]
+            .map((match) => match[1]);
+        assert.deepEqual(menuPaths, indexPaths);
+    });
+
+    it('shows the guides menu only on the guides listed in it', () => {
+        const source = read('docs/web/assets/js/navigation.js');
+        const functions = source.slice(source.indexOf('    const pagePathLabels'), source.indexOf('    let pageTocUpdateFrame'))
+            + source.slice(source.indexOf('    function currentPagePathRoute'), source.indexOf('    function ensurePageTocs'));
+        const window = { ESPectreRouteManifest: routeManifest };
+        runInNewContext(routeRegistry, { Map, Object, Set, URL, window });
+        const element = () => ({ dataset: {}, append() {}, setAttribute() {} });
+        const context = { Object, window, document: { createElement: element } };
+        runInNewContext(functions, context);
+        for (const route of routeManifest.routes.filter(({ group }) => group === 'guides')) {
+            const appended = [];
+            context.buildPagePath({
+                dataset: { pagePath: 'guides' },
+                querySelector: () => null,
+                closest: () => ({ dataset: { page: route.name } }),
+                append: (node) => appended.push(node),
+            });
+            assert.equal(appended.length, route.pathLabel ? 1 : 0, route.name);
+        }
+    });
+
     it('uses canonical paths for static pages and SPA navigation', () => {
         const mainNavigationPaths = routeManifest.navigation.main
             .map((name) => routeManifest.routes.find((route) => route.name === name)?.staticPath);

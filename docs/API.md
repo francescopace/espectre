@@ -201,7 +201,7 @@ The CLI requests `["*"]` by default; pass `fields: []` to see the catalog. Selec
 
 Units: memory in KiB, times in microseconds unless the name ends in `_ms`, rates in packets per second. Fields that need a complete performance window are `null` until it is ready. A frontend may leave out fields it cannot measure; clients must not treat a missing value as zero.
 
-The periodic log line shows a subset of these values (`tx`, `cb`, `accepted`, `hwerr`, `occ`, `ch`, `rssi`); see [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input). `hwerr` is the sum of RX errors, RX end errors, invalid estimates, and unusable invalid first words.
+The periodic log line shows a subset of these values (`gen`, `tx`, `rx`, `cb`, `accepted`, `hwerr`, `occ`, `ch`, `rssi`); see [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input). `hwerr` is the sum of RX errors, RX end errors, invalid estimates, and unusable invalid first words.
 
 ## Operations
 

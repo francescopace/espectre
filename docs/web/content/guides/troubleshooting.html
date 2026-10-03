@@ -1,0 +1,95 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+    <span class="guide-tag">TROUBLESHOOTING · 5 MIN READ</span>
+    <h1>Troubleshoot your sensor</h1>
+    <p class="article-lead">Find your symptom, check what the device reports, and fix the most common problems: calibration that never finishes, false or missed motion, and devices you cannot reach.</p>
+    <figure>
+      <img src="/assets/images/guides/troubleshooting-card.avif" alt="An ESP32 connected to a laptop showing signal diagnostics, with a magnifying glass inspecting a waveform" width="1068" height="600" loading="eager">
+    </figure>
+
+    <details class="page-toc">
+      <summary>Sections</summary>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#trouble-diagnostics">Read the diagnostics</a><a href="#trouble-calibration">Calibration never finishes</a><a href="#trouble-occupancy">Low CSI occupancy</a><a href="#trouble-false-motion">False motion</a><a href="#trouble-missed-motion">Missed movement</a><a href="#trouble-reach">Device not reachable</a><a href="#trouble-other">Other guides</a><a href="#trouble-help">Still stuck</a></nav>
+    </details>
+
+    <h2 id="trouble-diagnostics">Start with the diagnostics</h2>
+    <p>Most problems come from missing Wi-Fi input, not from the detector. Open <a href="/tools/monitor/">Live motion</a>, connect to the device, and open <em>Diagnostics</em>. Read the tiles in order: the first one that looks wrong points to the cause.</p>
+    <div class="table-wrap"><table>
+      <caption class="sr-only">How to read the Live motion diagnostics</caption>
+      <thead><tr><th scope="col">Tile</th><th scope="col">Healthy value</th><th scope="col">If not</th></tr></thead>
+      <tbody>
+        <tr><td>Traffic TX</td><td>About 100 per second</td><td>Check the Wi-Fi connection. With Wi-Fi raw, TX and RX stay low; that is expected.</td></tr>
+        <tr><td>Traffic RX</td><td>Close to Traffic TX</td><td>The router blocks or limits the traffic. See <a href="#trouble-calibration">calibration never finishes</a>.</td></tr>
+        <tr><td>CSI callbacks</td><td>About 100 per second or more</td><td>The radio is not measuring. Restart the device.</td></tr>
+        <tr><td>CSI accepted</td><td>About 100 per second</td><td>Interference or a busy device. Move the sensor and check the device log.</td></tr>
+        <tr><td>CSI occupancy</td><td>70% or more</td><td>See <a href="#trouble-occupancy">low CSI occupancy</a>.</td></tr>
+        <tr><td>Wi-Fi RSSI</td><td><code>-40</code> to <code>-70 dBm</code></td><td>See the <a href="/guides/placement/#placement-distance">placement guide</a>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>In Home Assistant, the same values are diagnostic sensors. Select <em>Refresh Diagnostics</em> to update them; see the <a href="/guides/home-assistant/">Home Assistant guide</a>.</p>
+    <div class="note">Lowering the threshold does not fix missing input. Fix the diagnostics first, then tune.</div>
+
+    <h2 id="trouble-calibration">Calibration never finishes</h2>
+    <p>Lightweight Detection calibrates on about ten seconds of clean input, and without input it never finishes. The usual cause is a router that blocks or limits ping, the traffic the sensor uses by default. <em>Traffic RX</em> is then far below <em>Traffic TX</em>, and <em>CSI occupancy</em> stays low. Change the traffic source:</p>
+    <ol class="steps-list">
+      <li><h3>Open the advanced settings</h3><p>In Live motion, open <em>Advanced sensing settings</em> under <em>Motion settings</em>.</p></li>
+      <li><h3>Switch to Wi-Fi raw</h3><p>Set <em>Wi-Fi traffic source</em> to <em>Wi-Fi raw</em>. It talks to the access point directly, so routers rarely block it. It is experimental and not offered on ESP32-C6.</p></li>
+      <li><h3>Check occupancy</h3><p>In <em>Diagnostics</em>, <em>CSI occupancy</em> should rise above 70%. With Wi-Fi raw, judge by occupancy only.</p></li>
+      <li><h3>Try DNS if needed</h3><p>If occupancy stays low, try <em>DNS (UDP)</em>, then <em>DNS (TCP)</em>, and keep the one with the highest occupancy.</p></li>
+      <li><h3>Let it calibrate</h3><p>Keep the room still for about ten seconds. Calibration restarts on its own after each change.</p></li>
+    </ol>
+    <p>The device remembers the traffic source and never changes it on its own. If Traffic RX matches Traffic TX but occupancy is still low, see <a href="#trouble-occupancy">low CSI occupancy</a>. High-Accuracy Detection does not calibrate, but it also waits for enough input before it detects motion.</p>
+
+    <h2 id="trouble-occupancy">Low CSI occupancy</h2>
+    <p>Occupancy is the share of the detector window filled with usable measurements. Detection needs at least 70%. Measurements that arrive in bursts lower it even when the packet rate looks fine.</p>
+    <div class="mini-cards">
+      <article><h3>Bluetooth</h3><ul><li>Bluetooth and Wi-Fi share the same radio, so Bluetooth scanning pushes measurements into bursts.</li><li>Compare with Bluetooth turned off.</li><li>For an ESPHome Bluetooth proxy, use the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#bluetooth-proxy-and-csi-occupancy" target="_blank" rel="noopener">tested proxy settings</a>.</li></ul></article>
+      <article><h3>Mesh Wi-Fi</h3><ul><li>Roaming between access points interrupts sensing.</li><li>In <a href="/tools/device-settings/">Device settings</a>, scan for access points, choose a <em>Preferred access point</em>, and save.</li><li>Choose <em>Automatic (strongest available)</em> to remove the pin.</li></ul></article>
+      <article><h3>Weak or blocked link</h3><ul><li>Check <em>Wi-Fi RSSI</em> in Diagnostics.</li><li>Keep the sensor away from metal and from the edge of coverage.</li><li>Review the <a href="/guides/placement/">sensor placement</a>.</li></ul></article>
+    </div>
+
+    <h2 id="trouble-false-motion">False motion in an empty room</h2>
+    <p>Try these in order, one at a time, and watch the empty room for a minute after each change:</p>
+    <ol>
+      <li>Look for things that move: fans, curtains, pets, or a swinging cable.</li>
+      <li>Check occupancy and placement.</li>
+      <li>Raise <em>Motion threshold</em> a little.</li>
+      <li>If brief spikes trigger motion, open <em>Advanced sensing settings</em> and raise <em>Readings to turn motion on</em> one step at a time. The default is four readings in a row, about one second. Higher values ignore spikes but start motion later.</li>
+      <li>With Lightweight, select <em>Calibrate</em> with the room still.</li>
+    </ol>
+    <p>A threshold you set lasts until the device restarts. Lightweight then calibrates again, and High accuracy returns to its default.</p>
+
+    <h2 id="trouble-missed-motion">Missed movement</h2>
+    <ol>
+      <li>Check occupancy and placement first. Movement must cross the radio paths between the access point and the sensor.</li>
+      <li>If the movement score rises but stays below the threshold, lower <em>Motion threshold</em>.</li>
+      <li>If motion starts too late, lower <em>Readings to turn motion on</em>.</li>
+      <li>If motion clears while you are still moving, raise <em>Readings to turn motion off</em>.</li>
+      <li>Try <em>High accuracy</em> in <em>Detection mode</em>. It detects better but uses more CPU and memory; see <a href="/guides/detectors/">detection profiles</a>.</li>
+    </ol>
+    <p>Recalibrate after you rearrange the room. After you move the sensor, restart it instead: the old threshold no longer fits the room.</p>
+
+    <h2 id="trouble-reach">Device not reachable</h2>
+    <ol>
+      <li>Use a computer on the same network as the device, in a <a href="/guides/setup/#setup-native-discovery">supported desktop browser</a>. Guest networks and client isolation block the connection.</li>
+      <li>Enter the device's IPv4 address, from the USB setup link or your router's device list. A device name or ID depends on mDNS, which some networks block.</li>
+      <li>Allow local network access for the ESPectre site only. An Origin or mixed-content error means that browser cannot reach the device.</li>
+      <li>Ignore old suggestions in the browser's address list.</li>
+    </ol>
+
+    <h2 id="trouble-other">Problems covered in other guides</h2>
+    <ul class="checklist">
+      <li><strong>Installation:</strong> no serial port, flashing errors, unsupported boards, Wi-Fi setup, recovery, and Matter pairing. See <a href="/guides/setup/#setup-troubleshooting">setup troubleshooting</a>.</li>
+      <li><strong>Home Assistant over MQTT:</strong> for a device that Home Assistant does not find, see <a href="/guides/home-assistant/#ha-troubleshooting">Home Assistant troubleshooting</a>. For entity IDs ending in <code>_2</code>, see <a href="/guides/home-assistant/#ha-recreate-ids">recreate duplicate entity IDs</a>.</li>
+      <li><strong>Home Assistant dashboard:</strong> unavailable entities or stale diagnostics. See <a href="/guides/home-assistant/#ha-troubleshooting">dashboard troubleshooting</a>.</li>
+      <li><strong>Traffic generator app:</strong> missing CSI, VLANs, and other network issues. See the <a href="https://github.com/francescopace/espectre/blob/main/tools/ha_traffic_generator_addon/DOCS.md#troubleshooting" target="_blank" rel="noopener">app troubleshooting</a>.</li>
+      <li><strong>ESPHome YAML builds:</strong> download mode and Bluetooth proxy settings. See <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#esphome-specific-troubleshooting" target="_blank" rel="noopener">ESPHome troubleshooting</a>.</li>
+    </ul>
+
+    <h2 id="trouble-help">Still stuck?</h2>
+    <p><a href="https://github.com/francescopace/espectre/issues" target="_blank" rel="noopener">Open an issue on GitHub</a> with your board, firmware, and version, and a screenshot of Diagnostics or a few lines of the device log. The <a href="https://github.com/francescopace/espectre/blob/main/docs/TROUBLESHOOTING.md" target="_blank" rel="noopener">troubleshooting reference</a> explains the log line, the configuration options, and external traffic.</p>
+
+  </article>

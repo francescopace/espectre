@@ -125,8 +125,8 @@
 
     <h2 id="ha-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
+      <article><h3>Home Assistant does not find the device (MQTT)</h3><ul><li>Check the broker address, port, and credentials in <a href="/tools/device-settings/">Device settings</a>.</li><li>Check that Home Assistant and the device use the same broker.</li><li>Connect with Live motion and open its Diagnostics section to check the device. The discovery messages should also appear on the broker under <code>homeassistant/</code>.</li></ul></article>
       <article><h3>Cards show “Entity not available”</h3><ul><li>Compare each entity ID with <em>Settings → Devices &amp; services → Entities</em>.</li><li>Replace the prefix, including its final underscore, then fix any numbered IDs one by one.</li><li>Remove rows for entities your firmware does not have.</li></ul></article>
-      <article><h3>The graph is empty</h3><ul><li>Wait for Movement Score and Threshold to send values.</li><li>Check that Home Assistant records history for both entities.</li><li>The graph shows only the last 30 minutes.</li></ul></article>
       <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities update only on request.</li><li>Wait a moment for the new values.</li><li>When checking placement, look at Generator Rate, Traffic RX Rate, CSI Admitted Rate, and RSSI together.</li></ul></article>
     </div>
     <div class="note">Movement Score updates four times per second by default. If database size matters more than the history graph, exclude it from Home Assistant's recorder.</div>

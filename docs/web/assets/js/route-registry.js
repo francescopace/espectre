@@ -72,7 +72,8 @@
         const emptyGroup = Object.freeze([]);
         const byGroup = new Map();
         definitions.forEach((definition) => {
-            if (!definition.group) return;
+            // Routes without a path label stay reachable but are left out of the section menu.
+            if (!definition.group || !definition.pathLabel) return;
             if (!byGroup.has(definition.group)) byGroup.set(definition.group, []);
             byGroup.get(definition.group).push(definition);
         });
