@@ -167,7 +167,7 @@ File names follow `{label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_in
 | `synthetic: true` | Generated, not a real measurement |
 | `long_recording: true` | Long quiet `empty` recording, used only to test false alarms. With role `exclude`, it is kept only for reference and the quality report |
 
-The validator writes the pair fields itself and never pairs a real recording with a synthetic one.
+The validator writes the pair fields itself and never pairs a real recording with a synthetic one. It pairs the closest recordings made within 3 hours of each other with the same chip, subcarrier count, `dataset_role`, and `low_rssi`, and the same device and room when both recordings name them. Recordings with role `exclude` are never paired.
 
 Older synthetic weak-link files live in the normal label folders, marked `low_rssi: true` and `synthetic: true`. The generator that made them is no longer shipped, and model promotion now relies on real recordings.
 

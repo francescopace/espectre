@@ -508,6 +508,72 @@ def test_pair_refresh_is_reciprocal_and_keeps_unselected_chips() -> None:
     )
 
 
+def test_pair_refresh_rejects_captures_beyond_the_pair_window() -> None:
+    def entry(filename, collected_at):
+        return {
+            "filename": filename,
+            "chip": "ESP32",
+            "subcarriers": 64,
+            "collected_at": collected_at,
+            "device_id": "esp32-a",
+            "environment": "bedroom",
+            "dataset_role": "holdout",
+        }
+
+    files = {
+        "static_presence": [
+            entry("static_near.npz", "2026-10-03T19:33:54"),
+            entry("static_far.npz", "2026-10-04T08:00:00"),
+        ],
+        "motion": [
+            entry("motion_near.npz", "2026-10-03T21:55:21"),
+            entry("motion_far.npz", "2026-10-04T11:00:01"),
+        ],
+    }
+
+    rows = pairing.refresh_pair_metadata(files)
+
+    assert [(row["static_presence"], row["motion"]) for row in rows] == [
+        ("static_near.npz", "motion_near.npz")
+    ]
+    assert "optimal_pair_motion_file" not in files["static_presence"][1]
+    assert "optimal_pair_static_presence_file" not in files["motion"][1]
+
+
+def test_pair_refresh_keeps_sessions_with_different_role_or_link_apart() -> None:
+    def entry(filename, collected_at, role, low_rssi=False):
+        return {
+            "filename": filename,
+            "chip": "ESP32",
+            "subcarriers": 64,
+            "collected_at": collected_at,
+            "device_id": "esp32-a",
+            "environment": "bedroom",
+            "dataset_role": role,
+            "low_rssi": low_rssi,
+        }
+
+    files = {
+        "static_presence": [
+            entry("static_selection.npz", "2026-10-03T12:00:00", "selection"),
+            entry("static_holdout_low.npz", "2026-10-03T12:10:00", "holdout", True),
+        ],
+        "motion": [
+            entry("motion_holdout_normal.npz", "2026-10-03T12:11:00", "holdout"),
+            entry("motion_holdout_low.npz", "2026-10-03T12:30:00", "holdout", True),
+            entry("motion_selection.npz", "2026-10-03T12:40:00", "selection"),
+        ],
+    }
+
+    rows = pairing.refresh_pair_metadata(files)
+
+    assert sorted((row["static_presence"], row["motion"]) for row in rows) == [
+        ("static_holdout_low.npz", "motion_holdout_low.npz"),
+        ("static_selection.npz", "motion_selection.npz"),
+    ]
+    assert "optimal_pair_static_presence_file" not in files["motion"][0]
+
+
 def test_report_current_check_includes_evaluation_view(tmp_path, monkeypatch) -> None:
     report = tmp_path / "quality.md"
     monkeypatch.setattr(core, "DATA_DIR", core.DATA_DIR)

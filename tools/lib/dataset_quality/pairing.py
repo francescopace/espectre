@@ -53,7 +53,7 @@ from .severity import (
     _threshold_severity,
 )
 
-PAIR_MAX_DELTA_SECONDS = 30 * 60
+PAIR_MAX_DELTA_SECONDS = 3 * 60 * 60
 
 
 def parse_iso_timestamp(value):
@@ -96,6 +96,8 @@ def refresh_pair_metadata(files, *, selected_chips=None):
     Pairing policy:
     - same chip
     - same subcarrier count
+    - same device and environment when both are known
+    - same admitted dataset role and low_rssi link class
     - timestamps within PAIR_MAX_DELTA_SECONDS
     - nearest 1:1 greedy assignment by time delta
     """
@@ -169,6 +171,13 @@ def refresh_pair_metadata(files, *, selected_chips=None):
                 and motion_environment
                 and static_environment != motion_environment
             ):
+                continue
+
+            # A session keeps one role and one link class, so captures that
+            # differ in either belong to different sessions.
+            if dataset_metadata.paired_dataset_role(static_entry, motion_entry) is None:
+                continue
+            if bool(static_entry.get("low_rssi")) != bool(motion_entry.get("low_rssi")):
                 continue
 
             delta = abs((motion_ts - static_ts).total_seconds())
