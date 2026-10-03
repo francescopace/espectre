@@ -82,6 +82,18 @@ Not every controller and chip combination has been tested. Current images are un
 
 Mark a controller as validated only with a reproducible hardware record that identifies the controller app and hub versions, ESP32 target, firmware identity, and results for commissioning, occupancy-state updates, and an automation trigger.
 
+Record each session with these fields:
+
+| Field | Value |
+| --- | --- |
+| Controller and app version | |
+| Hub or border router model and firmware | |
+| ESP32 target and firmware identity | |
+| Commissioning result and time to complete | |
+| Occupancy updates seen in the controller | |
+| Automation trigger fired | |
+| Limits, prompts, or workarounds | |
+
 ## Commissioning and runtime ownership
 
 `esp-matter` owns Wi-Fi, commissioning, and fabrics. ESPectre defers runtime allocation until a fabric exists, keeping heap available for commissioning. CSI, Direct HTTP, and ESPectre discovery start after commissioning, with a 10-second grace for a newly commissioned device. An already commissioned boot skips that grace.
@@ -118,6 +130,23 @@ This map is for frontend maintainers; it is not required for commissioning an ex
 - defaults: [`sdkconfig.defaults`](app/sdkconfig.defaults)
 
 The per-device onboarding flow removes the shared Matter test passcode, but the published firmware still uses development VID/PID and example device attestation credentials. Production certification requires a manufacturing pipeline for unique DAC credentials in addition to this onboarding partition.
+
+## Certification readiness
+
+Published images are development devices, not certifiable products. A manufacturer shipping ESPectre with Matter would need to close these gaps. Each row was checked against [sdkconfig.defaults](app/sdkconfig.defaults) and the resolved build configuration.
+
+| Area | Today | Missing for a certified product |
+| --- | --- | --- |
+| Vendor and product identity | Development VID/PID `0xFFF1` / `0x8000` | A Connectivity Standards Alliance vendor ID and a product ID owned by the manufacturer |
+| Device attestation | Example DAC, PAI, and certification declaration from the SDK; no factory data provider or secure certificate provider is enabled | A unique DAC per device signed by a PAI under a PAA in the CSA trust store, plus a certification declaration issued for the product |
+| Factory provisioning | The `matter_factory` partition holds only random onboarding data | Per-device DAC, private key, serial number, and unique ID written on the line, with the DAC key protected |
+| Serial number | Devices report the shared fallback `TEST_SN` because no serial number is stored | A unique serial number per device |
+| Test hooks | The Test Event Trigger is enabled with the SDK's public default enable key | Disabled, or set to a per-product secret key, in shipped firmware |
+| Firmware protection | Secure Boot and flash encryption are off; the app is unsigned on the device | Enabled, to protect DAC keys and satisfy the security requirements of the certification program |
+| OTA | Not supported | Tracked in the OTA item of the roadmap |
+| Certification tests | Hardware smoke results only; no Matter certification test cases run | A run of the Matter certification test cases against the product build, and a test plan for the clusters the device exposes |
+
+The Test Event Trigger and the shared serial number are set in today's images too. Neither should stay in firmware used outside development.
 
 ## OTA
 
