@@ -623,13 +623,18 @@ def _gate_row_passes(row):
     )
 
 
-def summarize_gate(by_chip):
-    """Aggregate per-chip gate metrics."""
+def summarize_gate(by_chip, chips=None):
+    """Aggregate per-chip gate metrics and list gate chips without a replay."""
     rows = list(by_chip.values())
     if not rows:
         return None
+    covered = {str(key).split(':', 1)[0] for key in by_chip}
     return {
         'by_chip': by_chip,
+        'uncovered_chips': [
+            chip for chip in tuple(chips or DEFAULT_PAIRED_GATE_CHIPS)
+            if chip not in covered
+        ],
         'pass_count': int(sum(1 for row in rows if _gate_row_passes(row))),
         'mean_recall': float(np.mean([row['recall'] for row in rows])),
         'worst_chip_recall': float(np.min([row['recall'] for row in rows])),
@@ -990,7 +995,12 @@ def evaluate_cached_idle_array(center, scale, layers, feature_names, path,
 
 def _iter_paired_chip_replays(chips=None, roles=('selection',),
                               allow_legacy_fallback=True):
-    """Yield role-isolated real pair replay paths, or one legacy train fallback."""
+    """Yield role-isolated real pair replay paths, or one legacy train fallback.
+
+    The fallback applies only to gates that also replay the holdout. A
+    selection-only gate ranks candidates, so a chip without a selection pair
+    stays uncovered instead of being scored on a pair the model was fitted on.
+    """
     dataset_info = load_dataset_info()
     files = dataset_info.get('files', {})
     roles = normalize_dataset_roles(roles, default=('selection',))
@@ -1028,7 +1038,7 @@ def _iter_paired_chip_replays(chips=None, roles=('selection',),
                 key = f"{chip}:{role}:{static_path.name}"
                 yield (key, static_path, motion_path, low_rssi)
             continue
-        if not allow_legacy_fallback:
+        if not allow_legacy_fallback or 'holdout' not in roles:
             continue
 
         # When no reserved pair exists, use only an explicitly admitted real
@@ -1141,7 +1151,7 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
                 f"alarms={row.get('effective_alarms', 0)} "
                 f"in {format_duration(perf_counter() - step_start)}"
             )
-    summary = summarize_gate(by_chip)
+    summary = summarize_gate(by_chip, chips)
     if progress is not None and summary is not None:
         progress(
             f"Paired gate complete in {format_duration(perf_counter() - gate_start)}: "
@@ -1149,6 +1159,11 @@ def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None
             f"worstRecall={summary['worst_chip_recall']:.2f}% "
             f"alarms={summary.get('total_effective_alarms', 0)}"
         )
+        if summary['uncovered_chips']:
+            progress(
+                "Paired gate not covered (no pair in the replayed roles): "
+                + ", ".join(summary['uncovered_chips'])
+            )
     return summary
 
 
@@ -1199,7 +1214,7 @@ def _evaluate_exported_paired_gate_at_active_bin(
             )
         row['low_rssi'] = low_rssi
         by_chip[chip] = row
-    return summarize_gate(by_chip)
+    return summarize_gate(by_chip, chips)
 
 
 def evaluate_exported_paired_gate(threshold=0.5, chips=None,
@@ -1512,7 +1527,7 @@ def evaluate_occupancy_paired_gate(
                 f"alarms={row.get('effective_alarms', 0)} "
                 f"in {format_duration(perf_counter() - step_start)}"
             )
-    summary = summarize_gate(by_chip)
+    summary = summarize_gate(by_chip, chips)
     if progress is not None and summary is not None:
         progress(
             f"Occupancy paired gate complete in "
@@ -1623,7 +1638,7 @@ def evaluate_exported_occupancy_paired_gate(
             )
             row['low_rssi'] = low_rssi
             by_chip[chip] = row
-        return summarize_gate(by_chip)
+        return summarize_gate(by_chip, chips)
 
 
 def evaluate_exported_occupancy_quiet_gate(

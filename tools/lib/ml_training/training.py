@@ -1764,6 +1764,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         deployment_roles: Dataset roles allowed in the deployment replay.
         allow_legacy_gate_fallback: Use the latest real train pair when no
                                     role-isolated replay is configured.
+                                    Selection-only replays never fall back.
         force_export: Export runtime artifacts even when the deployment
                       safety gates fail or regress. Gates still run and their
                       results are printed; the bypass is reported loudly.
@@ -2376,6 +2377,8 @@ def _format_exported_gate_summary(gate):
             f"worstF1={metrics.get('worst_chip_f1', 0.0):.2f}% "
             f"alarms={metrics.get('total_effective_alarms', 0)}"
         )
+        if metrics.get('uncovered_chips'):
+            summary += f" uncovered={','.join(metrics['uncovered_chips'])}"
     if gate.quiet_metrics is None:
         summary += " quiet=not_configured"
     else:
@@ -2557,7 +2560,7 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         # Candidate selection may reuse selection recordings, but the holdout
         # stays sealed until exactly one winner has been chosen.
         'deployment_roles': ('selection',),
-        'allow_legacy_gate_fallback': True,
+        'allow_legacy_gate_fallback': False,
     }
 
     baseline_train_kwargs = dict(train_kwargs)

@@ -42,6 +42,7 @@ The trainer accepts only HT20 data (`phy_mode=ht`, `ltf_type=ht-ltf`, `channel_w
 - A missing role counts as `exclude`, so an incomplete catalog never leaks into training. The quality validator is stricter and fails until every entry has a role. Roles are always set by hand.
 - Long quiet recordings (`long_recording: true`) are never trained on. With role `selection` or `holdout`, the quiet gate replays them in full and can block promotion.
 - A single production run tests its model on `selection` and `holdout` before export. A seed search tests every candidate on `selection`, picks one winner, and opens `holdout` only for it.
+- The paired gates replay every chip in `C3`, `C5`, `C6`, `ESP32`, and `S3`. If a chip has no `selection` pair, `--evaluate-selection` and the seed search report it as not covered. If a chip has neither a `selection` nor a `holdout` pair, the production run and `--evaluate-gates` replay its newest `train` pair instead. That replay is an in-sample sanity check, not a generalization result.
 - **Keep the holdout sealed.** Looking at holdout results while you keep changing the model turns it into selection data.
 
 The split policy and its rationale are recorded in [2026-06-30-separate-ml-training-data-from-promotion-replays.md](adr/2026-06-30-separate-ml-training-data-from-promotion-replays.md).

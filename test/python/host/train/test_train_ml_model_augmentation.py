@@ -611,6 +611,76 @@ def test_candidate_gain_stress_respects_deployment_roles(monkeypatch):
     assert captured_roles == [("selection",)]
 
 
+@pytest.mark.parametrize(
+    ("roles", "expected_static_files", "expected_uncovered"),
+    [
+        (("selection",), ["static_presence_c3_sel.npz"], ["C6"]),
+        (
+            ("selection", "holdout"),
+            ["static_presence_c3_sel.npz", "static_presence_c6_train.npz"],
+            [],
+        ),
+    ],
+)
+def test_paired_gate_replays_train_pairs_only_when_holdout_is_open(
+    monkeypatch, tmp_path, roles, expected_static_files, expected_uncovered,
+):
+    def pair(chip, role, tag):
+        static_name = f"static_presence_{chip.lower()}_{tag}.npz"
+        motion_name = f"motion_{chip.lower()}_{tag}.npz"
+        common = {"chip": chip, "subcarriers": 64, "dataset_role": role}
+        return (
+            {**common, "filename": static_name, "optimal_pair_motion_file": motion_name},
+            {**common, "filename": motion_name},
+        )
+
+    c3_static, c3_motion = pair("C3", "selection", "sel")
+    c6_static, c6_motion = pair("C6", "train", "train")
+    catalog = {
+        "files": {
+            "static_presence": [c3_static, c6_static],
+            "motion": [c3_motion, c6_motion],
+        }
+    }
+
+    def fake_resolve_entry_path(label, entry):
+        path = tmp_path / entry["filename"]
+        path.touch()
+        return path
+
+    replayed_static_files = []
+
+    def fake_evaluate_split(model, scaler, feature_names, static_packets,
+                            motion_packets, threshold=0.5):
+        replayed_static_files.append(static_packets)
+        return {
+            "recall": 100.0,
+            "fp_rate": 0.0,
+            "f1": 100.0,
+            "fp": 0,
+            "fn": 0,
+            "effective_alarms": 0,
+        }
+
+    monkeypatch.setattr(evaluation, "load_dataset_info", lambda: catalog)
+    monkeypatch.setattr(evaluation, "resolve_entry_path", fake_resolve_entry_path)
+    monkeypatch.setattr(evaluation, "_load_npz_packets_cached", lambda path: path.name)
+    monkeypatch.setattr(evaluation, "evaluate_split", fake_evaluate_split)
+
+    summary = evaluation.evaluate_paired_gate(
+        object(),
+        object(),
+        ["turb_autocorr"],
+        chips=("C3", "C6"),
+        roles=roles,
+        use_cached_features=False,
+    )
+
+    assert sorted(replayed_static_files) == expected_static_files
+    assert summary["uncovered_chips"] == expected_uncovered
+    assert summary["pass_count"] == len(expected_static_files)
+
+
 def test_main_rejects_plain_host_only_export(monkeypatch, capsys):
     monkeypatch.setattr(
         "sys.argv",
