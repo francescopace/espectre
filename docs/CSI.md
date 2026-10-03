@@ -70,7 +70,8 @@ A capture profile decides which part of the Wi-Fi frame is measured. Set it at b
 | `ht-vht` | not allowed | `vht20` | `ht20` |
 
 - `wifi_raw` needs `auto` or `lltf`. A saved `wifi_raw` selection that does not match the profile is ignored at startup.
-- `lltf20` also measures ACKs addressed to the device, whatever the traffic source. Other profiles drop ACKs.
+- `lltf20` measures an ACK only when it answers a frame that `wifi_raw` just sent, at most one per frame. ACKs for the device's own traffic, such as the CSI stream, are dropped in every mode. Other profiles drop all ACKs.
+- An access point retransmission of a frame already measured is dropped, so a weak link cannot multiply the samples.
 - With `auto`, switching away from `wifi_raw` returns to `ht20` or `vht20`. With `lltf`, the profile never changes.
 - A profile change clears pending samples and detector history. Wi-Fi stays connected.
 - Changing the traffic mode restarts Lightweight calibration. High Accuracy keeps its threshold.

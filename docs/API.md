@@ -184,7 +184,7 @@ The CLI requests `["*"]` by default; pass `fields: []` to see the catalog. Selec
 | `generator_pps` | Successful internal generator sends per second, including `wifi_raw`; zero in external mode |
 | `traffic_tx_pps`, `traffic_rx_pps` | Wi-Fi station network packets per second accepted by the driver for TX or delivered by the driver for RX |
 | `csi_callback_pps`, `csi_accepted_pps` | All CSI callbacks and capture-valid CSI packets per second, respectively |
-| `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative CSI pipeline counters |
+| `csi_callbacks_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total` | Cumulative CSI pipeline counters. `csi_provenance_rejected_total` also counts dropped retransmissions and, in `lltf20`, ACKs that do not answer a `wifi_raw` frame |
 | `csi_rx_error_total`, `csi_rx_end_error_total`, `csi_invalid_estimate_total`, `csi_invalid_first_word_total` | Cumulative capture-quality rejections; one reason per rejected callback |
 | `csi_hw_error_total` | Cumulative hardware-quality rejections, aggregated on the device |
 | `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates |

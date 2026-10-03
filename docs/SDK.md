@@ -93,7 +93,7 @@ Set your SSID and password (and optionally a BSSID) under **ESPectre example** i
 
 When adding the SDK to an existing application:
 
-1. Enable `CONFIG_ESP_WIFI_CSI_ENABLED=y` in the project configuration. The standalone example already sets this in `sdkconfig.defaults`.
+1. Apply the [recommended project configuration](#recommended-project-configuration). Only `CONFIG_ESP_WIFI_CSI_ENABLED=y` is required. The standalone example already sets it in `sdkconfig.defaults`.
 2. Configure sensing through `idf.py menuconfig`. Pass `make_runtime_sensing_config_from_kconfig()` to the controller to use those settings. Optional service groups are disabled by default; enable the groups you need under **ESPectre SDK**.
 3. Initialize NVS, ESP-NETIF, and the default event loop, then create the station interface and initialize Wi-Fi before runtime setup. Your application must configure and start Wi-Fi; the example shows this with `StandaloneWifiService`. Prefer runtime setup before station start so the runtime can apply its CSI radio policy.
 4. Check the result of `setup()`, and call `loop()` regularly from the same task. Run `shutdown()` on that task before releasing application services. Publish movement only when `ready_to_publish` is true; calibration and Wi-Fi recovery can temporarily make sensing unavailable.
@@ -107,6 +107,21 @@ If your application has no Wi-Fi code yet, `StandaloneWifiService` can handle th
 - Shut down the sensing controller before the Wi-Fi service. `shutdown()` releases the driver, netif, and handlers; you can call `setup()` again afterwards.
 - It borrows the `ssid`, `password`, and `bssid` strings until shutdown. SSIDs over 32 bytes or passwords over 64 bytes return `ESP_ERR_INVALID_ARG`.
 - `max_retry` (default 8) sets quick reconnect attempts per round. After a failed round it waits 30 seconds and tries again, until connected or shut down.
+
+### Recommended project configuration
+
+The Native, Matter, and ESPHome frontends build with these options. Set them in your `sdkconfig.defaults`:
+
+| Option | Value | Why |
+| --- | --- | --- |
+| `CONFIG_ESP_WIFI_CSI_ENABLED` | `y` | Required. Enables CSI in the Wi-Fi driver. |
+| `CONFIG_ESP_WIFI_AMPDU_RX_ENABLED` | `n` | The radio reports one CSI sample per received transmission, so without aggregation more frames carry CSI. With aggregation, an access point retry resends several frames, and the runtime drops only a repeat of the last one. |
+| `CONFIG_ESP_WIFI_AMPDU_TX_ENABLED` | `n` | Required for a fixed [transmit rate](CSI.md#transmit-rate). With TX A-MPDU on, the runtime falls back to automatic rates. |
+| `CONFIG_PM_ENABLE` | `n` | Keeps CPU frequency scaling and automatic light sleep off. This is the ESP-IDF default. |
+| `CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE` | `n` | Keeps Wi-Fi power saving off while the station reconnects. |
+| `CONFIG_FREERTOS_HZ` | `1000` | Gives millisecond task timing for traffic pacing. |
+
+Disabling A-MPDU applies to the whole firmware and lowers Wi-Fi throughput, so OTA updates and other network services on the same device may be slower. The Native frontend also raises Wi-Fi buffer counts and lwIP mailbox sizes; see its [sdkconfig.defaults](../src/cpp/frontend/native/app/sdkconfig.defaults).
 
 ## Public headers
 

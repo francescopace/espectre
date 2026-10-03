@@ -179,16 +179,7 @@ bool matches_internal_dns_udp(const ParsedIpv4 &packet, const CsiFrameFilterConf
   return udp_len == packet.transport_len && (dns[2U] & 0x80U) != 0U;
 }
 
-}  // namespace
-
-bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
-                               const CsiFrameFilterConfig &config,
-                               CsiCaptureProfile profile) {
-  if (info == nullptr) return false;
-  if (csi_capture_profile_uses_lltf(profile) && matches_local_ack(info, config)) return true;
-  ParsedIpv4 packet;
-  if (!parse_bounded_payload(info, &packet) ||
-      !destination_mac_matches(packet, config, info->dmac)) return false;
+bool matches_configured_traffic(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
   switch (config.traffic_mode) {
     case TrafficGeneratorMode::EXTERNAL_HOST:
       return matches_external_udp(packet, config) || matches_external_ping(packet, config);
@@ -202,6 +193,46 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
     default:
       return matches_internal_ping(packet, config);
   }
+}
+
+}  // namespace
+
+CsiAckCredit &csi_station_ack_credit() {
+  static CsiAckCredit credit;
+  return credit;
+}
+
+bool CsiRetransmissionFilter::admit(const wifi_csi_info_t &info) {
+  constexpr uint8_t kFrameControlRetry = 0x08U;
+  const bool retry = info.hdr != nullptr && (info.hdr[1] & kFrameControlRetry) != 0U;
+  // A retry is bit-identical, so a different length is another frame whose
+  // sequence number, counted per TID, merely coincides.
+  const uint16_t length = info.rx_ctrl.sig_len;
+  if (retry && has_last_frame_ && info.rx_seq == last_rx_seq_ && length == last_length_ &&
+      std::memcmp(info.mac, last_source_mac_, sizeof(last_source_mac_)) == 0) {
+    return false;
+  }
+  has_last_frame_ = true;
+  last_rx_seq_ = info.rx_seq;
+  last_length_ = length;
+  std::memcpy(last_source_mac_, info.mac, sizeof(last_source_mac_));
+  return true;
+}
+
+bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
+                               const CsiFrameFilterConfig &config,
+                               CsiCaptureProfile profile,
+                               uint32_t now_us,
+                               CsiAckCredit &ack_credit,
+                               CsiRetransmissionFilter &retransmissions) {
+  if (info == nullptr) return false;
+  if (csi_capture_profile_uses_lltf(profile) && matches_local_ack(info, config)) {
+    return ack_credit.consume(now_us);
+  }
+  ParsedIpv4 packet;
+  return parse_bounded_payload(info, &packet) &&
+         destination_mac_matches(packet, config, info->dmac) &&
+         matches_configured_traffic(packet, config) && retransmissions.admit(*info);
 }
 
 }  // namespace espectre

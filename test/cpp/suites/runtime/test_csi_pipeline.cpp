@@ -1710,7 +1710,7 @@ void test_csi_pipeline_reconfigures_capture_and_retains_same_profile(void) {
     TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
 }
 
-void test_csi_pipeline_admits_local_ack_only_with_active_lltf20_profile(void) {
+void test_csi_pipeline_admits_credited_local_ack_only_with_active_lltf20_profile(void) {
     const uint8_t local_mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
     uint8_t header[10] = {0xD4U, 0U, 0U, 0U};
     std::memcpy(header + 4U, local_mac, sizeof(local_mac));
@@ -1730,15 +1730,20 @@ void test_csi_pipeline_admits_local_ack_only_with_active_lltf20_profile(void) {
         info.rx_ctrl.sig_len = sizeof(header) + 4U;
         // Let both profiles pass their PHY gate to exercise the traffic filter.
         info.rx_ctrl.sig_mode = profile == CsiCaptureProfile::LLTF20 ? 0U : 1U;
-        for (const uint32_t timestamp : {1000000U, 1010000U}) {
+        CsiAckCredit &credit = csi_station_ack_credit();
+        credit.clear();
+        for (const uint32_t timestamp : {1000000U, 1010000U, 1020000U}) {
+            // The last ACK has no injected frame behind it, like one for the CSI stream.
+            if (timestamp != 1020000U) credit.arm(static_cast<uint32_t>(esp_timer_get_time()));
             info.rx_ctrl.timestamp = timestamp;
             g_wifi_mock.trigger_callback(&info);
             manager.loop();
         }
         manager.flush_pending_candidate();
+        credit.clear();
 
         const bool use_lltf = profile == CsiCaptureProfile::LLTF20;
-        TEST_ASSERT_EQUAL(use_lltf ? 0U : 2U, manager.traffic_rejected_packets_total());
+        TEST_ASSERT_EQUAL(use_lltf ? 1U : 3U, manager.traffic_rejected_packets_total());
         TEST_ASSERT_EQUAL(use_lltf ? 2U : 0U, manager.accepted_packets_total());
         TEST_ASSERT_EQUAL(use_lltf ? 2U : 0U, manager.detector_window_occupancy_slots());
         TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
@@ -1782,7 +1787,7 @@ int process(void) {
     // Initialization tests
     RUN_TEST(test_csi_pipeline_init);
     RUN_TEST(test_csi_pipeline_reconfigures_capture_and_retains_same_profile);
-    RUN_TEST(test_csi_pipeline_admits_local_ack_only_with_active_lltf20_profile);
+    RUN_TEST(test_csi_pipeline_admits_credited_local_ack_only_with_active_lltf20_profile);
     
     // Enable/Disable tests
     RUN_TEST(test_csi_pipeline_enable);

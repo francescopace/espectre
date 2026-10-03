@@ -29,6 +29,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "core/espectre_log.h"
+#include "csi_frame_identity.h"
 #include "runtime/mac_address_helpers.h"
 #include "sdkconfig.h"
 #include "lwip/inet.h"
@@ -175,8 +176,12 @@ class WifiRawTrafficProtocol final : public TrafficProtocol {
   ssize_t send_packet(int sock, const sockaddr_in &destination) override {
     (void)sock;
     (void)destination;
+    // Arm before the send: the ACK callback can run before esp_wifi_80211_tx() returns.
+    CsiAckCredit &ack_credit = csi_station_ack_credit();
+    ack_credit.arm(static_cast<uint32_t>(esp_timer_get_time()));
     const esp_err_t err = esp_wifi_80211_tx(WIFI_IF_STA, frame_, TRAFFIC_NULL_DATA_FRAME_SIZE, true);
     if (err == ESP_OK) return TRAFFIC_NULL_DATA_FRAME_SIZE;
+    ack_credit.clear();
     // Preserve the shared pacing and memory-pressure backoff policy.
     errno = err == ESP_ERR_NO_MEM ? ENOMEM : EIO;
     return -1;

@@ -360,6 +360,8 @@ class CsiPipeline {
   detail::PendingEventLock traffic_filter_lock_{};
   CsiFrameFilterConfig traffic_filter_{};
   bool traffic_filter_configured_{false};
+  // Only the CSI capture callback touches this.
+  CsiRetransmissionFilter traffic_retransmissions_{};
 
   static constexpr size_t kPendingCsiFrameCapacity = 8U;
   PendingQueue<PendingCsiFrame, kPendingCsiFrameCapacity> pending_frames_;

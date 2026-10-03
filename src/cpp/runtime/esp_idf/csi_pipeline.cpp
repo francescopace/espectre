@@ -396,7 +396,10 @@ void CsiPipeline::capture_packet_callback_(void *context,
     traffic_filter_configured = pipeline->traffic_filter_configured_;
   }
   if (traffic_filter_configured) {
-    if (!csi_frame_matches_traffic(data, traffic_filter, pipeline->capture_profile())) {
+    if (!csi_frame_matches_traffic(data, traffic_filter, pipeline->capture_profile(),
+                                   static_cast<uint32_t>(esp_timer_get_time()),
+                                   csi_station_ack_credit(),
+                                   pipeline->traffic_retransmissions_)) {
       pipeline->traffic_rejected_packets_total_.fetch_add(1U, std::memory_order_relaxed);
       return;
     }

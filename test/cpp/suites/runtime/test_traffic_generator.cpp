@@ -8,11 +8,13 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include <poll.h>
 #include <cstdint>
 #include <cstring>
 #include <vector>
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "csi_frame_identity.h"
 #include "traffic_generator_manager.h"
 #include "sdkconfig.h"
 #include "esphome/core/log.h"
@@ -125,12 +127,34 @@ int connected_pair_socket(int, int, int) {
 }
 #pragma pop_macro("socket")
 
-// The remote end is already gone, as after a reset by the DNS server.
+// Loopback TCP delivery is asynchronous on some hosts (macOS hands segments to
+// an input thread), so a returned send() or close() is not yet visible at the
+// other end. Wait, bounded, for the event the test depends on.
+constexpr int LOOPBACK_DELIVERY_TIMEOUT_MS = 1000;
+
+bool wait_readable(int sock) {
+    pollfd entry{sock, POLLIN, 0};
+    return poll(&entry, 1, LOOPBACK_DELIVERY_TIMEOUT_MS) == 1;
+}
+
+ssize_t recv_exactly(int sock, uint8_t *buffer, size_t expected) {
+    size_t received = 0U;
+    while (received < expected && wait_readable(sock)) {
+        const ssize_t bytes = recv(sock, buffer + received, expected - received, MSG_DONTWAIT);
+        if (bytes <= 0) break;
+        received += static_cast<size_t>(bytes);
+    }
+    return static_cast<ssize_t>(received);
+}
+
+// The remote end is already gone, as after a reset by the DNS server: the
+// client has seen the FIN before the generator gets the socket.
 int peer_closed_socket(int, int, int) {
     const int sock = connected_pair_socket(0, 0, 0);
     if (sock >= 0) {
         close(factory_peers.back());
         factory_peers.back() = -1;
+        if (!wait_readable(sock)) return -1;
     }
     return sock;
 }
@@ -157,7 +181,13 @@ void run_socket_generator(TrafficGeneratorManager &manager, TrafficGeneratorMode
     TEST_ASSERT_TRUE(manager.start(target));
 }
 
+uint32_t raw_tx_with_ack_credit = 0U;
+
 void stop_raw_test_generator() {
+    // Each injected frame must arm the station ACK credit before it reaches the air.
+    if (csi_station_ack_credit().consume(static_cast<uint32_t>(esp_timer_get_time()))) {
+        ++raw_tx_with_ack_credit;
+    }
     // The FreeRTOS mock runs the task synchronously; stop after bounded sends.
     if (g_esp_wifi_mock.raw_tx_call_count == 3) active_generator->stop();
 }
@@ -216,8 +246,11 @@ void test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_co
     uint8_t expected[TRAFFIC_DNS_TCP_FRAME_SIZE];
     uint8_t received[TRAFFIC_DNS_TCP_FRAME_SIZE * 4U];
     const size_t frame_len = build_dns_tcp_query_frame(1U, expected, sizeof(expected));
-    const ssize_t bytes = recv(factory_peers.front(), received, sizeof(received), MSG_DONTWAIT);
-    TEST_ASSERT_EQUAL(static_cast<ssize_t>(frame_len * 3U), bytes);
+    TEST_ASSERT_EQUAL(static_cast<ssize_t>(frame_len * 3U),
+                      recv_exactly(factory_peers.front(), received, frame_len * 3U));
+    // The stopped generator closed the stream right after the three frames.
+    TEST_ASSERT_TRUE(wait_readable(factory_peers.front()));
+    TEST_ASSERT_EQUAL(0, recv(factory_peers.front(), received, sizeof(received), MSG_DONTWAIT));
     for (uint16_t transaction = 1U; transaction <= 3U; ++transaction) {
         build_dns_tcp_query_frame(transaction, expected, sizeof(expected));
         TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, received + (transaction - 1U) * frame_len, frame_len);
@@ -539,8 +572,10 @@ void test_wifi_raw_targets_current_bssid_without_gateway_and_counts_sends(void) 
     for (const esp_err_t result : {ESP_OK, ESP_ERR_NO_MEM, ESP_FAIL}) {
         g_esp_wifi_mock.raw_tx_call_count = 0;
         g_esp_wifi_mock.raw_tx_result = result;
+        raw_tx_with_ack_credit = 0U;
         manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
         TEST_ASSERT_TRUE(manager.start(0U));
+        TEST_ASSERT_EQUAL(3U, raw_tx_with_ack_credit);
         TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_mock.raw_tx_interface);
         TEST_ASSERT_TRUE(g_esp_wifi_mock.raw_tx_sys_seq);
         TEST_ASSERT_EQUAL(24, g_esp_wifi_mock.raw_tx_length);

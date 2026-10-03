@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Temporal CSI admission now fills more slots. When two packets jitter into one slot, the one closer to the center keeps it and the other can take the free slot next to it. On the recorded captures this raises median occupancy from 92.3% to 93.9%, so sensing stays ready more often on jittery links.
 - High Accuracy now compresses its five right-skewed inputs with `log1p` before normalization and was retrained at the same seed. On the reserved replays, worst paired recall rises from 97.1% to 98.3% at the same 0.14% maximum false-positive rate, and under 70% occupancy the maximum false-positive rate falls from 0.88% to 0.35%. Weight headers exported before this change lack `ML_FEATURE_LOG_SCALE`; export them again with the trainer.
 - The SDK versioning rules now mark `CsiCaptureProfile` and `CsiCapturePolicy` as open enums and put the core-only detector interface outside the compatibility promise until stationary presence ships. The Matter occupancy attribute and the `motion` event are documented as motion only.
+- The dataset validator now pairs recordings made up to 3 hours apart instead of 30 minutes. A pair must also share `dataset_role` and `low_rssi`.
 
 ### Fixed
 
@@ -24,6 +25,8 @@ All notable changes to this project will be documented in this file.
 - Fixed sensing staying in calibration after a Wi-Fi reconnect on ESP32-S3, when one stray CSI callback hid a silent receive path. The runtime now refreshes the path unless callbacks keep pace with the traffic.
 - Fixed `collect` silently skipping the post-collect quality checks since 3.0.0-rc1, because the CLI imported the validator from a module that no longer exports it. The checks run again after every capture.
 - Fixed the occupancy check in `collect` and the dataset validator counting only the windows where a packet arrived. Empty slots and stream outages now count, so a capture with long gaps warns or fails instead of passing.
+- Fixed CSI collection running away on weak links. AP retransmissions of one packet each produced a sample, and in `lltf20` every ACK for the device's own traffic did too, so streaming CSI created more CSI. An ESP32 at -77 dBm reached 217 records/s from a 100 pps `external` source, then dropped 60% and stalled, and `wifi_raw` passed 300 pps in the CSI visualizer. Retransmissions of a measured frame are now dropped, and an ACK counts only when it answers a `wifi_raw` frame. Both now count in `csi_provenance_rejected_total`.
+- Fixed `collect` hanging on Ctrl+C with a Direct HTTP stream, because closing the stream waited for a blocked read. The final stream diagnostics are now read before the stream closes, so the device no longer counts its queued records as drops.
 - Fixed the web flasher corrupting the next command when leftover serial bytes remained after a firmware metadata read. The flasher now uses esptool-js 0.7.0, which provides the ESP32-C5 and ESP32-C6 SPI register base directly.
 
 ## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support

@@ -122,11 +122,35 @@ wifi_csi_info_t csi_info(const std::vector<uint8_t> &payload, const uint8_t *des
   return info;
 }
 
+constexpr uint32_t kNowUs = 1000000U;
+
+bool matches_once(const wifi_csi_info_t *info,
+                  const CsiFrameFilterConfig &config,
+                  CsiCaptureProfile profile,
+                  CsiAckCredit &ack_credit) {
+  CsiRetransmissionFilter retransmissions;
+  return csi_frame_matches_traffic(info, config, profile, kNowUs, ack_credit, retransmissions);
+}
+
+bool matches_once(const wifi_csi_info_t *info,
+                  const CsiFrameFilterConfig &config,
+                  CsiCaptureProfile profile) {
+  CsiAckCredit ack_credit;
+  return matches_once(info, config, profile, ack_credit);
+}
+
 bool matches(const std::vector<uint8_t> &payload,
              const CsiFrameFilterConfig &config,
              const uint8_t *destination_mac = kLocalMac) {
   const wifi_csi_info_t info = csi_info(payload, destination_mac);
-  return csi_frame_matches_traffic(&info, config, CsiCaptureProfile::HT20);
+  return matches_once(&info, config, CsiCaptureProfile::HT20);
+}
+
+wifi_csi_info_t local_ack_info(uint8_t *header) {
+  wifi_csi_info_t info{};
+  info.hdr = header;
+  info.rx_ctrl.sig_len = 14U;
+  return info;
 }
 
 CsiFrameFilterConfig filter(TrafficGeneratorMode mode) {
@@ -146,31 +170,96 @@ CsiFrameFilterConfig filter(TrafficGeneratorMode mode) {
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_local_ack_requires_lltf20_for_every_traffic_mode(void) {
+void test_local_ack_requires_lltf20_and_a_generator_credit_in_every_traffic_mode(void) {
   uint8_t header[10] = {0xD4U, 0U, 0U, 0U};
   std::memcpy(header + 4U, kLocalMac, 6U);
-  wifi_csi_info_t info{};
-  info.hdr = header;
-  info.rx_ctrl.sig_len = sizeof(header) + 4U;
+  const wifi_csi_info_t info = local_ack_info(header);
 
   for (const auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
-                          TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::EXTERNAL_HOST}) {
+                          TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::EXTERNAL_HOST,
+                          TrafficGeneratorMode::WIFI_RAW}) {
     const auto config = filter(mode);
-    TEST_ASSERT_TRUE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20));
-    TEST_ASSERT_FALSE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::HT20));
-    TEST_ASSERT_FALSE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::VHT20));
+    CsiAckCredit credit;
+    // An ACK for the device's own traffic, such as the CSI stream, carries no credit.
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::LLTF20, credit));
+    for (const auto profile : {CsiCaptureProfile::HT20, CsiCaptureProfile::VHT20}) {
+      credit.arm(kNowUs);
+      TEST_ASSERT_FALSE(matches_once(&info, config, profile, credit));
+    }
+    credit.arm(kNowUs);
+    TEST_ASSERT_TRUE(matches_once(&info, config, CsiCaptureProfile::LLTF20, credit));
   }
+}
+
+void test_ack_credit_admits_one_ack_per_arm_within_its_window(void) {
+  CsiAckCredit credit;
+  TEST_ASSERT_FALSE(credit.consume(kNowUs));
+  credit.arm(kNowUs);
+  TEST_ASSERT_TRUE(credit.consume(kNowUs + CsiAckCredit::kWindowUs));
+  TEST_ASSERT_FALSE(credit.consume(kNowUs + CsiAckCredit::kWindowUs));
+
+  credit.arm(kNowUs);
+  TEST_ASSERT_FALSE(credit.consume(kNowUs + CsiAckCredit::kWindowUs + 1U));
+  TEST_ASSERT_FALSE(credit.consume(kNowUs - 1U));  // Read before the arm.
+  credit.clear();
+  TEST_ASSERT_FALSE(credit.consume(kNowUs));
+
+  credit.arm(0U);
+  TEST_ASSERT_TRUE(credit.consume(1U));
+  credit.arm(0xFFFFFFF0U);
+  TEST_ASSERT_TRUE(credit.consume(0x10U));  // The timer wraps between arm and ACK.
+}
+
+void test_retransmission_of_the_last_admitted_frame_is_dropped(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  const auto payload = udp_frame(kLocal, 5555U);
+  uint8_t header[24] = {0x88U, 0x02U};
+  wifi_csi_info_t info = csi_info(payload);
+  info.hdr = header;
+  info.rx_seq = 100U;
+  std::memcpy(info.mac, kOtherMac, 6U);
+  CsiAckCredit credit;
+  CsiRetransmissionFilter retransmissions;
+  const auto accepted = [&]() {
+    return csi_frame_matches_traffic(&info, config, CsiCaptureProfile::HT20, kNowUs, credit,
+                                     retransmissions);
+  };
+
+  // A retry is the only copy when the original never decoded.
+  header[1] |= 0x08U;
+  TEST_ASSERT_TRUE(accepted());
+  TEST_ASSERT_FALSE(accepted());
+  header[1] &= static_cast<uint8_t>(~0x08U);
+  TEST_ASSERT_TRUE(accepted());  // Without the retry bit, a repeated number is a new frame.
+  header[1] |= 0x08U;
+  TEST_ASSERT_FALSE(accepted());
+  info.rx_seq = 101U;
+  TEST_ASSERT_TRUE(accepted());
+  // Same number and transmitter but another length: a frame from another TID.
+  info.rx_ctrl.sig_len = 120U;
+  TEST_ASSERT_TRUE(accepted());
+  TEST_ASSERT_FALSE(accepted());
+  std::memcpy(info.mac, kMulticastMac, 6U);
+  TEST_ASSERT_TRUE(accepted());  // Same number from another transmitter.
+
+  // Rejected traffic never becomes the frame that later retries are compared to.
+  auto other_port = udp_frame(kLocal, 5556U);
+  info.payload = other_port.data();
+  info.rx_seq = 102U;
+  TEST_ASSERT_FALSE(accepted());
+  info.payload = const_cast<uint8_t *>(payload.data());
+  TEST_ASSERT_TRUE(accepted());
 }
 
 void test_lltf20_rejects_ack_without_valid_local_receiver_or_header(void) {
   auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
   uint8_t header[10] = {0xD4U, 0U, 0U, 0U};
   std::memcpy(header + 4U, kLocalMac, 6U);
-  wifi_csi_info_t info{};
-  info.hdr = header;
-  info.rx_ctrl.sig_len = sizeof(header) + 4U;
+  wifi_csi_info_t info = local_ack_info(header);
   const auto accepted = [&]() {
-    return csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20);
+    CsiAckCredit credit;
+    credit.arm(kNowUs);
+    return matches_once(&info, config, CsiCaptureProfile::LLTF20, credit);
   };
   TEST_ASSERT_TRUE(accepted());
   std::memcpy(header + 4U, kOtherMac, 6U);
@@ -202,7 +291,7 @@ void test_lltf20_rejects_ack_without_valid_local_receiver_or_header(void) {
   info.rx_ctrl.rx_state = 0U;
   info.hdr = nullptr;
   TEST_ASSERT_FALSE(accepted());
-  TEST_ASSERT_FALSE(csi_frame_matches_traffic(nullptr, config, CsiCaptureProfile::LLTF20));
+  TEST_ASSERT_FALSE(matches_once(nullptr, config, CsiCaptureProfile::LLTF20));
 }
 
 void test_lltf20_preserves_ip_traffic_provenance_filter(void) {
@@ -212,8 +301,7 @@ void test_lltf20_preserves_ip_traffic_provenance_filter(void) {
   const auto unrelated = ping_reply(kGateway, 0x1234U);
   for (const auto *payload : {&reply, &tcp_ack, &unrelated}) {
     const auto info = csi_info(*payload);
-    TEST_ASSERT_EQUAL(payload == &reply,
-                      csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20));
+    TEST_ASSERT_EQUAL(payload == &reply, matches_once(&info, config, CsiCaptureProfile::LLTF20));
   }
 }
 
@@ -384,7 +472,9 @@ void test_internal_ip_modes_accept_only_the_configured_target(void) {
 int main() {
   using namespace espectre::test;
   begin_suite();
-  RUN_TEST(test_local_ack_requires_lltf20_for_every_traffic_mode);
+  RUN_TEST(test_local_ack_requires_lltf20_and_a_generator_credit_in_every_traffic_mode);
+  RUN_TEST(test_ack_credit_admits_one_ack_per_arm_within_its_window);
+  RUN_TEST(test_retransmission_of_the_last_admitted_frame_is_dropped);
   RUN_TEST(test_lltf20_rejects_ack_without_valid_local_receiver_or_header);
   RUN_TEST(test_lltf20_preserves_ip_traffic_provenance_filter);
   RUN_TEST(test_external_accepts_only_canonical_unicast_and_multicast_marker);

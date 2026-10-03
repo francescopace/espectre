@@ -43,7 +43,9 @@ Keep configured traffic provenance as a live detector admission gate for IP traf
 - keep `csi_target_pps=100`, the `100 pps` detector grid, and a fixed `100 pps` external generator for the current ESP32-S3 setup; and
 - do not implement an occupancy-driven or excess-driven traffic controller from this experiment.
 
-The shared C++ runtime additionally admits 802.11 ACK control frames in `lltf20`, independently of traffic ownership or generator mode. ACK admission requires a valid 14-byte frame including FCS, an error-free RX status, and a receiver address matching the configured local unicast MAC. Missing headers, other control subtypes, and ACKs in `ht20` or `vht20` are rejected. ACKs have no transmitter address or IP payload, so this exception identifies the local receiver without attributing the frame to a particular generator request. Existing PHY, channel, timestamp, and temporal sampling gates still apply. The occupancy and detector-quality effects have not yet been measured.
+The shared C++ runtime additionally admits 802.11 ACK control frames in `lltf20`, but only as the answer to a frame the generator injected. ACK admission requires a valid 14-byte frame including FCS, an error-free RX status, a receiver address matching the configured local unicast MAC, and a station ACK credit. The `wifi_raw` generator arms that credit just before each Null Data frame; one ACK within 5 ms consumes it. No other mode arms it, so every ACK is rejected there. Missing headers, other control subtypes, and ACKs in `ht20` or `vht20` are rejected. ACKs have no transmitter address or IP payload, so the credit attributes them by timing, not by identity. Existing PHY, channel, timestamp, and temporal sampling gates still apply.
+
+Every admitted data frame also passes a retransmission check: a frame with the 802.11 Retry bit and the same transmitter, sequence number, and length as the last admitted frame is rejected and counted as a provenance rejection. A retry is still admitted when the original never produced a callback.
 
 The experiment-specific benchmark changes are removed after recording the evidence. Existing general benchmark facilities remain outside this decision and are unchanged.
 
@@ -58,6 +60,7 @@ Local raw samples, manifests, analyses, and summaries remain under `data/untrack
 | 2026-08-28 | Retain provenance-filtered detector admission and the fixed 100 pps external source | Accepted |
 | 2026-08-29 | Add bounded ICMP Echo Requests to the explicit external provenance set | Accepted; unlike the rejected open filter, this admits one exact diagnostic packet shape rather than incidental local traffic |
 | 2026-09-06 | Admit local 802.11 ACKs in the shared C++ LLTF20 path | Accepted as a profile-specific supplement; IP provenance gates remain in place, and occupancy gains require hardware validation |
+| 2026-10-03 | Admit only credited ACKs, and drop retransmissions of the last admitted frame | Accepted; on an ESP32 at -73 to -77 dBm, ACKs for the CSI stream drove `wifi_raw` collection above 300 pps, and AP retries in `external` raised fresh records to 217/s for 100 sent packets until the stream dropped 60% of records and stalled |
 
 ## Alternatives Considered
 
@@ -75,7 +78,7 @@ Rejected. It missed both acceptance criteria by roughly 9 pps and 9 percentage p
 
 ## Consequences
 
-The live detector receives an explicitly managed IP traffic source with bounded, deterministic provenance. In the shared C++ `lltf20` path, local ACKs can supplement that source, including ACKs caused by device-originated Direct or MQTT traffic; those ACKs can affect coverage and detector load. Other profiles retain the managed-traffic-only gate. An operator can supply UDP markers or unicast Echo Requests in `external`; mixing them remains the external sender's responsibility. The external generator continues to cost `100 pps` on this setup, and future reductions require a managed replacement source or new evidence rather than relying on ambient traffic.
+The live detector receives an explicitly managed IP traffic source with bounded, deterministic provenance. In the shared C++ `lltf20` path, an ACK counts only as the answer to an injected `wifi_raw` frame, so device-originated Direct or MQTT traffic cannot add samples. AP retransmissions cannot either. An operator can supply UDP markers or unicast Echo Requests in `external`; mixing them remains the external sender's responsibility. The external generator continues to cost `100 pps` on this setup, and future reductions require a managed replacement source or new evidence rather than relying on ambient traffic.
 
 ## Related
 

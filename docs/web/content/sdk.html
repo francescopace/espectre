@@ -64,7 +64,7 @@
           <p>For a prerelease or a specific version, replace <code>VERSION_FROM_REGISTRY</code> with a version from the registry. For a branch snapshot, use its version and the staging URL <code>https://components-staging.espressif.com</code>:</p>
           <div class="code-block"><pre>idf.py add-dependency --registry-url <span class="s">"https://components.espressif.com"</span> <span class="s">"francescopace/espectre=VERSION_FROM_REGISTRY"</span></pre></div>
           <p>The dependency is saved in <code>main/idf_component.yml</code>, and the exact version in <code>dependencies.lock</code>. Snapshot versions end in <code>.main</code> or <code>.develop</code>; copy them from the registry, not from the website's download labels.</p>
-          <p>Set <code>CONFIG_ESP_WIFI_CSI_ENABLED=y</code> in your project configuration. Sensing is always included; turn on optional services in menuconfig. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#minimal-configuration" target="_blank" rel="noopener">full SDK guide</a> for configuration and the <a href="/sdk/api/#sdk-public-facades">public headers</a> for your integration.</p>
+          <p>Set <code>CONFIG_ESP_WIFI_CSI_ENABLED=y</code> in your project configuration. Sensing is always included; turn on optional services in menuconfig. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#recommended-project-configuration" target="_blank" rel="noopener">recommended project configuration</a> for the other options and the <a href="/sdk/api/#sdk-public-facades">public headers</a> for your integration.</p>
         </div>
       </section>
 
