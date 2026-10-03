@@ -860,15 +860,28 @@ class DirectRawCSIReceiver(CSIReceiver):
             self._raw_connection = None
             self._best_effort_stop()
             raise RuntimeError(f"Direct raw HTTP stream returned status {status}")
-        raw_socket = getattr(self._raw_connection, "sock", None)
-        if raw_socket is not None:
-            raw_socket.settimeout(None)
-        self._raw_read_queue = queue.Queue(maxsize=1)
+        self._widen_raw_receive_window()
+        # Keep several unread chunks so packet processing does not stop the
+        # socket read and close the device TCP window.
+        self._raw_read_queue = queue.Queue(maxsize=64)
         self._raw_reader_stop = threading.Event()
         self._raw_reader_thread = None
         self.running = True
         self.start_time = time.time()
         self._last_pps_time = self.start_time
+
+    def _widen_raw_receive_window(self) -> None:
+        raw_socket = getattr(self._raw_connection, "sock", None)
+        if raw_socket is None:
+            return
+        raw_socket.settimeout(None)
+        setsockopt = getattr(raw_socket, "setsockopt", None)
+        if not callable(setsockopt):
+            return
+        try:
+            setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        except OSError:
+            pass
 
     def _open(self) -> None:
         self._open_session()
@@ -1070,21 +1083,55 @@ class DirectRawCSIReceiver(CSIReceiver):
                 raise error
             self._raw_buffer.extend(chunk)
             self._consume_raw_frames()
+            # Let the reader thread drain the socket while this thread holds
+            # the interpreter between chunks.
+            time.sleep(0)
+
+    def _unblock_raw_reader(self) -> None:
+        """Wake a blocked stream read without taking the response buffer lock."""
+        connection = self._raw_connection
+        raw_socket = getattr(connection, "sock", None) if connection is not None else None
+        shutdown = getattr(raw_socket, "shutdown", None)
+        if not callable(shutdown):
+            return
+        try:
+            shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def _raw_reader_is_busy(self, reader_thread) -> bool:
+        return (
+            reader_thread is not None
+            and reader_thread.is_alive()
+            and reader_thread is not threading.current_thread()
+        )
 
     def stop(self) -> None:
         self.running = False
         self._raw_reader_stop.set()
+        # Diagnostics use the control session, so read them while the stream
+        # is still open: a closed stream makes the device count its queued
+        # records as drops.
         self._best_effort_stop()
         self._update_final_raw_diagnostics()
+        # read1() holds the buffered-response lock for the whole recv.
+        # Closing that response first waits forever, so Ctrl+C never returns.
+        self._unblock_raw_reader()
+        reader_thread = self._raw_reader_thread
+        if reader_thread is not None and reader_thread is not threading.current_thread():
+            reader_thread.join(timeout=1.0)
+        if self._raw_reader_is_busy(reader_thread):
+            self._raw_buffer.clear()
+            if self._control is not None:
+                self._control.close()
+                self._control = None
+            return
         if self._raw_response is not None:
             self._raw_response.close()
             self._raw_response = None
         if self._raw_connection is not None:
             self._raw_connection.close()
             self._raw_connection = None
-        reader_thread = self._raw_reader_thread
-        if reader_thread is not None and reader_thread is not threading.current_thread():
-            reader_thread.join(timeout=0.5)
         self._raw_reader_thread = None
         self._raw_buffer.clear()
         if self._control is not None:

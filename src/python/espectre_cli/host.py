@@ -839,15 +839,21 @@ def _run_live_collect(args) -> None:
         device_state["label"] = format_device_label(device_state)
         return device_state
 
+    def roll_device_pps_window(device_state, now):
+        started = device_state["pps_window_started_at"]
+        if started is None:
+            return
+        elapsed = now - started
+        if elapsed >= 1.0:
+            device_state["pps"] = int(device_state["pps_window_packets"] / elapsed)
+            device_state["pps_window_started_at"] = now
+            device_state["pps_window_packets"] = 0
+
     def update_device_pps(device_state, now):
         if device_state["pps_window_started_at"] is None:
             device_state["pps_window_started_at"] = now
         device_state["pps_window_packets"] += 1
-        elapsed = now - device_state["pps_window_started_at"]
-        if elapsed >= 1.0:
-            device_state["pps"] = int(device_state["pps_window_packets"] / elapsed) if elapsed > 0 else 0
-            device_state["pps_window_started_at"] = now
-            device_state["pps_window_packets"] = 0
+        roll_device_pps_window(device_state, now)
 
     def update_ready_gate_state(device_state, now):
         for slot in device_state["slots"]:
@@ -1280,6 +1286,7 @@ def _run_live_collect(args) -> None:
     def handle_sigint(_signum, _frame):
         state["interrupted"] = True
         state["running"] = False
+        receiver.running = False
 
     def on_packet(pkt):
         if not state["running"]:
@@ -1469,6 +1476,22 @@ def _run_live_collect(args) -> None:
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
     print()
 
+    def refresh_idle_status(now):
+        if not state["devices"]:
+            return
+        due = False
+        for device_state in state["devices"].values():
+            roll_device_pps_window(device_state, now)
+            last_status_render_at = device_state["last_status_render_at"]
+            if (
+                last_status_render_at is None
+                or now - last_status_render_at >= status_render_interval_seconds
+            ):
+                device_state["last_status_render_at"] = now
+                due = True
+        if due:
+            render_multi_device_summary(now)
+
     try:
         _wait_before_collection(start_delay)
         _start_raw_http_collection(receiver, traffic_generator)
@@ -1481,7 +1504,9 @@ def _run_live_collect(args) -> None:
             if supports_socket_rcvbuf_announcement:
                 run_kwargs["announce_socket_rcvbuf"] = announce_socket_rcvbuf
             receiver.run(**run_kwargs)
-            maybe_stop_live_session(time.monotonic())
+            now = time.monotonic()
+            refresh_idle_status(now)
+            maybe_stop_live_session(now)
             if announce_socket_rcvbuf and receiver.effective_socket_rcvbuf_bytes is not None:
                 state["socket_rcvbuf_reported"] = True
         flush_temporal_devices(time.monotonic())

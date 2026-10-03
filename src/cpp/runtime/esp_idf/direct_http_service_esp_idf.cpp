@@ -1345,6 +1345,9 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
         raw_session_.origin = pending.origin;
         const int keepalive = 1;
         (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+        // Each batch is one send; do not hold it back for Nagle coalescing.
+        const int nodelay = 1;
+        (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
         raw_session_.binary_bound = true;
         bound = true;
       }

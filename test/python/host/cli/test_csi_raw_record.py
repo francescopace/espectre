@@ -318,6 +318,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
             self.closed = False
             self.request_args = None
             self.socket_timeouts = []
+            self.socket_options = []
             self.sock = self
             record = build_packet(
                 version=RAW_CSI_RECORD_VERSION_V8,
@@ -343,6 +344,9 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
 
         def settimeout(self, timeout):
             self.socket_timeouts.append(timeout)
+
+        def setsockopt(self, level, option, value):
+            self.socket_options.append((level, option, value))
 
         def request(self, method, path, headers):
             self.request_args = (method, path, headers)
@@ -398,6 +402,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
     assert raw.request_args[0:2] == ("GET", "/espectre/v1/csi")
     assert "Authorization" not in raw.request_args[2]
     assert raw.socket_timeouts == [None]
+    assert raw.socket_options == [(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)]
     assert [(request[0], request[1]) for request in control.requests] == [
         ("get", "capabilities"),
         ("get", "device"),
@@ -418,13 +423,20 @@ def test_direct_raw_receiver_run_timeout_does_not_wait_for_idle_stream():
             self.closed.set()
 
     class IdleRawConnection:
+        def __init__(self, response):
+            self.sock = self
+            self._response = response
+
+        def shutdown(self, _mode):
+            self._response.closed.set()
+
         def close(self):
             pass
 
     response = IdleRawResponse()
     receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
     receiver._raw_response = response
-    receiver._raw_connection = IdleRawConnection()
+    receiver._raw_connection = IdleRawConnection(response)
     receiver.running = True
     receiver._open = lambda: None
 
@@ -435,6 +447,97 @@ def test_direct_raw_receiver_run_timeout_does_not_wait_for_idle_stream():
 
     assert elapsed < 0.5
     assert response.closed.is_set()
+
+
+def test_direct_raw_receiver_stop_unblocks_reader_before_closing_response():
+    peer, client = socket.socketpair()
+    try:
+        client.setblocking(True)
+
+        class BlockingResponse:
+            def __init__(self):
+                self._lock = threading.Lock()
+                self.closed = False
+                self.read_entered = threading.Event()
+
+            def read1(self, _size):
+                with self._lock:
+                    self.read_entered.set()
+                    try:
+                        return client.recv(4096)
+                    except OSError:
+                        return b""
+
+            def close(self):
+                if not self._lock.acquire(timeout=0.3):
+                    raise TimeoutError("response close blocked on the raw reader")
+                try:
+                    self.closed = True
+                finally:
+                    self._lock.release()
+
+        class BlockingConnection:
+            def __init__(self):
+                self.sock = client
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        response = BlockingResponse()
+        connection = BlockingConnection()
+        receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+        receiver._raw_response = response
+        receiver._raw_connection = connection
+        receiver.running = True
+        receiver._open = lambda: None
+        receiver._ensure_raw_reader()
+        assert response.read_entered.wait(1.0)
+
+        started_at = time.monotonic()
+        receiver.stop()
+        elapsed = time.monotonic() - started_at
+
+        assert elapsed < 1.0
+        assert response.closed is True
+        assert connection.closed is True
+        assert not receiver._raw_reader_is_busy(receiver._raw_reader_thread)
+    finally:
+        peer.close()
+        client.close()
+
+
+def test_direct_raw_receiver_stop_reads_final_diagnostics_before_closing_stream():
+    events = []
+
+    class Control:
+        def request(self, verb, resource, *_args, **_kwargs):
+            events.append((verb, resource))
+            return {"raw_csi": {"raw_drop_total": 0, "fresh_record_total": 7}}
+
+        def close(self):
+            events.append("control_close")
+
+    class Connection:
+        def __init__(self):
+            self.sock = self
+
+        def shutdown(self, _mode):
+            events.append("stream_shutdown")
+
+        def close(self):
+            events.append("stream_close")
+
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    receiver._control = Control()
+    receiver._raw_connection = Connection()
+    receiver.running = True
+
+    receiver.stop()
+
+    # A closed stream makes the device count its queued records as drops.
+    assert events == [("get", "diagnostics"), "stream_shutdown", "stream_close", "control_close"]
+    assert receiver.raw_final_fresh_record_total == 7
 
 
 def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallback():
