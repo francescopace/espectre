@@ -1155,10 +1155,29 @@ def test_log1p_export_reproduces_the_in_memory_model(tmp_path):
 
 
 def test_cross_validate_repeats_average_out_of_fold_probabilities(monkeypatch):
+    class ShuffledStratifiedGroupKFold:
+        def __init__(self, n_splits, random_state=None, **kwargs):
+            self.n_splits = n_splits
+            self.random_state = random_state
+
+        def split(self, values, labels, groups):
+            unique_groups = np.random.default_rng(self.random_state).permutation(np.unique(groups))
+            for fold_groups in np.array_split(unique_groups, self.n_splits):
+                validation = np.flatnonzero(np.isin(groups, fold_groups))
+                training = np.flatnonzero(~np.isin(groups, fold_groups))
+                yield training, validation
+
     class IdentityScaler:
         def transform(self, values):
             return np.asarray(values, dtype=np.float32)
 
+    # The base CI installs no ML extras, so the splitter must not need sklearn.
+    sklearn_module = types.ModuleType("sklearn")
+    model_selection_module = types.ModuleType("sklearn.model_selection")
+    model_selection_module.StratifiedGroupKFold = ShuffledStratifiedGroupKFold
+    sklearn_module.model_selection = model_selection_module
+    monkeypatch.setitem(sys.modules, "sklearn", sklearn_module)
+    monkeypatch.setitem(sys.modules, "sklearn.model_selection", model_selection_module)
     monkeypatch.setattr(training, "build_preprocessor", lambda mode: IdentityScaler())
     monkeypatch.setattr(training, "fit_preprocessor", lambda *args, **kwargs: None)
     fitted = []
