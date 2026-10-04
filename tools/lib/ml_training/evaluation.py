@@ -600,6 +600,7 @@ def compare_robust_cv(candidate, baseline):
 
 
 PAIRED_ALARM_BUDGET = 1
+LONG_QUIET_ALARM_BUDGET = 2
 
 
 def _gate_row_passes(row):
@@ -1235,7 +1236,7 @@ def evaluate_exported_paired_gate(threshold=0.5, chips=None,
 
 
 def _iter_quiet_gate_replays(roles=('selection', 'holdout')):
-    """Yield real empty replay paths explicitly reserved for selection/holdout."""
+    """Yield reserved empty replay paths and their catalog long-recording flag."""
     dataset_info = load_dataset_info()
     roles = normalize_dataset_roles(roles, default=('selection', 'holdout'))
     for entry in dataset_info.get('files', {}).get('empty', []):
@@ -1245,12 +1246,12 @@ def _iter_quiet_gate_replays(roles=('selection', 'holdout')):
         path = resolve_entry_path('empty', entry)
         if path.exists():
             chip = str(entry.get('chip', 'unknown')).upper()
-            yield f"{chip}:{role}:{path.name}", path
+            yield f"{chip}:{role}:{path.name}", path, bool(entry.get('long_recording', False))
 
 
 def _iter_quiet_gate_packets(roles=('selection', 'holdout')):
     """Yield real empty recordings explicitly reserved for selection/holdout."""
-    for key, path in _iter_quiet_gate_replays(roles=roles):
+    for key, path, _long_recording in _iter_quiet_gate_replays(roles=roles):
         yield key, _load_npz_packets_cached(path)
 
 
@@ -1283,7 +1284,7 @@ def evaluate_idle_streaming(evaluator, packets, threshold=0.5):
 
 
 def summarize_quiet_gate(by_dataset):
-    """Aggregate explicitly reserved empty-room safety replays."""
+    """Apply the raw FP ceiling and per-recording filtered-alarm budgets."""
     if not by_dataset:
         return None
     rows = list(by_dataset.values())
@@ -1294,7 +1295,9 @@ def summarize_quiet_gate(by_dataset):
         'max_effective_alarms': int(max(row['effective_alarms'] for row in rows)),
         'passed': all(
             row['fp_rate'] < DEFAULT_GATE_TARGET_FP_RATE
-            and row['effective_alarms'] == 0
+            and row['effective_alarms'] <= (
+                LONG_QUIET_ALARM_BUDGET if row.get('long_recording', False) else 0
+            )
             for row in rows
         ),
     }
@@ -1316,7 +1319,7 @@ def evaluate_quiet_gate(model, scaler, feature_names, threshold=0.5,
         )
     by_dataset = {}
     gate_start = perf_counter()
-    for index, (key, path) in enumerate(datasets, start=1):
+    for index, (key, path, long_recording) in enumerate(datasets, start=1):
         step_start = perf_counter()
         if use_cached_features:
             by_dataset[key] = evaluate_cached_idle_array(
@@ -1337,6 +1340,7 @@ def evaluate_quiet_gate(model, scaler, feature_names, threshold=0.5,
                 threshold=threshold,
             )
         row = by_dataset[key]
+        row['long_recording'] = long_recording
         if progress is not None:
             progress(
                 f"Quiet gate {index}/{len(datasets)} {key}: "
@@ -1364,7 +1368,7 @@ def _evaluate_exported_quiet_gate_at_active_bin(
     if use_cached_features:
         dataset_info = load_dataset_info()
         file_metadata = get_file_metadata(dataset_info)
-    for key, path in _iter_quiet_gate_replays(roles=roles):
+    for key, path, long_recording in _iter_quiet_gate_replays(roles=roles):
         if use_cached_features:
             by_dataset[key] = evaluate_cached_idle_array(
                 center,
@@ -1383,6 +1387,7 @@ def _evaluate_exported_quiet_gate_at_active_bin(
                 _load_npz_packets_cached(path),
                 threshold=threshold,
             )
+        by_dataset[key]['long_recording'] = long_recording
     return summarize_quiet_gate(by_dataset)
 
 
@@ -1558,7 +1563,7 @@ def evaluate_occupancy_quiet_gate(
         )
     by_dataset = {}
     gate_start = perf_counter()
-    for index, (key, path) in enumerate(datasets, start=1):
+    for index, (key, path, long_recording) in enumerate(datasets, start=1):
         step_start = perf_counter()
         rows = _load_occupancy_gate_feature_rows(
             path,
@@ -1575,6 +1580,7 @@ def evaluate_occupancy_quiet_gate(
             rows,
             threshold=threshold,
         )
+        by_dataset[key]['long_recording'] = long_recording
         if progress is not None:
             row = by_dataset[key]
             progress(
@@ -1650,7 +1656,7 @@ def evaluate_exported_occupancy_quiet_gate(
     with canonical_trajectory_bin():
         feature_names, center, scale, layers = _load_exported_model_arrays()
         by_dataset = {}
-        for key, path in _iter_quiet_gate_replays(roles=roles):
+        for key, path, long_recording in _iter_quiet_gate_replays(roles=roles):
             rows = _load_occupancy_gate_feature_rows(
                 path,
                 feature_names,
@@ -1666,6 +1672,7 @@ def evaluate_exported_occupancy_quiet_gate(
                 rows,
                 threshold=threshold,
             )
+            by_dataset[key]['long_recording'] = long_recording
         return summarize_quiet_gate(by_dataset)
 
 

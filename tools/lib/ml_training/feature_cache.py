@@ -84,6 +84,8 @@ from tools.lib.host_feature_trackers import (
     CHANNEL_SHAPE_BIN_US,
     ChannelCoherenceTracker,
     ChannelShapeTrajectoryTracker,
+    FineChannelShapeTrajectoryTracker,
+    FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     ChannelShapeTracker,
     PhaseResidualTracker,
 )
@@ -176,7 +178,9 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
     for name, identity in feature_identities.items():
         if (
             name in CANDIDATE_FEATURES
-            and identity.get('provider') == 'channel_shape_trajectory'
+            and identity.get('provider') in (
+                'channel_shape_trajectory', 'fine_channel_shape_trajectory'
+            )
         ):
             identity['trajectory_bin_us'] = int(trajectory_bin_us)
     return {
@@ -351,6 +355,7 @@ def _host_row_stream_identity(stream_provenance):
         'transform': provenance.get('transform', 'host_feature_rows_v3'),
         'row_stream': provenance.get('row_stream', {}),
         'packet_augmentation': provenance.get('packet_augmentation'),
+        'occupancy_gate': provenance.get('occupancy_gate'),
     }
 
 
@@ -646,6 +651,14 @@ class StreamingFeatureExtractor:
             AmplitudeProfileTracker(window_size=self.window_packets)
             if needs_amplitude_profiles(self.candidate_names) else None
         )
+        self.fine_shape_trajectory_tracker = (
+            FineChannelShapeTrajectoryTracker(
+                window_duration_us=SEGMENTATION_WINDOW_SIZE_MS * 1000,
+                bin_us=ACTIVE_TRAJECTORY_BIN_US,
+            )
+            if any(name in FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES
+                   for name in self.candidate_names) else None
+        )
 
     def _trajectory_timestamp_us(self, packet, timestamp_us=None):
         if timestamp_us is not None:
@@ -687,6 +700,7 @@ class StreamingFeatureExtractor:
         needs_timestamp = (
             self.production_extractor.shape_trajectory_tracker is not None
             or self.shape_trajectory_tracker is not None
+            or self.fine_shape_trajectory_tracker is not None
         )
         resolved_timestamp = (
             self._trajectory_timestamp_us(packet, timestamp_us)
@@ -720,6 +734,8 @@ class StreamingFeatureExtractor:
                 csi_data,
                 resolved_timestamp,
             )
+        if self.fine_shape_trajectory_tracker is not None:
+            self.fine_shape_trajectory_tracker.process_packet(csi_data, resolved_timestamp)
         if self.context.buffer_count < self.context.window_size:
             return None
 
@@ -755,6 +771,7 @@ class StreamingFeatureExtractor:
                     self.l1_series[:l1_count]
                     if self.l1_series is not None else None
                 ),
+                fine_shape_trajectory_tracker=self.fine_shape_trajectory_tracker,
             ),
         )
 
