@@ -182,7 +182,7 @@ ML_STRESS_REPLAY_GUARDRAIL_RECALL = 85.0
 ML_STRESS_REPLAY_GUARDRAIL_FP_RATE = 15.0
 # Lightweight empty-room sequential gate. Occupancy 70% can admit a single
 # four-hit debounce burst; two alarms on one short empty file remain a defect.
-# High Accuracy stays at zero alarms. See
+# High Accuracy uses the separate short/long quiet promotion budgets. See
 # docs/adr/2026-03-08-use-host-side-validation-gates-for-detector-promotion.md
 LIGHTWEIGHT_EMPTY_MAX_EFFECTIVE_ALARMS = 1
 LIGHTWEIGHT_EMPTY_MAX_FP_RATE = 6.0
@@ -690,8 +690,8 @@ class TestPerformanceMetrics:
         Empty rooms are the corpus ground truth for "nothing is moving", so this
         is the assertion that has to hold. Static-presence recordings cannot
         serve the same purpose: a stationary person still breathes and shifts,
-        and the detector sees it. High Accuracy still requires zero alarms;
-        Lightweight may raise at most one effective alarm per recording.
+        and the detector sees it. High Accuracy has separate short/long quiet
+        promotion budgets; Lightweight allows at most one alarm per recording.
         """
         from config import DEFAULT_SUBCARRIERS
 

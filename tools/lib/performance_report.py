@@ -319,7 +319,7 @@ def _coerce_long_test_int_series(
 
 
 class _LongTestPacketView(Sequence[Any]):
-    """Zero-copy packet dictionaries over CSI rows plus optional RSSI metadata."""
+    """Zero-copy packet dictionaries with signal and temporal replay metadata."""
 
     def __init__(
         self,
@@ -328,12 +328,14 @@ class _LongTestPacketView(Sequence[Any]):
         seq_num: Optional[np.ndarray] = None,
         device_ticks_us: Optional[np.ndarray] = None,
         wifi_rx_ts_us: Optional[np.ndarray] = None,
+        csi_target_pps: Optional[int] = None,
     ):
         self._csi_rows = csi_rows
         self._rssi_dbm = rssi_dbm
         self._seq_num = seq_num
         self._device_ticks_us = device_ticks_us
         self._wifi_rx_ts_us = wifi_rx_ts_us
+        self._csi_target_pps = csi_target_pps
 
     def __len__(self) -> int:
         return len(self._csi_rows)
@@ -357,6 +359,7 @@ class _LongTestPacketView(Sequence[Any]):
                 sliced_seq,
                 sliced_ticks,
                 sliced_wifi,
+                self._csi_target_pps,
             )
 
         row_index = int(index)
@@ -374,6 +377,8 @@ class _LongTestPacketView(Sequence[Any]):
             packet["device_ticks_us"] = int(self._device_ticks_us[row_index])
         if self._wifi_rx_ts_us is not None:
             packet["wifi_rx_ts_us"] = int(self._wifi_rx_ts_us[row_index])
+        if self._csi_target_pps is not None:
+            packet["csi_target_pps"] = self._csi_target_pps
         return packet
 
 
@@ -1953,6 +1958,7 @@ def _load_long_test_packets_cached(path_value: str) -> _LongTestPacketView:
         seq_num,
         device_ticks_us,
         wifi_rx_ts_us,
+        int(arrays["csi_target_pps"]) if "csi_target_pps" in arrays else None,
     )
 
 

@@ -164,9 +164,12 @@ Promotion is safety-first. The current stable gate policy is:
 | --- | ---: | ---: | ---: |
 | Normal-link paired replay | `>95%` | `<5%` | At most one per static-presence replay |
 | Low-RSSI paired stress replay | `>90%` | `<10%` | Must not regress against the exported baseline |
-| Quiet `empty` replay | N/A | `<5%` | Zero |
+| Short quiet `empty` replay | N/A | `<5%` | Zero |
+| Long quiet `empty` replay (`long_recording: true`) | N/A | `<5%` | At most two per recording |
 | Occupancy-70% paired replay | same absolute cuts | same absolute cuts | same alarm rules, after deterministic thinning of reserved pairs to the production occupancy envelope |
-| Occupancy-70% quiet replay | N/A | `<5%` | Zero, on the same thinned empty reserved set |
+| Occupancy-70% quiet replay | N/A | `<5%` | Same short/long budgets, on the same thinned empty reserved set |
+
+The long-recording budget counts distinct false-MOTION episodes after the production hit filter, not raw positive evaluations. It applies independently to each catalog-marked long recording in each replay mode; it is not a duration-normalized rate. All raw positives and alarms remain reported. The short-recording and paired budgets are unchanged.
 
 The occupancy-70% gate removes packets evenly until about 70% of the slots are filled (the minimum the device accepts), then scores the model. The normal replays are still required. Even thinning approximates real conditions; it does not simulate Bluetooth interference.
 

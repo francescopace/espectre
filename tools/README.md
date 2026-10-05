@@ -104,6 +104,8 @@ The `clipped_standard` scaler works only for CV with `--no-export`; export needs
 
 `generate_performance_report.py` writes `docs/performance/README.md`. It replays Lightweight and High Accuracy on the `selection + holdout` recordings (not `train`), measures C++ resource use, and runs the C++/Python parity checks. It also includes a robustness check that applies the training augmentation to the same recordings. Results are cached, so a second run is fast.
 
+Replay uses the capture's recorded `csi_target_pps` for temporal admission, including long quiet recordings. Legacy captures without that metadata use the measured packet rate.
+
 ```bash
 python tools/generate_performance_report.py
 python tools/generate_performance_report.py --check-current

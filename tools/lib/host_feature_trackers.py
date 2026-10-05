@@ -119,6 +119,7 @@ L1_SERIES_FEATURES: Tuple[str, ...] = ()
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_scale_curvature',
     'chan_shape_coherent_innovation_contrast',
+    'chan_shape_coherent_displacement_ratio',
     'chan_shape_subband_kendall_lag_excess',
     'chan_shape_subband_rank_gap',
     'chan_shape_spread_subband',
@@ -130,6 +131,9 @@ PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
     'chan_shape_subband_kendall_lag_excess',
+)
+FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
+    'chan_shape_intraband_innovation_energy',
 )
 PROMOTED_CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_curve_std',
@@ -153,6 +157,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
         if name not in PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES
     )
     + AMPLITUDE_PROFILE_FEATURES
+    + FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES
     + COMPOSITE_FEATURES
 )
 
@@ -173,6 +178,12 @@ _CHANNEL_SHAPE_DCT = np.sqrt(2.0 / CHANNEL_SHAPE_SUBBAND_COUNT) * np.cos(
     * np.arange(CHANNEL_SHAPE_SUBBAND_COUNT, dtype=np.float64)[None, :]
 )
 _CHANNEL_SHAPE_DCT[:, 0] /= np.sqrt(2.0)
+_INTRABAND_SHAPE_DCT = np.sqrt(2.0 / _CHANNEL_SHAPE_SUBBAND_WIDTH) * np.cos(
+    np.pi / _CHANNEL_SHAPE_SUBBAND_WIDTH
+    * (np.arange(_CHANNEL_SHAPE_SUBBAND_WIDTH)[:, None] + 0.5)
+    * np.arange(_CHANNEL_SHAPE_SUBBAND_WIDTH)[None, :]
+)
+_INTRABAND_SHAPE_DCT[:, 0] /= np.sqrt(2.0)
 
 
 def complex_profile(csi_data, out=None) -> np.ndarray:
@@ -773,6 +784,49 @@ class ChannelShapeTrajectoryTracker:
 # Compatibility name retained for experiments created before the tracker grew
 # the scale-curvature and coherent-innovation readouts.
 ChannelShapeExcessPathTracker = ChannelShapeTrajectoryTracker
+
+
+class FineChannelShapeTrajectoryTracker(ChannelShapeTrajectoryTracker):
+    """Preserve within-subband geometry from all 56 live HT20 magnitudes.
+
+    This host-only tracker shares causal bins, gain normalization, duplicate
+    suppression, and missing-bin handling with the coarse trajectory, but
+    retains seven spatial DCT coefficients per contiguous subband.
+    """
+
+    @staticmethod
+    def _fine_modes(profile):
+        return profile.reshape(
+            CHANNEL_SHAPE_SUBBAND_COUNT, _CHANNEL_SHAPE_SUBBAND_WIDTH
+        ) @ _INTRABAND_SHAPE_DCT
+
+    def _finalize_current_bin(self):
+        if self._current_bin is None or not self._current_profiles:
+            return
+        profile = self._median_profile(self._current_profiles)
+        self._bins.append((self._current_bin, self._fine_modes(profile)))
+
+    def process_packet(self, csi_data, timestamp_us):
+        raw = np.asarray(csi_data, dtype=np.int8)
+        bin_index = max(0, int(timestamp_us)) // self.bin_us
+        if self._current_bin is None:
+            self._current_bin = bin_index
+        elif bin_index != self._current_bin:
+            self._finalize_current_bin()
+            self._current_bin = bin_index
+            self._current_profiles = []
+            self._trim(bin_index)
+        if self._previous_raw is not None and np.array_equal(raw, self._previous_raw):
+            return
+        self._previous_raw = raw.copy()
+        self._current_profiles.append(normalized_amplitude_profile(complex_profile(raw)))
+
+    def _binned_path(self):
+        path = list(self._bins)
+        if self._current_profiles:
+            profile = self._median_profile(self._current_profiles)
+            path.append((self._current_bin, self._fine_modes(profile)))
+        return path
 
 
 class AmplitudeProfileTracker:

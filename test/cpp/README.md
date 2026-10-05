@@ -70,6 +70,8 @@ See the [performance report](../../docs/performance/README.md) for results per c
 
 These two suites only check that replay counts and output are correct. The numeric targets are enforced by `test_validation_real_data.py::TestPerformanceMetrics` and by the report.
 
+High Accuracy replays each paired file with independent filter and feature history, matching the per-file Python row cache. Lightweight retains its calibrated session adaptation across the static and motion phases. Both start each file on a fresh temporal admission grid.
+
 ## Real CSI data
 
 Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://github.com/rogersce/cnpy) library.

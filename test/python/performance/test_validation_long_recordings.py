@@ -210,6 +210,29 @@ def test_classic_long_recording_cached_rows_match_packet_replay(long_dataset):
     _assert_classic_replays_match(cached_metrics, packet_metrics)
 
 
+@pytest.mark.parametrize("recorded_target_pps", [None, 100])
+def test_long_recording_preserves_temporal_admission_target(tmp_path, recorded_target_pps):
+    """Packet views and phase slices must keep the capture's admission grid."""
+    import numpy as np
+
+    from tools.lib.performance_report import _load_long_test_packets_cached
+    from tools.lib.temporal_replay import target_pps_for_packets
+
+    path = tmp_path / "long_recording.npz"
+    arrays = {
+        "csi_data": np.zeros((20, 128), dtype=np.int8),
+        "wifi_rx_ts_us": np.arange(20, dtype=np.uint32) * 12500,
+    }
+    if recorded_target_pps is not None:
+        arrays["csi_target_pps"] = np.asarray(recorded_target_pps)
+    np.savez(path, **arrays)
+
+    packets = _load_long_test_packets_cached(str(path))
+    expected_target = 80 if recorded_target_pps is None else recorded_target_pps
+    for phase in (packets, packets[:10], packets[10:], packets[::2]):
+        assert target_pps_for_packets(phase, 12500) == expected_target
+
+
 def test_classic_row_calibration_skips_not_ready_ticks() -> None:
     """Not-ready evaluation ticks must not consume the startup packet budget."""
     import numpy as np

@@ -3,6 +3,7 @@
 """Contracts for the host-only feature candidates used by ML training."""
 
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -15,13 +16,19 @@ from tools.lib.ml_training import (
     feature_cache,
 )
 from tools.lib.candidate_features import CANDIDATE_FEATURES, candidate_values
-from tools.lib.host_feature_trackers import AmplitudeProfileTracker
+from tools.lib.host_feature_trackers import (
+    AmplitudeProfileTracker,
+    FineChannelShapeTrajectoryTracker,
+    HT20_LIVE_BINS,
+)
 
 
 def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert set(CANDIDATE_FEATURES).isdisjoint(ALL_FEATURES)
     for feature_name in (
         "chan_shape_coherent_innovation_contrast",
+        "chan_shape_coherent_displacement_ratio",
+        "chan_shape_intraband_innovation_energy",
         "chan_shape_subband_rank_gap",
         "chan_shape_scale_curvature",
         "chan_freq_coh_curve_std",
@@ -123,6 +130,46 @@ def test_amplitude_profile_candidates_ignore_packet_gain() -> None:
         baseline.tone_detrended_aggregated_iqr(),
         abs=1e-12,
     )
+
+
+def test_coherent_displacement_requires_persistent_low_mode_changes() -> None:
+    name = "chan_shape_coherent_displacement_ratio"
+
+    def evaluate(positions, mode=1, indices=None):
+        modes = np.zeros((len(positions), 8))
+        modes[:, mode] = positions
+        indices = range(len(positions)) if indices is None else indices
+        path = list(zip(indices, modes, strict=True))
+        tracker = SimpleNamespace(_binned_path=lambda: path)
+        return candidate_values([name], shape_trajectory_tracker=tracker)[name]
+
+    assert evaluate([0, 1, 2, 3]) == pytest.approx(1.0)
+    assert evaluate([0, 1, 0, 1]) == 0.0
+    assert evaluate([0, 1, 2, 3], mode=5) == 0.0
+    assert evaluate([1, 1, 1, 1]) == 0.0
+    assert evaluate([0, 1, 2, 3], indices=[0, 1, 3, 4]) == 0.0
+
+
+def test_fine_trajectory_ignores_packet_gain_and_resets() -> None:
+    name = "chan_shape_intraband_innovation_energy"
+    baseline = FineChannelShapeTrajectoryTracker()
+    gained = FineChannelShapeTrajectoryTracker()
+    observed = []
+    for index in range(24):
+        raw = np.zeros(128, dtype=np.int8)
+        for tone, subcarrier in enumerate(HT20_LIVE_BINS):
+            raw[2 * subcarrier + 1] = round(
+                20 + 6 * np.sin(index * .5) * np.cos((tone % 7 + .5) * np.pi / 7)
+            )
+        baseline.process_packet(raw, index * 80_000)
+        gained.process_packet(raw * (2 if index % 2 else 1), index * 80_000)
+        left = candidate_values([name], fine_shape_trajectory_tracker=baseline)[name]
+        right = candidate_values([name], fine_shape_trajectory_tracker=gained)[name]
+        assert right == pytest.approx(left, abs=1e-12)
+        observed.append(left)
+    assert max(observed) > 0
+    baseline.reset()
+    assert candidate_values([name], fine_shape_trajectory_tracker=baseline)[name] == 0
 
 
 def test_streaming_extractor_evaluates_every_host_candidate() -> None:

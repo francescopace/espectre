@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-06-30
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-08-26
+- Updated: 2026-10-04
 
 ## Context
 
@@ -43,7 +43,7 @@ Interpret a new empty-domain failure as a coverage problem first, not as evidenc
 ## Validation Policy
 
 - Selection and holdout results retain per-recording provenance.
-- Quiet `empty` replays keep the zero-alarm requirement for High Accuracy. Lightweight sequential empty-room tests use the bounded alarm budget in the host-side validation ADR.
+- Quiet `empty` replays use the per-recording short/long alarm budgets in the host-side validation ADR. They remain reserved, and all raw positives and effective alarms remain visible.
 - Static-presence replays may use an explicit alarm budget because real micro-motion can occur.
 - Weak-link replay changes remain subject to absolute stress targets and the current alarm ratchet.
 - Generated artifacts and Python/C++ parity are validated under the shared host-side promotion ADR.

@@ -14,8 +14,10 @@
 #include <climits>
 #include <cstdlib>
 #include <cstdint>
+#include <type_traits>
 #include <vector>
 
+#include "high_accuracy_detector.h"
 #include "lightweight_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
@@ -388,8 +390,15 @@ ReplayMetrics evaluate_detector(
     }
   }
 
-  // The motion stream is a separate recording, so it gets a fresh temporal
-  // admission grid while retaining the detector state used by paired replay.
+  // ML rows are extracted independently for each recorded file in Python.
+  // Drop the baseline's filters and feature history before replaying motion;
+  // a full window of new packets does not flush every tracker or filter.
+  // Lightweight keeps its calibrated session adaptation across both phases.
+  if constexpr (std::is_base_of_v<HighAccuracyDetector, Detector>) {
+    detector.reset();
+    detector.clear_buffer();
+  }
+  // Every separate recording starts on a fresh temporal admission grid.
   sampler = TemporalCsiSampler(
       replay_target_pps, RUNTIME_WINDOW_SIZE_MS_DEFAULT);
   pending = {};

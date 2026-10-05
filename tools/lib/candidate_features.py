@@ -30,6 +30,7 @@ from .host_feature_trackers import (
     CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES,
     CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     COMPOSITE_FEATURES,
+    FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     L1_SERIES_FEATURES,
     PHASE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_FEATURES,
@@ -57,6 +58,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
         if name not in PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES
     )
     + AMPLITUDE_PROFILE_FEATURES
+    + FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES
     + COMPOSITE_FEATURES
 )
 
@@ -72,6 +74,7 @@ FEATURE_PROVIDER_VERSIONS = {
     'phase_residual': 1,
     'channel_shape': 1,
     'channel_shape_trajectory': 1,
+    'fine_channel_shape_trajectory': 1,
     'amplitude_profile': 1,
     'l1_series': 1,
     'composite': 1,
@@ -97,6 +100,8 @@ def candidate_feature_provider(feature_name: str) -> str:
         return 'channel_shape'
     if name in CHANNEL_SHAPE_TRAJECTORY_FEATURES:
         return 'channel_shape_trajectory'
+    if name in FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES:
+        return 'fine_channel_shape_trajectory'
     if name in AMPLITUDE_PROFILE_FEATURES:
         return 'amplitude_profile'
     if name in L1_SERIES_FEATURES:
@@ -255,6 +260,7 @@ def candidate_values(
     shape_trajectory_tracker: ChannelShapeTrajectoryTracker = None,
     amplitude_profile_tracker: AmplitudeProfileTracker = None,
     l1_series: Sequence[float] = None,
+    fine_shape_trajectory_tracker=None,
 ) -> Dict[str, float]:
     """Evaluate the requested candidates from their preprocessed trackers."""
     values: Dict[str, float] = {}
@@ -446,6 +452,59 @@ def candidate_values(
                     f"{name} needs the time-binned channel-shape tracker"
                 )
             values[name] = shape_trajectory_tracker.excess_path()
+        elif name == 'chan_shape_intraband_innovation_energy':
+            if fine_shape_trajectory_tracker is None:
+                raise ValueError(f"{name} needs the fine channel-shape tracker")
+            path = fine_shape_trajectory_tracker._binned_path()
+            if len(path) < 3:
+                values[name] = 0.0
+                continue
+            indices = np.asarray([index for index, _ in path])
+            modes = np.asarray([profile for _, profile in path])
+            complete = indices[2:] - indices[:-2] == 2
+            if not np.any(complete):
+                values[name] = 0.0
+                continue
+            residual = modes[2:] - 2.0 * modes[1:-1] + modes[:-2]
+            # Two within-band low modes carry coherent fine structure;
+            # four higher modes provide an equal-per-mode noise reference.
+            low = (residual[:, :, 1:3] ** 2).sum(axis=(1, 2))
+            high = (residual[:, :, 3:] ** 2).sum(axis=(1, 2))
+            values[name] = float(np.median(np.maximum(low - .5 * high, 0.0)[complete]))
+        elif name == 'chan_shape_coherent_displacement_ratio':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            # Over three contiguous physical-time steps, squared net
+            # displacement exceeds summed step energy when changes persist
+            # in the same direction. High-mode growth is a noise reference.
+            path = shape_trajectory_tracker._binned_path()
+            if len(path) < 4:
+                values[name] = 0.0
+                continue
+            indices = np.asarray([index for index, _ in path])
+            modes = np.asarray([profile for _, profile in path])
+            complete = indices[3:] - indices[:-3] == 3
+            if not np.any(complete):
+                values[name] = 0.0
+                continue
+            steps = np.diff(modes, axis=0)
+            net = modes[3:] - modes[:-3]
+            local_energy = steps * steps
+            summed = (
+                local_energy[:-2] + local_energy[1:-1] + local_energy[2:]
+            )
+            low_steps = summed[:, 1:4].sum(axis=1)
+            high_steps = summed[:, 4:].sum(axis=1)
+            low_growth = (net[:, 1:4] ** 2).sum(axis=1) - low_steps
+            high_growth = (net[:, 4:] ** 2).sum(axis=1) - high_steps
+            coherent = np.maximum(
+                low_growth - np.maximum(high_growth, 0.0), 0.0
+            )
+            denominator = np.maximum(2.0 * (low_steps + high_steps), 1e-12)
+            ratios = np.clip(coherent / denominator, 0.0, 1.0)
+            values[name] = float(np.median(ratios[complete]))
         elif name == 'chan_shape_scale_curvature':
             if shape_trajectory_tracker is None:
                 raise ValueError(

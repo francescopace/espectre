@@ -169,7 +169,13 @@ def test_cache_provenance_memoization_returns_isolated_values():
     assert augmentation._packet_augmentation_stream_provenance_cached.cache_info().hits == 1
 
 
-def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch):
+@pytest.mark.parametrize("candidate_name, tracker_attribute", [
+    ("chan_shape_scale_curvature", "shape_trajectory_tracker"),
+    ("chan_shape_intraband_innovation_energy", "fine_shape_trajectory_tracker"),
+])
+def test_trajectory_bin_experiment_has_distinct_host_cache_identity(
+    monkeypatch, candidate_name, tracker_attribute,
+):
     monkeypatch.setattr(
         feature_cache,
         "ACTIVE_TRAJECTORY_BIN_US",
@@ -180,11 +186,11 @@ def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch)
         [
             "turb_autocorr",
             "chan_shape_excess_path",
-            "chan_shape_scale_curvature",
+            candidate_name,
         ],
     )
     extractor = feature_cache.StreamingFeatureExtractor(
-        ["chan_shape_excess_path", "chan_shape_scale_curvature"],
+        ["chan_shape_excess_path", candidate_name],
     )
 
     feature_cache.set_active_trajectory_bin_ms(80)
@@ -192,11 +198,11 @@ def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch)
         [
             "turb_autocorr",
             "chan_shape_excess_path",
-            "chan_shape_scale_curvature",
+            candidate_name,
         ],
     )
 
-    assert extractor.shape_trajectory_tracker.bin_us == 40_000
+    assert getattr(extractor, tracker_attribute).bin_us == 40_000
     assert (
         forty_ms["feature_identities"]["turb_autocorr"]
         == eighty_ms["feature_identities"]["turb_autocorr"]
@@ -206,9 +212,45 @@ def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch)
         == eighty_ms["feature_identities"]["chan_shape_excess_path"]
     )
     assert (
-        forty_ms["feature_identities"]["chan_shape_scale_curvature"]
-        != eighty_ms["feature_identities"]["chan_shape_scale_curvature"]
+        forty_ms["feature_identities"][candidate_name]
+        != eighty_ms["feature_identities"][candidate_name]
     )
+
+
+def test_host_occupancy_cache_keeps_thinned_and_original_streams_separate(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv(
+        feature_cache.npz_cache.NPZ_CACHE_DIR_ENV, str(tmp_path / "cache"),
+    )
+    source = tmp_path / "capture.npz"
+    np.savez(source, csi_data=np.zeros((1, 128), dtype=np.int8))
+    packets = _synthetic_packets(600, source=source.name)
+    rng = np.random.default_rng(29)
+    for packet in packets:
+        packet["csi_data"] = rng.integers(-40, 41, size=128, dtype=np.int8)
+    monkeypatch.setattr(evaluation, "_load_npz_packets_cached", lambda _: packets)
+    names = ["chan_shape_intraband_innovation_energy"]
+    original = feature_cache.load_or_compute_host_feature_rows(
+        source, packets=packets, feature_names=names,
+    )
+    kwargs = dict(dataset_id=source.name, phase="empty", offset=0)
+    uncached = evaluation._load_occupancy_gate_feature_rows(
+        source, names, use_cache=False, **kwargs,
+    )
+    cached = evaluation._load_occupancy_gate_feature_rows(source, names, **kwargs)
+    warm = evaluation._load_occupancy_gate_feature_rows(source, names, **kwargs)
+    original_warm = feature_cache.load_or_compute_host_feature_rows(
+        source, packets=packets, feature_names=names,
+    )
+
+    assert len(uncached["X"]) > 0
+    assert not np.array_equal(uncached["packet_index"], original["packet_index"])
+    assert warm["cache_hit"] and original_warm["cache_hit"]
+    for key in ("X", "packet_index", "reset_index", "evaluation_due"):
+        np.testing.assert_array_equal(cached[key], uncached[key])
+        np.testing.assert_array_equal(warm[key], uncached[key])
+        np.testing.assert_array_equal(original_warm[key], original[key])
 
 
 def test_promoted_trajectory_feature_uses_only_production_tracker():
@@ -496,6 +538,69 @@ def test_training_default_is_the_promoted_subband_production_set():
     from csi_features import DEFAULT_FEATURES
 
     assert feature_cache.TRAINING_FEATURES == DEFAULT_FEATURES
+
+
+@pytest.mark.parametrize(
+    "long_recording,alarms,fp_rate,passed",
+    [
+        (True, evaluation.LONG_QUIET_ALARM_BUDGET, 0.8, True),
+        (True, evaluation.LONG_QUIET_ALARM_BUDGET + 1, 0.8, False),
+        (True, 0, evaluation.DEFAULT_GATE_TARGET_FP_RATE, False),
+        (False, 0, 0.8, True),
+        (False, 1, 0.8, False),
+        (None, 1, 0.8, False),
+    ],
+)
+def test_quiet_gate_enforces_long_and_short_recording_budgets(
+    long_recording, alarms, fp_rate, passed,
+):
+    row = {"fp_rate": fp_rate, "effective_alarms": alarms}
+    if long_recording is not None:
+        row["long_recording"] = long_recording
+    result = evaluation.summarize_quiet_gate({"empty": row})
+
+    assert result["passed"] is passed
+    assert result["total_effective_alarms"] == alarms
+    assert result["max_fp_rate"] == fp_rate
+
+
+def test_quiet_alarm_budget_applies_per_recording():
+    rows = {
+        name: {
+            "fp_rate": 0.8,
+            "effective_alarms": evaluation.LONG_QUIET_ALARM_BUDGET,
+            "long_recording": True,
+        }
+        for name in ("selection_empty", "holdout_empty")
+    }
+    result = evaluation.summarize_quiet_gate(rows)
+
+    assert result["passed"]
+    assert result["total_effective_alarms"] == 2 * evaluation.LONG_QUIET_ALARM_BUDGET
+    rows["holdout_empty"]["effective_alarms"] += 1
+    assert not evaluation.summarize_quiet_gate(rows)["passed"]
+
+
+def test_quiet_replay_uses_catalog_long_recording_flag(monkeypatch, tmp_path):
+    entries = [
+        {"filename": "long.npz", "dataset_role": "selection", "long_recording": True},
+        {"filename": "short.npz", "dataset_role": "holdout"},
+        {"filename": "train.npz", "dataset_role": "train", "long_recording": True},
+    ]
+    for entry in entries:
+        (tmp_path / entry["filename"]).touch()
+    monkeypatch.setattr(
+        evaluation, "load_dataset_info", lambda: {"files": {"empty": entries}},
+    )
+    monkeypatch.setattr(
+        evaluation, "resolve_entry_path", lambda _label, entry: tmp_path / entry["filename"],
+    )
+
+    rows = list(evaluation._iter_quiet_gate_replays())
+
+    assert [(path.name, long_recording) for _key, path, long_recording in rows] == [
+        ("long.npz", True), ("short.npz", False),
+    ]
 
 
 def test_in_memory_gate_result_uses_training_metrics():
