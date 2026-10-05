@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -185,6 +186,53 @@ def test_collect_duration_expires_after_packets_stop(monkeypatch, tmp_path, labe
     assert receiver.stopped
     assert generator_stops
     assert saved_packets == ([packet] if label else [])
+
+
+def test_collect_stream_error_remains_visible_after_inline_status_cleanup(monkeypatch):
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
+
+    terminal = Terminal()
+    monkeypatch.setattr(host.sys, "stdout", terminal)
+    monkeypatch.setattr(host.signal, "signal", lambda *_args: None)
+    packet = csi_io.CSIPacket(
+        timestamp=20.0, seq_num=1, num_subcarriers=64,
+        iq_raw=np.ones(128, dtype=np.int8), device_id=1,
+        device_ticks_us=10000, source_ip="192.0.2.1",
+    )
+
+    class Receiver:
+        effective_socket_rcvbuf_bytes = None
+        calls = 0
+
+        def add_callback(self, callback):
+            self.callback = callback
+
+        def run(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                self.callback(packet)
+                return
+            raise RuntimeError("stream transport failed")
+
+        def stop(self):
+            pass
+
+    generator = SimpleNamespace(stop=lambda: None)
+    monkeypatch.setattr(host, "_prepare_raw_http_collection", lambda *_args: (Receiver(), generator, 5555))
+    monkeypatch.setattr(host, "_start_raw_http_collection", lambda *_args: None)
+    args = build_parser().parse_args(["collect", "--target", "192.0.2.1", "--duration", "60"])
+    args.direct_endpoint = "http://192.0.2.1:8080/espectre/v1"
+    args.traffic_target = "192.0.2.1"
+
+    with pytest.raises(SystemExit) as stopped:
+        host._run_live_collect(args)
+
+    assert stopped.value.code == 1
+    output = terminal.getvalue()
+    # Erase the live status before printing the error, never the error itself.
+    assert 0 <= output.rfind("\x1b[2K") < output.index("stream transport failed")
 
 
 @pytest.mark.parametrize("motion", [False, True])

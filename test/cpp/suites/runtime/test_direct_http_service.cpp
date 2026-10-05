@@ -1020,6 +1020,8 @@ void test_empty_raw_session_closes_when_peer_disconnects() {
 void test_raw_send_failure_accounts_batch_and_stops_slow_client() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
+  int sockets[2];
+  TEST_ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
   EspIdfDirectHttpService service;
   RawCsiStopReason stopped_reason = RawCsiStopReason::INTERNAL_ERROR;
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
@@ -1028,7 +1030,7 @@ void test_raw_send_failure_accounts_batch_and_stops_slow_client() {
   accept_raw_open(&service, session,
                   [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; });
   httpd_mock_set_header("Origin", "https://espectre.dev");
-  httpd_req_t raw_request = request_for(2U, 9);
+  httpd_req_t raw_request = request_for(2U, sockets[0]);
   TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
   service.loop();
 
@@ -1048,6 +1050,59 @@ void test_raw_send_failure_accounts_batch_and_stops_slow_client() {
                     diagnostics.fresh_record_total + diagnostics.raw_drop_total);
   TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::SLOW_CLIENT),
                     static_cast<uint8_t>(stopped_reason));
+  // Completing the async request alone leaves the peer waiting for more data.
+  char byte = 0;
+  TEST_ASSERT_EQUAL(0, recv(sockets[1], &byte, 1U, MSG_DONTWAIT));
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  close(sockets[0]);
+  close(sockets[1]);
+}
+
+void test_raw_stop_closes_socket_when_final_chunk_fails() {
+  httpd_mock_reset();
+  int sockets[2];
+  TEST_ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 3U;
+  accept_raw_open(&service, session);
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_req_t raw_request = request_for(2U, sockets[0]);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
+
+  g_httpd_mock.send_result = ESP_FAIL;
+  TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  char byte = 0;
+  TEST_ASSERT_EQUAL(0, recv(sockets[1], &byte, 1U, MSG_DONTWAIT));
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  close(sockets[0]);
+  close(sockets[1]);
+}
+
+void test_raw_stop_leaves_the_socket_open_when_the_final_chunk_succeeds() {
+  httpd_mock_reset();
+  int sockets[2];
+  TEST_ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 3U;
+  accept_raw_open(&service, session);
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_req_t raw_request = request_for(2U, sockets[0]);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
+  service.loop();
+
+  TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  char byte = 0;
+  // A delivered terminator ends the HTTP body. The socket stays open.
+  TEST_ASSERT_EQUAL(-1, recv(sockets[1], &byte, 1U, MSG_DONTWAIT));
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.chunk_calls);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  close(sockets[0]);
+  close(sockets[1]);
 }
 
 void test_raw_stop_accounts_records_accepted_but_not_sent() {
@@ -1132,6 +1187,8 @@ int main() {
   RUN_TEST(test_raw_session_has_no_bind_timeout);
   RUN_TEST(test_empty_raw_session_closes_when_peer_disconnects);
   RUN_TEST(test_raw_send_failure_accounts_batch_and_stops_slow_client);
+  RUN_TEST(test_raw_stop_closes_socket_when_final_chunk_fails);
+  RUN_TEST(test_raw_stop_leaves_the_socket_open_when_the_final_chunk_succeeds);
   RUN_TEST(test_raw_stop_accounts_records_accepted_but_not_sent);
   RUN_TEST(test_raw_assigns_sequence_before_rejecting_an_invalid_offer);
   return espectre::test::end_suite();

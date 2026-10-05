@@ -289,7 +289,9 @@ See [Wi-Fi scan and BSSID selection](API.md#wi-fi-scan-and-bssid-selection) for 
 4. When recording, the CLI waits until the selected detector is ready and has stayed idle for `--ready-stable-seconds`. Lightweight calibrates first; High Accuracy fills its feature window.
 5. Closing the connection ends collection, then the generator stops.
 
-`--duration` counts from the first packet in live view, or from the start of recording. It is checked even if packets stop arriving, with up to one second of delay. With `--start-delay`, the CLI waits before starting everything.
+`--duration` counts from the first packet in live view, or from the start of recording. It is checked even if packets stop arriving, normally with up to one second of delay. With `--start-delay`, the CLI waits before starting everything.
+
+When the stream closes, and after eight seconds without stream data, the CLI reads `diagnostics.raw_csi`. If the device reports that collection has ended, the CLI stops with an error and reports the send-backpressure and drop counters. A closed stream with unavailable diagnostics stops with a stream error. An active session may remain empty when the device rejects all CSI; unavailable diagnostics do not establish that the session has ended. Idle checks repeat while the stream is open. Either diagnostics read can add up to two seconds to a duration check.
 
 **After saving,** each file is checked for integrity, signal quality, occupancy, and continuity. Occupancy is measured on full detector windows: below 85% gives a warning, below 70% fails. A failed file is kept for diagnosis, but `collect` exits with an error. Each file records the device, firmware, endpoint, requested and measured rate, and format versions.
 

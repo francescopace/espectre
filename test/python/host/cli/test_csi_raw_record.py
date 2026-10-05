@@ -12,6 +12,7 @@ import asyncio
 import copy
 import io
 import json
+import queue
 import socket
 import threading
 import time
@@ -447,6 +448,93 @@ def test_direct_raw_receiver_run_timeout_does_not_wait_for_idle_stream():
 
     assert elapsed < 0.5
     assert response.closed.is_set()
+
+
+@pytest.mark.parametrize("raw_state", [False, True, None, OSError("offline")])
+def test_direct_raw_receiver_checks_device_session_after_idle_across_runs(monkeypatch, raw_state):
+    clock = [0.0]
+    requests = []
+
+    class IdleQueue:
+        def get(self, timeout):
+            clock[0] += timeout
+            raise queue.Empty
+
+    class Control:
+        def request(self, method, resource, data, **kwargs):
+            requests.append((method, resource, data, kwargs))
+            if isinstance(raw_state, Exception):
+                raise raw_state
+            if raw_state is None:
+                return {}
+            return {"raw_csi": {"active": raw_state, "send_backpressure_total": 1, "raw_drop_total": 543}}
+
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    receiver._control = Control()
+    receiver._raw_read_queue = IdleQueue()
+    receiver._open = lambda: None
+    receiver._ensure_raw_reader = lambda: None
+    receiver.running = True
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    # The CLI repeatedly runs one-second slices; idle time must survive them.
+    for _ in range(7):
+        receiver.run(timeout=1.0)
+    assert requests == []
+    if raw_state is False:
+        with pytest.raises(
+            RuntimeError,
+            match=r"session ended on the device while the stream remained open "
+            r"\(send backpressure: 1, dropped records: 543\)",
+        ):
+            receiver.run(timeout=2.0)
+    else:
+        receiver.run(timeout=2.0)
+        assert receiver.running
+    assert len(requests) == 1
+    assert requests[0][:3] == ("get", "diagnostics", {"fields": ["raw_csi"]})
+
+
+@pytest.mark.parametrize("raw_state", [False, True, None, OSError("offline")])
+def test_direct_raw_receiver_reports_ended_session_when_stream_closes(raw_state):
+    requests = []
+
+    class ClosedQueue:
+        def get(self, timeout):
+            del timeout
+            return None, RuntimeError("Direct raw HTTP stream ended unexpectedly")
+
+    class Control:
+        def request(self, method, resource, data, **kwargs):
+            requests.append((method, resource, data, kwargs))
+            if isinstance(raw_state, Exception):
+                raise raw_state
+            if raw_state is None:
+                return {}
+            return {"raw_csi": {"active": raw_state, "send_backpressure_total": 1, "raw_drop_total": 543}}
+
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    receiver._control = Control()
+    receiver._raw_read_queue = ClosedQueue()
+    receiver._raw_idle_check_at = time.monotonic() + 60.0
+    receiver._open = lambda: None
+    receiver._ensure_raw_reader = lambda: None
+    receiver.running = True
+
+    if raw_state is False:
+        with pytest.raises(
+            RuntimeError,
+            match=r"session ended on the device "
+            r"\(send backpressure: 1, dropped records: 543\)",
+        ) as caught:
+            receiver.run(timeout=1.0)
+        assert isinstance(caught.value.__cause__, RuntimeError)
+        assert "ended unexpectedly" in str(caught.value.__cause__)
+    else:
+        with pytest.raises(RuntimeError, match="ended unexpectedly"):
+            receiver.run(timeout=1.0)
+    assert len(requests) == 1
+    assert requests[0][:3] == ("get", "diagnostics", {"fields": ["raw_csi"]})
 
 
 def test_direct_raw_receiver_stop_unblocks_reader_before_closing_response():

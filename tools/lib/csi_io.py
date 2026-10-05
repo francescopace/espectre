@@ -763,6 +763,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._raw_read_queue = queue.Queue(maxsize=1)
         self._raw_reader_stop = threading.Event()
         self._raw_reader_thread = None
+        self._raw_idle_check_at = None
         self._session_id = b""
         self._firmware_identity = ""
         self._frontend = ""
@@ -866,6 +867,7 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._raw_read_queue = queue.Queue(maxsize=64)
         self._raw_reader_stop = threading.Event()
         self._raw_reader_thread = None
+        self._raw_idle_check_at = time.monotonic() + self.timeout
         self.running = True
         self.start_time = time.time()
         self._last_pps_time = self.start_time
@@ -1064,10 +1066,50 @@ class DirectRawCSIReceiver(CSIReceiver):
         )
         self._raw_reader_thread.start()
 
+    def _inactive_raw_session(self) -> Optional[dict]:
+        """Return raw CSI diagnostics when the device reports that collection ended."""
+        if self._control is None:
+            return None
+        try:
+            diagnostics = self._control.request(
+                "get", "diagnostics", {"fields": ["raw_csi"]},
+                timeout=min(self.timeout, 2.0),
+            )
+        except Exception:
+            # An unavailable snapshot does not establish that capture ended.
+            return None
+        raw = diagnostics.get("raw_csi") if isinstance(diagnostics, dict) else None
+        if isinstance(raw, dict) and raw.get("active") is False:
+            return raw
+        return None
+
+    @staticmethod
+    def _raw_session_ended_error(raw: dict, *, stream_open: bool) -> RuntimeError:
+        counters = (
+            f"send backpressure: {raw.get('send_backpressure_total', 'unknown')}, "
+            f"dropped records: {raw.get('raw_drop_total', 'unknown')}"
+        )
+        if stream_open:
+            return RuntimeError(
+                "Direct raw HTTP session ended on the device while the stream remained open "
+                f"({counters})"
+            )
+        return RuntimeError(f"Direct raw HTTP session ended on the device ({counters})")
+
+    def _check_idle_raw_session(self) -> None:
+        if self._control is None or time.monotonic() < self._raw_idle_check_at:
+            return
+        self._raw_idle_check_at = time.monotonic() + self.timeout
+        raw = self._inactive_raw_session()
+        if raw is not None:
+            raise self._raw_session_ended_error(raw, stream_open=True)
+
     def run(self, timeout: float = 0, quiet: bool = False, announce_socket_rcvbuf: bool = False) -> None:
         del quiet, announce_socket_rcvbuf
         self._open()
         self._ensure_raw_reader()
+        if self._raw_idle_check_at is None:
+            self._raw_idle_check_at = time.monotonic() + self.timeout
         deadline = time.monotonic() + timeout if timeout > 0 else None
         while self.running and (deadline is None or time.monotonic() < deadline):
             wait_seconds = 0.1
@@ -1078,9 +1120,14 @@ class DirectRawCSIReceiver(CSIReceiver):
             try:
                 chunk, error = self._raw_read_queue.get(timeout=wait_seconds)
             except queue.Empty:
+                self._check_idle_raw_session()
                 continue
             if error is not None:
+                raw = self._inactive_raw_session()
+                if raw is not None:
+                    raise self._raw_session_ended_error(raw, stream_open=False) from error
                 raise error
+            self._raw_idle_check_at = time.monotonic() + self.timeout
             self._raw_buffer.extend(chunk)
             self._consume_raw_frames()
             # Let the reader thread drain the socket while this thread holds

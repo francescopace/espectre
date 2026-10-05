@@ -1516,6 +1516,7 @@ def _run_live_collect(args) -> None:
         flush_temporal_devices(now)
         render_multi_device_summary(now)
     except Exception as e:
+        clear_status_block()
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
     finally:

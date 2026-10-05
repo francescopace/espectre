@@ -589,8 +589,19 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   unlock_();
   xSemaphoreGive(raw_send_mutex_);
   if (request != nullptr) {
-    if (headers_pending) set_response_headers_(request, origin);
-    (void) httpd_resp_send_chunk(request, nullptr, 0U);
+    // A failed send can leave a partial HTTP chunk on the wire. Appending a
+    // terminator cannot repair it, and async completion only releases request
+    // ownership; it does not close the socket or wake the client's reader.
+    bool stream_failed = reason == RawCsiStopReason::SLOW_CLIENT;
+    if (!stream_failed) {
+      if (headers_pending) set_response_headers_(request, origin);
+      stream_failed = httpd_resp_send_chunk(request, nullptr, 0U) != ESP_OK;
+    }
+    if (stream_failed) {
+      const int fd = httpd_req_to_sockfd(request);
+      (void) ::shutdown(fd, SHUT_WR);
+      (void) ::shutdown(fd, SHUT_RD);
+    }
     (void) httpd_req_async_handler_complete(request);
   }
   return true;
@@ -1304,6 +1315,7 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
                                                   reinterpret_cast<const char *>(raw_buffers_->send.data()),
                                                   length);
   if (result != ESP_OK) {
+    ESPECTRE_LOGW(TAG, "Raw CSI send failed: %s; closing collection stream", esp_err_to_name(result));
     raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
     raw_drop_total_.fetch_add(records, std::memory_order_relaxed);
     xSemaphoreGive(raw_send_mutex_);
