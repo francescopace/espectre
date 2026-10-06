@@ -197,11 +197,6 @@ bool matches_configured_traffic(const ParsedIpv4 &packet, const CsiFrameFilterCo
 
 }  // namespace
 
-CsiAckCredit &csi_station_ack_credit() {
-  static CsiAckCredit credit;
-  return credit;
-}
-
 bool CsiRetransmissionFilter::admit(const wifi_csi_info_t &info) {
   constexpr uint8_t kFrameControlRetry = 0x08U;
   const bool retry = info.hdr != nullptr && (info.hdr[1] & kFrameControlRetry) != 0U;

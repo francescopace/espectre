@@ -333,6 +333,13 @@ TcpConnectionState poll_tcp_connect(int sock) {
 
 }  // namespace
 
+// The CSI matcher lives outside the Micro-ESPectre traffic component. Keep this
+// singleton with the generator, which is the component that always links it.
+CsiAckCredit &csi_station_ack_credit() {
+  static CsiAckCredit credit;
+  return credit;
+}
+
 size_t build_dns_query_payload(uint16_t transaction_id,
                                uint8_t *buffer,
                                size_t buffer_len) {
