@@ -117,6 +117,7 @@ Channels:
 - The site serves ESPectre 3 and later, prereleases included.
 - **Release** is the most recently published numeric GitHub release (release candidates included; drafts and rolling tags excluded). It is a tested tagged release, not necessarily a stable one. Until one exists, Release is unavailable.
 - Rolling versions come from the SDK manifest. Builds need a numeric 3.x (or later) tag in their history; builds still named `2.8.0-<commits>-g<sha>` cannot be deployed.
+- The USB install and update menus use the SDK download menu's channel labels, descriptions, and version styling. Their `Version <version>` labels come from the firmware catalog.
 
 All downloads live under the ignored `artifacts/` folder: firmware in `artifacts/firmware/<channel>/`, SDK archives in `artifacts/sdk/<channel>/`, and the API reference in `artifacts/sdk/api/`.
 

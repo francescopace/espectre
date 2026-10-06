@@ -29,9 +29,9 @@
     const FLASH_APP_DESCRIPTOR_MAGIC = 0xABCD5432;
     const FLASH_FRONTEND_ORDER = ['native', 'esphome', 'matter'];
     const FLASH_CHANNELS = Object.freeze([
-        Object.freeze({ value: 'release', label: 'Release' }),
-        Object.freeze({ value: 'preview', label: 'Preview' }),
-        Object.freeze({ value: 'develop', label: 'Development' })
+        Object.freeze({ value: 'release', label: 'Release', description: 'Latest published version' }),
+        Object.freeze({ value: 'preview', label: 'Preview', description: 'Rolling build from ', branch: 'main' }),
+        Object.freeze({ value: 'develop', label: 'Develop', description: 'Rolling build from ', branch: 'develop' })
     ]);
     const FLASH_FRONTEND_DESCRIPTIONS = Object.freeze({
         native: 'Built-in web tools and Direct HTTP.',
@@ -365,9 +365,17 @@
             button.disabled = true;
             const title = document.createElement('strong');
             title.textContent = channel.label;
-            const detail = document.createElement('span');
-            detail.textContent = 'Loading version…';
-            button.append(title, detail);
+            const description = document.createElement('span');
+            description.textContent = channel.description;
+            if (channel.branch) {
+                const branch = document.createElement('code');
+                branch.textContent = channel.branch;
+                description.appendChild(branch);
+            }
+            const version = document.createElement('code');
+            version.className = 'sdk-download-version';
+            version.textContent = 'Loading version…';
+            button.append(title, description, version);
             button.addEventListener('click', () => { void onSelect(channel.value); });
             menu.appendChild(button);
             return button;
@@ -381,8 +389,8 @@
         Object.values(flash.installMenus).flatMap((menu) => menu.buttons).forEach((button) => {
             const channel = button.dataset.flashChannel;
             const manifest = flash.manifests[channel];
-            const version = manifest?.release_tag || manifest?.version || '';
-            const detail = button.querySelector('span');
+            const version = manifest?.version || '';
+            const detail = button.querySelector('.sdk-download-version');
             if (!detail) return;
             detail.textContent = version
                 ? 'Version ' + version
