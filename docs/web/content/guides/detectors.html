@@ -68,7 +68,7 @@
       </article>
     </div>
 
-    <div class="note"><strong>At startup:</strong> keep the room still while Lightweight calibrates. A brief movement extends that calibration, up to about thirty seconds. Recalibrate after moving the sensor. High Accuracy needs no calibration, but it still needs a few seconds of CSI before it starts.</div>
+    <div class="note"><strong>At startup:</strong> keep the room still while Lightweight calibrates. A brief movement extends that calibration, up to about thirty seconds. After moving the sensor, restart it so Lightweight calibrates in its new position. High Accuracy needs no calibration, but it still needs a few seconds of CSI before it starts.</div>
     <p class="article-footnote"><strong>These are detector choices, not power modes.</strong> We measure each detector's CPU and memory use, but make no claim about the device's total power use.</p>
 
     <h2 id="detectors-controls">How to select it</h2>
@@ -84,9 +84,8 @@
         <h3 id="detectors-cli" class="subheading">Native MQTT shell</h3>
         <p>Connect to the broker and select the device. The change applies at once and survives reboots:</p>
         <pre class="code"><code>./espectre mqtt --broker 192.168.1.20
-espectre&gt; update_sensing detector=high_accuracy
-espectre&gt; info</code></pre>
-        <p>Use <code>update_sensing detector=lightweight</code> to switch back.</p>
+espectre&gt; update_sensing detector=high_accuracy</code></pre>
+        <p>Check that the shell reports an accepted result, then open <a href="/tools/monitor/">Live motion</a> on the same device and verify <em>Detection mode</em>. MQTT clients can also read <code>detector</code> from the retained <code>sensing</code> topic. Use <code>update_sensing detector=lightweight</code> to switch back.</p>
       </div>
       <div class="code-tab-panel" id="detectors-esphome-panel" role="tabpanel" aria-labelledby="detectors-esphome-tab" data-detector-interface="esphome" hidden>
         <p>Home Assistant shows a detector selector, and the choice is saved. In YAML, <code>detection_algorithm</code> sets the profile to use until you pick one:</p>

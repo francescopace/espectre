@@ -36,7 +36,7 @@
       <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi.</dd></div>
       <div><dt>Validated sensing</dt><dd>Detector results are measured on 2.4 GHz HT20 CSI. By default (<code>AUTO</code>), the runtime picks <code>lltf20</code> for its own raw Wi-Fi traffic, <code>vht20</code> on 5 GHz, and <code>ht20</code> otherwise; the <code>device</code> resource reports it as <code>csi_profile</code>. Detection quality on 5 GHz is not measured yet.</dd></div>
       <div><dt>Delivery model</dt><dd>A versioned C++ source component, installed with the ESP-IDF Component Manager and compiled with your firmware. Source archives are also available if you prefer to copy it into your project.</dd></div>
-      <div><dt>Compatibility</dt><dd>Final releases follow Semantic Versioning for the documented C++ API. There is no stable binary interface (ABI).</dd></div>
+      <div><dt>Compatibility</dt><dd>Final releases follow Semantic Versioning for the stable C++ API. The core-only detector interface may change in minor releases until stationary presence ships; see the <a href="/sdk/api/#compatibility">compatibility rules</a>. There is no stable binary interface (ABI).</dd></div>
       <div><dt>Licensing</dt><dd>GPLv3 for open-source firmware. Commercial terms are available for eligible closed-source products. <a href="/licensing/">Review licensing</a>.</dd></div>
     </dl>
   </section>

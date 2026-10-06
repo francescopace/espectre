@@ -55,7 +55,7 @@ If the browser cannot reach the device, see [Device not reachable](TROUBLESHOOTI
 
 ### Optional: external traffic from Home Assistant
 
-On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on can send sensing traffic instead of each device's internal generator. Its panel switches ESPHome and Native MQTT devices to external traffic and shows CSI diagnostics. Configure Matter devices through Device settings instead.
+On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on can send sensing traffic instead of each device's internal generator. Its panel switches ESPHome and Native MQTT devices to external traffic and shows CSI diagnostics. For Matter, open [Monitor](https://espectre.dev/tools/monitor/), expand **Advanced sensing settings**, and set **Wi-Fi traffic source** to **External**.
 
 Match the add-on's `rate_pps` to the device's `csi_target_pps`, then check the CSI rate and sensing readiness in Monitor. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md) for installation and options, and [external sources](CSI.md#external-sources) for how external traffic works.
 
