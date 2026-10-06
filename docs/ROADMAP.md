@@ -4,10 +4,7 @@
 
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
-| **v3.0.0-rc1** | Released | Publish the first complete candidate of the shared sensing platform |
-| **v3.0.0-rc2** | Released | Validate signed firmware, sensing fixes, and SDK packaging |
-| **v3.0.0-rc3** | Released | Validate Component Registry distribution, unified release delivery, and ESP-IDF 6.x SDK support |
-| **v3.0.0** | In progress | Ship the supported shared sensing platform and firmware frontends, and publish the SDK on the ESP Component Registry |
+| **v3.0.0** | Released | Shared sensing platform, ESPHome, Native, and Matter firmware, and the SDK on the ESP Component Registry |
 | **v3.1.0** | Planned | Validate Matter with more controllers and define its production path |
 | **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Add a dedicated Apple Home frontend where Matter falls short |
@@ -22,20 +19,15 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 ## v3.0.0 - Stable release
 
-**Product outcome**: release the stable v3 platform once the release candidates are validated, the remaining dataset work is done, and the rc-era compatibility code is gone.
+**Released**: October 7, 2026. See the [release notes](CHANGELOG.md) for the complete scope and migration guidance.
 
-**Scope**: fix what `rc3` found, pass the gates below, and freeze the API and SDK: later v3 releases may only add to them. The core-only detector interface stays open until `v3.4.0`, and the capture profile enums can gain values. New sensing features and frontends wait for later versions.
+**Product outcome**: a shared sensing core and runtime, a public C++ SDK, ESPHome, Native, and Matter firmware, and browser tools for installation, configuration, and monitoring.
 
-**Remaining release gates**:
+**Compatibility**: later v3 releases may only add to the API and SDK. The core-only detector interface stays open until `v3.4.0`, and the capture profile enums can gain values. See [SDK versioning](SDK.md#versioning) for the compatibility contract. New sensing features and frontends follow the milestones below.
 
-- [ ] Declare the final v3 dataset: list the missing captures by chip, environment, and label in the data collection guide, collect them, and pass dataset-quality, training, and C++/Python parity gates on the result. 
+**Dataset gate completed**: the final v3 dataset is complete, and the dataset-quality, training, and C++/Python parity gates have passed. See the [data collection guide](ML_DATA_COLLECTION.md) and [performance report](performance/README.md) for collection and validation details.
 
-**Exit criteria**:
-
-- No release blockers remain, and all required checks pass on the release commit.
-- Published files match the tagged source and documentation.
-- Tests cover first-time setup, sensing after Wi-Fi drops, false alarms and missed motion, and OTA recovery, for every supported firmware.
-- A new ESP-IDF project, without the ESPectre repository, can install the SDK from the Component Registry and build the example on every supported chip.
+Release checks and artifact publication follow the [release procedure](RELEASING.md). Matter controller validation, OTA, and certification work continue in `v3.1.0`.
 
 ## v3.1.0 - Matter compatibility and production readiness
 
@@ -223,7 +215,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **October 1, 2026**
+Last update: **October 7, 2026**
 
 For discussion and proposed changes:
 

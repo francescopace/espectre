@@ -66,7 +66,7 @@
   <div class="note"><strong>Raw CSI callbacks have stricter rules.</strong> Listener events arrive on your task, but the callback passed to <code>start_raw_collection()</code> runs inside the Wi-Fi driver. Keep it quick, non-blocking, and free of allocations: copy packets into a queue you allocated in advance, and process them later.</div>
 
   <h2 data-toc-label="Detector choice">Choosing the detector</h2>
-  <p>Lightweight uses less CPU and memory. High Accuracy adds more features and a small neural network, and detects better in our tests. Lightweight calibrates for up to ten seconds at startup and can lower its threshold later, after a quiet stretch; High Accuracy needs no calibration but waits for enough CSI. See the <a href="/sdk/detectors/">detector profiles</a> for measurements and limits.</p>
+  <p>Lightweight uses less CPU and memory. High Accuracy adds more features and a small neural network, and detects better in our tests. Lightweight calibrates at startup on about 10 seconds of clean data, or up to about 30 seconds when that window holds a burst, and can lower its threshold later, after a quiet stretch; High Accuracy needs no calibration but waits for enough CSI. See the <a href="/sdk/detectors/">detector profiles</a> for measurements and limits.</p>
 
   <h2 id="sdk-public-facades" data-toc-label="Public facades">Public SDK headers</h2>
   <div class="api-map">

@@ -4,34 +4,87 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.0.0] - Unreleased
+## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools
 
-### Changed
+ESPectre 3.0 splits the sensing engine, runtime, and frontend so Wi-Fi motion detection can run inside other firmware. It turns the three release candidates into one stable release.
 
-- **Breaking:** `TrafficGeneratorMode::EXTERNAL` is now `TrafficGeneratorMode::EXTERNAL_HOST`, because Arduino defines `EXTERNAL` as a macro. The `external` wire value, ESPHome YAML, Kconfig, and saved settings are unchanged.
-- **Breaking:** Removed the release-candidate compatibility code. A `csi_traffic` setting saved by rc1 or rc2 no longer migrates, so select `external` again if you used it. A BSSID pin saved by ESPHome before rc1 no longer migrates, so pin the access point again if you skipped the release candidates. ESPHome reports `csi_traffic_mode` and `csi_traffic_mode_select` as unknown keys. Native no longer clears Home Assistant entities retired during the release candidates; delete any leftovers in Home Assistant. The Traffic Generator add-on controls only firmware with the single "CSI Traffic Source" select.
-- **Breaking:** Removed the packed `ESPECTRE_SDK_VERSION_NUMBER`. Compare `ESPECTRE_SDK_VERSION_MAJOR`, `ESPECTRE_SDK_VERSION_MINOR`, and `ESPECTRE_SDK_VERSION_PATCH`, or use `ESPECTRE_SDK_VERSION_AT_LEAST()`.
-- **Breaking:** Removed the deprecated `espectre_device_id_from_mac()`. `parse_espectre_device_id()` accepts only the canonical 16-character lowercase form.
-- **Breaking:** `IRuntimeListener::on_live_telemetry()` now receives a `RuntimeSnapshot`; read `movement_metric`, `threshold`, and `ready_to_publish` from it. `RuntimeFrontendController::set_config()` returns `false` while the runtime is set up.
-- **Breaking:** `RuntimeConfig::persist_runtime_overrides` now defaults to `false`, so the runtime no longer restores or saves setter changes unless you set it. The Native, Matter, and ESPHome firmware enable it and keep their saved controls. `RuntimeFrontendController::clear_persisted_overrides()` erases saved controls.
-- **Breaking:** `RuntimeConfig::threshold` defaults to `RUNTIME_THRESHOLD_DETECTOR_DEFAULT`, which applies the selected detector's default at setup; read the resolved value from `config()` after setup. Runtime setup now fails with a fault when the build lacks `CONFIG_ESP_WIFI_CSI_ENABLED`.
+Coming from 2.x? Read up to "Upgrading from 2.x". Tested a release candidate? Jump to "For release candidate testers".
 
-- Temporal CSI admission now fills more slots. When two packets jitter into one slot, the one closer to the center keeps it and the other can take the free slot next to it. On the recorded captures this raises median occupancy from 92.3% to 93.9%, so sensing stays ready more often on jittery links.
-- High Accuracy now compresses its five right-skewed inputs with `log1p` before normalization and was retrained at the same seed. On the reserved replays, worst paired recall rises from 97.1% to 98.3% at the same 0.14% maximum false-positive rate, and under 70% occupancy the maximum false-positive rate falls from 0.88% to 0.35%. Weight headers exported before this change lack `ML_FEATURE_LOG_SCALE`; export them again with the trainer.
-- Added `RuntimeFrontendController::wifi_scan_allowed()`, so firmware that runs its own Wi-Fi scans can defer them while traffic stops or an SDK recovery scan owns the scanner.
-- The SDK versioning rules now mark `CsiCaptureProfile` and `CsiCapturePolicy` as open enums and put the core-only detector interface outside the compatibility promise until stationary presence ships. The Matter occupancy attribute and the `motion` event are documented as motion only.
-- The dataset validator now pairs recordings made up to 3 hours apart instead of 30 minutes. A pair must also share `dataset_role` and `low_rssi`.
+### Highlights
 
-### Fixed
+- C++ source SDK on the ESP Component Registry as `francescopace/espectre`, for C++17 or later and ESP-IDF 5.5.3 or later. ESP-IDF 6.x is build-validated only. See the [SDK guide](https://github.com/francescopace/espectre/blob/3.0.0/docs/SDK.md).
+- Standalone Native firmware with Direct HTTP, MQTT, Home Assistant discovery, and HTTPS OTA.
+- Matter occupancy-sensor frontend that reports motion. Images are uncertified development builds without Matter OTA. See the [Matter guide](https://github.com/francescopace/espectre/blob/3.0.0/src/cpp/frontend/matter/README.md).
+- Browser tools for installation, provisioning, configuration, and tuning, plus one `./espectre` CLI.
+- Two detectors on a `0.0–1.0` probability scale: Lightweight, the default, calibrates at startup; High Accuracy is a neural model that needs no calibration.
 
-- Fixed ESPHome starting High Accuracy with the Lightweight threshold instead of `0.5` when selected in YAML (#186).
-- Fixed a traffic source change during Lightweight calibration being ignored when the CSI capture profile stays the same, such as from `ping` to `dns`. The calibration now restarts for the new source instead of mixing evidence from both.
-- Fixed sensing staying in calibration after a Wi-Fi reconnect on ESP32-S3, when one stray CSI callback hid a silent receive path. The runtime now refreshes the path unless callbacks keep pace with the traffic.
-- Fixed `collect` silently skipping the post-collect quality checks since 3.0.0-rc1, because the CLI imported the validator from a module that no longer exports it. The checks run again after every capture.
-- Fixed the occupancy check in `collect` and the dataset validator counting only the windows where a packet arrived. Empty slots and stream outages now count, so a capture with long gaps warns or fails instead of passing.
-- Fixed CSI collection running away on weak links. AP retransmissions of one packet each produced a sample, and in `lltf20` every ACK for the device's own traffic did too, so streaming CSI created more CSI. An ESP32 at -77 dBm reached 217 records/s from a 100 pps `external` source, then dropped 60% and stalled, and `wifi_raw` passed 300 pps in the CSI visualizer. Retransmissions of a measured frame are now dropped, and an ACK counts only when it answers a `wifi_raw` frame. Both now count in `csi_provenance_rejected_total`.
-- Fixed `collect` hanging on Ctrl+C with a Direct HTTP stream, because closing the stream waited for a blocked read. The final stream diagnostics are now read before the stream closes, so the device no longer counts its queued records as drops.
-- Fixed the web flasher corrupting the next command when leftover serial bytes remained after a firmware metadata read. The flasher now uses esptool-js 0.7.0, which provides the ESP32-C5 and ESP32-C6 SPI register base directly.
+### Sensing and CSI
+
+- Timestamp-based temporal sampling replaces packet-count windows. Missing slots stay explicit.
+- Both detectors use gain-invariant features, so AGC stays on. See the [algorithm reference](https://github.com/francescopace/espectre/blob/3.0.0/docs/ALGORITHMS.md).
+- `traffic_generator_mode` selects `ping` (default), `dns`, `dns_tcp`, `wifi_raw` (experimental), or `external`.
+- Build-time capture policies `auto`, `lltf`, and `ht-vht`. ESP32-C5 adds 2.4/5 GHz selection; 5 GHz detection is uncharacterized. See [CSI acquisition](https://github.com/francescopace/espectre/blob/3.0.0/docs/CSI.md).
+- Retransmitted frames and stray ACKs no longer add CSI samples.
+- Sensing resumes after roaming, and ESPHome skips periodic roaming scans.
+- Raw CSI collection streams V8 records over HTTP, and `collect` validates every capture.
+
+### SDK, integrations, and tools
+
+- Modular SDK: use the full runtime or only the detectors through `espectre_core_sdk.h`. MQTT, Direct, and provisioning are optional.
+- Dual license: GPLv3 or commercial. The ESPHome frontend stays GPLv3-only. See [licensing](https://github.com/francescopace/espectre/blob/3.0.0/LICENSING.md).
+- Separate SDK, application, and protocol versions with a documented compatibility contract. See [SDK versioning](https://github.com/francescopace/espectre/blob/3.0.0/docs/SDK.md#versioning).
+- Direct HTTP and MQTT share one JSON contract. Direct uses `/espectre/v1` on port `62587`, and discovery uses `_espectre._tcp`. See the [API reference](https://github.com/francescopace/espectre/blob/3.0.0/docs/API.md) and [discovery reference](https://github.com/francescopace/espectre/blob/3.0.0/docs/DISCOVERY.md).
+- Official images accept only signed OTA updates. See [official images and personal builds](https://github.com/francescopace/espectre/blob/3.0.0/docs/SETUP.md#official-images-and-personal-builds).
+- Home Assistant [Traffic Generator add-on](https://github.com/francescopace/espectre/blob/3.0.0/tools/ha_traffic_generator_addon/DOCS.md) (#168), with generator and station traffic reported separately (#182).
+- Micro-ESPectre runs native Lightweight detection with HTTP delivery. High Accuracy stays host-side.
+- Browser [troubleshooting guide](https://espectre.dev/guides/troubleshooting/) and an NM-CYD-C5 touch-display example by @RockBase-iot (#166).
+- Dataset validation pairs recordings up to three hours apart with matching role and RSSI class.
+
+### Upgrading from 2.x
+
+- Detectors: `mvs` → `lightweight`, `ml` → `high_accuracy`, `MVSDetector` → `LightweightDetector`, `MLDetector` → `HighAccuracyDetector`. Scores and thresholds use `0.0–1.0`.
+- ESPHome YAML: `segmentation_window_size` → `segmentation_window_size_ms`, `evaluation_interval` → `evaluation_interval_ms`, `traffic_generator_rate` → `csi_target_pps`. Remove `segmentation_threshold`, `gain_lock`, `selected_subcarriers`, publish-interval overrides, and `ble_*`. Provision over Improv Serial. See the [ESPHome guide](https://github.com/francescopace/espectre/blob/3.0.0/src/cpp/frontend/esphome/README.md).
+- Hostnames and entity IDs gain a MAC suffix, such as `espectre-a1b2c3.local` (#179). Update OTA addresses and dashboards, and reapply any BSSID pin. Example YAML lives in `src/cpp/frontend/esphome/examples/`.
+- CLI: use `./espectre`, with MicroPython commands under `./espectre micro`. Browser tools, `mqtt`, and `collect` replace the old `me` workflows. See the [CLI guide](https://github.com/francescopace/espectre/blob/3.0.0/docs/CLI.md).
+- Micro-ESPectre: reflash and redeploy. Device-side High Accuracy, MQTT, and UDP streaming are gone. See the [Micro-ESPectre guide](https://github.com/francescopace/espectre/blob/3.0.0/src/python/micro_espectre/README.md).
+- Requirements: Python 3.14, ESPHome 2026.7.0 or later, and ESP-IDF 5.5.3 or later. PlatformIO and the old `components/espectre/` layout are gone.
+- Leaving unsigned personal builds needs one USB flash of signed official firmware. Migrate dataset metadata to format `1.2`.
+
+### For release candidate testers
+
+#### Changed since 3.0.0-rc3
+
+- Temporal admission fills free neighbouring slots: median occupancy 92.3% → 93.9%.
+- High Accuracy retrained with `log1p` inputs: worst paired recall 97.1% → 98.3% at the same 0.14% peak false-positive rate.
+- New `wifi_scan_allowed()` for firmware that runs its own Wi-Fi scans.
+- `CsiCaptureProfile` and `CsiCapturePolicy` are open enums, and the core-only detector interface sits outside the compatibility promise.
+- Dataset pairs can span three hours instead of 30 minutes.
+- New browser troubleshooting guide.
+
+#### Fixed since 3.0.0-rc3
+
+- High Accuracy starting with the Lightweight threshold instead of `0.5` (#186).
+- Lightweight calibration ignoring a traffic-source change, such as `ping` → `dns`.
+- ESP32-S3 staying in calibration after a Wi-Fi reconnect.
+- CSI runaway on weak links: retransmissions and ACKs pushed a 100 pps source to 217 records/s.
+- `collect` skipping its quality checks since rc1 and passing captures with long gaps.
+- `collect` hanging on Ctrl+C, and failed sends leaving the CSI stream open.
+- Arduino source builds failing to link.
+- Web flasher corrupting commands after a metadata read; it now uses esptool-js 0.7.0.
+
+#### Upgrading from 3.0.0 release candidates
+
+- ESPHome: `csi_traffic_mode` → `traffic_generator_mode`, also for `_select`. Saved rc1/rc2 `csi_traffic` settings no longer migrate. Delete retired Native Home Assistant entities manually, and update firmware before using the add-on.
+- C++: apply the [rc3 SDK migration table](https://github.com/francescopace/espectre/blob/3.0.0-rc3/docs/CHANGELOG.md#sdk-source-migration), then `TrafficGeneratorMode::EXTERNAL` → `EXTERNAL_HOST`.
+- `ESPECTRE_SDK_VERSION_NUMBER` → `ESPECTRE_SDK_VERSION_AT_LEAST()`. `espectre_device_id_from_mac()` is gone.
+- API clients: resource methods replace `POST /request`, `motion` replaces telemetry, and `GET /csi` replaces raw-session commands. Diagnostics need explicit `fields`, and V7 records are gone. See the [API reference](https://github.com/francescopace/espectre/blob/3.0.0/docs/API.md).
+- Re-export custom High Accuracy weights; inference requires `ML_FEATURE_LOG_SCALE`.
+- `TrafficGeneratorManager` → `TrafficGeneratorService` in `traffic_generator_service.h`. Keep calling `loop()` on it and on `CsiTrafficService` after `stop()`.
+- `on_live_telemetry()` takes a `RuntimeSnapshot`, and `set_config()` returns `false` after setup.
+- `persist_runtime_overrides` defaults to `false`; first-party firmware enables it. `clear_persisted_overrides()` erases saved controls.
+- `RuntimeConfig::threshold` defaults to the selected detector's value. Setup faults without `CONFIG_ESP_WIFI_CSI_ENABLED`.
+
+---
 
 ## [3.0.0-rc3] - 2026-09-26 - SDK on the ESP Component Registry and ESP-IDF 6 support
 
