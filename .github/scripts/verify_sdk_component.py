@@ -11,6 +11,7 @@ import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -22,6 +23,7 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+LINK_CHECK_SOURCE = REPO_ROOT / ".github" / "sdk" / "optional_services_link_check.cpp"
 COMPONENT_NAME = "francescopace/espectre"
 SDK_SERVICE_PROFILES = ("frontend_support", "mqtt", "provisioning", "direct")
 
@@ -193,6 +195,16 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
             'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
             'set(COMPONENTS main)\ninclude($ENV{IDF_PATH}/tools/cmake/project.cmake)',
         ), encoding="utf-8")
+    if profiles:
+        # Link every enabled service group without shipping the check in the example.
+        shutil.copy2(LINK_CHECK_SOURCE, project / "main" / LINK_CHECK_SOURCE.name)
+        main_cmake = project / "main" / "CMakeLists.txt"
+        text = main_cmake.read_text(encoding="utf-8")
+        if 'SRCS "app_main.cpp"' not in text:
+            raise ValueError("Unexpected example main/CMakeLists.txt")
+        text = text.replace('SRCS "app_main.cpp"', f'SRCS "app_main.cpp" "{LINK_CHECK_SOURCE.name}"', 1)
+        text += 'target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,-u,espectre_check_optional_services")\n'
+        main_cmake.write_text(text, encoding="utf-8")
     with defaults.open("a", encoding="utf-8") as output:
         # Keep the sensing startup reachable to the linker in credential-free CI.
         output.write('\nCONFIG_ESPECTRE_EXAMPLE_WIFI_SSID="sdk-ci-placeholder"\n')

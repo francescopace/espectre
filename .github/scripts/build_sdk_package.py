@@ -526,7 +526,7 @@ def stage_registry_component(bundle_root: Path, destination: Path, version: str,
     example_files = (
         "CMakeLists.txt", "README.md", "sdkconfig.defaults",
         "main/CMakeLists.txt", "main/Kconfig.projbuild", "main/idf_component.yml",
-        "main/app_main.cpp", "main/optional_services.cpp",
+        "main/app_main.cpp",
     )
     for relative in example_files:
         target = destination / "examples" / "wifi_motion_detection" / relative

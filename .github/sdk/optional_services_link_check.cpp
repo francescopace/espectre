@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
+//
+// CI-only link check for the SDK's optional service groups. verify_sdk_component.py
+// adds this file to the prepared example and forces the linker to keep the
+// function below with -u, so every referenced service must link. Nothing calls it.
+#include "sdkconfig.h"
+
 #include "espectre_services_sdk.h"
 
 #if CONFIG_ESPECTRE_SDK_ENABLE_MQTT
 #include "espectre_mqtt_sdk.h"
 #endif
 
-// Exercise real symbols so CI checks linking as well as optional source compilation.
-// No transport is started, and no persisted configuration is changed.
-void check_optional_services() {
+extern "C" void espectre_check_optional_services() {
 #if CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT
   espectre::EspectreDeviceConfig config;
   (void) espectre::publish_frontend_mqtt_status(nullptr, config, false, 0);
   espectre::FrontendWifiStationOptions options;
-  (void) espectre::setup_frontend_wifi_station(nullptr, nullptr, options, "espectre.example", nullptr);
+  (void) espectre::setup_frontend_wifi_station(nullptr, nullptr, options, "espectre.link_check", nullptr);
 #endif
 #if CONFIG_ESPECTRE_SDK_ENABLE_MQTT
   espectre::EspIdfMqttTransport transport;

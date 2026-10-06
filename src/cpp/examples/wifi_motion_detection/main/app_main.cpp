@@ -6,11 +6,16 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-void check_optional_services();
-
 namespace {
 
 constexpr const char *TAG = "espectre.example";
+
+// The sink forwards levels by value: LogLevel follows ESP-IDF's numbering.
+static_assert(static_cast<int>(espectre::LogLevel::ERROR) == ESP_LOG_ERROR);
+static_assert(static_cast<int>(espectre::LogLevel::WARNING) == ESP_LOG_WARN);
+static_assert(static_cast<int>(espectre::LogLevel::INFO) == ESP_LOG_INFO);
+static_assert(static_cast<int>(espectre::LogLevel::DEBUG) == ESP_LOG_DEBUG);
+static_assert(static_cast<int>(espectre::LogLevel::VERBOSE) == ESP_LOG_VERBOSE);
 
 bool log_enabled(void *, espectre::LogLevel level, const char *tag) {
   return static_cast<esp_log_level_t>(level) <= esp_log_level_get(tag);
@@ -50,7 +55,6 @@ extern "C" void app_main() {
   }
   ESP_LOGI(TAG, "ESPectre SDK %s", espectre::espectre_sdk_version());
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
-  check_optional_services();
   if (CONFIG_ESPECTRE_EXAMPLE_WIFI_SSID[0] == '\0') {
     ESP_LOGE(TAG, "Set the Wi-Fi credentials under ESPectre example in menuconfig");
     return;

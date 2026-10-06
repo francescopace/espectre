@@ -51,7 +51,7 @@ Save a short log for each check.
 
 ## Optional service build checks
 
-CI builds this example with each optional SDK service group, and with all of them. `optional_services.cpp` references those services only to catch missing link dependencies; it never starts MQTT or Direct.
+CI builds this example with each optional SDK service group, and with all of them. For those builds it adds a link check that the example itself does not contain.
 
 ## License
 

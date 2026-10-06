@@ -14,7 +14,12 @@
 
 namespace espectre {
 
-/** Severity attached to one ESPectre log message. */
+/**
+ * Severity attached to one ESPectre log message.
+ *
+ * The numeric values are stable and match ESP-IDF's `esp_log_level_t`, so an
+ * ESP-IDF sink can forward a level with a cast.
+ */
 enum class LogLevel : uint8_t {
   ERROR = 1,
   WARNING = 2,
