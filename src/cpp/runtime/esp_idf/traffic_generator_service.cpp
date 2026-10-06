@@ -1,5 +1,5 @@
 /*
- * ESPectre - Traffic Generator Manager Implementation
+ * ESPectre - Traffic Generator Service Implementation
  *
  * One task owns pacing, socket draining, and local send-error recovery.
  * Protocol backends encode and send one socket or raw Wi-Fi packet.
@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "traffic_generator_manager.h"
+#include "traffic_generator_service.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -374,7 +374,7 @@ size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
   return TRAFFIC_NULL_DATA_FRAME_SIZE;
 }
 
-TrafficGeneratorManager::~TrafficGeneratorManager() {
+TrafficGeneratorService::~TrafficGeneratorService() {
   // The worker dereferences this object until it exits, so wait for it however
   // long its socket call takes. Owners that restart sensing keep the generator
   // alive across restarts and never reach this wait on their loop.
@@ -384,7 +384,7 @@ TrafficGeneratorManager::~TrafficGeneratorManager() {
   }
 }
 
-void TrafficGeneratorManager::apply_init_() {
+void TrafficGeneratorService::apply_init_() {
   target_addr_ = 0U;
   mode_ = staged_mode_;
   icmp_identifier_ = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this));
@@ -400,7 +400,7 @@ void TrafficGeneratorManager::apply_init_() {
            generator_traffic_mode_name(mode_));
 }
 
-void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
+void TrafficGeneratorService::init(uint32_t target_pps, TrafficGeneratorMode mode) {
   // A worker that is still exiting keeps the mode, rate, and identifier it
   // copied at start. start() and loop() apply this once that worker is gone.
   staged_target_pps_ = target_pps;
@@ -411,7 +411,7 @@ void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mod
   }
 }
 
-bool TrafficGeneratorManager::start(uint32_t target_addr) {
+bool TrafficGeneratorService::start(uint32_t target_addr) {
   if (is_running()) {
     return true;
   }
@@ -435,7 +435,7 @@ bool TrafficGeneratorManager::start(uint32_t target_addr) {
   return launch_(target_addr);
 }
 
-bool TrafficGeneratorManager::launch_(uint32_t target_addr) {
+bool TrafficGeneratorService::launch_(uint32_t target_addr) {
   target_addr_ = target_addr;
 
   if (mode_ == TrafficGeneratorMode::WIFI_RAW) {
@@ -493,7 +493,7 @@ bool TrafficGeneratorManager::launch_(uint32_t target_addr) {
   return true;
 }
 
-void TrafficGeneratorManager::loop() {
+void TrafficGeneratorService::loop() {
   if (!complete_stop_()) {
     return;
   }
@@ -530,15 +530,15 @@ void TrafficGeneratorManager::loop() {
   }
 }
 
-void TrafficGeneratorManager::pause() {
+void TrafficGeneratorService::pause() {
   paused_.store(true, std::memory_order_relaxed);
 }
 
-void TrafficGeneratorManager::resume() {
+void TrafficGeneratorService::resume() {
   paused_.store(false, std::memory_order_relaxed);
 }
 
-void TrafficGeneratorManager::stop() {
+void TrafficGeneratorService::stop() {
   restart_pending_ = false;
   if (!running_.load(std::memory_order_relaxed)) {
     return;
@@ -558,7 +558,7 @@ void TrafficGeneratorManager::stop() {
   (void)complete_stop_();
 }
 
-bool TrafficGeneratorManager::complete_stop_() {
+bool TrafficGeneratorService::complete_stop_() {
   if (reap_stopped_task_()) {
     return true;
   }
@@ -579,7 +579,7 @@ bool TrafficGeneratorManager::complete_stop_() {
   return false;
 }
 
-bool TrafficGeneratorManager::reap_stopped_task_() {
+bool TrafficGeneratorService::reap_stopped_task_() {
   if (!stop_pending_) {
     return true;
   }
@@ -604,29 +604,29 @@ bool TrafficGeneratorManager::reap_stopped_task_() {
   return true;
 }
 
-void TrafficGeneratorManager::wait_for_stop_(TickType_t ticks) {
+void TrafficGeneratorService::wait_for_stop_(TickType_t ticks) {
   if (ticks > 0) {
     (void)ulTaskNotifyTake(pdTRUE, ticks);
   }
 }
 
-void TrafficGeneratorManager::traffic_task_(void *arg) {
-  auto *manager = static_cast<TrafficGeneratorManager *>(arg);
-  if (manager == nullptr) {
+void TrafficGeneratorService::traffic_task_(void *arg) {
+  auto *generator = static_cast<TrafficGeneratorService *>(arg);
+  if (generator == nullptr) {
     vTaskDelete(nullptr);
     return;
   }
 
   DnsTcpTrafficProtocol dns_tcp_protocol;
   DnsUdpTrafficProtocol dns_udp_protocol;
-  IcmpTrafficProtocol icmp_protocol(manager->icmp_identifier_);
-  WifiRawTrafficProtocol wifi_raw_protocol(manager->null_data_frame_);
+  IcmpTrafficProtocol icmp_protocol(generator->icmp_identifier_);
+  WifiRawTrafficProtocol wifi_raw_protocol(generator->null_data_frame_);
   TrafficProtocol *protocol =
-      &select_traffic_protocol(manager->mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol, wifi_raw_protocol);
+      &select_traffic_protocol(generator->mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol, wifi_raw_protocol);
   sockaddr_in destination{};
   destination.sin_family = AF_INET;
   destination.sin_port = htons(protocol->destination_port());
-  destination.sin_addr.s_addr = manager->target_addr_;
+  destination.sin_addr.s_addr = generator->target_addr_;
 
   SendErrorState error_state;
   uint32_t consecutive_errors = 0U;
@@ -639,12 +639,12 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
   constexpr int64_t tcp_reconnect_delay_us = 1000000LL;
 
   const auto recreate_socket = [&]() {
-    const int previous = manager->sock_.exchange(-1, std::memory_order_acq_rel);
+    const int previous = generator->sock_.exchange(-1, std::memory_order_acq_rel);
     if (previous >= 0) {
       close(previous);
     }
     const int created = create_protocol_socket(*protocol);
-    manager->sock_.store(created, std::memory_order_release);
+    generator->sock_.store(created, std::memory_order_release);
     connection_state = protocol->connection_oriented()
                            ? TcpConnectionState::DISCONNECTED
                            : TcpConnectionState::CONNECTED;
@@ -653,14 +653,14 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     return created >= 0;
   };
 
-  while (manager->running_.load(std::memory_order_relaxed)) {
-    if (manager->paused_.load(std::memory_order_relaxed)) {
+  while (generator->running_.load(std::memory_order_relaxed)) {
+    if (generator->paused_.load(std::memory_order_relaxed)) {
       next_send_deadline_us = 0;
-      manager->wait_for_stop_(pdMS_TO_TICKS(50));
+      generator->wait_for_stop_(pdMS_TO_TICKS(50));
       continue;
     }
 
-    const int sock = manager->sock_.load(std::memory_order_acquire);
+    const int sock = generator->sock_.load(std::memory_order_acquire);
     if (protocol->connection_oriented() && connection_state != TcpConnectionState::CONNECTED) {
       const int64_t now_us = esp_timer_get_time();
       if (sock < 0) {
@@ -683,7 +683,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
         }
       }
       if (connection_state != TcpConnectionState::CONNECTED) {
-        manager->wait_for_stop_(pdMS_TO_TICKS(10));
+        generator->wait_for_stop_(pdMS_TO_TICKS(10));
         continue;
       }
     }
@@ -712,7 +712,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     const int64_t late_us = next_send_deadline_us != 0 ? send_path_started_us - next_send_deadline_us : 0;
     report_send_delay(send_path_us, late_us);
     if (sent <= 0) {
-      manager->send_error_count_.fetch_add(1U, std::memory_order_relaxed);
+      generator->send_error_count_.fetch_add(1U, std::memory_order_relaxed);
       consecutive_errors++;
       const int current_errno = errno;
       const int64_t now_us = esp_timer_get_time();
@@ -731,21 +731,21 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
           consecutive_errors >= CONSECUTIVE_ERROR_REOPEN_THRESHOLD)) {
         (void)recreate_socket();
         consecutive_errors = 0U;
-        if (manager->sock_.load(std::memory_order_acquire) < 0) {
-          manager->wait_for_stop_(pdMS_TO_TICKS(100));
+        if (generator->sock_.load(std::memory_order_acquire) < 0) {
+          generator->wait_for_stop_(pdMS_TO_TICKS(100));
         }
         continue;
       }
       if (needs_backoff) {
-        manager->wait_for_stop_(pdMS_TO_TICKS(5));
+        generator->wait_for_stop_(pdMS_TO_TICKS(5));
       }
     } else {
-      manager->send_success_count_.fetch_add(1U, std::memory_order_relaxed);
+      generator->send_success_count_.fetch_add(1U, std::memory_order_relaxed);
       consecutive_errors = 0U;
     }
 
     const uint32_t rate_pps =
-        std::max<uint32_t>(manager->current_rate_pps_.load(std::memory_order_relaxed), 1U);
+        std::max<uint32_t>(generator->current_rate_pps_.load(std::memory_order_relaxed), 1U);
     const int64_t interval_us = 1000000LL / static_cast<int64_t>(rate_pps);
     // Keep the nominal phase across ordinary scheduler jitter, but reset it
     // whenever recovery would place the next send less than half a period
@@ -756,21 +756,21 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     const int64_t sleep_us = next_send_deadline_us - now_us;
     if (sleep_us > 0) {
       const TickType_t ticks = pdMS_TO_TICKS((sleep_us + 999LL) / 1000LL);
-      manager->wait_for_stop_(ticks);
+      generator->wait_for_stop_(ticks);
     }
   }
 
-  const int sock = manager->sock_.exchange(-1, std::memory_order_acq_rel);
+  const int sock = generator->sock_.exchange(-1, std::memory_order_acq_rel);
   if (sock >= 0) {
     close(sock);
   }
-  manager->task_exited_.store(true, std::memory_order_release);
+  generator->task_exited_.store(true, std::memory_order_release);
   // Stay suspended so the owner's handle remains valid. loop() deletes this
   // task only after eTaskGetState reports eSuspended.
   vTaskSuspend(nullptr);
 }
 
-void TrafficGeneratorManager::reset_runtime_state_() {
+void TrafficGeneratorService::reset_runtime_state_() {
   send_success_count_.store(0U, std::memory_order_relaxed);
   send_error_count_.store(0U, std::memory_order_relaxed);
   previous_send_success_count_ = 0U;

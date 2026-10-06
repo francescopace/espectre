@@ -6,14 +6,14 @@
 #include "native_traffic.h"
 #include "native_log_sink.h"
 
-#include "runtime/esp_idf/traffic_generator_manager.h"
+#include "runtime/esp_idf/traffic_generator_service.h"
 
 #include <new>
 
 namespace {
 
-espectre::TrafficGeneratorManager *as_manager(void *handle) {
-  return static_cast<espectre::TrafficGeneratorManager *>(handle);
+espectre::TrafficGeneratorService *as_generator(void *handle) {
+  return static_cast<espectre::TrafficGeneratorService *>(handle);
 }
 
 espectre::TrafficGeneratorMode resolve_mode(espectre_native_traffic_mode_t mode) {
@@ -32,16 +32,16 @@ espectre::TrafficGeneratorMode resolve_mode(espectre_native_traffic_mode_t mode)
 
 extern "C" void *espectre_native_traffic_create(void) {
   espectre_native_ensure_log_sink();
-  return new (std::nothrow) espectre::TrafficGeneratorManager();
+  return new (std::nothrow) espectre::TrafficGeneratorService();
 }
 
 extern "C" void espectre_native_traffic_destroy(void *handle) {
-  auto *manager = as_manager(handle);
-  if (manager == nullptr) {
+  auto *generator = as_generator(handle);
+  if (generator == nullptr) {
     return;
   }
-  manager->stop();
-  delete manager;
+  generator->stop();
+  delete generator;
 }
 
 extern "C" bool espectre_native_traffic_start(
@@ -49,52 +49,52 @@ extern "C" bool espectre_native_traffic_start(
     uint32_t target_addr,
     uint32_t rate_pps,
     espectre_native_traffic_mode_t mode) {
-  auto *manager = as_manager(handle);
-  if (manager == nullptr || manager->is_running()) {
+  auto *generator = as_generator(handle);
+  if (generator == nullptr || generator->is_running()) {
     return false;
   }
-  manager->init(rate_pps, resolve_mode(mode));
-  return manager->start(target_addr);
+  generator->init(rate_pps, resolve_mode(mode));
+  return generator->start(target_addr);
 }
 
 extern "C" void espectre_native_traffic_stop(void *handle) {
-  auto *manager = as_manager(handle);
-  if (manager != nullptr) {
-    manager->stop();
+  auto *generator = as_generator(handle);
+  if (generator != nullptr) {
+    generator->stop();
   }
 }
 
 extern "C" bool espectre_native_traffic_pause(void *handle) {
-  auto *manager = as_manager(handle);
-  if (manager == nullptr || !manager->is_running()) {
+  auto *generator = as_generator(handle);
+  if (generator == nullptr || !generator->is_running()) {
     return false;
   }
-  manager->pause();
+  generator->pause();
   return true;
 }
 
 extern "C" bool espectre_native_traffic_resume(void *handle) {
-  auto *manager = as_manager(handle);
-  if (manager == nullptr || !manager->is_running()) {
+  auto *generator = as_generator(handle);
+  if (generator == nullptr || !generator->is_running()) {
     return false;
   }
-  manager->resume();
+  generator->resume();
   return true;
 }
 
 extern "C" bool espectre_native_traffic_is_running(void *handle) {
-  auto *manager = as_manager(handle);
-  return manager != nullptr && manager->is_running();
+  auto *generator = as_generator(handle);
+  return generator != nullptr && generator->is_running();
 }
 
 extern "C" uint32_t espectre_native_traffic_packet_count(void *handle) {
-  auto *manager = as_manager(handle);
-  return manager == nullptr ? 0U : manager->send_success_count();
+  auto *generator = as_generator(handle);
+  return generator == nullptr ? 0U : generator->send_success_count();
 }
 
 extern "C" uint32_t espectre_native_traffic_error_count(void *handle) {
-  auto *manager = as_manager(handle);
-  return manager == nullptr ? 0U : manager->send_error_count();
+  auto *generator = as_generator(handle);
+  return generator == nullptr ? 0U : generator->send_error_count();
 }
 
 #endif

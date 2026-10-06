@@ -41,7 +41,7 @@ struct CsiTrafficServiceConfig {
 /**
  * Internal traffic source that makes the access point answer the device.
  *
- * TrafficGeneratorManager is the ESP-IDF implementation. Call every method
+ * TrafficGeneratorService is the ESP-IDF implementation. Call every method
  * from the owner task.
  */
 class ICsiTrafficGenerator {

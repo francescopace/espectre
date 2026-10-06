@@ -25,7 +25,7 @@
 #include "runtime/sensing_readiness_gate.h"
 #include "runtime/csi_traffic_service.h"
 #include "core/threshold.h"
-#include "traffic_generator_manager.h"
+#include "traffic_generator_service.h"
 #include "udp_listener.h"
 #include "wifi_lifecycle.h"
 
@@ -134,7 +134,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
 
   CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;
-  TrafficGeneratorManager traffic_generator_;
+  TrafficGeneratorService traffic_generator_;
   UDPListener traffic_ingress_;
   CsiTrafficService csi_traffic_service_;
 

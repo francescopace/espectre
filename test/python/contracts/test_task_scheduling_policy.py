@@ -101,10 +101,10 @@ def test_micro_native_tasks_use_the_shared_build_policy_names() -> None:
         MICRO_ROOT / "firmware" / "native_components" / "native_traffic.cpp"
     ).read_text(encoding="utf-8")
     traffic_manager = (
-        CPP_ROOT / "runtime" / "esp_idf" / "traffic_generator_manager.cpp"
+        CPP_ROOT / "runtime" / "esp_idf" / "traffic_generator_service.cpp"
     ).read_text(encoding="utf-8")
     assert "CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" in direct
-    assert "TrafficGeneratorManager" in traffic_bridge
+    assert "TrafficGeneratorService" in traffic_bridge
     assert "task_scheduling::kTrafficPriority" in traffic_manager
     assert "NATIVE_TRAFFIC_TASK_PRIORITY" not in traffic_bridge
 
@@ -114,7 +114,7 @@ def test_task_creation_uses_policy_constants_without_chip_conditionals() -> None
         CPP_ROOT / "runtime" / "esp_idf" / "direct_http_service_esp_idf.cpp"
     ).read_text(encoding="utf-8")
     traffic = (
-        CPP_ROOT / "runtime" / "esp_idf" / "traffic_generator_manager.cpp"
+        CPP_ROOT / "runtime" / "esp_idf" / "traffic_generator_service.cpp"
     ).read_text(encoding="utf-8")
     native = NATIVE_APP.read_text(encoding="utf-8")
 

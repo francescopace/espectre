@@ -121,7 +121,7 @@ void prepare_deferred_traffic_task() {
 // when an assertion leaves the test early. The generator's destructor waits
 // for its worker, and the mock runs that worker only when told to.
 struct DeferredTrafficTaskScope {
-  DeferredTrafficTaskScope(EspIdfRuntime &owner, TrafficGeneratorManager &traffic)
+  DeferredTrafficTaskScope(EspIdfRuntime &owner, TrafficGeneratorService &traffic)
       : runtime(owner), generator(traffic) {}
   ~DeferredTrafficTaskScope() {
     runtime.shutdown();
@@ -131,7 +131,7 @@ struct DeferredTrafficTaskScope {
     g_lwip_socket_mock_factory = nullptr;
   }
   EspIdfRuntime &runtime;
-  TrafficGeneratorManager &generator;
+  TrafficGeneratorService &generator;
 };
 
 // The same guarantee for a controller that owns its traffic generator.
@@ -1409,7 +1409,7 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
 void test_runtime_disables_capture_only_after_the_traffic_task_exits(void) {
   prepare_deferred_traffic_task();
   RuntimeConfig config;
-  TrafficGeneratorManager generator;
+  TrafficGeneratorService generator;
   FakeCsiTrafficIngress ingress;
   EspIdfRuntime runtime(config, generator, ingress);
   DeferredTrafficTaskScope scope(runtime, generator);
@@ -1451,7 +1451,7 @@ void test_runtime_disables_capture_only_after_the_traffic_task_exits(void) {
 void test_runtime_channel_change_rearms_after_the_traffic_task_and_held_radio_work(void) {
   prepare_deferred_traffic_task();
   RuntimeConfig config;
-  TrafficGeneratorManager generator;
+  TrafficGeneratorService generator;
   FakeCsiTrafficIngress ingress;
   EspIdfRuntime runtime(config, generator, ingress);
   DeferredTrafficTaskScope scope(runtime, generator);
@@ -1485,7 +1485,7 @@ void test_runtime_channel_change_rearms_after_the_traffic_task_and_held_radio_wo
 void test_runtime_reconnect_while_traffic_stops_rearms_capture_after_its_disable(void) {
   prepare_deferred_traffic_task();
   RuntimeConfig config;
-  TrafficGeneratorManager generator;
+  TrafficGeneratorService generator;
   FakeCsiTrafficIngress ingress;
   EspIdfRuntime runtime(config, generator, ingress);
   DeferredTrafficTaskScope scope(runtime, generator);
@@ -1518,7 +1518,7 @@ void test_runtime_reports_a_traffic_task_that_does_not_stop_and_keeps_waiting(vo
   prepare_deferred_traffic_task();
   RuntimeConfig config;
   DetectorListener listener;
-  TrafficGeneratorManager generator;
+  TrafficGeneratorService generator;
   FakeCsiTrafficIngress ingress;
   EspIdfRuntime runtime(config, generator, ingress);
   DeferredTrafficTaskScope scope(runtime, generator);

@@ -35,7 +35,7 @@
 #include "runtime/esp_idf/runtime_direct_http_bridge.h"
 #include "runtime/esp_idf/standalone_wifi_service.h"
 #include "runtime/esp_idf/task_scheduling_config.h"
-#include "runtime/esp_idf/traffic_generator_manager.h"
+#include "runtime/esp_idf/traffic_generator_service.h"
 #include "runtime/esp_idf/wifi_band_helpers.h"
 #include "runtime/esp_idf/wifi_bssid_pin_service.h"
 #include "runtime/esp_idf/wifi_lifecycle.h"

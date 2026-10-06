@@ -117,7 +117,7 @@
       "owners": ["test_csi_frame_identity", "test_traffic_generator", "test_udp_listener"],
       "sources": [
         "src/cpp/runtime/esp_idf/csi_frame_identity.cpp",
-        "src/cpp/runtime/esp_idf/traffic_generator_manager.cpp",
+        "src/cpp/runtime/esp_idf/traffic_generator_service.cpp",
         "src/cpp/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp",
         "src/cpp/runtime/esp_idf/udp_listener.cpp",
         "src/cpp/runtime/esp_idf/wifi_lifecycle.cpp",

@@ -74,7 +74,7 @@ add_espectre_test(test_traffic_generator_s2
     LIBRARIES espectre_runtime_testlib
 )
 target_sources(test_traffic_generator_s2 PRIVATE
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 target_compile_definitions(test_traffic_generator_s2 PRIVATE
@@ -87,7 +87,7 @@ add_espectre_test(test_traffic_generator_ampdu
     LIBRARIES espectre_runtime_testlib
 )
 target_sources(test_traffic_generator_ampdu PRIVATE
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
 )
 target_compile_definitions(test_traffic_generator_ampdu PRIVATE
@@ -101,7 +101,7 @@ foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
         LIBRARIES espectre_runtime_testlib
     )
     target_sources(test_traffic_generator_${variant} PRIVATE
-        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_service.cpp"
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_tx_rate.cpp"
     )
 endforeach()

@@ -1,5 +1,5 @@
 /*
- * ESPectre - Traffic Generator Manager
+ * ESPectre - Traffic Generator Service
  *
  * Generates paced traffic to the configured IPv4 target or associated AP at the configured
  * CSI target. Scheduling, local send backoff, and stall logging are shared by
@@ -12,7 +12,7 @@
 #pragma once
 
 /**
- * @file traffic_generator_manager.h
+ * @file traffic_generator_service.h
  * @brief ESP-IDF managed traffic for firmware that owns its CSI capture path.
  *
  * Link ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES and its ESP-IDF dependencies.
@@ -115,14 +115,14 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
 /// @endcond
 
 /** Paced ESP-IDF traffic generator with a firmware-owned lifecycle. */
-class TrafficGeneratorManager final : public ICsiTrafficGenerator {
+class TrafficGeneratorService final : public ICsiTrafficGenerator {
  public:
   /**
    * Stop the worker and wait until it exits, however long its socket call takes.
    *
    * Destroy the generator outside a watched loop, or keep it for the device's lifetime.
    */
-  ~TrafficGeneratorManager() override;
+  ~TrafficGeneratorService() override;
 
   /** Configure the send rate and backend while stopped. */
   void init(uint32_t target_pps,

@@ -31,7 +31,7 @@ static constexpr SelectedSubcarriers SELECTED_SUBCARRIERS = make_default_subcarr
 // Traffic sources that outlive each backend, so a generator worker still
 // inside a socket call after shutdown() keeps a valid owner.
 struct RuntimeTrafficSources {
-  TrafficGeneratorManager generator;
+  TrafficGeneratorService generator;
   UDPListener ingress;
 };
 
@@ -113,7 +113,7 @@ bool RuntimeFrontendController::traffic_allows_radio_work() const {
   if (traffic_sources_ == nullptr) {
     return true;
   }
-  const TrafficGeneratorManager &generator = traffic_sources_->generator;
+  const TrafficGeneratorService &generator = traffic_sources_->generator;
   return generator.is_quiescent() || generator.has_live_worker();
 }
 

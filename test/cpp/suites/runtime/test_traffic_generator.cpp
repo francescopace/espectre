@@ -15,7 +15,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "csi_frame_identity.h"
-#include "traffic_generator_manager.h"
+#include "traffic_generator_service.h"
 #include "sdkconfig.h"
 #include "esphome/core/log.h"
 #include "esp_private/wifi.h"
@@ -26,7 +26,7 @@ using namespace espectre;
 
 namespace {
 constexpr wifi_phy_rate_t EXPECTED_TX_RATE = WIFI_PHY_RATE_6M;
-TrafficGeneratorManager *active_generator = nullptr;
+TrafficGeneratorService *active_generator = nullptr;
 int last_test_socket = -1;
 bool fail_socket_creation = false;
 unsigned delay_calls = 0U;
@@ -167,7 +167,7 @@ void close_factory_sockets() {
     factory_sockets.clear();
 }
 
-void run_socket_generator(TrafficGeneratorManager &manager, TrafficGeneratorMode mode, uint32_t target,
+void run_socket_generator(TrafficGeneratorService &manager, TrafficGeneratorMode mode, uint32_t target,
                           unsigned waits) {
     esp_timer_mock::step_us = 1000;
     notify_calls = 0U;
@@ -219,7 +219,7 @@ void tearDown(void) {
 
 void test_dns_udp_generator_sends_one_paced_query_per_wait(void) {
     g_lwip_socket_mock_factory = loopback_udp_socket;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     run_socket_generator(manager, TrafficGeneratorMode::DNS, 0x0100007FU, 3U);
     TEST_ASSERT_EQUAL(3U, manager.send_success_count());
     TEST_ASSERT_EQUAL(0U, manager.send_error_count());
@@ -229,7 +229,7 @@ void test_dns_udp_generator_sends_one_paced_query_per_wait(void) {
 void test_ping_generator_counts_rejected_sends_as_errors(void) {
     // A datagram socket cannot carry an ICMP echo to port 0, so every send fails.
     g_lwip_socket_mock_factory = loopback_udp_socket;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     run_socket_generator(manager, TrafficGeneratorMode::PING, 0x0100007FU, 3U);
     TEST_ASSERT_EQUAL(0U, manager.send_success_count());
     TEST_ASSERT_TRUE(manager.send_error_count() >= 3U);
@@ -237,7 +237,7 @@ void test_ping_generator_counts_rejected_sends_as_errors(void) {
 
 void test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_connection(void) {
     g_lwip_socket_mock_factory = connected_pair_socket;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     run_socket_generator(manager, TrafficGeneratorMode::DNS_TCP, 0x0100007FU, 3U);
     TEST_ASSERT_EQUAL(3U, manager.send_success_count());
     TEST_ASSERT_EQUAL(0U, manager.send_error_count());
@@ -259,7 +259,7 @@ void test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_co
 
 void test_dns_tcp_generator_reopens_the_socket_when_the_peer_closes(void) {
     g_lwip_socket_mock_factory = peer_closed_socket;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     run_socket_generator(manager, TrafficGeneratorMode::DNS_TCP, 0x0100007FU, 3U);
     TEST_ASSERT_EQUAL(0U, manager.send_success_count());
     TEST_ASSERT_TRUE(socket_factory_calls >= 2U);
@@ -268,7 +268,7 @@ void test_dns_tcp_generator_reopens_the_socket_when_the_peer_closes(void) {
 void test_internal_generators_preserve_station_rate_through_start_pause_and_stop(void) {
     prepare_lifecycle_test();
     g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     for (const bool fixed_rate : {false, true}) {
         for (const TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
                                              TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
@@ -305,7 +305,7 @@ void test_internal_generators_preserve_station_rate_through_start_pause_and_stop
 void test_stop_signals_the_task_without_waiting_for_it(void) {
     prepare_lifecycle_test();
     g_freertos_delay_hook = count_delay;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     const int sock = last_test_socket;
@@ -329,7 +329,7 @@ void test_stop_signals_the_task_without_waiting_for_it(void) {
 
 void test_restart_waits_for_the_stopping_task_to_exit(void) {
     prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     const int first_sock = last_test_socket;
@@ -363,7 +363,7 @@ void test_restart_waits_for_the_stopping_task_to_exit(void) {
 
 void test_loop_reports_a_task_that_misses_the_stop_deadline_without_deleting_it(void) {
     prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     const int sock = last_test_socket;
@@ -402,7 +402,7 @@ void test_loop_reports_a_task_that_misses_the_stop_deadline_without_deleting_it(
 
 void test_completed_stop_drops_an_unread_timeout(void) {
     prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     manager.stop();
@@ -418,7 +418,7 @@ void test_loop_deletes_a_stopped_task_only_after_it_suspends(void) {
     prepare_lifecycle_test();
     g_freertos_delay_hook = finish_stopping_task_and_publish_suspend;
     g_freertos_task_mock.reveal_suspend = false;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     const int sock = last_test_socket;
@@ -449,7 +449,7 @@ void test_loop_deletes_a_stopped_task_only_after_it_suspends(void) {
 
 void test_init_and_restart_wait_until_the_previous_task_exits(void) {
     prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     TEST_ASSERT_TRUE(manager.has_live_worker());
@@ -477,7 +477,7 @@ void test_init_and_restart_wait_until_the_previous_task_exits(void) {
 
 void test_deferred_start_reports_launch_failure(void) {
     prepare_lifecycle_test();
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_TRUE(manager.start(TEST_TARGET_ADDR));
     manager.stop();
@@ -500,7 +500,7 @@ void test_ping_socket_failure_preserves_station_rate_and_does_not_create_task(vo
     prepare_lifecycle_test();
     fail_socket_creation = true;
     g_esp_wifi_fixed_rate_mock.enabled = true;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::PING);
     TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));
     TEST_ASSERT_TRUE(g_esp_wifi_fixed_rate_mock.enabled);
@@ -515,7 +515,7 @@ void test_task_failure_preserves_station_rate_and_closes_socket(void) {
     g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
     g_freertos_task_mock.create_result = pdFAIL;
     g_esp_wifi_fixed_rate_mock.enabled = true;
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     for (const TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
                                          TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
         g_freertos_task_mock.create_calls = 0U;
@@ -536,7 +536,7 @@ void test_task_failure_preserves_station_rate_and_closes_socket(void) {
 void test_switching_to_external_traffic_preserves_station_rate(void) {
     prepare_lifecycle_test();
     g_esp_wifi_fixed_rate_mock.enabled = true;
-    TrafficGeneratorManager generator;
+    TrafficGeneratorService generator;
     espectre::test::FakeCsiTrafficIngress ingress;
     CsiTrafficService service(generator, ingress);
     CsiTrafficServiceConfig config;
@@ -564,7 +564,7 @@ void test_switching_to_external_traffic_preserves_station_rate(void) {
 // ============================================================================
 
 void test_wifi_raw_targets_current_bssid_without_gateway_and_counts_sends(void) {
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     active_generator = &manager;
     g_esp_wifi_mock.raw_tx_hook = stop_raw_test_generator;
     const uint8_t bssid[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
@@ -600,7 +600,7 @@ void test_wifi_raw_targets_current_bssid_without_gateway_and_counts_sends(void) 
 }
 
 void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failure(void) {
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     active_generator = &manager;
     g_esp_wifi_mock.raw_tx_hook = stop_raw_test_generator;
     g_esp_wifi_mock.current_ap_info.bssid[0] = 0x02U;
@@ -637,7 +637,7 @@ void test_wifi_raw_uses_ofdm_for_each_band_and_rejects_rate_configuration_failur
 }
 
 void test_wifi_raw_requires_association_and_valid_station_identity(void) {
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     manager.init(100U, TrafficGeneratorMode::WIFI_RAW);
     g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
     TEST_ASSERT_FALSE(manager.start(0U));
@@ -843,7 +843,7 @@ void test_dns_tcp_query_frame_rejects_small_buffer(void) {
 // ============================================================================
 
 void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(void) {
-    TrafficGeneratorManager manager;
+    TrafficGeneratorService manager;
     for (TrafficGeneratorMode mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP}) {
         manager.init(0U, mode);
         TEST_ASSERT_FALSE(manager.start(0x0101A8C0U));

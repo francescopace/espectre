@@ -23,7 +23,7 @@
     },
     {
       "rule": "unusedStructMember",
-      "file": "src/cpp/runtime/esp_idf/traffic_generator_manager.cpp",
+      "file": "src/cpp/runtime/esp_idf/traffic_generator_service.cpp",
       "messages": [
         "struct member 'IcmpEchoHeader::code' is never used."
       ],
