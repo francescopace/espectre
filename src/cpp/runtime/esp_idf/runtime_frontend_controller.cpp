@@ -10,10 +10,15 @@
 #include "runtime_frontend_controller.h"
 
 #include "core/espectre_log.h"
+#include "esp_err.h"
 #include "esp_idf_runtime.h"
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_time.h"
+#include "runtime_detector_store.h"
+#include "runtime_motion_hits_store.h"
 #include "runtime_performance_diagnostics.h"
+#include "runtime_traffic_mode_store.h"
+#include "wifi_lifecycle.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -42,12 +47,14 @@ RuntimeFrontendController::~RuntimeFrontendController() { shutdown_(false); }
 
 const SelectedSubcarriers &RuntimeFrontendController::subcarriers() const { return SELECTED_SUBCARRIERS; }
 
-void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
+bool RuntimeFrontendController::set_config(const RuntimeConfig &config) {
   if (runtime_) {
-    return;
+    ESPECTRE_LOGW(TAG, "Ignored set_config() while the runtime is set up; call shutdown() first");
+    return false;
   }
   config_ = config;
-  snapshot_.threshold = config_.threshold;
+  snapshot_.threshold = runtime_effective_threshold(config_.detection_algorithm, config_.threshold);
+  return true;
 }
 
 bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
@@ -65,7 +72,10 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     return false;
   }
 
+  const bool threshold_follows_detector = config_.threshold == RUNTIME_THRESHOLD_DETECTOR_DEFAULT;
   active_config_ = config_;
+  active_config_.threshold =
+      runtime_effective_threshold(active_config_.detection_algorithm, active_config_.threshold);
   if (traffic_sources_ == nullptr) {
     traffic_sources_.reset(new (std::nothrow) RuntimeTrafficSources());
   }
@@ -95,6 +105,7 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
 
   active_config_ = backend->effective_config();
   config_ = active_config_;
+  threshold_follows_detector_ = threshold_follows_detector;
   snapshot_ = runtime_->get_snapshot();
   last_sensing_ready_ = snapshot_.ready_to_publish;
   capabilities_ = runtime_->get_capabilities();
@@ -115,6 +126,10 @@ bool RuntimeFrontendController::traffic_allows_radio_work() const {
   }
   const TrafficGeneratorService &generator = traffic_sources_->generator;
   return generator.is_quiescent() || generator.has_live_worker();
+}
+
+bool RuntimeFrontendController::wifi_scan_allowed() const {
+  return traffic_allows_radio_work() && !WiFiLifecycleManager::csi_receive_path_refresh_active();
 }
 
 void RuntimeFrontendController::hold_pending_traffic_restart(bool hold) {
@@ -154,6 +169,12 @@ void RuntimeFrontendController::shutdown_(bool notify_listener) {
     runtime_->shutdown();
     runtime_.reset();
   }
+  // A detector staged for the next setup must get its own default, not this
+  // session's resolved or calibrated value; a staged threshold is kept.
+  if (threshold_follows_detector_ && config_.threshold == active_config_.threshold) {
+    config_.threshold = RUNTIME_THRESHOLD_DETECTOR_DEFAULT;
+  }
+  threshold_follows_detector_ = false;
   const bool was_ready = last_sensing_ready_;
   setup_complete_ = false;
   capabilities_ = {};
@@ -216,11 +237,8 @@ bool RuntimeFrontendController::set_threshold(float threshold) {
       apply_deferred_shutdown_();
       return false;
     }
-  } else {
-    snapshot_.threshold = threshold;
-  }
-  if (runtime_) {
     adopt_effective_threshold_(threshold);
+    threshold_follows_detector_ = false;
   } else {
     config_.threshold = threshold;
   }
@@ -282,24 +300,22 @@ bool RuntimeFrontendController::set_detection_algorithm(DetectionAlgorithm algor
     return false;
   }
   if (runtime_) {
+    const bool detector_changed = algorithm != active_config_.detection_algorithm;
     if (!capabilities_.supports_runtime_detector_selection ||
         !runtime_->set_detection_algorithm(algorithm)) {
       apply_deferred_shutdown_();
       return false;
     }
     snapshot_ = runtime_->get_snapshot();
+    adopt_effective_detector_(algorithm);
+    adopt_effective_threshold_(snapshot_.threshold);
+    // A switch applies the new detector's default; selecting the active one keeps the threshold.
+    if (detector_changed) threshold_follows_detector_ = true;
   } else {
     config_.detection_algorithm = algorithm;
     config_.threshold = runtime_default_threshold(algorithm);
     snapshot_.threshold = config_.threshold;
     snapshot_.detector_name = detection_algorithm_name(algorithm);
-  }
-  if (runtime_) {
-    adopt_effective_detector_(algorithm);
-    adopt_effective_threshold_(snapshot_.threshold);
-  } else {
-    config_.detection_algorithm = algorithm;
-    config_.threshold = snapshot_.threshold;
   }
   apply_deferred_shutdown_();
   return true;
@@ -323,8 +339,14 @@ bool RuntimeFrontendController::validate_control_update(const RuntimeControlUpda
     }
   }
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
-  const RuntimeConfigError error =
-      validate_runtime_config(apply_runtime_control_update(effective_config, update));
+  const RuntimeConfig updated_config = apply_runtime_control_update(effective_config, update);
+  // Explicit control thresholds follow the setter contract, which excludes
+  // the detector-default sentinel accepted by the setup configuration.
+  if (update.has_threshold &&
+      !validate_runtime_threshold_for_algorithm(update.threshold, updated_config.detection_algorithm)) {
+    return reject(runtime_config_error_message(RuntimeConfigError::SEGMENTATION_THRESHOLD));
+  }
+  const RuntimeConfigError error = validate_runtime_config(updated_config);
   // A staged configuration can already be invalid before setup; report only
   // errors this update introduces, and let the setters check the rest.
   if (error == RuntimeConfigError::NONE || error == validate_runtime_config(effective_config)) {
@@ -374,6 +396,18 @@ bool RuntimeFrontendController::stop_raw_collection(RawCsiStopReason reason) {
 
 RuntimeOperationState RuntimeFrontendController::operation_state() const {
   return runtime_ != nullptr ? runtime_->operation_state() : RuntimeOperationState::SENSING;
+}
+
+bool RuntimeFrontendController::clear_persisted_overrides() {
+  bool cleared = true;
+  for (const esp_err_t err : {clear_runtime_traffic_generator_mode(), clear_runtime_motion_hits(),
+                              clear_runtime_detection_algorithm()}) {
+    if (err != ESP_OK) {
+      ESPECTRE_LOGW(TAG, "Failed to clear saved sensing controls: %s", esp_err_to_name(err));
+      cleared = false;
+    }
+  }
+  return cleared;
 }
 
 RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
@@ -492,13 +526,12 @@ void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &s
   }
 }
 
-void RuntimeFrontendController::on_live_telemetry(float movement, float threshold) {
-  snapshot_.movement_metric = movement;
-  snapshot_.threshold = threshold;
-  adopt_effective_threshold_(threshold);
+void RuntimeFrontendController::on_live_telemetry(const RuntimeSnapshot &snapshot) {
+  cache_snapshot_(snapshot);
+  adopt_effective_threshold_(snapshot.threshold);
   if (listener_ != nullptr) {
     begin_callback_();
-    listener_->on_live_telemetry(movement, threshold);
+    listener_->on_live_telemetry(snapshot);
     end_callback_();
   }
 }

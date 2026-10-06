@@ -26,6 +26,7 @@
 #include "runtime_motion_hits_store.h"
 #include "runtime/runtime_time.h"
 #include "runtime_traffic_mode_store.h"
+#include "sdkconfig.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -75,7 +76,7 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
       snapshot_.movement_metric = movement;
       notify_threshold_if_changed_(threshold);
       if (listener_ != nullptr) {
-        listener_->on_live_telemetry(movement, threshold);
+        listener_->on_live_telemetry(get_snapshot());
       }
     });
   } else {
@@ -99,6 +100,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config,
 
 void EspIdfRuntime::initialize_runtime_state_() {
   detection_timing_supported_ = true;
+  config_.threshold = runtime_effective_threshold(config_.detection_algorithm, config_.threshold);
   snapshot_.threshold = config_.threshold;
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
   // and it drives the live-telemetry callback used by transport adapters.
@@ -177,6 +179,11 @@ bool EspIdfRuntime::setup() {
 
   csi_receive_path_check_pending_ = false;
   csi_receive_path_refresh_in_progress_ = false;
+
+#if defined(ESP_PLATFORM) && !defined(CONFIG_ESP_WIFI_CSI_ENABLED)
+  notify_fault_("Wi-Fi CSI is disabled in this build; set CONFIG_ESP_WIFI_CSI_ENABLED=y");
+  return false;
+#endif
 
   const RuntimeConfigError config_error = validate_runtime_config(config_);
   if (config_error != RuntimeConfigError::NONE) {

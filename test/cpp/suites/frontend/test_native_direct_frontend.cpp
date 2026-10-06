@@ -292,7 +292,7 @@ void test_native_frontend_does_not_publish_motion_without_ready_csi(void) {
   mqtt_transport_mock::state.publishes.clear();
   direct_http_service_mock::state.published_events.clear();
   frontend.on_threshold_changed(frontend_runtime_shim::state.snapshot);
-  frontend.on_live_telemetry(0.0f, 0.5f);
+  frontend.on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(0.0f, 0.5f));
   frontend.on_motion_state_changed(frontend_runtime_shim::state.snapshot);
   frontend.loop();
   for (const auto &event : direct_http_service_mock::state.published_events) {
@@ -534,7 +534,7 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
   TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, frontend.runtime_.operation_state());
 
-  frontend.on_live_telemetry(9.0f, 1.0f);
+  frontend.on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(9.0f, 1.0f));
   frontend.loop();
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000112233445566/motion"));
 

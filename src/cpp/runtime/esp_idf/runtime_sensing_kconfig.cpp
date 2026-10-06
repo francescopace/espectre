@@ -177,8 +177,8 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
 #endif
-
-  config.threshold = runtime_default_threshold(config.detection_algorithm);
+  // The threshold keeps its detector-default sentinel, so a later
+  // detection_algorithm override still gets the matching default.
 
   config.window_size_ms =
       clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS),

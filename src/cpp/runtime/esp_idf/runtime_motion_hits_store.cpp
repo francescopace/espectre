@@ -6,13 +6,14 @@
 #include "runtime_motion_hits_store.h"
 
 #include "nvs.h"
+#include "nvs_helpers.h"
 #include "runtime/runtime_sensing_schema.h"
 
 namespace espectre {
 
 namespace {
 
-constexpr const char *kNamespace = "espectre";
+constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kMotionOnHitsKey = "motion_on";
 constexpr const char *kMotionOffHitsKey = "motion_off";
 
@@ -88,29 +89,7 @@ esp_err_t save_runtime_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hi
 }
 
 esp_err_t clear_runtime_motion_hits() {
-  nvs_handle_t handle = 0;
-  esp_err_t err = nvs_open(kNamespace, NVS_READWRITE, &handle);
-  if (err == ESP_ERR_NVS_NOT_FOUND) {
-    return ESP_OK;
-  }
-  if (err != ESP_OK) {
-    return err;
-  }
-
-  const esp_err_t erase_on_err = nvs_erase_key(handle, kMotionOnHitsKey);
-  if (erase_on_err != ESP_OK && erase_on_err != ESP_ERR_NVS_NOT_FOUND) {
-    nvs_close(handle);
-    return erase_on_err;
-  }
-  const esp_err_t erase_off_err = nvs_erase_key(handle, kMotionOffHitsKey);
-  if (erase_off_err != ESP_OK && erase_off_err != ESP_ERR_NVS_NOT_FOUND) {
-    nvs_close(handle);
-    return erase_off_err;
-  }
-
-  err = nvs_commit(handle);
-  nvs_close(handle);
-  return err;
+  return detail::erase_espectre_nvs_keys({kMotionOnHitsKey, kMotionOffHitsKey});
 }
 
 }  // namespace espectre

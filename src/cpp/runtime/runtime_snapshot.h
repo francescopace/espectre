@@ -40,9 +40,9 @@ struct RuntimeDiagnosticsSnapshot {
   struct Traffic {
     /** Successful internal generator sends; zero with external traffic ownership. */
     uint32_t generator_packets_total{0U};
-    /** Station packets accepted by the network driver; wraps modulo 2^32. */
+    /** Packets the driver accepted from the `WIFI_STA_DEF` station; wraps modulo 2^32. */
     uint32_t tx_packets_total{0U};
-    /** Station packets delivered by the network driver; wraps modulo 2^32. */
+    /** Packets the driver delivered to the `WIFI_STA_DEF` station; wraps modulo 2^32. */
     uint32_t rx_packets_total{0U};
   };
   /** CSI capture, validation, and temporal admission counters. */

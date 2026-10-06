@@ -16,5 +16,7 @@ namespace espectre {
 
 esp_err_t load_runtime_detection_algorithm(DetectionAlgorithm *algorithm, bool *has_saved_value);
 esp_err_t save_runtime_detection_algorithm(DetectionAlgorithm algorithm);
+/** Erase the saved detector. A missing value is not an error. */
+esp_err_t clear_runtime_detection_algorithm();
 
 }  // namespace espectre

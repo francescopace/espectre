@@ -54,6 +54,11 @@ if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES})
 endif()
 
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT CONFIG_ESP_WIFI_CSI_ENABLED)
+    # A warning, not an error, so menuconfig can still open to fix it.
+    message(WARNING "ESPectre needs CONFIG_ESP_WIFI_CSI_ENABLED=y; runtime setup fails without it.")
+endif()
+
 list(REMOVE_DUPLICATES espectre_sdk_sources)
 list(REMOVE_DUPLICATES espectre_sdk_requires)
 

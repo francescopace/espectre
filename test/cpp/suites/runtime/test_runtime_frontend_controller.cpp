@@ -18,7 +18,13 @@
 #include "device_config_store.h"
 #include "nvs.h"
 #include "espectre_log.h"
+#include "esp_event.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "runtime_detector_store.h"
+#include "runtime_motion_hits_store.h"
+#include "runtime_traffic_mode_store.h"
+#include "wifi_lifecycle.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -51,10 +57,11 @@ class DummyRuntimeListener : public IRuntimeListener {
     }
   }
 
-  void on_live_telemetry(float movement, float threshold) override {
+  void on_live_telemetry(const RuntimeSnapshot &snapshot) override {
     telemetry_count++;
-    last_movement = movement;
-    last_threshold = threshold;
+    last_movement = snapshot.movement_metric;
+    last_threshold = snapshot.threshold;
+    last_telemetry_ready = snapshot.ready_to_publish;
   }
 
   void on_runtime_fault(const char *message) override {
@@ -70,6 +77,7 @@ class DummyRuntimeListener : public IRuntimeListener {
   int telemetry_count{0};
   float last_threshold{0.0f};
   float last_movement{0.0f};
+  bool last_telemetry_ready{false};
   float cached_threshold_during_callback{0.0f};
   float configured_threshold_during_callback{0.0f};
   RuntimeFrontendController *controller{nullptr};
@@ -259,6 +267,33 @@ void test_runtime_frontend_controller_validates_a_combined_control_update(void) 
   TEST_ASSERT_FALSE(controller.validate_control_update(detector, &message));
 }
 
+void test_runtime_frontend_controller_rejects_default_threshold_in_control_updates(void) {
+  for (const bool set_up : {false, true}) {
+    RuntimeFrontendController controller;
+    RuntimeConfig config;
+    config.runtime_detector_selection_enabled = true;
+    TEST_ASSERT_TRUE(controller.set_config(config));
+    if (set_up) TEST_ASSERT_TRUE(controller.setup(nullptr));
+
+    RuntimeControlUpdate update;
+    update.has_detection_algorithm = true;
+    update.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+    TEST_ASSERT_TRUE(controller.validate_control_update(update));
+
+    update.has_threshold = true;
+    update.threshold = RUNTIME_THRESHOLD_DETECTOR_DEFAULT;
+    std::string message;
+    TEST_ASSERT_FALSE(controller.validate_control_update(update, &message));
+    TEST_ASSERT_EQUAL_STRING(
+        runtime_config_error_message(RuntimeConfigError::SEGMENTATION_THRESHOLD), message.c_str());
+    TEST_ASSERT_TRUE(controller.config().detection_algorithm == config.detection_algorithm);
+    TEST_ASSERT_FALSE(controller.set_threshold(update.threshold));
+
+    update.threshold = runtime_default_threshold(update.detection_algorithm);
+    TEST_ASSERT_TRUE(controller.validate_control_update(update));
+  }
+}
+
 void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
@@ -314,7 +349,7 @@ void test_runtime_frontend_controller_preserves_staged_fields_across_live_callba
   frontend_runtime_shim::state.last_listener->on_detector_changed(current);
   frontend_runtime_shim::state.last_listener->on_threshold_changed(current);
   frontend_runtime_shim::state.last_listener->on_calibration_finished(current, true);
-  frontend_runtime_shim::state.last_listener->on_live_telemetry(0.4f, 0.62f);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(0.4f, 0.62f));
 
   TEST_ASSERT_TRUE(controller.config().detection_algorithm ==
                    DetectionAlgorithm::HIGH_ACCURACY);
@@ -619,11 +654,126 @@ void test_runtime_frontend_controller_caches_and_forwards_listener_events(void) 
   TEST_ASSERT_EQUAL_FLOAT(0.65f, listener.cached_threshold_during_callback);
   TEST_ASSERT_EQUAL_FLOAT(0.65f, listener.configured_threshold_during_callback);
 
-  frontend_runtime_shim::state.last_listener->on_live_telemetry(0.4f, 0.6f);
+  RuntimeSnapshot telemetry = frontend_runtime_shim::live_telemetry_snapshot(0.4f, 0.6f);
+  telemetry.ready_to_publish = true;
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(telemetry);
   TEST_ASSERT_EQUAL(1, listener.telemetry_count);
   TEST_ASSERT_EQUAL_FLOAT(0.4f, listener.last_movement);
+  TEST_ASSERT_TRUE(listener.last_telemetry_ready);
+  TEST_ASSERT_TRUE(controller.snapshot().ready_to_publish);
+
+  telemetry.ready_to_publish = false;
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(telemetry);
+  TEST_ASSERT_FALSE(listener.last_telemetry_ready);
   TEST_ASSERT_EQUAL_FLOAT(0.4f, controller.snapshot().movement_metric);
   TEST_ASSERT_EQUAL_FLOAT(0.6f, controller.snapshot().threshold);
+}
+
+void test_runtime_frontend_controller_rejects_set_config_while_set_up(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig staged;
+  staged.motion_on_hits = 6U;
+  TEST_ASSERT_TRUE(controller.set_config(staged));
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+
+  RuntimeConfig next;
+  next.motion_on_hits = 9U;
+  TEST_ASSERT_FALSE(controller.set_config(next));
+  TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_on_hits);
+
+  controller.shutdown();
+  TEST_ASSERT_TRUE(controller.set_config(next));
+  TEST_ASSERT_EQUAL_UINT8(9U, controller.config().motion_on_hits);
+}
+
+void test_runtime_frontend_controller_default_threshold_follows_the_detector(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  TEST_ASSERT_TRUE(controller.set_config(config));
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
+                          controller.snapshot().threshold);
+
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
+                          controller.config().threshold);
+}
+
+void test_runtime_frontend_controller_restores_the_default_threshold_at_shutdown(void) {
+  RuntimeFrontendController controller;
+  TEST_ASSERT_TRUE(controller.set_config(RuntimeConfig{}));
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+
+  // Lightweight calibration lowers the session threshold.
+  RuntimeSnapshot calibrated = controller.snapshot();
+  calibrated.threshold = 0.12f;
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(calibrated);
+  TEST_ASSERT_EQUAL_FLOAT(0.12f, controller.config().threshold);
+
+  // A detector staged after shutdown gets its own default, not the calibrated value.
+  controller.shutdown();
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_DETECTOR_DEFAULT, controller.config().threshold);
+  controller.config().detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
+                          controller.config().threshold);
+
+  // A threshold set through the setter survives shutdown.
+  TEST_ASSERT_TRUE(controller.set_threshold(0.4f));
+  controller.shutdown();
+  TEST_ASSERT_EQUAL_FLOAT(0.4f, controller.config().threshold);
+
+  // An explicit configured threshold is never replaced by the sentinel.
+  RuntimeConfig explicit_config;
+  explicit_config.threshold = 0.3f;
+  TEST_ASSERT_TRUE(controller.set_config(explicit_config));
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  controller.shutdown();
+  TEST_ASSERT_EQUAL_FLOAT(0.3f, controller.config().threshold);
+}
+
+void test_runtime_frontend_controller_defers_firmware_scans_during_sdk_recovery(void) {
+  RuntimeFrontendController controller;
+  TEST_ASSERT_TRUE(controller.wifi_scan_allowed());
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  TEST_ASSERT_TRUE(controller.wifi_scan_allowed());
+
+  WiFiLifecycleManager recovery;
+  TEST_ASSERT_EQUAL(ESP_OK, recovery.refresh_csi_receive_path([](esp_err_t) {}));
+  TEST_ASSERT_FALSE(controller.wifi_scan_allowed());
+
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, recovery.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_OK, recovery.process_pending_events());
+  TEST_ASSERT_TRUE(controller.wifi_scan_allowed());
+}
+
+void test_runtime_frontend_controller_clears_persisted_overrides(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(7U, 5U));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
+
+  RuntimeFrontendController controller;
+  TEST_ASSERT_TRUE(controller.clear_persisted_overrides());
+
+  bool has_saved_value = true;
+  TrafficGeneratorMode mode = TrafficGeneratorMode::PING;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&mode, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  uint8_t motion_on_hits = 0U;
+  uint8_t motion_off_hits = 0U;
+  has_saved_value = true;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  DetectionAlgorithm algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  has_saved_value = true;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_detection_algorithm(&algorithm, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+
+  TEST_ASSERT_TRUE(controller.clear_persisted_overrides());
+  nvs_mock_set_open_result(ESP_FAIL);
+  TEST_ASSERT_FALSE(controller.clear_persisted_overrides());
 }
 
 void test_runtime_frontend_controller_defers_shutdown_requested_by_listener(void) {
@@ -719,6 +869,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_validates_a_combined_control_update);
+  RUN_TEST(test_runtime_frontend_controller_rejects_default_threshold_in_control_updates);
   RUN_TEST(test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks);
@@ -738,6 +889,11 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_applies_armed_state_staged_during_raw_collection);
   RUN_TEST(test_runtime_frontend_controller_quiesces_raw_collection);
   RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
+  RUN_TEST(test_runtime_frontend_controller_rejects_set_config_while_set_up);
+  RUN_TEST(test_runtime_frontend_controller_default_threshold_follows_the_detector);
+  RUN_TEST(test_runtime_frontend_controller_restores_the_default_threshold_at_shutdown);
+  RUN_TEST(test_runtime_frontend_controller_defers_firmware_scans_during_sdk_recovery);
+  RUN_TEST(test_runtime_frontend_controller_clears_persisted_overrides);
   RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
   RUN_TEST(test_listener_time_excludes_time_spent_in_the_log_sink);

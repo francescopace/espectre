@@ -170,9 +170,10 @@ class ProductFrontend : public espectre::IRuntimeListener {
 };
 ```
 
-Keep the adapter alive while the runtime runs, check the setup result, and make `publish_motion()` a quick, non-blocking handoff. For a complete project, use the registry example.
+Keep the adapter alive until `shutdown()` returns, check the setup result, and make `publish_motion()` a quick, non-blocking handoff. For a complete project, use the registry example.
 
 - Publish motion only when `snapshot.ready_to_publish` is true. Before that, the runtime is still calibrating.
+- Override `on_sensing_readiness_changed()` to mark your output unavailable when readiness clears; otherwise the last published value stays in place.
 - Call `runtime_.snapshot()` whenever you need the current state; there is no need for your own cache.
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Check `capabilities()` before offering a control.
@@ -180,9 +181,11 @@ Keep the adapter alive while the runtime runs, check the setup result, and make 
 Your firmware handles boot, provisioning, networking, OTA, and the product itself. ESPectre handles CSI capture, calibration, and detection. You work with two types:
 
 - `RuntimeFrontendController` (`runtime/esp_idf/runtime_frontend_controller.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access. It owns the sensing backend.
-- `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for sensing readiness, motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. The controller emits `on_sensing_readiness_changed()` once per availability transition from its loop, including detector warm-up and input expiry. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
+- `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for sensing readiness, motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. Every sensing callback receives a `RuntimeSnapshot`, so gate each one on `ready_to_publish`. The controller emits `on_sensing_readiness_changed()` once per availability transition from its loop, including detector warm-up and input expiry. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
-After `setup()`, `config()` returns the configuration in use, including saved detector, motion-hit, and traffic settings. Set `persist_runtime_overrides` to false if your firmware owns the configuration; the runtime then neither restores nor saves those settings. Writing to `config()` after setup only affects the next setup; use the runtime setters for live changes.
+After `setup()`, `config()` returns the configuration in use, including the resolved threshold. `shutdown()` returns a default threshold to the sentinel, so the next setup again follows the detector; a value set with `set_threshold()` is kept. Writing to `config()` after setup only affects the next setup; use the runtime setters for live changes.
+
+By default the runtime saves nothing, and your configuration is the only source of truth. Set `persist_runtime_overrides` to true to keep detector, motion-hit, and traffic changes made through the setters across reboots. Saved values then take precedence over your configuration until `clear_persisted_overrides()` erases them. Persistence needs initialized NVS and uses the `espectre` namespace.
 
 Use the [traffic destination](#traffic-destination) setting to select the internal generator's IP destination before setup.
 
@@ -249,7 +252,7 @@ Set `RuntimeConfig::csi_capture_policy` before setup; it cannot change at runtim
 
 ## Choosing a detection profile
 
-Choose Lightweight to leave more CPU and memory for the rest of your application. Choose High Accuracy for better detection at a higher cost. A build that can switch at runtime includes both detectors in flash. See [why two detection profiles](ALGORITHMS.md#why-two-detection-profiles).
+Choose Lightweight to leave more CPU and memory for the rest of your application. Choose High Accuracy for better detection at a higher cost. Set `detection_algorithm` alone: the default threshold follows the selected detector. To let users switch at runtime, set `runtime_detector_selection_enabled`; the controller then advertises `supports_runtime_detector_selection` and accepts `set_detection_algorithm()`. A build that can switch at runtime includes both detectors in flash. See [why two detection profiles](ALGORITHMS.md#why-two-detection-profiles).
 
 ## Shared sensing options
 
@@ -261,10 +264,12 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 |-----------------------|-------------------|---------|---------------|
 | `wifi_band_policy` | `WifiBandPolicy`: `BAND_2G`, `BAND_5G`, or `AUTO` | `AUTO` | `BAND_5G` requires ESP32-C5 among the supported targets |
 | `detection_algorithm` | `DetectionAlgorithm`: `LIGHTWEIGHT` or `HIGH_ACCURACY` | `LIGHTWEIGHT` | Lightweight uses less detector CPU and working memory; High Accuracy skips quiet-room threshold calibration |
-| `threshold` | `float` | `RUNTIME_THRESHOLD_DEFAULT` | `0-1`; Lightweight replaces it during calibration, while High Accuracy keeps the configured value. Use `set_threshold()` for session changes when supported |
+| `threshold` | `float` | `RUNTIME_THRESHOLD_DETECTOR_DEFAULT` | `0-1`, or the default sentinel, which applies `runtime_default_threshold()` of the selected detector at setup. Lightweight replaces it during calibration, while High Accuracy keeps the configured value. Use `set_threshold()` for session changes when supported |
+| `runtime_detector_selection_enabled` | `bool` | `false` | Advertises runtime detector switching and, with persistence, restores the saved detector |
 | `window_size_ms` | `uint32_t` | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | `uint32_t` | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_capture_policy` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Set before setup; no runtime setter. `HT_VHT` resolves HT20 or VHT20 from chip and band; `WIFI_RAW` requires `AUTO` or `LLTF` |
+| `csi_traffic_udp_port` | `uint16_t` | `5555` | UDP port the listener binds with `EXTERNAL_HOST` traffic |
 | `csi_traffic_multicast_group` | `std::string`: IPv4 multicast address, or empty | `"239.255.0.1"` | Joined by the UDP listener with `EXTERNAL_HOST` traffic. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, `WIFI_RAW`, or `EXTERNAL_HOST` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP. `EXTERNAL_HOST` sends nothing and listens for UDP markers and ICMP Echo Requests from another host, independently from `csi_target_pps` |
 | `traffic_generator_target_ip` | `std::string`: unicast IPv4 address, or empty | empty | Destination for internal `PING`, `DNS`, and `DNS_TCP`; empty uses the Wi-Fi default gateway. Ignored by `WIFI_RAW` and external traffic |
@@ -276,7 +281,9 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 | `hampel_enabled` | `bool` | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | `uint8_t` | `7` | `3-11` samples |
 | `hampel_threshold` | `float` | `5.0` | `1.0-10.0` MAD units |
-| `persist_runtime_overrides` | `bool` | `true` | Restores and saves the traffic generator mode, motion hits, and selectable detector across reboots. `false` makes this config the only source of truth |
+| `persist_runtime_overrides` | `bool` | `false` | `true` restores and saves the traffic generator mode, motion hits, and selectable detector across reboots in NVS |
+| `wifi_scan_results_managed_externally` | `bool` | `false` | Set it when your Wi-Fi stack scans on its own and consumes every scan result; the runtime then leaves the driver result list to it |
+| `device_id` | `uint64_t` | `0` | Identity for the ESPectre Protocol and CSI streaming; assign `derive_runtime_device_id()`. Zero means unresolved |
 
 The transmit rate is a build-time Kconfig string, not a `RuntimeConfig` field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS="0"` (automatic), `"6"`, or `"6.5"`. Keep the quotes. See [transmit rate](CSI.md#transmit-rate) for defaults and requirements.
 
@@ -292,64 +299,45 @@ Motion-hit timing is explained in [motion-hit filtering](ALGORITHMS.md#motion-hi
 
 ## Runtime contract
 
+The [integration reference](../src/cpp/sdk_integration.dox) owns the complete runtime contract. These rules cover what every integration needs.
+
 ### Lifecycle
 
-Call `set_config()`, `setup(listener)`, `loop()` repeatedly, and then `shutdown()`. Keep the listener alive until shutdown completes. Create the Wi-Fi station interface and default event loop before setup, preferably before station start. Setup after association is also supported.
+Call `set_config()`, `setup(listener)`, `loop()` repeatedly, and then `shutdown()`. Create the Wi-Fi station interface and default event loop before setup, preferably before station start; setup after association is also supported. Keep the listener valid until `shutdown()` returns, or until the controller is destroyed when you rely on its destructor.
 
-Check every `bool` result. A failed setup leaves the controller available for retry; `shutdown()` retains its configuration for the next setup. Only publish sensing results while `RuntimeSnapshot::ready_to_publish` is true. Wi-Fi recovery, calibration, and detector warm-up can temporarily clear that flag.
+Check every `bool` result. `set_config()` returns `false` while the runtime is set up, so call `shutdown()` first. A failed setup leaves the controller available for retry, and `shutdown()` keeps the configuration for the next setup. Publish sensing results only while `RuntimeSnapshot::ready_to_publish` is true: Wi-Fi recovery, calibration, and detector warm-up can clear it.
+
+If your firmware owns the Wi-Fi station, check `traffic_allows_radio_work()` before reconfiguring it and `wifi_scan_allowed()` before starting a scan, so your radio work does not race the runtime's traffic stops or recovery scan. The integration reference describes the full sequence.
 
 ### Threading
 
-Use one owner task for lifecycle and control calls. Listener callbacks run from that task's `loop()` or inline in a control call. Keep them bounded and non-blocking, and queue network or storage work for another task. Internal mailboxes do not make the control API thread-safe.
+Use one owner task for lifecycle and control calls. Listener callbacks run on that task, from `loop()` or inline in a control call, and never in Wi-Fi capture context. Keep them bounded and non-blocking, and queue network or storage work for another task: slow callbacks delay `loop()` and can overflow the CSI mailbox. Queue commands received by network callbacks and apply them from the owner task.
 
-Queue commands received by network callbacks and apply them from the owner task. Listener callbacks never run in Wi-Fi capture context: the runtime defers capture events through a bounded mailbox. Slow callbacks delay the next `loop()` call and can cause that mailbox to overflow.
-
-Raw CSI packet callbacks are the exception: they run synchronously in Wi-Fi capture context and must also avoid allocation. Copy accepted samples into a preallocated queue for later processing. Returning `false` reports a consumer drop or backpressure; it does not stop collection. Do not call runtime controls or stop collection from a raw callback. A successful `stop_raw_collection()` waits for any in-progress packet callback before releasing its context, so the owner can then reclaim that context.
+Raw CSI packet callbacks are the exception: they run synchronously in Wi-Fi capture context and must not block or allocate. Copy accepted samples into a preallocated queue for later processing.
 
 ### Errors and capabilities
 
-Check `controller.capabilities()` after setup before exposing optional controls. Capability flags default to `false`, and the controller rejects controls the active backend does not advertise. Control methods return `false` when a value is outside the supported range, the capability is unavailable, or the backend refuses the request; a rejected control leaves the runtime unchanged.
-
-The control surface reports failure through return values and listener callbacks. Runtime-backend, sampler, and detector storage allocations are non-throwing: allocation failure makes `setup()` return `false` and reports the fault synchronously to the listener. Fix the configuration or resource shortage before retrying setup.
-
-Asynchronous faults arrive through `IRuntimeListener::on_runtime_fault()`. `on_calibration_finished(snapshot, success)` reports calibration outcome separately. A failed calibration is not fatal: sensing continues with the configured threshold.
+Check `controller.capabilities()` after setup before exposing optional controls. Control methods return `false` when a value is out of range, the capability is unavailable, or the backend refuses the request, and a rejected control leaves the runtime unchanged. Allocation failures make `setup()` return `false`. Later faults arrive through `IRuntimeListener::on_runtime_fault()`. A failed calibration is not fatal: sensing continues with the threshold in force.
 
 ### Diagnostics
 
-Use `controller.diagnostics_sample()` for diagnostics: the shared one-second sample of traffic and CSI rates plus the current link. Read the same sample across transport adapters so their observation windows agree.
-
-For totals or a custom interval, `controller.diagnostics()` returns the cumulative counters, grouped as `link`, `traffic`, `csi`, `platform`, and `performance`. Initialize `RuntimeDiagnosticsSampler` with `reset(totals, now_ms)`, then call `sample(totals, now_ms)` from an existing periodic callback.
-
-`csi_accepted_pps` measures identity-accepted input; `csi_admitted_pps` measures the input retained for the detector after temporal admission. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates. The `csi` group of the cumulative counters also exposes the callback queue's occupancy and capacity. These measurements do not change the device's traffic rate.
-
-The ESP-IDF runtime always collects diagnostics and bounded 10-second performance windows. A snapshot combines the latest complete window with heap measurements and configured CPU frequency. `performance.runtime_load_percent` measures wall time inside the ESPectre runtime loop, including detector processing and listener delivery; it does not measure whole-system CPU utilization or transport work on other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. [API diagnostics](API.md#diagnostics) defines the wire fields, units, and optionality.
+Use `controller.diagnostics_sample()` for the shared one-second sample of traffic and CSI rates plus the current link. `controller.diagnostics()` returns the cumulative counters behind it, for totals or a custom interval. [API diagnostics](API.md#diagnostics) defines the wire fields, and the integration reference explains how to read them.
 
 ### Versioning
 
-The public facades provide source compatibility under Semantic Versioning. Patch releases preserve documented behavior; minor releases add compatible APIs; major releases may break compatibility. Prereleases may change before the final release. Rebuild the SDK with your firmware: the source package does not promise binary ABI compatibility.
+The public facades provide source compatibility under Semantic Versioning: patch releases preserve documented behavior, minor releases add compatible APIs, and major releases may break compatibility. Prereleases may change before the final release. Rebuild the SDK with your firmware; the source package does not promise binary ABI compatibility.
 
-Construct public configuration and snapshot structs with their defaults, then assign named fields. Positional aggregate initialization is outside the compatibility contract because minor releases may append fields. Minor releases may also add callbacks with default implementations, types, functions, and overloads; existing calls retain their meaning. `CsiCaptureProfile` and `CsiCapturePolicy` are open enums that can gain values, so handle values you do not know. The core-only detector interface (`espectre_core_sdk.h`) may change in a minor release until the stationary presence detector ships; the full runtime and the protocol do not. Detector coefficients and generated weights may change in compatible fixes, so exact floating-point telemetry is not guaranteed across releases.
+Construct public configuration and snapshot structs with their defaults, then assign named fields, because minor releases may append fields. `CsiCaptureProfile` and `CsiCapturePolicy` are open enums, so handle values you do not know. The core-only detector interface (`espectre_core_sdk.h`) may change in a minor release until the stationary presence detector ships. Detector coefficients may change in compatible fixes, so exact floating-point telemetry is not guaranteed across releases.
 
-Use `ESPECTRE_SDK_VERSION_STRING` to identify the SDK and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` for compile-time feature guards. Supply your application version separately through `EspectreDeviceInfo::firmware_version` and discovery or provisioning configuration; `ESPECTRE_PROTOCOL_VERSION` separately identifies the wire format.
-
-Published packages stamp `runtime/espectre_sdk_version.h`. The SDK does not inspect Git or infer its identity from your application. If overriding the packaged version, define all four macros consistently for the SDK and its consumers: `ESPECTRE_SDK_VERSION_STRING`, `ESPECTRE_SDK_VERSION_MAJOR`, `ESPECTRE_SDK_VERSION_MINOR`, and `ESPECTRE_SDK_VERSION_PATCH`. A complete compiler override takes precedence over the header. Missing or incomplete identity falls back to `"0.0.0"` and zero numeric components, so version guards for newer releases evaluate to false.
+Use `ESPECTRE_SDK_VERSION_STRING` to identify the SDK and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` for compile-time feature guards. Your application version, supplied through `EspectreDeviceInfo::firmware_version`, and `ESPECTRE_PROTOCOL_VERSION` are separate. To override the packaged identity, define all four `ESPECTRE_SDK_VERSION_*` macros consistently; the integration reference has the rules.
 
 ## Advanced integrations
 
 ### Core-only
 
-If your application owns CSI capture, include `espectre_core_sdk.h` and use the detectors with `TemporalCsiSampler`. Check `detector.is_valid()` after construction and `sampler.configure(...)` before processing packets: both use non-throwing allocation for bounded working buffers. Detectors and samplers are movable but non-copyable because they own live temporal state.
+If your application owns CSI capture, include `espectre_core_sdk.h` and use the detectors with `TemporalCsiSampler`. Check `detector.is_valid()` after construction and the result of `sampler.configure(...)`: both allocate bounded working buffers without throwing. Your application then drives the sampler, evaluation cadence, and motion-hit filtering, and re-reads `get_threshold()` after each `update_state()`, because Lightweight can lower it without a callback.
 
-The sampler selects temporal slots; your application stores the selected normalized CSI payload. Process each incoming sample in this order:
-
-1. Call `admit()` before replacing the stored payload.
-2. If it returns `true`, consume the previously stored payload: clear detector history when `reset_required()` is true, call `advance_missing_slots(missing_slots_before())`, and then call `process_packet()`.
-3. If `gap_reset_required()` is true, clear detector history before processing post-gap data.
-4. If `selected_current()` is true, replace the stored payload with the current normalized CSI.
-
-At the end of a finite stream, call `flush()` and consume the stored payload if it returns `true`. Your application also owns evaluation cadence and motion-hit filtering. Re-read `get_threshold()` after each `update_state()`: Lightweight can lower the threshold without a setter call, and this path has no `on_threshold_changed()` callback.
-
-Keep raw samples separate from detector preparation. For LLTF input, normalize into the centered HT20 convention, zero missing bins with `zero_ht20_lltf_missing_bins()`, copy the raw view into a detector buffer, and call `impute_ht20_lltf_detector_bins()` only on that copy. [csi_pipeline.cpp](../src/cpp/runtime/esp_idf/csi_pipeline.cpp) shows the production normalization, admission, evaluation, and hit-filter sequence.
+Keep raw samples separate from detector input. Normalize each payload into the centered HT20 convention and, for LLTF captures, zero the missing bins with `zero_ht20_lltf_missing_bins()` on the raw view. Then copy it into a private detector buffer and call `prepare_ht20_detector_input()` on that copy with the capture profile and source metadata. The [integration reference](../src/cpp/sdk_integration.dox) gives the sampler sequence, and [csi_pipeline.cpp](../src/cpp/runtime/esp_idf/csi_pipeline.cpp) shows the production pipeline.
 
 ### Build integration
 
@@ -371,15 +359,11 @@ target_include_directories(espectre_core PUBLIC ${ESPECTRE_SHARED_INCLUDE_DIRS})
 
 Link your application target to `espectre_core` to inherit the includes and C++ standard. If overriding SDK identity, apply all four version macros through `target_compile_definitions(espectre_core PUBLIC ...)`. The SDK root is the only include directory: include other SDK headers by their layer-prefixed path, such as `runtime/runtime_config.h`.
 
+The full runtime links with `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS`. These options wrap `esp_netif_new`, `esp_netif_destroy`, `esp_netif_receive`, and `esp_netif_transmit_wrap` for the whole application to count station traffic, so your application cannot wrap the same functions. The counters follow the default `WIFI_STA_DEF` station interface. The Direct group also wraps the private mDNS function `mdns_priv_receive_action`. Component Manager applies these options automatically.
+
 ### Transport and protocol extensions
 
-Pass parsed SDK requests through `FrontendCommandEngine`. Keep requester-scoped query results separate from state changes published to active transports. An `EspectreCommandValidator` checks parameters and fills the command without changing device state; `FrontendCommandEngine::execute()` expects validation to have succeeded already.
-
-For application routes, create an immutable `EspectreProtocolExtension` and check it with `validate_protocol_extension()`. Use that same catalog for capability output, `DirectHttpServiceConfig::protocol_extension`, `direct_http_request_to_command()`, and `parse_espectre_command()`, and keep it alive while the adapters use it. Your application implements the handlers and enforces each route's transport availability. [contract principles](API.md#contract-principles) defines the shared message contract.
-
-`RuntimeDirectHttpBridgeConfig::loop_time_ms_getter` can supply the latest complete application loop duration in milliseconds. Measure only the loop body, excluding other tasks and time between calls; without this callback, `loop_time_ms` is `null`. This measurement is separate from the runtime's `loop_avg_us` performance-window average.
-
-Firmware updates remain application-owned. `RuntimeFrontendController::quiesce()` suspends telemetry, sensing services, and raw collection while retaining the configured backend. Restore the desired service and telemetry gates when resuming.
+Pass parsed SDK requests through `FrontendCommandEngine`, and describe application routes with an `EspectreProtocolExtension` checked by `validate_protocol_extension()`. Use the same catalog for capability output, Direct HTTP, and command parsing. [Contract principles](API.md#contract-principles) define the shared message contract. The integration reference covers validators, handlers, and `RuntimeFrontendController::quiesce()` for application-owned firmware updates.
 
 ### Task priorities and raw CSI
 
@@ -394,9 +378,7 @@ Your application owns the task that calls `RuntimeFrontendController::loop()`. T
 
 These are compile-time settings. Validate priority changes under the application's workload: higher-priority tasks preempt lower-priority work and can starve sensing or networking. ESP-IDF owns the internal Wi-Fi and lwIP priorities.
 
-The built-in capture pipeline normalizes LLTF, HT, and VHT samples to `HT20_CSI_LEN`: 128 bytes containing 64 complex subcarriers. `RawCsiPacketView` exposes this view, so size capture queues for the normalized payload. The separate `RAW_CSI_MAX_PAYLOAD_BYTES` limit for stored and transmitted records is 512 bytes.
-
-`EspIdfDirectHttpService` allocates a 16-slot raw queue when collection starts, with 128 payload bytes per slot, and releases it when collection stops. It sends batches of up to four records. Stalled sends can overflow the queue; inspect `raw_csi.raw_drop_total` separately from capture-quality rejections. Follow the callback and shutdown rules in [Threading](#threading).
+Raw CSI views carry the normalized `HT20_CSI_LEN` payload of 128 bytes, so size capture queues for it. The integration reference documents the Direct raw queue and its drop counters.
 
 ## Source bundles
 

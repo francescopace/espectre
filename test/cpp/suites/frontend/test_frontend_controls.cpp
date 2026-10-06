@@ -596,11 +596,13 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_FALSE(component.direct_api_enabled_);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
-                          component.runtime_.config().threshold);
+                          runtime_effective_threshold(component.runtime_.config().detection_algorithm,
+                                                      component.runtime_.config().threshold));
   component.set_detection_algorithm("lightweight");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::LIGHTWEIGHT),
-                          component.runtime_.config().threshold);
+                          runtime_effective_threshold(component.runtime_.config().detection_algorithm,
+                                                      component.runtime_.config().threshold));
   component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
   component.set_motion_off_hits(5);
@@ -620,7 +622,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_detection_algorithm("high_accuracy");
 
   TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(DetectionAlgorithm::HIGH_ACCURACY),
-                          component.runtime_.config().threshold);
+                          runtime_effective_threshold(component.runtime_.config().detection_algorithm,
+                                                      component.runtime_.config().threshold));
   TEST_ASSERT_EQUAL(1500U, component.runtime_.config().window_size_ms);
   TEST_ASSERT_EQUAL(94, component.runtime_.config().csi_target_pps);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == TrafficGeneratorMode::DNS);
@@ -853,7 +856,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   frontend_runtime_shim::state.last_listener->on_motion_state_changed(idle_snapshot);
   TEST_ASSERT_FALSE(component.threshold_republished_);
   TEST_ASSERT_FALSE(binary_sensor.has_state());
-  frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(7.25f, 5.5f));
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   RuntimeSnapshot motion_snapshot{};
@@ -875,7 +878,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL(2, threshold_number.get_publish_count());
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
-  frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(motion_snapshot);
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
   component.loop();
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());

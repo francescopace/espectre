@@ -75,6 +75,14 @@ extern State state;
 
 void reset();
 
+// Snapshot the runtime delivers with live telemetry for one evaluation.
+inline RuntimeSnapshot live_telemetry_snapshot(float movement, float threshold) {
+  RuntimeSnapshot snapshot = state.snapshot;
+  snapshot.movement_metric = movement;
+  snapshot.threshold = threshold;
+  return snapshot;
+}
+
 }  // namespace frontend_runtime_shim
 
 }  // namespace espectre

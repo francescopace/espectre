@@ -190,7 +190,10 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
                     static_cast<int>(config.detection_algorithm));
   TEST_ASSERT_EQUAL(static_cast<int>(TrafficGeneratorMode::PING), static_cast<int>(config.traffic_generator_mode));
   TEST_ASSERT_TRUE(runtime_detection_algorithm_valid(config.detection_algorithm));
-  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, config.threshold);
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_THRESHOLD_DETECTOR_DEFAULT, config.threshold);
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD,
+                          runtime_effective_threshold(config.detection_algorithm, config.threshold));
+  TEST_ASSERT_FALSE(config.persist_runtime_overrides);
 
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_ON_HITS_DEFAULT, config.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_OFF_HITS_DEFAULT, config.motion_off_hits);
@@ -289,7 +292,7 @@ void test_listener_callbacks_default_to_no_ops(void) {
   base.on_detector_changed(snapshot);
   base.on_calibration_started(snapshot);
   base.on_calibration_finished(snapshot, true);
-  base.on_live_telemetry(0.5f, 0.7f);
+  base.on_live_telemetry(snapshot);
   base.on_runtime_fault("surface test");
   TEST_ASSERT_EQUAL_INT(0, listener.motion_changes);
 

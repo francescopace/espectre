@@ -8,13 +8,14 @@
 #include <cstring>
 
 #include "nvs.h"
+#include "nvs_helpers.h"
 #include "runtime/runtime_config_utils.h"
 
 namespace espectre {
 
 namespace {
 
-constexpr const char *kNamespace = "espectre";
+constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kTrafficGeneratorModeKey = "traffic_gen";
 
 esp_err_t load_string_key(const char *key, char *value, size_t value_size, bool *has_saved_value) {
@@ -83,6 +84,10 @@ esp_err_t save_runtime_traffic_generator_mode(TrafficGeneratorMode mode) {
     return ESP_ERR_INVALID_ARG;
   }
   return save_string_key(kTrafficGeneratorModeKey, traffic_generator_mode_name(mode));
+}
+
+esp_err_t clear_runtime_traffic_generator_mode() {
+  return detail::erase_espectre_nvs_keys({kTrafficGeneratorModeKey});
 }
 
 }  // namespace espectre

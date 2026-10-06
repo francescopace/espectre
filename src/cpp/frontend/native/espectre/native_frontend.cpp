@@ -40,6 +40,7 @@ NativeFrontend::~NativeFrontend() { shutdown(); }
 void NativeFrontend::set_runtime_config(const RuntimeConfig &config) {
   RuntimeConfig native_config = config;
   native_config.runtime_detector_selection_enabled = true;
+  native_config.persist_runtime_overrides = true;
   runtime_.set_config(native_config);
 }
 
@@ -217,13 +218,10 @@ void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bo
   }
 }
 
-void NativeFrontend::on_live_telemetry(float movement, float threshold) {
-  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION || !runtime_.snapshot().ready_to_publish) {
+void NativeFrontend::on_live_telemetry(const RuntimeSnapshot &snapshot) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION || !snapshot.ready_to_publish) {
     return;
   }
-  RuntimeSnapshot snapshot = runtime_.snapshot();
-  snapshot.movement_metric = movement;
-  snapshot.threshold = threshold;
   runtime_events_.post_live_telemetry(snapshot);
 }
 

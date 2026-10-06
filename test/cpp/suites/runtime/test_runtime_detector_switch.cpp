@@ -72,7 +72,7 @@ class DetectorListener : public IRuntimeListener {
   }
   void on_runtime_fault(const char *) override { faults++; }
 
-  void on_live_telemetry(float, float) override { live_updates++; }
+  void on_live_telemetry(const RuntimeSnapshot &) override { live_updates++; }
 
   int live_updates{0};
   int detector_changes{0};
@@ -997,7 +997,7 @@ void test_runtime_rejects_invalid_detector_geometry_before_starting_services(voi
     RuntimeConfig config;
     if (field == 0) config.csi_target_pps = RUNTIME_CSI_TARGET_PPS_MIN - 1U;
     if (field == 1) config.window_size_ms = RUNTIME_WINDOW_SIZE_MS_MAX + 1U;
-    if (field == 2) config.threshold = -1.0f;
+    if (field == 2) config.threshold = -0.5f;
     FakeCsiTrafficGenerator generator;
     FakeCsiTrafficIngress ingress;
     EspIdfRuntime runtime(config, generator, ingress);
@@ -1011,8 +1011,43 @@ void test_runtime_rejects_invalid_detector_geometry_before_starting_services(voi
   }
 }
 
+void test_runtime_default_threshold_follows_the_configured_detector(void) {
+  for (const auto algorithm : {DetectionAlgorithm::LIGHTWEIGHT, DetectionAlgorithm::HIGH_ACCURACY}) {
+    RuntimeConfig config;
+    config.detection_algorithm = algorithm;
+    FakeCsiTrafficGenerator generator;
+    FakeCsiTrafficIngress ingress;
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(algorithm), runtime.get_snapshot().threshold);
+    TEST_ASSERT_EQUAL_FLOAT(runtime_default_threshold(algorithm), runtime.effective_config().threshold);
+    runtime.shutdown();
+  }
+}
+
+void test_runtime_ignores_saved_controls_unless_persistence_is_enabled(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(7U, 5U));
+  RuntimeConfig config;
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  {
+    EspIdfRuntime runtime(config, generator, ingress);
+    TEST_ASSERT_TRUE(runtime.setup());
+    TEST_ASSERT_EQUAL_UINT8(config.motion_on_hits, runtime.effective_config().motion_on_hits);
+    TEST_ASSERT_TRUE(runtime.set_motion_hits(9U, 8U));
+    runtime.shutdown();
+  }
+  uint8_t motion_on_hits = 0U;
+  uint8_t motion_off_hits = 0U;
+  bool has_saved_value = false;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_EQUAL_UINT8(7U, motion_on_hits);
+}
+
 void test_runtime_rejects_invalid_or_unpersisted_controls_without_changing_config(void) {
   RuntimeConfig config;
+  config.persist_runtime_overrides = true;
   config.runtime_detector_selection_enabled = true;
   FakeCsiTrafficGenerator generator;
   FakeCsiTrafficIngress ingress;
@@ -1062,6 +1097,7 @@ void test_runtime_restores_internal_traffic_when_external_source_cannot_start(vo
 
 void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {
   RuntimeConfig config;
+  config.persist_runtime_overrides = true;
   EspIdfRuntime runtime(config);
   nvs_mock_set_open_result(ESP_FAIL);
 
@@ -1093,6 +1129,7 @@ void test_runtime_detector_adaptation_emits_threshold_changed_without_live_telem
 
 void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   RuntimeConfig config;
+  config.persist_runtime_overrides = true;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
@@ -1118,6 +1155,8 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::EXTERNAL_HOST));
 
   RuntimeConfig config;
+
+  config.persist_runtime_overrides = true;
   config.runtime_detector_selection_enabled = true;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   config.motion_on_hits = 4U;
@@ -1737,6 +1776,7 @@ void test_wifi_raw_switch_preserves_ml_threshold_and_recalibrates_lightweight_on
   for (const auto algorithm : {DetectionAlgorithm::HIGH_ACCURACY, DetectionAlgorithm::LIGHTWEIGHT}) {
     nvs_mock_reset();
     RuntimeConfig config;
+    config.persist_runtime_overrides = true;
     config.detection_algorithm = algorithm;
     config.threshold = 0.73f;
     FakeCsiTrafficGenerator generator;
@@ -1829,6 +1869,7 @@ void test_traffic_source_target_support_applies_to_config_controls_persistence_a
     const bool supported = mode != TrafficGeneratorMode::WIFI_RAW || kSupportsWifiRaw;
     TEST_ASSERT_EQUAL(supported, runtime_traffic_generator_mode_supported(mode));
     RuntimeConfig config;
+    config.persist_runtime_overrides = true;
     config.traffic_generator_mode = mode;
     TEST_ASSERT_EQUAL(supported ? RuntimeConfigError::NONE : RuntimeConfigError::TRAFFIC_GENERATOR_MODE,
                       validate_runtime_config(config));
@@ -1893,6 +1934,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_traffic_change_restarts_a_running_calibration);
   RUN_TEST(test_runtime_startup_calibration_during_motion_keeps_the_default);
   RUN_TEST(test_runtime_rejects_invalid_detector_geometry_before_starting_services);
+  RUN_TEST(test_runtime_default_threshold_follows_the_configured_detector);
+  RUN_TEST(test_runtime_ignores_saved_controls_unless_persistence_is_enabled);
   RUN_TEST(test_runtime_rejects_invalid_or_unpersisted_controls_without_changing_config);
   RUN_TEST(test_runtime_restores_internal_traffic_when_external_source_cannot_start);
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);

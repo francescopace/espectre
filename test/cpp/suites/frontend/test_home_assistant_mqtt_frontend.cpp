@@ -398,7 +398,7 @@ void test_native_frontend_ha_entities_follow_esphome_cadences(void) {
 
   mqtt_transport_mock::state.publishes.clear();
   RuntimeSnapshot snapshot = make_ready_snapshot();
-  frontend.on_live_telemetry(snapshot.movement_metric, snapshot.threshold);
+  frontend.on_live_telemetry(snapshot);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
   frontend.loop();
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/movement/state", "2.7500"));

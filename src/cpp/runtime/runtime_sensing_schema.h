@@ -81,6 +81,11 @@ constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
 constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_THRESHOLD_DEFAULT = LIGHTWEIGHT_DEFAULT_THRESHOLD;
+/**
+ * `RuntimeConfig::threshold` value that selects the configured detector's
+ * default threshold at setup. It is not a valid threshold for the setters.
+ */
+constexpr float RUNTIME_THRESHOLD_DETECTOR_DEFAULT = -1.0f;
 
 constexpr uint32_t RUNTIME_WINDOW_SIZE_MS_MIN = 1000U;
 constexpr uint32_t RUNTIME_WINDOW_SIZE_MS_MAX = 2000U;
@@ -149,6 +154,12 @@ constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::HIGH_ACCURACY
              ? HIGH_ACCURACY_DEFAULT_THRESHOLD
              : LIGHTWEIGHT_DEFAULT_THRESHOLD;
+}
+
+/** Threshold a configuration applies: `threshold`, or the detector default for the sentinel. */
+constexpr float runtime_effective_threshold(DetectionAlgorithm algorithm, float threshold) {
+  return threshold == RUNTIME_THRESHOLD_DETECTOR_DEFAULT ? runtime_default_threshold(algorithm)
+                                                         : threshold;
 }
 
 static_assert(RUNTIME_THRESHOLD_MIN == 0.0f, "Runtime threshold min must stay at zero");

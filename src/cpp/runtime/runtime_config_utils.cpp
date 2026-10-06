@@ -144,8 +144,9 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
     if (!runtime_detection_algorithm_valid(config.detection_algorithm)) {
       return RuntimeConfigError::DETECTION_ALGORITHM;
     }
-    if (!validate_runtime_threshold_for_algorithm(config.threshold,
-                                                  config.detection_algorithm)) {
+    if (!validate_runtime_threshold_for_algorithm(
+            runtime_effective_threshold(config.detection_algorithm, config.threshold),
+            config.detection_algorithm)) {
       return RuntimeConfigError::SEGMENTATION_THRESHOLD;
     }
     if (!validate_runtime_uint32(config.window_size_ms,

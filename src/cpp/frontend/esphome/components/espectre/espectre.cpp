@@ -904,13 +904,10 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 
 }
 
-void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
-  RuntimeSnapshot snapshot = this->runtime_.snapshot();
+void ESpectreComponent::on_live_telemetry(const RuntimeSnapshot &snapshot) {
   if (!snapshot.ready_to_publish) {
     return;
   }
-  snapshot.movement_metric = movement;
-  snapshot.threshold = threshold;
   this->runtime_events_.post_live_telemetry(snapshot);
 }
 

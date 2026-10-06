@@ -1,7 +1,7 @@
 /*
  * ESPectre - NVS Helpers
  *
- * Shared NVS initialization helpers for ESP-IDF runtimes and firmware
+ * Shared NVS namespace and helpers for ESP-IDF runtimes and firmware
  * entrypoints.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -10,6 +10,7 @@
  */
 #include "nvs_helpers.h"
 
+#include "nvs.h"
 #include "nvs_flash.h"
 
 namespace espectre {
@@ -25,5 +26,30 @@ esp_err_t nvs_init_with_erase_fallback() {
   }
   return err;
 }
+
+namespace detail {
+
+esp_err_t erase_espectre_nvs_keys(std::initializer_list<const char *> keys) {
+  nvs_handle_t handle = 0;
+  esp_err_t err = nvs_open(ESPECTRE_NVS_NAMESPACE, NVS_READWRITE, &handle);
+  if (err == ESP_ERR_NVS_NOT_FOUND) {
+    return ESP_OK;
+  }
+  if (err != ESP_OK) {
+    return err;
+  }
+  for (const char *key : keys) {
+    err = nvs_erase_key(handle, key);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+      nvs_close(handle);
+      return err;
+    }
+  }
+  err = nvs_commit(handle);
+  nvs_close(handle);
+  return err;
+}
+
+}  // namespace detail
 
 }  // namespace espectre

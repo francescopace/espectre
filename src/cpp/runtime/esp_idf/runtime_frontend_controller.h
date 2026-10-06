@@ -31,27 +31,7 @@ struct RuntimeDiagnosticsSample;
  *
  * It owns the sensing runtime, caches the latest snapshot and discovered
  * capabilities, and validates control calls before they reach the backend.
- *
- * @code
- * class ProductFrontend : public espectre::IRuntimeListener {
- *  public:
- *   bool setup() {
- *     espectre::RuntimeConfig config;
- *     config.detection_algorithm = espectre::DetectionAlgorithm::LIGHTWEIGHT;
- *     runtime_.set_config(config);
- *     return runtime_.setup(this);
- *   }
- *
- *   void loop() { runtime_.loop(); }
- *
- *   void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
- *     if (snapshot.ready_to_publish) publish(snapshot.motion_state);
- *   }
- *
- *  private:
- *   espectre::RuntimeFrontendController runtime_;
- * };
- * @endcode
+ * `espectre_sdk.h` shows a minimal integration.
  *
  * @par Lifecycle
  * `set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`.
@@ -60,7 +40,7 @@ struct RuntimeDiagnosticsSample;
  *
  * @par Threading
  * Carries no internal locking. Run `setup()`, `loop()`, and `shutdown()` on
- * one task. See `espectre_sdk.h` for the full contract, including where
+ * one task. @ref integration_threading has the full contract, including where
  * listener callbacks land and how to handle controls driven from a transport
  * callback.
  *
@@ -83,11 +63,14 @@ class RuntimeFrontendController : private IRuntimeListener {
   /**
    * Stage the configuration used by the next `setup()`.
    *
-   * Ignored once setup has started, so reconfiguring a running runtime means
-   * `shutdown()` first, or the setters for the fields that
-   * support live changes.
+   * Reconfiguring a running runtime means `shutdown()` first, or the setters
+   * for the fields that support live changes.
+   *
+   * @param config Configuration for the next `setup()`.
+   * @return false, leaving the staged configuration unchanged, while a
+   *         runtime is set up.
    */
-  void set_config(const RuntimeConfig &config);
+  bool set_config(const RuntimeConfig &config);
   /**
    * Mutable access to the staged configuration.
    *
@@ -95,7 +78,10 @@ class RuntimeFrontendController : private IRuntimeListener {
    * without rebuilding the whole struct. After a successful setup it reflects
    * the backend's effective configuration, including persisted overrides.
    * Writing to it after setup stages the next setup only; live controls
-   * continue to validate against the active configuration.
+   * continue to validate against the active configuration. A threshold
+   * resolved from `RUNTIME_THRESHOLD_DETECTOR_DEFAULT` returns to it at
+   * `shutdown()` unless `set_threshold()` replaced it, so the next setup
+   * applies the default of the detector it runs.
    */
   RuntimeConfig &config() { return config_; }
   /** Read-only view of the staged or last effective configuration. */
@@ -143,8 +129,9 @@ class RuntimeFrontendController : private IRuntimeListener {
    *
    * Calling it twice is a no-op that returns true.
    *
-   * @param listener Event sink, or `nullptr` for none. Not owned; it must
-   *        outlive the controller.
+   * @param listener Event sink, or `nullptr` for none. Not owned; keep it
+   *        valid until `shutdown()` returns, or until the controller is
+   *        destroyed when you rely on its destructor.
    * @return false when the backend cannot start or its bounded working storage
    *         cannot be allocated. On failure the backend is dropped and the
    *         controller stays un-setup, so it is safe to fix the config and
@@ -182,12 +169,28 @@ class RuntimeFrontendController : private IRuntimeListener {
   /** Current armed state, including before setup. */
   bool services_armed() const { return services_armed_; }
   /**
+   * Whether firmware may reconfigure the station now.
+   *
    * False while a traffic stop or its CSI disable is in progress, including
    * after shutdown() until that worker has left its send. True before setup.
+   * Firmware that owns the Wi-Fi station checks it before changing the station
+   * configuration; `wifi_scan_allowed()` covers scans.
    */
   bool traffic_allows_radio_work() const;
   /**
-   * Keep a deferred traffic restart parked while a radio reconfigure is waiting.
+   * Whether firmware may start its own Wi-Fi scan now.
+   *
+   * False while `traffic_allows_radio_work()` is false, and while an SDK
+   * receive-path recovery scan owns the scanner, including its result cleanup.
+   * Defer the scan and check again from the owner task's loop.
+   */
+  bool wifi_scan_allowed() const;
+  /**
+   * Keep a deferred traffic restart parked while firmware radio work is waiting.
+   *
+   * Set it while a station reconfigure or scan that the firmware deferred has
+   * not reached the driver yet, and clear it once that work has started, so
+   * restarted traffic cannot race it.
    *
    * @param hold True while a station reconfigure or scan has not touched the driver yet.
    */
@@ -288,6 +291,17 @@ class RuntimeFrontendController : private IRuntimeListener {
   bool stop_raw_collection(RawCsiStopReason reason = RawCsiStopReason::REQUESTED);
   /** Current transient backend operation. */
   RuntimeOperationState operation_state() const;
+  /**
+   * Erase the sensing controls saved by earlier setter calls.
+   *
+   * Removes the traffic generator mode, motion hits, and detector saved under
+   * `RuntimeConfig::persist_runtime_overrides`, whether or not persistence is
+   * enabled now, so the next `setup()` uses the configuration you pass. The
+   * running session keeps its current values. Requires initialized NVS.
+   *
+   * @return false when NVS cannot be opened or an erase fails.
+   */
+  bool clear_persisted_overrides();
 
  private:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
@@ -296,7 +310,7 @@ class RuntimeFrontendController : private IRuntimeListener {
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
-  void on_live_telemetry(float movement, float threshold) override;
+  void on_live_telemetry(const RuntimeSnapshot &snapshot) override;
   void on_runtime_fault(const char *message) override;
 
   void cache_snapshot_(const RuntimeSnapshot &snapshot);
@@ -318,6 +332,9 @@ class RuntimeFrontendController : private IRuntimeListener {
   std::unique_ptr<IEspectreRuntime> runtime_;
   IRuntimeListener *listener_{nullptr};
   bool setup_complete_{false};
+  // The session's threshold came from RUNTIME_THRESHOLD_DETECTOR_DEFAULT and no
+  // setter has replaced it, so shutdown() returns the staged value to it.
+  bool threshold_follows_detector_{false};
   bool last_sensing_ready_{false};
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};

@@ -164,6 +164,7 @@ espectre::RuntimeConfig build_runtime_config() {
   espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
   config.device_id = espectre::derive_runtime_device_id();
   config.runtime_detector_selection_enabled = true;
+  config.persist_runtime_overrides = true;
   return config;
 }
 

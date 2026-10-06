@@ -44,19 +44,20 @@
  * class ProductFrontend : public espectre::IRuntimeListener {
  *  public:
  *   bool setup() {
- *     espectre::RuntimeConfig config;  // documented defaults, ready to use
- *     runtime_.set_config(config);
+ *     runtime_.set_config(espectre::make_runtime_sensing_config_from_kconfig());
  *     return runtime_.setup(this);
  *   }
  *
  *   void loop() { runtime_.loop(); }
+ *   void shutdown() { runtime_.shutdown(); }
  *
  *   void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
  *     if (!snapshot.ready_to_publish) return;
- *     publish(snapshot.motion_state == espectre::MotionState::MOTION);
+ *     publish_motion(snapshot.motion_state == espectre::MotionState::MOTION);
  *   }
  *
  *  private:
+ *   void publish_motion(bool motion);  // Queue work for the application.
  *   espectre::RuntimeFrontendController runtime_;
  * };
  * @endcode
@@ -70,31 +71,14 @@
  *   Requires ESP-IDF >= 5.5.3.
  * - **Core-only.** Your firmware already captures CSI. Include
  *   `espectre_core_sdk.h` and drive `espectre::LightweightDetector` or
- *   `espectre::HighAccuracyDetector` directly. `runtime/esp_idf/csi_pipeline.cpp`
- *   is the reference for normalization, evaluation cadence, and hit filtering.
+ *   `espectre::HighAccuracyDetector` directly; see @ref integration_core_only.
  *
- * @section sdk_threading Threading contract
+ * @section sdk_threading Threading
  *
- * The control surface is single-owner. Internal bounded mailboxes protect
- * callback-to-loop handoff, but they do not make control calls thread-safe.
- *
- * - Run `setup()`, `loop()`, and `shutdown()` on one task. These are the calls
- *   that build and tear down runtime state, and they are not safe to race.
- * - Every `IRuntimeListener` callback is delivered on the caller's task: from
- *   `loop()` for sensing events, or inline on the task that invoked a control
- *   method. Work raised in the Wi-Fi CSI callback is deferred through an
- *   internal mailbox first, so no listener callback runs in interrupt or Wi-Fi
- *   driver context.
- * - Keep callbacks bounded and non-blocking. Slow work delays `loop()` and can
- *   fill the bounded CSI mailbox, dropping incoming frames. Queue network I/O,
- *   NVS writes, and other blocking work for another task.
- * - Call the controller setters only from the owner task. Queue commands received
- *   by network callbacks and apply them from that task's loop.
- * - Do not drive the controller from inside `on_runtime_fault()` beyond
- *   `shutdown()`.
- * - Raw CSI packet callbacks are the deliberate exception to listener delivery:
- *   they run synchronously in Wi-Fi capture context. Keep them bounded,
- *   non-blocking, and allocation-free; see `raw_csi_packet_callback_t`.
+ * Run `setup()`, `loop()`, `shutdown()`, and every control call on one owner
+ * task. Listener callbacks run on that task and must stay bounded and
+ * non-blocking. Raw CSI packet callbacks are the exception: they run in Wi-Fi
+ * capture context. @ref integration_threading has the full contract.
  *
  * @section sdk_versioning Versioning
  *

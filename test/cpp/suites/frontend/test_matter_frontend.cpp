@@ -209,7 +209,7 @@ void test_matter_frontend_defers_live_telemetry_serialization_until_after_runtim
   direct.emit_client_count(1U);
   frontend.loop();
 
-  frontend.on_live_telemetry(7.5f, 2.25f);
+  frontend.on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(7.5f, 2.25f));
   TEST_ASSERT_EQUAL(0, direct_http_service_mock::state.published_events.size());
   frontend.loop();
   TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.published_events.size());

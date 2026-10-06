@@ -100,7 +100,7 @@ void test_native_frontend_live_telemetry_publishes_mqtt_telemetry(void) {
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/motion"));
 
   mqtt_transport_mock::state.publishes.clear();
-  frontend.on_live_telemetry(snapshot.movement_metric, snapshot.threshold);
+  frontend.on_live_telemetry(snapshot);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
   frontend.loop();
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
@@ -433,7 +433,7 @@ void test_native_frontend_serializes_telemetry_once_for_active_transports(void) 
   direct.emit_client_count(1U);
   mqtt_transport_mock::state.publishes.clear();
 
-  frontend.on_live_telemetry(2.5f, 1.25f);
+  frontend.on_live_telemetry(frontend_runtime_shim::live_telemetry_snapshot(2.5f, 1.25f));
   TEST_ASSERT_EQUAL(0, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   frontend.loop();
   TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));

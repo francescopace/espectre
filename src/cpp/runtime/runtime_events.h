@@ -23,24 +23,16 @@ namespace espectre {
  * default, so an integration that only cares about motion overrides one method.
  *
  * @par Threading and reentrancy
- * Callbacks are always delivered on the caller's task, never from an interrupt
- * or the Wi-Fi driver:
- * - Sensing events (motion, readiness, periodic, live telemetry, calibration
- *   progress, and detector-driven threshold adaptation) originate in the CSI
- *   callback but are deferred through an internal mailbox and dispatched from
- *   `loop()`.
- * - Control-driven events (threshold writes, detector selection, and manual
- *   recalibration) fire inline on whichever task called the corresponding
- *   control method.
+ * Sensing events are dispatched from `loop()`; control-driven events, such as
+ * threshold writes, detector selection, and manual recalibration, fire inline
+ * on the task that called the control method. No callback runs in an
+ * interrupt or Wi-Fi driver context. Keep callbacks bounded and non-blocking,
+ * and queue network, storage, and other blocking work for another task.
+ * Calling back into the controller is allowed, except from
+ * `on_runtime_fault()`. @ref integration_threading has the full contract.
  *
  * `on_threshold_changed()` covers every threshold source: a setter, a
  * calibration result, or Lightweight settled-level recovery.
- *
- * Keep callbacks bounded and non-blocking. Slow work delays the next `loop()`
- * iteration and can fill the bounded CSI mailbox, causing incoming frames to be
- * dropped. Queue network publication, NVS writes, and other potentially
- * blocking work for another task. Calling back into the controller is allowed,
- * with one exception noted on `on_runtime_fault()`.
  *
  * @par Snapshot lifetime
  * The `snapshot` reference is only valid for the duration of the call. Copy it
@@ -140,10 +132,13 @@ class IRuntimeListener {
    * Considerably more frequent than `on_periodic_update()`; suppress it with
    * `set_live_telemetry_enabled(false)` when nothing is watching.
    *
-   * @param movement Current motion metric.
-   * @param threshold Threshold it is compared against, on the same scale.
+   * Evaluations also run during calibration and warm-up, so gate publication
+   * on `ready_to_publish` as in every other sensing callback.
+   *
+   * @param snapshot Sensing state with this evaluation's `movement_metric`
+   *        and the `threshold` it is compared against.
    */
-  virtual void on_live_telemetry(float movement, float threshold) {}
+  virtual void on_live_telemetry(const RuntimeSnapshot &snapshot) {}
   /**
    * A runtime-owned failure your firmware should surface.
    *

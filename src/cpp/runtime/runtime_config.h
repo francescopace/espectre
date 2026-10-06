@@ -61,16 +61,22 @@ struct RuntimeConfig {
   WifiBandPolicy wifi_band_policy{WifiBandPolicy::AUTO};
   /** Build-time CSI profile; AUTO resolves from chip, band, and the active traffic source. No runtime setter. */
   CsiCapturePolicy csi_capture_policy{CsiCapturePolicy::AUTO};
-  /** Detection profile to run. When assigning it, initialize `threshold` with `runtime_default_threshold()` or a custom value. */
+  /** Detection profile to run. The default `threshold` follows it. */
   DetectionAlgorithm detection_algorithm{DetectionAlgorithm::LIGHTWEIGHT};
   /**
    * Motion probability threshold, on the same 0..1 scale as
    * `RuntimeSnapshot::movement_metric`.
    *
-   * Lightweight Detection overwrites this during startup calibration, so the
-   * configured value only governs the pre-calibration window. High-Accuracy Detection keeps it as given.
+   * The default, `RUNTIME_THRESHOLD_DETECTOR_DEFAULT`, makes `setup()` apply
+   * the default of the selected detector (`runtime_default_threshold()`), so
+   * changing `detection_algorithm` alone is enough. Lightweight Detection
+   * overwrites the threshold during startup calibration, so a configured value
+   * only governs the pre-calibration window. High-Accuracy Detection keeps it
+   * as given. After a successful setup, `RuntimeFrontendController::config()`
+   * reports the resolved value; `shutdown()` restores the sentinel unless
+   * `set_threshold()` replaced it.
    */
-  float threshold{RUNTIME_THRESHOLD_DEFAULT};
+  float threshold{RUNTIME_THRESHOLD_DETECTOR_DEFAULT};
   /**
    * Detector window duration in milliseconds (1000..2000).
    *
@@ -148,14 +154,17 @@ struct RuntimeConfig {
   /**
    * Remember runtime control changes across reboots.
    *
-   * When true, `setup()` restores the traffic generator mode and motion hits
-   * saved by earlier control calls, plus the detector when
-   * `runtime_detector_selection_enabled` is set, and those calls save their
-   * new values. Set it to false when your firmware owns configuration, for
-   * example from YAML or a cloud service: this config is then the only source
-   * of truth, and the runtime neither reads nor writes saved controls.
+   * Off by default: this config is the only source of truth, and the runtime
+   * neither reads nor writes saved controls. When true, `setup()` restores the
+   * traffic generator mode and motion hits saved by earlier control calls,
+   * plus the detector when `runtime_detector_selection_enabled` is set, and
+   * those calls save their new values in the `ESPECTRE_NVS_NAMESPACE` NVS
+   * namespace. Saved values then take precedence over this config until
+   * `RuntimeFrontendController::clear_persisted_overrides()` erases them.
+   * Persistence requires initialized NVS; a setter whose value cannot be saved
+   * returns false.
    */
-  bool persist_runtime_overrides{true};
+  bool persist_runtime_overrides{false};
 };
 
 }  // namespace espectre

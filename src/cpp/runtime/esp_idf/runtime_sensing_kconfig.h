@@ -33,7 +33,8 @@ namespace espectre {
  *
  * Options absent from the build, for instance when the SDK Kconfig is not
  * sourced, compile to their defaults. Fields with no Kconfig option, such as
- * `device_id` and the stream settings, keep their `RuntimeConfig` defaults.
+ * `device_id`, `csi_traffic_udp_port`, and `persist_runtime_overrides`, keep
+ * their `RuntimeConfig` defaults.
  *
  * @return A validated configuration, ready for
  *         `RuntimeFrontendController::set_config()`.

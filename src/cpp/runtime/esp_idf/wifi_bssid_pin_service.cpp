@@ -15,6 +15,7 @@
 
 #include "core/espectre_log.h"
 #include "nvs.h"
+#include "nvs_helpers.h"
 #include "runtime/runtime_time.h"
 
 namespace espectre {
@@ -22,7 +23,7 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.bssid_pin";
-constexpr const char *kNamespace = "espectre";
+constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kSsidKey = "pin_ssid";
 constexpr const char *kBssidKey = "pin_bssid";
 constexpr const char *kPendingKey = "pin_pending";

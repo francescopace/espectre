@@ -241,10 +241,7 @@ void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bo
   }
 }
 
-void MatterFrontend::on_live_telemetry(float movement, float threshold) {
-  RuntimeSnapshot snapshot = runtime_.snapshot();
-  snapshot.movement_metric = movement;
-  snapshot.threshold = threshold;
+void MatterFrontend::on_live_telemetry(const RuntimeSnapshot &snapshot) {
   runtime_events_.post_live_telemetry(snapshot);
 }
 

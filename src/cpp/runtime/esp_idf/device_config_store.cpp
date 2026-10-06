@@ -12,12 +12,13 @@
 #include <utility>
 
 #include "nvs.h"
+#include "nvs_helpers.h"
 
 namespace espectre {
 
 namespace {
 
-constexpr const char *kNamespace = "espectre";
+constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kWifiSsidKey = "wifi_ssid";
 constexpr const char *kWifiPasswordKey = "wifi_pass";
 constexpr const char *kWifiBssidKey = "wifi_bssid";

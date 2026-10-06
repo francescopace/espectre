@@ -54,7 +54,7 @@ class MatterFrontend : public IRuntimeListener {
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
-  void on_live_telemetry(float movement, float threshold) override;
+  void on_live_telemetry(const RuntimeSnapshot &snapshot) override;
   void on_runtime_fault(const char *message) override;
 
  private:

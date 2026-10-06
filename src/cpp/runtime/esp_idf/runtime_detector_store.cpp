@@ -12,13 +12,14 @@
 #include <cstring>
 
 #include "nvs.h"
+#include "nvs_helpers.h"
 #include "runtime/runtime_config_utils.h"
 
 namespace espectre {
 
 namespace {
 
-constexpr const char *kNamespace = "espectre";
+constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kDetectorKey = "detector";
 
 }  // namespace
@@ -76,6 +77,10 @@ esp_err_t save_runtime_detection_algorithm(DetectionAlgorithm algorithm) {
   }
   nvs_close(handle);
   return err;
+}
+
+esp_err_t clear_runtime_detection_algorithm() {
+  return detail::erase_espectre_nvs_keys({kDetectorKey});
 }
 
 }  // namespace espectre

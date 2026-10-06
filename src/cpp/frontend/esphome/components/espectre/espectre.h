@@ -54,6 +54,8 @@ class ESpectreComponent : public Component, public IRuntimeListener
     // ESPHome always generates the detector select entity, so this frontend
     // always wants the NVS-backed runtime detector store behind it.
     this->runtime_.config().runtime_detector_selection_enabled = true;
+    // Home Assistant controls survive reboots through the runtime's saved overrides.
+    this->runtime_.config().persist_runtime_overrides = true;
     // ESPHome consumes scan events and may start another scan before the
     // runtime's next loop. Its Wi-Fi component owns the driver result list.
     this->runtime_.config().wifi_scan_results_managed_externally = true;
@@ -93,8 +95,8 @@ class ESpectreComponent : public Component, public IRuntimeListener
   // detector select entity and the NVS-backed store behind it, so the second is
   // declared once in the constructor rather than as a side effect here.
   void set_detection_algorithm(const std::string &algo) {
+    // The default threshold sentinel follows the detector chosen here.
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
-    this->runtime_.config().threshold = runtime_default_threshold(this->runtime_.config().detection_algorithm);
   }
   void set_evaluation_interval_ms(uint32_t interval_ms) {
     this->runtime_.config().evaluation_interval_ms = interval_ms;
@@ -157,7 +159,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_sensing_readiness_changed(const RuntimeSnapshot &snapshot) override;
   void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t csi_accepted) override;
-  void on_live_telemetry(float movement, float threshold) override;
+  void on_live_telemetry(const RuntimeSnapshot &snapshot) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
