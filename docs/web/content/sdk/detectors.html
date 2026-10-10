@@ -22,12 +22,12 @@
   <p>Lightweight's weights are fitted in advance on training recordings and built into the firmware. Calibration at startup only adapts the threshold to the room.</p>
 
   <h2 id="sdk-detectors-performance" data-toc-label="Measured performance">Current measured comparison</h2>
-  <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 13 pairs of real recordings (<code>selection + holdout</code>), with the same simulated drift and packet loss added from the same two fixed seeds. The device columns are plain averages of the passing Native, ESPHome, and Matter runs in the per-chip reports, without Micro-ESPectre.</p>
+  <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 20 pairs of real recordings (<code>selection + holdout</code>), with the same simulated drift and packet loss added from the same two fixed seeds. The device columns are plain averages of the passing Native, ESPHome, and Matter runs in the per-chip reports, without Micro-ESPectre.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Detection profile</th><th>Recall</th><th>False-positive rate</th><th>F1</th><th>Mean detection time</th><th>Mean runtime CPU</th></tr></thead>
     <tbody>
-      <tr><td>Lightweight</td><td>98.7%</td><td>0.8%</td><td>98.6%</td><td>0.814 ms</td><td>7.36%</td></tr>
-      <tr><td>High Accuracy</td><td>99.4%</td><td>0.1%</td><td>99.5%</td><td>2.956 ms</td><td>10.14%</td></tr>
+      <tr><td>Lightweight</td><td>98.5%</td><td>1.1%</td><td>98.1%</td><td>0.773 ms</td><td>9.22%</td></tr>
+      <tr><td>High Accuracy</td><td>99.6%</td><td>0.5%</td><td>99.3%</td><td>3.028 ms</td><td>11.94%</td></tr>
     </tbody>
   </table></div>
   <div class="evidence-notes">
