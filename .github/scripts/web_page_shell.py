@@ -74,14 +74,26 @@ def render_footer(manifest: dict, *, logo_version: str) -> str:
 
 
 def render_consent_banner() -> str:
-    return """<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
-  <div>
-    <strong id="consent-title">Optional analytics</strong>
-    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
-    <a href="/privacy/">Read the privacy notice</a>
+    return """<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" aria-describedby="consent-description" hidden>
+  <div class="consent-summary">
+    <strong id="consent-title">Your privacy choices</strong>
+    <p id="consent-description">Choose whether to allow Google Analytics usage statistics and Google Ads campaign measurement. Both are optional. We do not use remarketing or personalized advertising.</p>
+    <a href="/privacy/">Privacy details</a>
   </div>
   <div class="consent-actions">
-    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
-    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-reject">Reject all</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-customize" aria-expanded="false" aria-controls="consent-preferences">Customize</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-accept">Accept all</button>
+  </div>
+  <div id="consent-preferences" class="consent-preferences js-consent-preferences" hidden>
+    <fieldset>
+      <legend>Optional measurement</legend>
+      <label for="consent-analytics"><input type="checkbox" id="consent-analytics" class="js-consent-analytics" aria-describedby="consent-analytics-help"> Website statistics</label>
+      <p id="consent-analytics-help">Allow Google Analytics to measure pages visited and product interactions, so we can improve the site and tools.</p>
+      <label for="consent-campaigns"><input type="checkbox" id="consent-campaigns" class="js-consent-campaigns" aria-describedby="consent-campaigns-help"> Campaign measurement</label>
+      <p id="consent-campaigns-help">Allow advertising cookies and share ad-click identifiers and contact or SDK link selections with Google Ads to measure campaign results.</p>
+    </fieldset>
+    <p>You can use every page and tool with both options off. Change your choice anytime through Cookie settings.</p>
+    <button type="button" class="btn-secondary btn-sm js-consent-save">Save preferences</button>
   </div>
 </aside>"""

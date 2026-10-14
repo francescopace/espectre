@@ -12,6 +12,13 @@
 
 const GA_MEASUREMENT_ID = 'G-S0NQNG0V11';
 const ANALYTICS_CONSENT_KEY = 'espectre.analytics.consent.v1';
+const CONSENT_KEY = 'espectre.consent.v2';
+const CONSENT_MAX_AGE = 180 * 24 * 60 * 60 * 1000;
+const ADS_ID = 'AW-18265531777';
+const ADS_CONVERSIONS = Object.freeze({
+    click_commercial_contact: `${ADS_ID}/fzhQCNPViZ0dEIHL14VE`,
+    sdk_download: `${ADS_ID}/tIafCOz4jp0dEIHL14VE`
+});
 const SITE_POLICY = window.ESPectreSite;
 if (!SITE_POLICY) throw new Error('ESPectre site policy is unavailable');
 const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page');
@@ -32,11 +39,24 @@ const landingCampaign = (() => {
     return campaign;
 })();
 
+// Keep click IDs in page memory only until an explicit campaign choice.
+// The Google tag can read these from the URL after consent, including after SPA navigation.
+let landingClickIds = (() => {
+    const input = new URLSearchParams(window.location.search || '');
+    const output = new URLSearchParams();
+    for (const key of ['gclid', 'gbraid', 'wbraid']) {
+        const value = input.get(key);
+        if (value && /^[A-Za-z0-9_-]{1,512}$/.test(value)) output.set(key, value);
+    }
+    return output.toString();
+})();
+
 const CAPABILITY_BY_ROUTE = {
     'tool-flash': ['web_serial', 'serial']
 };
 
 const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
+    click_commercial_contact: [],
     click_contact: [],
     click_security: [],
     configure_change: ['action', 'result', 'error_type'],
@@ -235,7 +255,10 @@ function sanitizeAnalyticsEvent(eventName, params = {}) {
 
 const reportedCapabilities = new Set();
 let analyticsEnabled = false;
-let analyticsConfigured = false;
+let campaignsEnabled = false;
+let googleTagInitialized = false;
+let googleTagLoaded = false;
+let consentFocusTarget = null;
 
 function currentRoute() {
     const registeredPath = window.ESPectreRoutes?.routeForPath(window.location.pathname);
@@ -276,15 +299,32 @@ function analyticsDebugEnabled() {
 
 function storedConsent() {
     try {
-        return window.localStorage.getItem(ANALYTICS_CONSENT_KEY);
+        const raw = window.localStorage.getItem(CONSENT_KEY);
+        if (raw) {
+            const value = JSON.parse(raw);
+            const age = Date.now() - value.updatedAt;
+            if (value.version === 2 && typeof value.analytics === 'boolean'
+                && typeof value.campaigns === 'boolean' && Number.isFinite(age)
+                && age >= 0 && age < CONSENT_MAX_AGE) return value;
+            return null;
+        }
+        const legacy = window.localStorage.getItem(ANALYTICS_CONSENT_KEY);
+        if (legacy === 'granted' || legacy === 'denied') {
+            return { analytics: legacy === 'granted', campaigns: false, legacy: true };
+        }
     } catch (error) {
-        return null;
+        // Missing, expired, malformed, or inaccessible preferences never grant consent.
     }
+    return null;
 }
 
-function saveConsent(value) {
+function saveConsent(preferences) {
     try {
-        window.localStorage.setItem(ANALYTICS_CONSENT_KEY, value);
+        window.localStorage.setItem(CONSENT_KEY, JSON.stringify({
+            version: 2, analytics: preferences.analytics, campaigns: preferences.campaigns,
+            updatedAt: Date.now()
+        }));
+        window.localStorage.removeItem(ANALYTICS_CONSENT_KEY);
     } catch (error) {
         // Consent remains valid for the current page when storage is blocked.
     }
@@ -296,17 +336,124 @@ function ensureGtagQueue() {
 }
 
 function loadGoogleTag() {
-    if (document.querySelector(`script[src*="googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}"]`)) return;
+    if (googleTagLoaded) return;
     const script = document.createElement('script');
     script.async = true;
-    script.src = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${analyticsEnabled ? GA_MEASUREMENT_ID : ADS_ID}`;
     script.referrerPolicy = 'strict-origin-when-cross-origin';
     document.head.appendChild(script);
+    googleTagLoaded = true;
+}
+
+function canonicalPageLocation() {
+    return window.location.origin + (IS_STATIC_PAGE ? window.location.pathname : routePath(currentRoute()));
+}
+
+function campaignPageLocation() {
+    return canonicalPageLocation() + (campaignsEnabled && landingClickIds ? `?${landingClickIds}` : '');
+}
+
+function forgetCampaignClickIds() {
+    landingClickIds = '';
+    if (!window.history?.replaceState) return;
+    const url = new URL(window.location.href);
+    for (const key of ['gclid', 'gbraid', 'wbraid']) url.searchParams.delete(key);
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+}
+
+function clearMeasurementCookies(prefix) {
+    for (const entry of document.cookie.split(';')) {
+        const name = entry.split('=')[0].trim();
+        if (!name.startsWith(prefix)) continue;
+        const expiration = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
+        document.cookie = expiration;
+        document.cookie = `${expiration}; Domain=${window.location.hostname}`;
+        document.cookie = `${expiration}; Domain=.espectre.dev`;
+    }
+}
+
+function applyConsent(preferences, { sendPageView = true } = {}) {
+    if (!analyticsAllowedHere()) return;
+    const wasEnabled = analyticsEnabled;
+    analyticsEnabled = preferences.analytics === true;
+    campaignsEnabled = preferences.campaigns === true;
+    window[`ga-disable-${GA_MEASUREMENT_ID}`] = !analyticsEnabled;
+    if (!analyticsEnabled) clearMeasurementCookies('_ga');
+    if (!campaignsEnabled) clearMeasurementCookies('_gcl');
+    if (!googleTagInitialized && !analyticsEnabled && !campaignsEnabled) return;
+
+    ensureGtagQueue();
+    if (!googleTagInitialized) {
+        window.gtag('consent', 'default', {
+            analytics_storage: 'denied', ad_storage: 'denied',
+            ad_user_data: 'denied', ad_personalization: 'denied'
+        });
+    }
+    window.gtag('consent', 'update', {
+        analytics_storage: analyticsEnabled ? 'granted' : 'denied',
+        ad_storage: campaignsEnabled ? 'granted' : 'denied',
+        ad_user_data: campaignsEnabled ? 'granted' : 'denied',
+        ad_personalization: 'denied'
+    });
+    window.gtag('set', 'ads_data_redaction', !campaignsEnabled);
+    window.gtag('set', 'url_passthrough', false);
+    // Keep arbitrary query parameters and contact details out of shared tag context.
+    window.gtag('set', 'page_location', campaignPageLocation());
+    let referrer = '';
+    try { referrer = new URL(document.referrer).origin; } catch (error) { /* No referrer. */ }
+    window.gtag('set', 'page_referrer', referrer);
+    if (!googleTagInitialized) {
+        window.gtag('js', new Date());
+        googleTagInitialized = true;
+    }
+    if (analyticsEnabled) {
+        const config = {
+            send_page_view: false, groups: 'analytics',
+            allow_google_signals: false, allow_ad_personalization_signals: false,
+            page_location: canonicalPageLocation(), ...landingCampaign
+        };
+        if (analyticsDebugEnabled()) config.debug_mode = true;
+        window.gtag('config', GA_MEASUREMENT_ID, config);
+    }
+    // Debug hosts never send events to production Google Ads conversion actions.
+    if (campaignsEnabled && !analyticsDebugEnabled()) {
+        window.gtag('config', ADS_ID, {
+            groups: 'campaigns', send_page_view: false,
+            allow_ad_personalization_signals: false,
+            page_location: campaignPageLocation()
+        });
+    }
+    if (analyticsEnabled || (campaignsEnabled && !analyticsDebugEnabled())) loadGoogleTag();
+    if (analyticsEnabled && !wasEnabled && sendPageView) {
+        if (IS_STATIC_PAGE) sendStaticPageView();
+        else sendRoutePageView();
+    }
+}
+
+// These helpers keep analytics-only callers independent of campaign consent.
+function enableAnalytics(options = {}) {
+    applyConsent({ analytics: true, campaigns: campaignsEnabled }, options);
+}
+
+function disableAnalytics() {
+    applyConsent({ analytics: false, campaigns: campaignsEnabled }, { sendPageView: false });
+}
+
+function trackCampaignConversion(eventName) {
+    const destination = ADS_CONVERSIONS[eventName];
+    if (!campaignsEnabled || !destination || analyticsDebugEnabled()) return false;
+    window.gtag('event', 'conversion', {
+        send_to: destination, page_location: campaignPageLocation(),
+        allow_ad_personalization_signals: false
+    });
+    return true;
 }
 
 function updatePageConfig(pageLocation, pageTitle, contentGroup) {
     window.gtag('config', GA_MEASUREMENT_ID, {
         update: true,
+        allow_google_signals: false,
+        allow_ad_personalization_signals: false,
         page_location: pageLocation,
         page_title: pageTitle,
         content_group: contentGroup
@@ -317,6 +464,7 @@ function sendStaticPageView() {
     const pageLocation = window.location.origin + window.location.pathname;
     updatePageConfig(pageLocation, document.title, STATIC_PAGE_SECTION);
     window.gtag('event', 'page_view', {
+        send_to: GA_MEASUREMENT_ID,
         page_location: pageLocation,
         page_path: window.location.pathname,
         page_title: document.title,
@@ -331,78 +479,12 @@ function sendRoutePageView(route = currentRoute()) {
     const contentGroup = getSiteSection(route);
     updatePageConfig(pageLocation, pageTitle, contentGroup);
     window.gtag('event', 'page_view', {
+        send_to: GA_MEASUREMENT_ID,
         page_location: pageLocation,
         page_path: path,
         page_title: pageTitle,
         content_group: contentGroup
     });
-}
-
-function enableAnalytics({ sendPageView = true } = {}) {
-    if (!analyticsAllowedHere()) return;
-    const wasEnabled = analyticsEnabled;
-    ensureGtagQueue();
-
-    if (!analyticsConfigured) {
-        window.gtag('consent', 'default', {
-            analytics_storage: 'denied',
-            ad_storage: 'denied',
-            ad_user_data: 'denied',
-            ad_personalization: 'denied',
-            wait_for_update: 500
-        });
-    }
-
-    window.gtag('consent', 'update', {
-        analytics_storage: 'granted',
-        ad_storage: 'denied',
-        ad_user_data: 'denied',
-        ad_personalization: 'denied'
-    });
-
-    if (!analyticsConfigured) {
-        window.gtag('js', new Date());
-        const config = {
-            send_page_view: false,
-            allow_google_signals: false,
-            allow_ad_personalization_signals: false,
-            page_location: window.location.origin + (IS_STATIC_PAGE ? window.location.pathname : routePath(currentRoute())),
-            ...landingCampaign
-        };
-        if (analyticsDebugEnabled()) config.debug_mode = true;
-        window.gtag('config', GA_MEASUREMENT_ID, config);
-        loadGoogleTag();
-        analyticsConfigured = true;
-    }
-
-    analyticsEnabled = true;
-    if (sendPageView && !wasEnabled) {
-        if (IS_STATIC_PAGE) sendStaticPageView();
-        else sendRoutePageView();
-    }
-    if (!wasEnabled) document.dispatchEvent(new CustomEvent('espectre:analytics-enabled'));
-}
-
-function clearAnalyticsCookies() {
-    document.cookie.split(';').forEach((entry) => {
-        const name = entry.split('=')[0].trim();
-        if (!name.startsWith('_ga')) return;
-        document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
-        document.cookie = `${name}=; Max-Age=0; Path=/; Domain=.espectre.dev; SameSite=Lax`;
-    });
-}
-
-function disableAnalytics() {
-    analyticsEnabled = false;
-    if (typeof window.gtag === 'function') {
-        window.gtag('consent', 'update', {
-            analytics_storage: 'denied',
-            ad_storage: 'denied',
-            ad_user_data: 'denied',
-            ad_personalization: 'denied'
-        });
-    }
-    clearAnalyticsCookies();
 }
 
 function trackEvent(eventName, params = {}) {
@@ -413,6 +495,7 @@ function trackEvent(eventName, params = {}) {
         return false;
     }
     window.gtag('event', eventName, {
+        send_to: GA_MEASUREMENT_ID,
         content_group: getSiteSection(),
         analytics_version: ANALYTICS_VERSION,
         ...sanitized
@@ -439,52 +522,77 @@ function linkText(link) {
     return (heading || link).textContent.trim().replace(/\s+/g, ' ').substring(0, 100);
 }
 
-function showConsentBanner() {
+function showConsentBanner({ customize = false, focusTarget = null } = {}) {
     const banner = document.querySelector('.js-consent-banner');
-    if (banner) banner.hidden = false;
+    if (!banner) return;
+    consentFocusTarget = focusTarget;
+    banner.hidden = false;
+    const panel = document.querySelector('.js-consent-preferences');
+    if (panel) panel.hidden = !customize;
+    const button = document.querySelector('.js-consent-customize');
+    button?.setAttribute('aria-expanded', String(customize));
+    const analytics = document.querySelector('.js-consent-analytics');
+    const campaigns = document.querySelector('.js-consent-campaigns');
+    if (analytics) analytics.checked = analyticsEnabled;
+    if (campaigns) campaigns.checked = campaignsEnabled;
+    if (customize) analytics?.focus();
 }
 
 function hideConsentBanner() {
     const banner = document.querySelector('.js-consent-banner');
     if (banner) banner.hidden = true;
+    consentFocusTarget?.focus?.();
+    consentFocusTarget = null;
+}
+
+function commitConsent(preferences) {
+    saveConsent(preferences);
+    if (!preferences.campaigns) forgetCampaignClickIds();
+    applyConsent(preferences);
+    hideConsentBanner();
 }
 
 function initializeConsentControls() {
-    document.querySelectorAll('.js-consent-accept').forEach((button) => {
-        button.addEventListener('click', () => {
-            saveConsent('granted');
-            hideConsentBanner();
-            enableAnalytics();
-        });
-    });
-    document.querySelectorAll('.js-consent-reject').forEach((button) => {
-        button.addEventListener('click', () => {
-            saveConsent('denied');
-            hideConsentBanner();
-            disableAnalytics();
-        });
-    });
+    const bind = (selector, handler) => document.querySelectorAll(selector).forEach(
+        (button) => button.addEventListener('click', handler)
+    );
+    bind('.js-consent-accept', () => commitConsent({ analytics: true, campaigns: true }));
+    bind('.js-consent-reject', () => commitConsent({ analytics: false, campaigns: false }));
+    bind('.js-consent-customize', (event) => showConsentBanner({
+        customize: true, focusTarget: consentFocusTarget || event.currentTarget
+    }));
+    bind('.js-consent-save', () => commitConsent({
+        analytics: document.querySelector('.js-consent-analytics')?.checked === true,
+        campaigns: document.querySelector('.js-consent-campaigns')?.checked === true
+    }));
     if (!analyticsAllowedHere()) {
         hideConsentBanner();
         return;
     }
-
     const consent = storedConsent();
-    if (consent === 'granted') enableAnalytics({ sendPageView: IS_STATIC_PAGE });
-    else if (consent !== 'denied') showConsentBanner();
+    if (consent) {
+        if (!consent.campaigns && !consent.legacy) forgetCampaignClickIds();
+        applyConsent(consent, { sendPageView: IS_STATIC_PAGE });
+    }
+    if (!consent || consent.legacy) showConsentBanner();
 }
 
 function initializeAutoTracking() {
     document.addEventListener('click', (event) => {
         if (event.target.closest('.js-cookie-settings')) {
             event.preventDefault();
-            showConsentBanner();
+            showConsentBanner({ customize: true, focusTarget: event.target.closest('.js-cookie-settings') });
             return;
         }
         const link = event.target.closest('a[href]');
         if (!link) return;
 
         const href = link.getAttribute('href') || '';
+        if (link.dataset.analyticsContact === 'commercial' && href.toLowerCase().startsWith('mailto:')) {
+            trackCampaignConversion('click_commercial_contact');
+            trackEvent('click_commercial_contact');
+            return;
+        }
         if (href.toLowerCase().startsWith('mailto:contact@')) {
             trackEvent('click_contact');
             return;
@@ -523,7 +631,9 @@ function initializeAutoTracking() {
             return;
         }
 
-        if (link.dataset.sdkChannel && link.dataset.sdkFormat) {
+        if (ANALYTICS_CATEGORY_VALUES.channel.has(link.dataset.sdkChannel)
+            && ANALYTICS_CATEGORY_VALUES.format.has(link.dataset.sdkFormat)) {
+            trackCampaignConversion('sdk_download');
             trackEvent('sdk_download', {
                 channel: link.dataset.sdkChannel,
                 format: link.dataset.sdkFormat,
@@ -561,6 +671,9 @@ function initializeAutoTracking() {
     });
 }
 
+// The router preserves only validated click IDs in the current page URL while the
+// visitor decides. They are neither written to storage nor forwarded before consent.
+window.espectreCampaignSearch = () => landingClickIds;
 window.trackEvent = trackEvent;
 window.trackRouteView = trackRouteView;
 window.getSiteSection = getSiteSection;

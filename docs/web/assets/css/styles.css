@@ -3626,7 +3626,10 @@ body.modal-open { overflow: hidden; }
   left: 20px;
   right: 20px;
   bottom: 20px;
-  max-width: 880px;
+  max-width: 1040px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  flex-wrap: wrap;
   margin: 0 auto;
   padding: 18px 20px;
   border: 1px solid var(--border);
@@ -3641,7 +3644,14 @@ body.modal-open { overflow: hidden; }
 .consent-banner strong { font-family: var(--font-display); font-size: 16px; }
 .consent-banner p { margin: 4px 0 2px; color: var(--dim); font-size: 13px; }
 .consent-banner a { font-size: 13px; }
-.consent-actions { display: flex; gap: 10px; flex: none; }
+.consent-summary { flex: 1 1 320px; }
+.consent-actions { display: flex; flex-wrap: wrap; gap: 10px; flex: none; }
+.consent-preferences { flex-basis: 100%; border-top: 1px solid var(--border); padding-top: 14px; }
+.consent-preferences fieldset { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
+.consent-preferences legend { font-weight: 600; margin-bottom: 10px; }
+.consent-preferences label { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; }
+.consent-preferences input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.consent-preferences .js-consent-save { margin-top: 12px; }
 
 /* ---------------------------------------------------------- responsive */
 
@@ -3827,7 +3837,8 @@ body.modal-open { overflow: hidden; }
   .roadmap-source { align-items: flex-start; flex-direction: column; gap: 22px; padding: 24px; }
   .roadmap-source-links { width: 100%; }
   .consent-banner { align-items: stretch; flex-direction: column; gap: 14px; left: 12px; right: 12px; bottom: 12px; }
-  .consent-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .consent-summary { flex-basis: auto; }
+  .consent-actions { display: grid; grid-template-columns: 1fr; }
   .consent-actions button { width: 100%; }
   .device-live-grid { grid-template-columns: minmax(0, 1fr); }
 }

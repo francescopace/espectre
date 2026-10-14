@@ -4,27 +4,33 @@
 -->
 <div class="privacy-page" data-page-toc>
   <h1 class="page-title">Website privacy and analytics</h1>
-  <p class="page-sub">ESPectre’s website can be used without analytics. Google Analytics 4 loads only after you choose <em>Accept analytics</em>, and the browser tools do not send device or network credentials to analytics.</p>
+  <p class="page-sub">ESPectre’s website can be used without optional measurement. You can choose website statistics and campaign measurement separately. Google tags load only after you accept a relevant purpose. The browser tools do not send device or network credentials to Google.</p>
 
   <div class="article privacy-content">
     <h2>Controller</h2>
     <p>The website is operated by Francesco Pace, a natural person in Italy, as maintainer of the independent ESPectre open-source project. Current identification and project status are available in <a href="/legal/">Legal information</a>.</p>
 
     <h2>What the site stores</h2>
-    <p>Your analytics choice is stored in your browser under <code>espectre.analytics.consent.v1</code>. If you accept, Google Analytics may set cookies whose names begin with <code>_ga</code>. If you reject or later withdraw consent, the site disables analytics and asks the browser to remove those cookies.</p>
+    <p>Your choices and their timestamp are stored in your browser under <code>espectre.consent.v2</code> for up to 180 days before the site asks again. Website statistics can use Google Analytics cookies whose names begin with <code>_ga</code>. Campaign measurement can use Google Ads cookies whose names begin with <code>_gcl</code>. Withdrawing a purpose stops the site's related events, updates Google's consent state, and asks the browser to remove the corresponding first-party cookies. Previously collected data is not automatically deleted by withdrawal.</p>
 
     <h2>Analytics data</h2>
-    <p>With consent, the site records page views and coarse product interactions, such as opening a guide, selecting a firmware option, or whether a browser-supported connection succeeds. Events may include the selected public firmware frontend and release channel, the chip family detected over USB, transport, outcome, and a normalized error category. For a connected device, its profile may also include an allowlisted frontend, chip family, detector, protocol version, and normalized public firmware version; unrecognized values are reported only as <code>unknown</code>.</p>
+    <p>With consent to website statistics, the site records page views and coarse product interactions, such as opening a guide, selecting a firmware option, or whether a browser-supported connection succeeds. Events may include the selected public firmware frontend and release channel, the chip family detected over USB, transport, outcome, and a normalized error category. For a connected device, its profile may also include an allowlisted frontend, chip family, detector, protocol version, and normalized public firmware version; unrecognized values are reported only as <code>unknown</code>.</p>
+    <p>Analytics also records clicks on SDK download links and the commercial contact link, along with public campaign labels from tagged links. A contact click does not record an email's contents or confirm that a message was sent. The site's tracking code does not send the contact link's email address, subject, or full URL as event data.</p>
     <div class="note"><strong>Never included:</strong> Wi-Fi names or passwords, MQTT hosts or credentials, device IDs, local device endpoints, Matter pairing codes, raw CSI, and message payloads.</div>
 
     <h2>Why it is used</h2>
-    <p>The data helps maintainers understand which documentation and tools are useful, where setup journeys fail, and which supported hardware or firmware paths need attention. It is not used for advertising or cross-site personalization. Google Signals and advertising personalization are disabled in the site configuration.</p>
+    <p>The data helps maintainers understand which documentation and tools are useful, where setup journeys fail, and which supported hardware or firmware paths need attention. Public campaign labels help measure whether promotional links bring visitors who explore the SDK or select the commercial contact link. Google Signals, remarketing, and advertising personalization remain disabled, including when you accept all optional measurement.</p>
 
-    <h2>Processor and retention</h2>
-    <p>Google processes consented analytics data as the provider of Google Analytics. The project’s target for event-level retention is no more than 14 months; aggregated reports may remain available for longer. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google’s privacy policy</a> for information about Google’s processing.</p>
+    <h2>Campaign measurement</h2>
+    <p>If you accept campaign measurement, Google Ads receives selections of the commercial contact link and SDK download links, along with the public page location and advertising click identifiers needed to attribute these actions to an ad. These actions are measured separately; neither proves that an email was sent, a file download completed, or a purchase occurred. No revenue is assigned to them.</p>
+    <p>Before a choice, validated advertising click identifiers from the landing URL remain only in page memory and the current browser URL. The site does not persist or send them for advertising until you accept campaign measurement. A refusal discards those identifiers. Other URL query parameters and contact-link details are excluded from the site's conversion events.</p>
+    <p>Campaign measurement can be accepted without website statistics. The campaign tag receives only the two conversion actions described above, rather than device diagnostics or the site's other custom analytics events. Google also receives the technical request information needed to provide measurement, such as an IP address and browser information.</p>
+
+    <h2>Google services and retention</h2>
+    <p>Google receives data for the measurement purposes you accept through Google Analytics or Google Ads. The project’s target for Analytics event-level retention is no more than 14 months; aggregated reports may remain available for longer. Google Ads uses its own cookie and reporting retention settings; the configured click-through conversion window for this campaign is 30 days. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google’s privacy policy</a> for information about Google’s processing.</p>
 
     <h2 id="cookie-settings">Your choice</h2>
-    <p>You can reject analytics and still use every public page and browser tool. To change your decision, use <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a> in the footer, then accept or reject again. Browser privacy controls and content blockers continue to apply.</p>
+    <p>Choose <em>Reject all</em> to use every public page and browser tool without optional measurement, <em>Accept all</em> to enable both purposes, or <em>Customize</em> to choose them independently and save your preferences. To change or withdraw your choices, use <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a> in the footer. A previous choice to accept Analytics alone does not authorize campaign measurement. Browser privacy controls and content blockers continue to apply.</p>
 
     <h2>Contact</h2>
     <p>For privacy questions or requests about your data, email <a href="mailto:contact@espectre.dev">contact@espectre.dev</a>. Include enough context to identify the request, but do not send passwords, pairing codes, or device secrets.</p>

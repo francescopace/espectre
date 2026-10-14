@@ -25,6 +25,7 @@
 
 ## Production Boundaries
 
+- Never enable Wi-Fi promiscuous mode, including in tests and diagnostics.
 - Preserve **one message model, multiple transports**: MQTT, Direct HTTP, and future transports carry the same canonical JSON contract and application version; transport framing and delivery policy stay outside that model.
 - Treat `docs/API.md`, `docs/DISCOVERY.md`, and the canonical protocol registry or schema as the owners of messages, operations, discovery metadata, and version semantics. Do not create transport-specific envelopes, aliases, or constants.
 - Require cross-transport parity for serialized messages, validation, and capability schemas; engine-level semantic parity alone is insufficient.

@@ -514,3 +514,23 @@ describe('website navigation contracts', () => {
     });
 
 });
+
+describe('consented campaign navigation', () => {
+    it('preserves only the measurement owner\'s allowed click identifiers on SPA routes', () => {
+        const source = read('docs/web/assets/js/app.js');
+        const start = source.indexOf('    function routeHistoryUrl(');
+        const end = source.indexOf('    function syncRouteMetadata(', start);
+        const context = {
+            URL, location: { href: 'https://espectre.dev/sdk/?secret=private&gclid=Click-123' },
+            routeRegistry: { get: () => ({ staticPath: '/licensing/' }) },
+            window: { espectreCampaignSearch: () => 'gclid=Click-123' }
+        };
+        const route = runInNewContext(source.slice(start, end) + '\nrouteHistoryUrl;', context);
+        assert.equal(route('licensing'), '/licensing/?gclid=Click-123');
+        assert.equal(route('licensing', { anchor: 'quote' }), '/licensing/?gclid=Click-123#quote');
+        context.window.espectreCampaignSearch = () => '';
+        assert.equal(route('licensing'), '/licensing/');
+        delete context.window.espectreCampaignSearch;
+        assert.equal(route('licensing'), '/licensing/');
+    });
+});

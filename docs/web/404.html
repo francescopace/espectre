@@ -10,10 +10,10 @@
 <title>Page not found | ESPectre</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=e77ea4c78036">
+<link rel="stylesheet" href="/assets/css/styles.css?v=f5fda98ffcaf">
 <script src="/assets/js/route-registry.js?v=90e7fbb52696" defer></script>
 <script src="/assets/js/navigation.js?v=58d2fd3354a8" defer></script>
-<script src="/assets/js/analytics.js?v=71e4b3b53000" defer></script>
+<script src="/assets/js/analytics.js?v=bed1dc66314c" defer></script>
 <script src="/assets/js/404-suggestions.js?v=5ddcc6a8fb1a" defer></script>
 </head>
 <body>
@@ -91,16 +91,29 @@
     </div>
   </div>
 </footer>
-<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
-  <div>
-    <strong id="consent-title">Optional analytics</strong>
-    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
-    <a href="/privacy/">Read the privacy notice</a>
+<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" aria-describedby="consent-description" hidden>
+  <div class="consent-summary">
+    <strong id="consent-title">Your privacy choices</strong>
+    <p id="consent-description">Choose whether to allow Google Analytics usage statistics and Google Ads campaign measurement. Both are optional. We do not use remarketing or personalized advertising.</p>
+    <a href="/privacy/">Privacy details</a>
   </div>
   <div class="consent-actions">
-    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
-    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-reject">Reject all</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-customize" aria-expanded="false" aria-controls="consent-preferences">Customize</button>
+    <button type="button" class="btn-secondary btn-sm js-consent-accept">Accept all</button>
+  </div>
+  <div id="consent-preferences" class="consent-preferences js-consent-preferences" hidden>
+    <fieldset>
+      <legend>Optional measurement</legend>
+      <label for="consent-analytics"><input type="checkbox" id="consent-analytics" class="js-consent-analytics" aria-describedby="consent-analytics-help"> Website statistics</label>
+      <p id="consent-analytics-help">Allow Google Analytics to measure pages visited and product interactions, so we can improve the site and tools.</p>
+      <label for="consent-campaigns"><input type="checkbox" id="consent-campaigns" class="js-consent-campaigns" aria-describedby="consent-campaigns-help"> Campaign measurement</label>
+      <p id="consent-campaigns-help">Allow advertising cookies and share ad-click identifiers and contact or SDK link selections with Google Ads to measure campaign results.</p>
+    </fieldset>
+    <p>You can use every page and tool with both options off. Change your choice anytime through Cookie settings.</p>
+    <button type="button" class="btn-secondary btn-sm js-consent-save">Save preferences</button>
   </div>
 </aside>
+
 </body>
 </html>

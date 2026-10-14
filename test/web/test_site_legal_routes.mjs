@@ -51,3 +51,24 @@ describe('website legal route contracts', () => {
         assert.match(read('docs/web/404.html'), /href="\/privacy\/#cookie-settings" class="js-cookie-settings"/);
     });
 });
+
+describe('measurement consent controls', () => {
+    it('offers explicit choices and unchecked, labelled preferences in each maintained shell', () => {
+        for (const html of [index, read('docs/web/404.html'), read('.github/scripts/web_page_shell.py')]) {
+            for (const action of ['accept', 'reject', 'customize', 'save']) {
+                assert.match(html, new RegExp(`<button\\b[^>]*class="[^"]*js-consent-${action}[^>]*type="button"|<button\\b[^>]*type="button"[^>]*class="[^"]*js-consent-${action}`));
+            }
+            assert.match(html, /aria-controls="consent-preferences"/);
+            assert.match(html, /id="consent-preferences"[^>]*hidden/);
+            for (const purpose of ['analytics', 'campaigns']) {
+                const input = html.match(new RegExp(`<input\\b[^>]*id="consent-${purpose}"[^>]*>`))?.[0];
+                assert.ok(input);
+                assert.match(input, /type="checkbox"/);
+                assert.doesNotMatch(input, /\bchecked\b/);
+                assert.match(html, new RegExp(`<label\\b[^>]*for="consent-${purpose}"`));
+                assert.match(input, new RegExp(`aria-describedby="consent-${purpose}-help"`));
+                assert.match(html, new RegExp(`id="consent-${purpose}-help"`));
+            }
+        }
+    });
+});

@@ -156,7 +156,7 @@
         const definition = routeRegistry.get(routeName);
         const url = new URL(location.href);
         url.pathname = definition?.staticPath || '/';
-        if (!preserveSearch) url.search = '';
+        if (!preserveSearch) url.search = window.espectreCampaignSearch?.() || '';
         url.hash = anchor ? `#${anchor}` : '';
         return url.pathname + url.search + url.hash;
     }

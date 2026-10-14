@@ -22,19 +22,31 @@ const routeManifest = JSON.parse(readFileSync(
 ));
 const testExports = `
 globalThis.__analyticsTest = {
-    analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
+    analyticsAllowedHere, applyConsent, commitConsent, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
     initializeConsentControls, routePath, sanitizeAnalyticsEvent, sendRoutePageView,
-    sendStaticPageView, trackEvent, trackRouteView,
+    sendStaticPageView, trackCampaignConversion, trackEvent, trackRouteView,
+    consentKey: CONSENT_KEY, adsId: ADS_ID, gaId: GA_MEASUREMENT_ID, conversions: ADS_CONVERSIONS,
     enabled: () => analyticsEnabled
 };`;
 
 function analyticsContext({
     hostname = 'espectre.dev', path = '/', hash = '', search = '', staticPage = false,
-    navigatorValues = {}, storedConsent = null, preloadManifest = true
+    navigatorValues = {}, storedConsent = null, preferences = null, storageBlocked = false, preloadManifest = true
 } = {}) {
     const appendedScripts = [];
     const listeners = new Map();
-    let consentValue = storedConsent;
+    const storage = new Map();
+    if (storedConsent !== null) storage.set('espectre.analytics.consent.v1', storedConsent);
+    if (preferences !== null) storage.set('espectre.consent.v2', JSON.stringify(preferences));
+    const controls = Object.fromEntries(['accept', 'reject', 'customize', 'save', 'analytics', 'campaigns', 'preferences'].map((name) => [
+        `.js-consent-${name}`, {
+            checked: false, hidden: true, handlers: {}, attributes: {}, focused: false,
+            addEventListener(event, handler) { this.handlers[event] = handler; },
+            setAttribute(name, value) { this.attributes[name] = value; },
+            focus() { this.focused = true; },
+            click() { this.handlers.click?.({ currentTarget: this }); }
+        }
+    ]));
     const consentBanner = { hidden: true };
     const document = {
         cookie: '',
@@ -45,8 +57,8 @@ function analyticsContext({
         },
         head: { appendChild: (node) => appendedScripts.push(node) },
         createElement: (tagName) => ({ tagName, addEventListener() {} }),
-        querySelector: (selector) => selector === '.js-consent-banner' ? consentBanner : null,
-        querySelectorAll: () => [],
+        querySelector: (selector) => selector === '.js-consent-banner' ? consentBanner : controls[selector] || null,
+        querySelectorAll: (selector) => controls[selector] ? [controls[selector]] : [],
         addEventListener: (name, callback) => listeners.set(name, callback),
         dispatchEvent: (event) => listeners.get(event.type)?.(event)
     };
@@ -55,13 +67,22 @@ function analyticsContext({
         pathname: path,
         hash,
         search,
-        origin: `https://${hostname}`
+        origin: `https://${hostname}`,
+        get href() { return this.origin + this.pathname + this.search + this.hash; }
     };
     const window = {
         location,
         localStorage: {
-            getItem: () => consentValue,
-            setItem: (_key, value) => { consentValue = value; }
+            getItem: (key) => { if (storageBlocked) throw Error('blocked'); return storage.get(key) ?? null; },
+            setItem: (key, value) => { if (storageBlocked) throw Error('blocked'); storage.set(key, value); },
+            removeItem: (key) => storage.delete(key)
+        },
+        history: {
+            state: null,
+            replaceState(_state, _title, url) {
+                const next = new URL(url, location.origin);
+                location.pathname = next.pathname; location.search = next.search; location.hash = next.hash;
+            }
         }
     };
     if (preloadManifest) window.ESPectreRouteManifest = routeManifest;
@@ -83,6 +104,7 @@ function analyticsContext({
         window,
         appendedScripts,
         consentBanner,
+        controls, storage, document,
         listeners
     };
 }
@@ -382,7 +404,7 @@ describe('analytics route metadata', () => {
             const events = window.dataLayer?.filter((entry) => entry[1] === 'select_404_suggestion') || [];
             assert.equal(events.length, storedConsent === 'granted' ? 1 : 0);
             if (storedConsent === 'granted') {
-                assert.deepEqual(Object.keys(events[0][2]), ['content_group', 'analytics_version']);
+                assert.deepEqual(Object.keys(events[0][2]), ['send_to', 'content_group', 'analytics_version']);
                 const pageView = window.dataLayer.find((entry) => entry[1] === 'page_view');
                 assert.equal(pageView[2].page_location, 'https://espectre.dev/documentation/setup/');
             }
@@ -434,16 +456,48 @@ describe('analytics route metadata', () => {
 });
 
 describe('analytics automatic events', () => {
+    it('records the commercial contact action only with consent and without email data', async () => {
+        const fragment = readFileSync(new URL('../../docs/web/content/licensing.html', import.meta.url), 'utf8');
+        const anchor = fragment.match(/<a\b[^>]*\bdata-analytics-contact="commercial"[^>]*>/)?.[0];
+        assert.ok(anchor, 'The commercial contact action must expose its analytics intent');
+        const href = anchor.match(/\bhref="([^"]+)"/)?.[1];
+        assert.ok(href?.startsWith('mailto:'));
+        const { api, listeners, window } = analyticsContext({ path: '/licensing/' });
+        await listeners.get('DOMContentLoaded')();
+        const link = {
+            href,
+            dataset: { analyticsContact: 'commercial' },
+            getAttribute: () => href
+        };
+        const click = () => listeners.get('click')({
+            target: { closest: (selector) => selector === 'a[href]' ? link : null }
+        });
+
+        click();
+        assert.equal(window.dataLayer, undefined);
+        api.enableAnalytics({ sendPageView: false });
+        const before = window.dataLayer.length;
+        click();
+        assert.equal(window.dataLayer.length, before + 1);
+        assert.equal(window.dataLayer.at(-1)[1], 'click_commercial_contact');
+        assert.deepEqual(Object.keys(window.dataLayer.at(-1)[2]).sort(), ['analytics_version', 'content_group', 'send_to']);
+
+        api.disableAnalytics();
+        const afterWithdrawal = window.dataLayer.length;
+        click();
+        assert.equal(window.dataLayer.length, afterWithdrawal);
+    });
+
     it('tracks contact and public tool links added after analytics initialization', async () => {
         const { api, consentBanner, listeners, window } = analyticsContext();
         api.enableAnalytics({ sendPageView: false });
         await listeners.get('DOMContentLoaded')();
 
         const click = listeners.get('click');
-        const dispatchLink = (href, { cookieSettings = false } = {}) => {
+        const dispatchLink = (href, { cookieSettings = false, dataset = {} } = {}) => {
             const link = {
                 href,
-                dataset: {},
+                dataset,
                 getAttribute: () => href,
                 querySelector: () => null,
                 textContent: href
@@ -466,6 +520,12 @@ describe('analytics automatic events', () => {
         assert.equal(window.dataLayer.at(-1)[1], 'click_contact');
         dispatchLink('mailto:security@espectre.dev');
         assert.equal(window.dataLayer.at(-1)[1], 'click_security');
+        dispatchLink('https://espectre.dev/artifacts/sdk/release/sdk.zip', {
+            dataset: { sdkChannel: 'release', sdkFormat: 'zip' }
+        });
+        assert.equal(window.dataLayer.at(-1)[1], 'sdk_download');
+        assert.equal(window.dataLayer.at(-1)[2].channel, 'release');
+        assert.equal(window.dataLayer.at(-1)[2].format, 'zip');
         dispatchLink('https://espectre.dev/tools/device-settings/');
         assert.equal(window.dataLayer.at(-1)[1], 'select_tool');
         assert.equal(window.dataLayer.at(-1)[2].tool_name, 'configure');
@@ -478,5 +538,172 @@ describe('analytics automatic events', () => {
         consentBanner.hidden = true;
         assert.equal(dispatchLink('/privacy/#cookie-settings', { cookieSettings: true }), true);
         assert.equal(consentBanner.hidden, false);
+    });
+});
+
+
+describe('campaign consent and conversion boundaries', () => {
+    const events = (window, name) => (window.dataLayer || []).filter((row) => row[0] === 'event' && row[1] === name);
+    const preferences = (analytics, campaigns) => ({ version: 2, analytics, campaigns, updatedAt: Date.now() });
+
+    it('offers independent unchecked preferences and does not load tags before a choice', () => {
+        const { api, controls, appendedScripts, window } = analyticsContext();
+        api.initializeConsentControls();
+        controls['.js-consent-customize'].click();
+        assert.equal(controls['.js-consent-preferences'].hidden, false);
+        assert.equal(controls['.js-consent-customize'].attributes['aria-expanded'], 'true');
+        assert.equal(controls['.js-consent-analytics'].checked, false);
+        assert.equal(controls['.js-consent-campaigns'].checked, false);
+        assert.equal(controls['.js-consent-analytics'].focused, true);
+        assert.equal(appendedScripts.length, 0);
+        assert.equal(window.dataLayer, undefined);
+    });
+
+    it('accepts both purposes with one tag and keeps all personalization disabled', () => {
+        const { api, controls, window, storage, appendedScripts } = analyticsContext();
+        api.initializeConsentControls();
+        controls['.js-consent-accept'].click();
+        const choice = JSON.parse(storage.get(api.consentKey));
+        assert.equal(choice.analytics, true);
+        assert.equal(choice.campaigns, true);
+        assert.ok(choice.updatedAt <= Date.now());
+        assert.equal(appendedScripts.length, 1);
+        const configurations = window.dataLayer.filter((row) => row[0] === 'config');
+        assert.ok(configurations.some((row) => row[1] === api.gaId));
+        assert.ok(configurations.some((row) => row[1] === api.adsId));
+        for (const row of configurations) assert.equal(row[2].allow_ad_personalization_signals, false);
+        for (const row of window.dataLayer.filter((row) => row[0] === 'consent')) {
+            assert.equal(row[2].ad_personalization, 'denied');
+        }
+        assert.equal(events(window, 'conversion').length, 0);
+        controls['.js-consent-accept'].click();
+        assert.equal(appendedScripts.length, 1);
+        assert.equal(events(window, 'page_view').length, 1);
+    });
+
+    it('rejects without loading Google and discards click identifiers without storing them', () => {
+        const { api, controls, window, storage, appendedScripts } = analyticsContext({ search: '?gclid=Click-123&utm_source=google' });
+        api.initializeConsentControls();
+        controls['.js-consent-reject'].click();
+        assert.equal(window.dataLayer, undefined);
+        assert.equal(appendedScripts.length, 0);
+        assert.equal(window.espectreCampaignSearch(), '');
+        assert.equal(window.location.search, '?utm_source=google');
+        assert.doesNotMatch(JSON.stringify([...storage]), /Click-123/);
+        assert.equal(api.trackCampaignConversion('sdk_download'), false);
+    });
+
+    it('measures campaigns without enabling Analytics or device-event collection', () => {
+        const { api, controls, window, appendedScripts } = analyticsContext();
+        api.initializeConsentControls();
+        controls['.js-consent-campaigns'].checked = true;
+        controls['.js-consent-save'].click();
+        assert.equal(api.enabled(), false);
+        assert.equal(api.trackEvent('device_profile', { chip: 'esp32c6' }), false);
+        assert.equal(events(window, 'page_view').length, 0);
+        assert.equal(window.dataLayer.some((row) => row[0] === 'config' && row[1] === api.gaId), false);
+        assert.equal(appendedScripts.length, 1);
+        assert.ok(appendedScripts[0].src.endsWith(api.adsId));
+        for (const [name, destination] of Object.entries(api.conversions)) {
+            assert.equal(api.trackCampaignConversion(name), true);
+            const data = events(window, 'conversion').at(-1)[2];
+            assert.equal(data.send_to, destination);
+            assert.equal(data.value, undefined);
+            assert.equal(data.currency, undefined);
+            assert.equal(data.allow_ad_personalization_signals, false);
+        }
+        assert.equal(api.trackCampaignConversion('device_profile'), false);
+    });
+
+    it('routes Analytics events exclusively to GA4 and never enables Ads for analytics-only consent', () => {
+        const { api, window } = analyticsContext({ preferences: preferences(true, false) });
+        api.initializeConsentControls();
+        api.trackEvent('sdk_download', { channel: 'release', format: 'zip' });
+        api.trackRouteView('sdk');
+        for (const row of (window.dataLayer || []).filter((row) => row[0] === 'event')) assert.equal(row[2].send_to, api.gaId);
+        assert.equal(api.trackCampaignConversion('sdk_download'), false);
+        assert.equal(window.dataLayer.some((row) => row[0] === 'config' && row[1] === api.adsId), false);
+    });
+
+    it('retains only valid click identifiers through delayed SPA consent', () => {
+        const { api, window, storage } = analyticsContext({
+            search: '?gclid=Click-123&wbraid=BraId_456&gbraid=bad%40email.test&target=192.168.1.5&secret=private'
+        });
+        assert.equal(window.espectreCampaignSearch(), 'gclid=Click-123&wbraid=BraId_456');
+        window.location.pathname = '/licensing/'; window.location.search = `?${window.espectreCampaignSearch()}`;
+        assert.equal(storage.size, 0);
+        assert.equal(window.dataLayer, undefined);
+        api.commitConsent({ analytics: false, campaigns: true });
+        api.trackCampaignConversion('click_commercial_contact');
+        assert.equal(events(window, 'conversion')[0][2].page_location, 'https://espectre.dev/licensing/?gclid=Click-123&wbraid=BraId_456');
+        assert.doesNotMatch(JSON.stringify(window.dataLayer), /bad@|192\.168|secret|private/);
+        assert.doesNotMatch(JSON.stringify([...storage]), /Click-123|BraId_456/);
+    });
+
+    it('revokes each purpose independently and clears its cookies and click IDs', () => {
+        const { api, window, document } = analyticsContext({ search: '?gclid=Click-123' });
+        api.commitConsent({ analytics: true, campaigns: true });
+        document.cookie = '_gcl_aw=click';
+        api.commitConsent({ analytics: true, campaigns: false });
+        assert.equal(api.trackCampaignConversion('sdk_download'), false);
+        assert.equal(api.trackEvent('sdk_download'), true);
+        assert.match(document.cookie, /_gcl_aw=; Max-Age=0/);
+        assert.equal(window.espectreCampaignSearch(), '');
+        document.cookie = '_ga_ABC=analytics';
+        api.commitConsent({ analytics: false, campaigns: false });
+        assert.equal(api.trackEvent('sdk_download'), false);
+        assert.equal(window[`ga-disable-${api.gaId}`], true);
+        assert.match(document.cookie, /_ga_ABC=; Max-Age=0/);
+        const last = window.dataLayer.filter((row) => row[0] === 'consent').at(-1)[2];
+        for (const value of Object.values(last)) assert.equal(value, 'denied');
+    });
+
+    it('does not upgrade legacy Analytics consent to campaign consent', () => {
+        const { api, window, consentBanner, controls } = analyticsContext({ storedConsent: 'granted' });
+        api.initializeConsentControls();
+        assert.equal(api.enabled(), true);
+        assert.equal(consentBanner.hidden, false);
+        assert.equal(controls['.js-consent-analytics'].checked, true);
+        assert.equal(controls['.js-consent-campaigns'].checked, false);
+        assert.equal(api.trackCampaignConversion('sdk_download'), false);
+        assert.equal(window.dataLayer.some((row) => row[0] === 'config' && row[1] === api.adsId), false);
+    });
+
+    it('restores valid choices but fails closed on expired or malformed preferences', () => {
+        for (const value of [preferences(false, true), preferences(true, false), preferences(false, false)]) {
+            const { api, consentBanner } = analyticsContext({ preferences: value });
+            api.initializeConsentControls();
+            assert.equal(consentBanner.hidden, true);
+            assert.equal(api.enabled(), value.analytics);
+            assert.equal(api.trackCampaignConversion('sdk_download'), value.campaigns);
+        }
+        for (const value of [{}, { ...preferences(true, true), updatedAt: 1 }, { ...preferences(true, true), analytics: 'true' }]) {
+            const { api, consentBanner, appendedScripts } = analyticsContext({ preferences: value });
+            api.initializeConsentControls();
+            assert.equal(consentBanner.hidden, false);
+            assert.equal(appendedScripts.length, 0);
+        }
+    });
+
+    it('keeps consent usable when browser storage is blocked', () => {
+        const { api, controls, consentBanner } = analyticsContext({ storageBlocked: true });
+        api.initializeConsentControls();
+        assert.equal(consentBanner.hidden, false);
+        controls['.js-consent-accept'].click();
+        assert.equal(api.enabled(), true);
+        controls['.js-consent-reject'].click();
+        assert.equal(api.enabled(), false);
+    });
+
+    it('never sends Google Ads conversions from a debug host', () => {
+        for (const hostname of ['test.espectre.dev', 'localhost', '127.0.0.1']) {
+            const { api, window, appendedScripts } = analyticsContext({ hostname });
+            api.commitConsent({ analytics: false, campaigns: true });
+            assert.equal(appendedScripts.length, 0);
+            assert.equal(api.trackCampaignConversion('sdk_download'), false);
+            api.commitConsent({ analytics: true, campaigns: true });
+            assert.equal(window.dataLayer.some((row) => row[0] === 'config' && row[1] === api.adsId), false);
+            assert.equal(events(window, 'conversion').length, 0);
+        }
     });
 });
