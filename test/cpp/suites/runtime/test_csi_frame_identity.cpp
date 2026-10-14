@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "csi_frame_identity.h"
@@ -20,6 +21,7 @@ namespace {
 
 constexpr uint8_t kLocalMac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
 constexpr uint8_t kOtherMac[6] = {0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+constexpr uint8_t kZeroMac[6] = {};
 constexpr uint8_t kMulticastMac[6] = {0x01, 0x00, 0x5E, 0x7F, 0x00, 0x01};
 constexpr uint32_t kGateway = 0xC0A80101U;
 constexpr uint32_t kLocal = 0xC0A80111U;
@@ -150,6 +152,31 @@ wifi_csi_info_t local_ack_info(uint8_t *header) {
   wifi_csi_info_t info{};
   info.hdr = header;
   info.rx_ctrl.sig_len = 14U;
+  return info;
+}
+
+std::vector<uint8_t> radio_frame(bool espnow = false, uint8_t version = 1U) {
+  std::vector<uint8_t> frame(24U, 0U);
+  frame[0] = espnow ? 0xD0U : 0x48U;
+  std::memcpy(frame.data() + 4U, kLocalMac, 6U);
+  std::memcpy(frame.data() + 10U, kOtherMac, 6U);
+  std::memset(frame.data() + 16U, 0xFFU, 6U);
+  if (espnow) {
+    const uint8_t body[] = {127U, 0x18U, 0xFEU, 0x34U, 1U, 2U, 3U, 4U,
+                           221U, 6U, 0x18U, 0xFEU, 0x34U, 4U, version, 42U};
+    frame.insert(frame.end(), std::begin(body), std::end(body));
+  }
+  return frame;
+}
+
+wifi_csi_info_t radio_info(std::vector<uint8_t> &frame) {
+  wifi_csi_info_t info{};
+  info.hdr = frame.data();
+  info.payload = frame.data() + 24U;
+  info.payload_len = static_cast<uint16_t>(frame.size() - 24U);
+  info.rx_ctrl.sig_len = frame.size() + 4U;
+  std::memcpy(info.mac, frame.data() + 10U, 6U);
+  std::memcpy(info.dmac, frame.data() + 4U, 6U);
   return info;
 }
 
@@ -397,6 +424,164 @@ void test_external_accepts_unicast_ping_requests(void) {
   TEST_ASSERT_TRUE(matches(ping_request(kOther), config));
 }
 
+void test_external_accepts_direct_null_and_espnow_without_ip_identity(void) {
+  auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  config.local_ip_addr = 0U;
+  for (bool espnow : {false, true}) {
+    for (uint8_t version : {1U, 2U}) {
+      auto frame = radio_frame(espnow, version);
+      auto info = radio_info(frame);
+      for (auto profile : {CsiCaptureProfile::HT20, CsiCaptureProfile::LLTF20}) {
+        TEST_ASSERT_TRUE(matches_once(&info, config, profile));
+        for (auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                          TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
+          TEST_ASSERT_FALSE(matches_once(&info, filter(mode), profile));
+        }
+      }
+    }
+  }
+}
+
+void test_external_radio_requires_direct_local_unicast_and_valid_header(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  for (bool espnow : {false, true}) {
+    const auto original = radio_frame(espnow);
+    for (const auto &change : std::vector<std::pair<size_t, uint8_t>>{
+             {0U, 0x08U}, {0U, 0xC8U}, {0U, 0xD1U}, {0U, 0xE0U}, {1U, 0x01U}, {1U, 0x02U},
+             {1U, 0x04U}, {1U, 0x40U}, {1U, 0x80U}, {22U, 1U},
+             {4U, 0xFFU}, {4U, kOtherMac[0]}, {10U, 0xFFU}}) {
+      auto frame = original;
+      frame[change.first] = change.second;
+      auto info = radio_info(frame);
+      TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    }
+    for (const auto *source : {kLocalMac, kZeroMac}) {
+      auto frame = original;
+      std::memcpy(frame.data() + 10U, source, 6U);
+      auto info = radio_info(frame);
+      TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    }
+    auto frame = original;
+    auto info = radio_info(frame);
+    info.dmac[0] ^= 2U;
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    info = radio_info(frame);
+    info.rx_ctrl.rx_state = 1U;
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    info = radio_info(frame);
+    info.hdr = nullptr;
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    info = radio_info(frame);
+    info.rx_ctrl.sig_len = 27U;
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+    auto no_mac = config;
+    std::memset(no_mac.local_mac_addr, 0, 6U);
+    info = radio_info(frame);
+    TEST_ASSERT_FALSE(matches_once(&info, no_mac, CsiCaptureProfile::HT20));
+  }
+}
+
+void test_external_espnow_rejects_malformed_or_truncated_vendor_actions(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  const auto original = radio_frame(true);
+  for (const auto &change : std::vector<std::pair<size_t, uint8_t>>{
+           {0U, 126U}, {1U, 0U}, {8U, 220U}, {9U, 4U}, {9U, 255U},
+           {10U, 0U}, {13U, 3U}, {14U, 0U}, {14U, 3U}, {14U, 0x11U}, {14U, 0x12U},
+           {14U, 0x22U}}) {
+    auto frame = original;
+    frame[24U + change.first] = change.second;
+    auto info = radio_info(frame);
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  }
+  for (size_t length = 24U; length < original.size(); ++length) {
+    auto frame = original;
+    frame.resize(length);
+    auto info = radio_info(frame);
+    TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  }
+  auto frame = original;
+  auto info = radio_info(frame);
+  info.payload = nullptr;
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  info = radio_info(frame);
+  ++info.rx_ctrl.sig_len;
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  frame.push_back(0U);
+  info = radio_info(frame);
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+}
+
+void test_external_espnow_v2_accepts_multiple_complete_elements(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  auto frame = radio_frame(true, 2U);
+  const std::vector<uint8_t> second(frame.begin() + 32U, frame.end());
+  frame[38U] |= 0x10U;
+  frame.insert(frame.end(), second.begin(), second.end());
+  auto info = radio_info(frame);
+  TEST_ASSERT_TRUE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  frame.back() = 0U;  // Application bytes are not interpreted as control messages.
+  TEST_ASSERT_TRUE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  frame[38U] = 2U;  // A further element requires the v2 More Data bit.
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  frame[38U] = 0x12U;
+  frame[46U] = 1U;  // Versions must not change within a v2 frame.
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  frame[46U] = 2U;
+  frame[40U] = 0U;
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+
+  // The largest v2 frame carries 1470 data bytes: five 250-byte elements and
+  // one 220-byte element. One more data byte exceeds the protocol limit.
+  for (const size_t last_body : {220U, 221U}) {
+    auto largest = radio_frame(true, 2U);
+    largest.resize(32U);
+    for (size_t element = 0U; element < 6U; ++element) {
+      const size_t body = element < 5U ? 250U : last_body;
+      const uint8_t control = element < 5U ? 0x12U : 0x02U;
+      const uint8_t head[] = {221U, static_cast<uint8_t>(5U + body), 0x18U, 0xFEU, 0x34U, 4U,
+                              control};
+      largest.insert(largest.end(), std::begin(head), std::end(head));
+      largest.insert(largest.end(), body, 0x5AU);
+    }
+    auto largest_info = radio_info(largest);
+    TEST_ASSERT_EQUAL(last_body == 220U,
+                      matches_once(&largest_info, config, CsiCaptureProfile::HT20));
+  }
+}
+
+void test_external_espnow_bounds_driver_payload_length_by_mpdu_length(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  auto frame = radio_frame(true, 2U);
+  auto info = radio_info(frame);
+  // On an ESP32-S3 receiver, ESP-IDF 5.5.5 advertises the entire MPDU length
+  // while payload points at the action body. The bytes after the real body are
+  // not part of this frame.
+  info.payload_len = info.rx_ctrl.sig_len;
+  TEST_ASSERT_TRUE(matches_once(&info, config, CsiCaptureProfile::HT20));
+  info.payload_len = static_cast<uint16_t>(frame.size() - 25U);
+  TEST_ASSERT_FALSE(matches_once(&info, config, CsiCaptureProfile::HT20));
+}
+
+void test_external_radio_retries_are_counted_once_and_do_not_consume_ack_credit(void) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  for (bool espnow : {false, true}) {
+    auto frame = radio_frame(espnow);
+    auto info = radio_info(frame);
+    CsiRetransmissionFilter retransmissions;
+    CsiAckCredit credit;
+    credit.arm(kNowUs);
+    TEST_ASSERT_TRUE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20,
+                                               kNowUs, credit, retransmissions));
+    frame[1U] |= 0x08U;
+    TEST_ASSERT_FALSE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20,
+                                                kNowUs, credit, retransmissions));
+    ++info.rx_seq;
+    TEST_ASSERT_TRUE(csi_frame_matches_traffic(&info, config, CsiCaptureProfile::LLTF20,
+                                               kNowUs, credit, retransmissions));
+    TEST_ASSERT_TRUE(credit.consume(kNowUs));
+  }
+}
+
 void test_external_rejects_other_icmp_traffic(void) {
   const CsiFrameFilterConfig config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_FALSE(matches(ping_reply(kOther, 0x4321U), config));
@@ -483,6 +668,12 @@ int main() {
   RUN_TEST(test_external_rejects_udp_length_mismatch_and_data_after_marker);
   RUN_TEST(test_external_accepts_bounded_shifted_llc_frame);
   RUN_TEST(test_external_accepts_unicast_ping_requests);
+  RUN_TEST(test_external_accepts_direct_null_and_espnow_without_ip_identity);
+  RUN_TEST(test_external_radio_requires_direct_local_unicast_and_valid_header);
+  RUN_TEST(test_external_espnow_rejects_malformed_or_truncated_vendor_actions);
+  RUN_TEST(test_external_espnow_v2_accepts_multiple_complete_elements);
+  RUN_TEST(test_external_espnow_bounds_driver_payload_length_by_mpdu_length);
+  RUN_TEST(test_external_radio_retries_are_counted_once_and_do_not_consume_ack_credit);
   RUN_TEST(test_external_rejects_other_icmp_traffic);
   RUN_TEST(test_internal_ping_requires_gateway_echo_reply_and_active_identifier);
   RUN_TEST(test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only);

@@ -28,6 +28,72 @@ constexpr uint8_t kIpProtoIcmp = 1U;
 constexpr uint8_t kIpProtoTcp = 6U;
 constexpr uint8_t kIpProtoUdp = 17U;
 constexpr uint8_t kLlcSnapPrefix[6] = {0xAAU, 0xAAU, 0x03U, 0x00U, 0x00U, 0x00U};
+constexpr size_t kMacHeaderBytes = 24U;
+constexpr size_t kFcsBytes = 4U;
+constexpr uint8_t kNullDataFrameControl = 0x48U;
+constexpr uint8_t kActionFrameControl = 0xD0U;
+constexpr uint8_t kEspressifOui[3] = {0x18U, 0xFEU, 0x34U};
+// Category, OUI, and four-byte random value precede the vendor elements.
+constexpr size_t kEspNowActionHeaderBytes = 8U;
+// Element ID, length, OUI, type, and version/control precede each body.
+constexpr size_t kEspNowElementHeaderBytes = 7U;
+// ESP-NOW v2 carries at most 1470 bytes, in elements of at most 250 bytes.
+constexpr size_t kEspNowMaxDataBytes = 1470U;
+constexpr size_t kEspNowMaxElements = 6U;
+constexpr size_t kEspNowMinBodyBytes = kEspNowActionHeaderBytes + kEspNowElementHeaderBytes;
+constexpr size_t kEspNowMaxBodyBytes = kEspNowActionHeaderBytes + kEspNowMaxDataBytes +
+                                       kEspNowMaxElements * kEspNowElementHeaderBytes;
+
+bool matches_external_radio(const wifi_csi_info_t *info, const CsiFrameFilterConfig &config) {
+  if (info->hdr == nullptr || info->rx_ctrl.sig_len < kMacHeaderBytes + kFcsBytes ||
+      info->rx_ctrl.rx_state != 0U || is_zero_mac_address(config.local_mac_addr) ||
+      (config.local_mac_addr[0] & 0x01U) != 0U) return false;
+  const uint8_t *header = info->hdr;
+  // Direct, unencrypted, unfragmented frames only. In particular, do not
+  // admit an AP's power-save Null Data traffic or overheard transmissions.
+  if ((header[1] & 0xC7U) != 0U || (header[22U] & 0x0FU) != 0U ||
+      std::memcmp(header + 4U, config.local_mac_addr, 6U) != 0 ||
+      std::memcmp(info->dmac, config.local_mac_addr, 6U) != 0 ||
+      is_zero_mac_address(header + 10U) || (header[10U] & 0x01U) != 0U ||
+      std::memcmp(info->mac, header + 10U, 6U) != 0 ||
+      std::memcmp(header + 10U, config.local_mac_addr, 6U) == 0) return false;
+
+  if (header[0] == kNullDataFrameControl) {  // Non-QoS Null Data has no body.
+    return info->rx_ctrl.sig_len == kMacHeaderBytes + kFcsBytes;
+  }
+  if (header[0] != kActionFrameControl || info->payload == nullptr) return false;
+  // ESP-NOW is a vendor-specific action, followed by one or more vendor
+  // elements. Validate every element and its bounded length before accepting
+  // the frame; arbitrary vendor actions must not become sensing traffic.
+  const uint8_t *body = info->payload;
+  // On an ESP32-S3 receiver with ESP-IDF 5.5.5, payload points past the MAC
+  // header while payload_len still reports the whole MPDU. Never parse that
+  // stale tail. Other chips are unvalidated; a payload that starts at the
+  // MAC header fails the category check below.
+  const size_t length = info->rx_ctrl.sig_len - kMacHeaderBytes - kFcsBytes;
+  if (length < kEspNowMinBodyBytes || length > kEspNowMaxBodyBytes ||
+      info->payload_len < length || body[0] != 127U ||
+      std::memcmp(body + 1U, kEspressifOui, 3U) != 0) return false;
+  uint8_t frame_version = 0U;
+  size_t offset = kEspNowActionHeaderBytes;
+  while (offset < length) {
+    if (length - offset < kEspNowElementHeaderBytes || body[offset] != 221U) return false;
+    const size_t element_length = body[offset + 1U];
+    if (element_length < 5U || element_length + 2U > length - offset ||
+        std::memcmp(body + offset + 2U, kEspressifOui, 3U) != 0 ||
+        body[offset + 5U] != 4U) return false;
+    const uint8_t control = body[offset + 6U];
+    const uint8_t version = control & 0x0FU;
+    const bool more = offset + element_length + 2U < length;
+    if (version != 1U && version != 2U) return false;
+    if (frame_version != 0U && version != frame_version) return false;
+    if (version == 1U && (control != 1U || more)) return false;
+    if (version == 2U && ((control & 0xE0U) != 0U || ((control & 0x10U) != 0U) != more)) return false;
+    frame_version = version;
+    offset += element_length + 2U;
+  }
+  return true;
+}
 
 bool matches_local_ack(const wifi_csi_info_t *info, const CsiFrameFilterConfig &config) {
   // An ACK has a 10-byte MAC header and a 4-byte FCS, but no transmitter
@@ -223,6 +289,11 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
   if (info == nullptr) return false;
   if (csi_capture_profile_uses_lltf(profile) && matches_local_ack(info, config)) {
     return ack_credit.consume(now_us);
+  }
+  if (info->hdr != nullptr && info->rx_ctrl.sig_len >= kMacHeaderBytes + kFcsBytes &&
+      (info->hdr[0] == kNullDataFrameControl || info->hdr[0] == kActionFrameControl)) {
+    return config.traffic_mode == TrafficGeneratorMode::EXTERNAL_HOST &&
+           matches_external_radio(info, config) && retransmissions.admit(*info);
   }
   ParsedIpv4 packet;
   return parse_bounded_payload(info, &packet) &&

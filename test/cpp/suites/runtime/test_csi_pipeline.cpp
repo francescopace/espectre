@@ -1750,6 +1750,47 @@ void test_csi_pipeline_admits_credited_local_ack_only_with_active_lltf20_profile
     }
 }
 
+void test_csi_pipeline_admits_external_radio_only_after_phy_and_identity_checks(void) {
+    const uint8_t local_mac[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+    uint8_t header[24] = {0x48U, 0U};
+    std::memcpy(header + 4U, local_mac, 6U);
+    header[10U] = 0x66U;
+    uint8_t body[] = {127U, 0x18U, 0xFEU, 0x34U, 1U, 2U, 3U, 4U,
+                      221U, 6U, 0x18U, 0xFEU, 0x34U, 4U, 2U, 42U};
+    for (const auto profile : {CsiCaptureProfile::HT20, CsiCaptureProfile::LLTF20}) {
+        LightweightDetector detector(10, 1.0f);
+        CsiPipeline manager;
+        manager.init(&detector, &g_wifi_mock);
+        CsiFrameFilterConfig filter;
+        filter.traffic_mode = TrafficGeneratorMode::EXTERNAL_HOST;
+        std::memcpy(filter.local_mac_addr, local_mac, 6U);
+        manager.set_traffic_filter(filter);
+        TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr, profile));
+        int8_t csi_buf[128];
+        wifi_csi_info_t info{};
+        fill_valid_csi_info_(&info, csi_buf);
+        info.hdr = header;
+        std::memcpy(info.dmac, local_mac, 6U);
+        std::memcpy(info.mac, header + 10U, 6U);
+        info.rx_ctrl.sig_mode = profile == CsiCaptureProfile::HT20 ? 1U : 0U;
+        for (unsigned i = 0; i < 4U; ++i) {
+            header[0] = i == 0U ? 0x48U : 0xD0U;
+            info.payload = i == 0U ? nullptr : body;
+            info.payload_len = i == 0U ? 0U : sizeof(body);
+            info.rx_ctrl.sig_len = 28U + info.payload_len;
+            info.rx_ctrl.timestamp = 1000000U + 10000U * i;
+            if (i == 2U) info.rx_ctrl.rx_state = 1U;
+            if (i == 3U) { info.rx_ctrl.rx_state = 0U; info.dmac[0] ^= 2U; }
+            g_wifi_mock.trigger_callback(&info);
+            manager.loop();
+        }
+        manager.flush_pending_candidate();
+        TEST_ASSERT_EQUAL(2U, manager.accepted_packets_total());
+        TEST_ASSERT_EQUAL(1U, manager.traffic_rejected_packets_total());
+        TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    }
+}
+
 void test_csi_pipeline_filters_unicast_frames_for_other_device(void) {
     LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
@@ -1788,6 +1829,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_init);
     RUN_TEST(test_csi_pipeline_reconfigures_capture_and_retains_same_profile);
     RUN_TEST(test_csi_pipeline_admits_credited_local_ack_only_with_active_lltf20_profile);
+    RUN_TEST(test_csi_pipeline_admits_external_radio_only_after_phy_and_identity_checks);
     
     // Enable/Disable tests
     RUN_TEST(test_csi_pipeline_enable);

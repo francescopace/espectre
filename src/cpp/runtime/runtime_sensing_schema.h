@@ -60,8 +60,8 @@ enum class TrafficGeneratorMode {
   /** Internal generator, raw Wi-Fi Null Data frames addressed to the associated AP. */
   WIFI_RAW,
   /**
-   * No internal generator: another host sends exact UDP markers or unicast
-   * ICMP Echo Requests, and the runtime listens for them.
+   * No internal generator: another host sends exact UDP markers, unicast
+   * ICMP Echo Requests, direct Null Data, or unencrypted unicast ESP-NOW.
    */
   EXTERNAL_HOST,
 };
