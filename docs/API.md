@@ -327,6 +327,12 @@ In `external` mode, ESPHome, Native, and Matter measure CSI on:
 
 - **UDP markers** on port `5555`, sent to the device IP or to `csi_traffic_multicast_group` (default `239.255.0.1`; empty disables multicast). The payload must be exactly the four bytes `F0 9F 91 BB` (`"👻".encode("utf-8")`).
 - **ICMP Echo Requests** sent by unicast to the device. The device replies normally.
+- **Non-QoS Null Data frames** sent directly to the device's station MAC, with `ToDS = FromDS = 0` and no payload.
+- **ESP-NOW v1 or v2 frames** sent directly by unicast to the device's station MAC. The vendor-specific action and every vendor element must identify Espressif (`18:FE:34`), and the elements must use ESP-NOW type `4`. Application bytes are not interpreted as ESPectre commands.
+
+The two direct radio sources must be unencrypted and unfragmented, with a nonzero unicast transmitter MAC different from the receiver. Broadcast destinations, other receivers, malformed vendor elements, and retries of the last admitted frame are rejected. A wildcard BSSID (`FF:FF:FF:FF:FF:FF`) in address 3 is distinct from a broadcast destination in address 1; it is compatible with direct unicast reception. The sender must use the receiver's channel and a PHY rate compatible with its [capture profile](CSI.md#capture-profiles); accepting the frame type does not bypass CSI quality or PHY checks. ACKs remain restricted to the internal `wifi_raw` generator's one-shot credit.
+
+Every accepted source feeds the same CSI stream, whatever its transmitter. Use one sender per device: other ESP-NOW peers that send unicast to the device, or other hosts that ping it, also become sensing samples.
 
 The sending host sets the pace. Some access points convert multicast to unicast; both forms are accepted, as long as the destination IP, port, and marker match. See the [`collect` command](CLI.md#collect) and [external sources](CSI.md#external-sources).
 

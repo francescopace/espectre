@@ -40,8 +40,9 @@ Release checks and artifact publication follow the [release procedure](RELEASING
 - Validate commissioning across selected additional controllers, and maintain the verified-controller matrix in the [Matter guide](../src/cpp/frontend/matter/README.md)
 - Define Matter OTA ownership, Requestor and Provider responsibilities, and release-artifact requirements
 - Assess manufacturer certification gaps, including vendor identity, device attestation, factory provisioning, and certification test coverage
+- Validate direct Null Data and ESP-NOW reception in `external` mode, so another ESP32 can act as the sensing traffic source, on receiver chips beyond the ESP32-S3
 
-**Exit criteria**: each selected controller passes or has its limits documented, and OTA and certification have a documented design and a list of what is missing.
+**Exit criteria**: each selected controller passes or has its limits documented, OTA and certification have a documented design and a list of what is missing, and each supported receiver chip either accepts direct Null Data and ESP-NOW or has its limits documented.
 
 ## v3.2.0 - Arduino SDK runtime
 
@@ -215,7 +216,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **October 7, 2026**
+Last update: **October 14, 2026**
 
 For discussion and proposed changes:
 
