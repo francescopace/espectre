@@ -8,13 +8,13 @@
 
   <div class="note"><strong>One protocol, two transports.</strong> Messages, operations, validation rules, and result codes are the same as in Direct HTTP. Only the delivery changes: topics instead of paths, and a broker instead of HTTP responses.</div>
 
-  <h2 data-toc-label="Topic root">Find the device topic</h2>
+  <h2 id="find-the-device-topic" data-toc-label="Topic root">Find the device topic</h2>
   <p>By default, each device publishes under <code>espectre/v1/devices/&lt;device-id&gt;</code>. A custom topic prefix replaces the first part; the device ID always comes last. Subscribe to the retained <code>capabilities</code> topic first to see what the device supports.</p>
   <pre class="code"><code>mosquitto_sub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/+/capabilities' -v</code></pre>
   <p>Native firmware includes the MQTT API, and SDK products can add it with the MQTT adapter. ESPHome and Matter use their own protocols.</p>
 
-  <h2 data-toc-label="State and events">Subscribe to state and events</h2>
+  <h2 id="subscribe-to-state-and-events" data-toc-label="State and events">Subscribe to state and events</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Suffix</th><th>Retained</th><th>Purpose</th></tr></thead>
     <tbody>
@@ -33,7 +33,7 @@
   <pre class="code"><code>mosquitto_sub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/&lt;device-id&gt;/#' -v</code></pre>
 
-  <h2 data-toc-label="Commands">Send a command</h2>
+  <h2 id="send-a-command" data-toc-label="Commands">Send a command</h2>
   <p>Publish JSON commands to <code>commands/request</code>. Each one needs a unique <code>command_id</code> and a <code>command</code>; parameters go at the top level too.</p>
   <pre class="code"><code>mosquitto_pub -h &lt;broker&gt; \
   -t 'espectre/v1/devices/&lt;device-id&gt;/commands/request' \
@@ -59,14 +59,14 @@
   </table></div>
   <p>A command can be at most 2,048 bytes. A command outside the MQTT list returns <code>accepted: false</code> with code <code>forbidden</code>. An operation this firmware leaves out of its capabilities returns <code>unsupported</code>. Other errors use the same codes as HTTP.</p>
 
-  <h2 data-toc-label="HTTP only">What needs Direct HTTP</h2>
+  <h2 id="what-needs-direct-http" data-toc-label="HTTP only">What needs Direct HTTP</h2>
   <p>MQTT cannot change the broker settings, list nearby devices, or stream raw CSI. Use Direct HTTP or Device settings for those. For diagnostics, send <code>read_diagnostics</code> with the <code>fields</code> you want.</p>
   <p>The Home Assistant discovery messages under <code>homeassistant/</code> are separate from the ESPectre topics above.</p>
 
-  <h2 data-toc-label="Privacy and security">Protect the broker</h2>
+  <h2 id="protect-the-broker" data-toc-label="Privacy and security">Protect the broker</h2>
   <p>The MQTT <code>wifi</code> message leaves out the network name, access point, and IP address. Other messages still include the device ID, your device label, movement data, and diagnostics. Limit who can use the broker, and give each device its own credentials.</p>
   <p>Use <code>mqtt</code> (unencrypted) only with a trusted local broker, and <code>mqtts</code> for TLS with hostname checking. MQTT over WebSockets is not supported.</p>
 
-  <h2 data-toc-label="Protocol reference">Protocol reference</h2>
+  <h2 id="protocol-reference" data-toc-label="Protocol reference">Protocol reference</h2>
   <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md#mqtt-topics" target="_blank" rel="noopener">MQTT section of the API reference</a> defines every field, limit, result code, and compatibility rule. The <a href="/sdk/http-api/">HTTP API</a> describes the shared resources and the HTTP-only features.</p>
 </article>

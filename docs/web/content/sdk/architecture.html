@@ -6,7 +6,7 @@
   <h1>Reference architecture</h1>
   <p class="article-lead">The runtime runs inside your ESP-IDF product. Your firmware runs the product; ESPectre runs the sensing.</p>
 
-  <h2>Who does what</h2>
+  <h2 id="who-does-what">Who does what</h2>
   <div class="ownership-grid">
     <section>
       <span class="docs-path-label">YOUR FIRMWARE</span>
@@ -25,7 +25,7 @@
     </section>
   </div>
 
-  <h2>Lifecycle and tasks</h2>
+  <h2 id="lifecycle-and-tasks">Lifecycle and tasks</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
     <div><strong>Create station</strong><span>interface + event loop</span></div>
     <div><strong><code>setup(listener)</code></strong><span>prepare CSI capture</span></div>
@@ -36,7 +36,7 @@
   <p>Create the default Wi-Fi station and event loop first. If you can, call <code>setup()</code> before connecting to Wi-Fi, so the runtime can configure the radio for CSI when the station starts. Call <code>setup()</code>, <code>loop()</code>, the controls, and <code>shutdown()</code> from one task. Listener callbacks run on that same task and must return quickly; hand network publishing, flash writes, and other blocking work to another task.</p>
   <p>If <code>setup()</code> fails, nothing is configured, so you can fix the configuration and retry. Controls return <code>false</code> when a value is invalid, a feature is unavailable, or the change is refused. Errors that happen later arrive through <code>on_runtime_fault()</code>.</p>
 
-  <h2>Three-layer architecture</h2>
+  <h2 id="three-layer-architecture">Three-layer architecture</h2>
   <p>Dependencies go one way: frontend → runtime → core. A product usually replaces the frontend and reuses the other two layers.</p>
   <div class="arch-stack">
     <div class="arch-layer">
@@ -53,7 +53,7 @@
     </div>
   </div>
 
-  <h2>Runtime data flow</h2>
+  <h2 id="runtime-data-flow">Runtime data flow</h2>
   <div class="pipeline">
     <div><strong>Wi-Fi traffic</strong><span>product environment</span></div>
     <div><strong>CSI capture</strong><span>runtime/esp_idf</span></div>
@@ -71,7 +71,7 @@
   <details class="article-disclosure">
     <summary>Extending the source tree or porting another platform</summary>
     <div class="article-disclosure-body">
-      <h2>Where new code belongs</h2>
+      <h2 id="where-new-code-belongs">Where new code belongs</h2>
       <div class="table-wrap"><table>
         <thead><tr><th>If the code…</th><th>Put it in…</th></tr></thead>
         <tbody>

@@ -12,6 +12,7 @@
 (function () {
     'use strict';
 
+    const legacyRoutes = Object.freeze({ device: 'tool-configure' });
     const productionHosts = new Set(['espectre.dev', 'www.espectre.dev']);
     const validationHosts = new Set(['test.espectre.dev']);
     const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -136,6 +137,10 @@
             guideNameForPath: (path) => contentNameForPath(path, 'guide-', 'guides'),
             has: (name) => byName.has(name),
             membersOf: (group) => byGroup.get(group) || emptyGroup,
+            resolveRouteName: (name) => {
+                const resolved = Object.hasOwn(legacyRoutes, name) ? legacyRoutes[name] : name;
+                return byName.has(resolved) ? resolved : '';
+            },
             routeForPath: (path) => byStaticPath.get(path) || '',
             siteOrigin: manifest.siteOrigin,
             staticTargetForHref,

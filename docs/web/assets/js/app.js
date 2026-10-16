@@ -30,7 +30,6 @@
         ? (routeRegistry.get(routeName)?.analyticsName || routeName)
         : 'monitor';
     const activeToolName = () => toolNameForRoute(route);
-    const LEGACY_TOOL_ROUTES = Object.freeze({ device: 'tool-configure' });
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
             configure: Object.freeze({
@@ -140,13 +139,12 @@
     }
 
     function normalizedRouteName(candidate) {
-        const remapped = LEGACY_TOOL_ROUTES[candidate] || candidate;
-        return routeRegistry.has(remapped) ? remapped : 'home';
+        return routeRegistry.resolveRouteName(candidate) || 'home';
     }
 
     function routeFromLocation() {
         const hashRoute = (location.hash || '').slice(1);
-        if (routeRegistry.has(LEGACY_TOOL_ROUTES[hashRoute] || hashRoute)) {
+        if (routeRegistry.resolveRouteName(hashRoute)) {
             return normalizedRouteName(hashRoute);
         }
         return routeRegistry.routeForPath(location.pathname) || 'home';
@@ -190,7 +188,7 @@
 
     function replaceLegacyRouteLocation(routeName) {
         const hashRoute = (location.hash || '').slice(1);
-        if (!routeRegistry.has(LEGACY_TOOL_ROUTES[hashRoute] || hashRoute)) return;
+        if (!routeRegistry.resolveRouteName(hashRoute)) return;
         history.replaceState(
             { espectreRoute: routeName },
             '',
@@ -226,7 +224,7 @@
     function onPopState() {
         const target = routeFromLocation();
         const hash = (location.hash || '').slice(1);
-        const anchor = routeRegistry.has(LEGACY_TOOL_ROUTES[hash] || hash) ? '' : hash;
+        const anchor = routeRegistry.resolveRouteName(hash) ? '' : hash;
         if (target === route) {
             if (anchor) {
                 void loadStaticContent(target).then((ready) => {
@@ -478,7 +476,7 @@
             navigateToRoute(staticTarget.route, { anchor: staticTarget.anchor });
         } else if (href.startsWith('/#')) {
             const legacyRoute = href.slice(2).split('?')[0];
-            if (!routeRegistry.has(LEGACY_TOOL_ROUTES[legacyRoute] || legacyRoute)) return;
+            if (!routeRegistry.resolveRouteName(legacyRoute)) return;
             event.preventDefault();
             navigateToRoute(legacyRoute);
         } else if (href.startsWith('#') && href.length > 1) {

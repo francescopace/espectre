@@ -3,9 +3,9 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">THEORY · 3 MIN READ</span>
-    <h1>How Wi-Fi sensing detects movement</h1>
-    <p class="article-lead">Wi-Fi signals bounce around a room, and their reflections change when people move. ESPectre measures those changes with a low-cost ESP32, without cameras, microphones, or the cloud.</p>
+    <span class="guide-tag">THEORY · 4 MIN READ</span>
+    <h1>What is Wi-Fi sensing?</h1>
+    <p class="article-lead">Wi-Fi sensing uses changes in wireless signals to detect activity in a space. When someone moves, the reflections of the Wi-Fi signal change. ESPectre uses this effect to detect motion with an ESP32, a small programmable Wi-Fi board, without cameras, microphones, or cloud processing.</p>
     <figure class="multipath-sequence-figure">
       <div class="multipath-sequence">
         <div class="multipath-frame">
@@ -19,6 +19,10 @@
       </div>
       <figcaption>The blue paths stay the same in both frames. When the person moves, the amber path still goes from the same access point to the same ESP32, but it bounces off a different point and gets longer or shorter. The ESP32 sees that change in the signal it receives.</figcaption>
     </figure>
+
+    <h2 id="detection-try">Can I try Wi-Fi sensing at home?</h2>
+    <p>With ESPectre, you need a <a href="/guides/hardware/">supported ESP32 board</a>, USB power, and a Wi-Fi router. The ESP32 receives the signal and runs the motion detector locally. Your router alone does not become an ESPectre sensor.</p>
+    <p>Follow the <a href="/guides/setup/">browser installation guide</a>, then <a href="/guides/placement/">test the sensor in your room</a>. You can watch motion in the browser or <a href="/guides/home-assistant/">connect it to Home Assistant</a> for automations, such as switching on a light when movement is detected.</p>
 
     <h2 id="detection-room">The room becomes part of the signal</h2>
     <p>A Wi-Fi signal rarely travels in one straight line from the access point to the receiver. It also bounces off walls, furniture, and people. These copies arrive together and add up, sometimes making the signal stronger and sometimes cancelling part of it. This is called <strong>multipath</strong>.</p>
@@ -37,7 +41,7 @@
       <figcaption>Each dot is one I/Q measurement of one subcarrier; dots of the same color belong to the same subcarrier. Each CSI packet adds one dot to every orbit, so at 100 packets per second each orbit gains about 100 dots per second. A dot’s distance from the center is the subcarrier’s strength. In a quiet room, the orbits stay dense and narrow. During movement, the strength swings, so the orbits get thicker and can overlap. ESPectre looks at many subcarriers over time, never at a single dot.</figcaption>
     </figure>
 
-    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor.</div>
+    <div class="note">ESPectre detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor. Placement matters: movement in adjacent rooms can also affect the signal. Test the area you want to cover before relying on an automation.</div>
 
     <h2 id="detection-deeper">Going deeper</h2>
     <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> explains the signal processing and the detectors in detail.</p>

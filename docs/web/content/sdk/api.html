@@ -26,8 +26,8 @@
   </div>
 
   <div class="api-reference-content" data-api-reference-content data-api-reference-overview>
-  <h2 class="api-reference-overview-title">Overview</h2>
-  <h2>Full-runtime types to know</h2>
+  <h2 id="overview" class="api-reference-overview-title">Overview</h2>
+  <h2 id="full-runtime-types-to-know">Full-runtime types to know</h2>
   <div class="api-map">
     <a href="/sdk/api/?api=classespectre_1_1_runtime_frontend_controller" data-api-reference-ref="classespectre_1_1_runtime_frontend_controller">
       <code>RuntimeFrontendController</code>
@@ -47,7 +47,7 @@
     </a>
   </div>
 
-  <h2>Lifecycle at a glance</h2>
+  <h2 id="lifecycle-at-a-glance">Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
     <div><strong><code>set_config()</code></strong><span>set settings</span></div>
     <div><strong><code>setup(listener)</code></strong><span>start sensing</span></div>
@@ -56,16 +56,16 @@
   </div>
   <p>On ESP-IDF, start from <code>make_runtime_sensing_config_from_kconfig()</code> unless you set every sensing option yourself. Call the lifecycle and control methods from one task.</p>
 
-  <h2>Optional logging sink</h2>
+  <h2 id="optional-logging-sink">Optional logging sink</h2>
   <p><code>LogSink</code> sends SDK messages to your own logger. Register it before setup and keep it until shutdown. Without a sink, the SDK logs nothing and skips building the messages. The sink can be called from more than one task, so its callbacks must be thread-safe, quick, non-blocking, and must not log back into the SDK. On ESP-IDF, the simplest sink passes each message to <code>esp_log_va</code>, as the SDK example and the Native and Matter firmware do.</p>
 
-  <h2>Errors and optional controls</h2>
+  <h2 id="errors-and-optional-controls">Errors and optional controls</h2>
   <p>Control methods return <code>false</code> when a value is out of range, the feature is not available, the change is refused, or setup cannot allocate its memory. A rejected call changes nothing. Allocation failures are reported to the listener right away; errors that happen later arrive through <code>on_runtime_fault()</code>.</p>
   <p>Every <code>RuntimeCapabilities</code> flag starts as false. Read <code>capabilities()</code> after setup, and offer only the controls it reports.</p>
 
   <div class="note"><strong>Raw CSI callbacks have stricter rules.</strong> Listener events arrive on your task, but the callback passed to <code>start_raw_collection()</code> runs inside the Wi-Fi driver. Keep it quick, non-blocking, and free of allocations: copy packets into a queue you allocated in advance, and process them later.</div>
 
-  <h2 data-toc-label="Detector choice">Choosing the detector</h2>
+  <h2 id="choosing-the-detector" data-toc-label="Detector choice">Choosing the detector</h2>
   <p>Lightweight uses less CPU and memory. High Accuracy adds more features and a small neural network, and detects better in our tests. Lightweight calibrates at startup on about 10 seconds of clean data, or up to about 30 seconds when that window holds a burst, and can lower its threshold later, after a quiet stretch; High Accuracy needs no calibration but waits for enough CSI. See the <a href="/sdk/detectors/">detector profiles</a> for measurements and limits.</p>
 
   <h2 id="sdk-public-facades" data-toc-label="Public facades">Public SDK headers</h2>
@@ -96,11 +96,11 @@
 
   <div class="note"><strong>What is stable.</strong> Everything reachable from <code>espectre_sdk.h</code>, the protocol header, and the public methods and configuration types of the services and MQTT headers follow the compatibility rules below. The separate core-only detector interface in <code>espectre_core_sdk.h</code> may change in a minor release until the stationary presence detector ships; such changes include migration notes in the changelog. Private members, feature trackers, generated weights, and headers included only internally are not part of the API.</div>
 
-  <h2>Compatibility</h2>
+  <h2 id="compatibility">Compatibility</h2>
   <p>Final releases follow Semantic Versioning for the stable C++ source API. Patch releases keep documented behavior, minor releases may add compatible APIs, and breaking changes need a major release, subject to the core-only exception above. Prereleases and rolling Preview and Develop bundles can change before the final release.</p>
   <p>The SDK ships as source, with no stable binary interface (ABI): always rebuild it together with your code. Start public structs from their defaults and then set the fields you need. <code>CsiCaptureProfile</code> and <code>CsiCapturePolicy</code> can gain values, so handle values you do not know. The full rules are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#versioning" target="_blank" rel="noopener">SDK versioning contract</a>.</p>
 
-  <h2>Other platforms</h2>
+  <h2 id="other-platforms">Other platforms</h2>
   <p>The runtime behind <code>RuntimeFrontendController</code> is internal and works only with ESP-IDF. A platform port builds its own runtime on <code>espectre_core_sdk.h</code> and can reuse the <code>IRuntimeListener</code> events.</p>
 
   </div>

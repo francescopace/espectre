@@ -493,6 +493,8 @@ button.conn-pill:hover { border-color: var(--accent-line); }
   white-space: nowrap;
 }
 .hero-badge {
+  min-width: 15ch;
+  justify-content: center;
   border: 1px solid color-mix(in srgb, var(--media-text) 28%, transparent);
   background: color-mix(in srgb, var(--media-bg-raised) 45%, transparent);
   color: color-mix(in srgb, var(--media-text) 74%, transparent);
@@ -518,6 +520,7 @@ a.hero-badge:hover {
   color: var(--media-text);
   border-color: color-mix(in srgb, var(--media-text) 70%, transparent);
 }
+.hero-eyebrow a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .hero-eyebrow {
   margin-bottom: 12px;
   color: color-mix(in srgb, var(--media-text) 78%, transparent);

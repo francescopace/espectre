@@ -5,7 +5,7 @@
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
 | **v3.0.0** | Released | Shared sensing platform, ESPHome, Native, and Matter firmware, and the SDK on the ESP Component Registry |
-| **v3.1.0** | Planned | Validate Matter with more controllers and define its production path |
+| **v3.1.0** | In progress | Validate Matter with more controllers, define its production path, and provide standalone traffic generation |
 | **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
 | **v3.3.0** | Demand-gated | Add a dedicated Apple Home frontend where Matter falls short |
 | **v3.4.0** | Research-gated | Add stationary presence as a distinct sensing output |
@@ -29,20 +29,22 @@ Demand-gated and research-gated releases do not block later ones: `v4.0.0` does 
 
 Release checks and artifact publication follow the [release procedure](RELEASING.md). Matter controller validation, OTA, and certification work continue in `v3.1.0`.
 
-## v3.1.0 - Matter compatibility and production readiness
+## v3.1.0 - Matter readiness and standalone traffic generation
 
-**Product outcome**: make Matter work reliably with more controllers, and define what a manufacturer would need to ship a certified product.
+**Product outcome**: make Matter work reliably with more controllers, define what a manufacturer would need to ship a certified product, and provide a standalone traffic generator with a web UI for Home Assistant Container users and ESPectre deployments without Home Assistant.
 
-**Today**: the Matter firmware, pairing, occupancy sensor, and Direct controls are in v3. It has been tested with few controllers, has no OTA, and uses development certificates.
+**Today**: the Matter firmware, pairing, occupancy sensor, and Direct controls are in v3. It has been tested with few controllers, has no OTA, and uses development certificates. The traffic generator runs as a standalone Python script, but its current web UI requires the Home Assistant OS add-on.
 
 **Scope**:
 
-- Validate commissioning across selected additional controllers, and maintain the verified-controller matrix in the [Matter guide](../src/cpp/frontend/matter/README.md)
-- Define Matter OTA ownership, Requestor and Provider responsibilities, and release-artifact requirements
-- Assess manufacturer certification gaps, including vendor identity, device attestation, factory provisioning, and certification test coverage
-- Validate direct Null Data and ESP-NOW reception in `external` mode, so another ESP32 can act as the sensing traffic source, on receiver chips beyond the ESP32-S3
+- [ ] Validate commissioning across selected additional controllers, and maintain the verified-controller matrix in the [Matter guide](../src/cpp/frontend/matter/README.md)
+- [ ] Define Matter OTA ownership, Requestor and Provider responsibilities, and release-artifact requirements
+- [x] Assess manufacturer certification gaps, including vendor identity, device attestation, factory provisioning, and certification test coverage; see [certification readiness](../src/cpp/frontend/matter/README.md#certification-readiness)
+- [x] Support direct Null Data and ESP-NOW reception in `external` mode, with an ESP32-C3 transmitter and ESP32-S3 receiver validated at HT20 MCS0 and legacy OFDM/LLTF; see [external sources](CSI.md#external-sources)
+- [ ] Validate direct Null Data and ESP-NOW reception in `external` mode on receiver chips beyond the ESP32-S3
+- [ ] Publish a standalone Docker image of the traffic generator with a web UI for configuration, start/stop controls, and status, usable alongside Home Assistant Container or without Home Assistant, including with Native or Matter firmware
 
-**Exit criteria**: each selected controller passes or has its limits documented, OTA and certification have a documented design and a list of what is missing, and each supported receiver chip either accepts direct Null Data and ESP-NOW or has its limits documented.
+**Exit criteria**: each selected controller passes or has its limits documented, OTA and certification have a documented design and a list of what is missing, and each supported receiver chip either accepts direct Null Data and ESP-NOW or has its limits documented. The standalone Docker image has documented setup instructions, and its web UI can configure, control, and monitor traffic generation both alongside Home Assistant Container and without Home Assistant or Supervisor.
 
 ## v3.2.0 - Arduino SDK runtime
 
@@ -216,7 +218,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **October 14, 2026**
+Last update: **October 16, 2026**
 
 For discussion and proposed changes:
 

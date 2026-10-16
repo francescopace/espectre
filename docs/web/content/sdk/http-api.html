@@ -8,7 +8,7 @@
 
   <div class="note"><strong>One protocol, two transports.</strong> MQTT uses the same resources, operations, validation rules, and result codes; only how messages travel differs. Read <code>capabilities</code> to see what the connected firmware supports.</div>
 
-  <h2 data-toc-label="Connect">Connect to a device</h2>
+  <h2 id="connect-to-a-device" data-toc-label="Connect">Connect to a device</h2>
   <p>Devices announce themselves on the local network with mDNS and DNS-SD (IPv4). Browse <code>_espectre._tcp.local.</code> to find them.</p>
   <p>Direct HTTP listens on TCP port <code>62587</code> under <code>/espectre/v1</code>. The hostname is <code>espectre-&lt;device-id&gt;.local</code>, or you can use the device's IP address.</p>
   <p>Every request, even from command-line tools, needs an allowed <code>Origin</code> header. Published firmware accepts <code>https://espectre.dev</code>.</p>
@@ -16,7 +16,7 @@
   http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/capabilities</code></pre>
   <p>First read <code>capabilities</code>: <code>protocol_version</code>, <code>resources</code>, <code>operations</code>, and <code>events</code> tell you what the device supports. Newer <code>v1</code> firmware may add fields, so ignore the ones you don't know.</p>
 
-  <h2 data-toc-label="Resources">Read resources</h2>
+  <h2 id="read-resources" data-toc-label="Resources">Read resources</h2>
   <p>A successful <code>GET</code> returns the resource itself. Not every firmware has every resource, so check <code>capabilities</code> first.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Path</th><th>Purpose</th></tr></thead>
@@ -37,7 +37,7 @@
 
   <p>Without <code>fields</code>, diagnostics lists the available values with their types and units. Select values with <code>{"fields":["traffic_tx_pps","csi_hw_error_total"]}</code>, or <code>["*"]</code> for all. In a GET request, pass the array URL-encoded in the <code>fields</code> query parameter. The answer includes <code>timestamp_ms</code> and <code>uptime</code>; missing values are <code>null</code>.</p>
 
-  <h2 data-toc-label="Operations">Run operations</h2>
+  <h2 id="run-operations" data-toc-label="Operations">Run operations</h2>
   <p>Send request bodies as JSON with <code>Content-Type: application/json</code>. Unknown fields are rejected. A completed change returns HTTP <code>200</code>; work that is queued, or that disconnects the device, returns <code>202</code> once started.</p>
   <pre class="code"><code>curl -X PATCH \
   -H 'Origin: https://espectre.dev' \
@@ -61,21 +61,21 @@
   <p>Every change returns a result object, sometimes with extra output in <code>data</code>.</p>
   <pre class="code"><code>{"accepted":true,"code":"ok","message":"operation accepted","data":{}}</code></pre>
 
-  <h2 data-toc-label="Live events">Follow live events</h2>
+  <h2 id="follow-live-events" data-toc-label="Live events">Follow live events</h2>
   <p><code>GET /espectre/v1/events</code> opens a Server-Sent Events stream in JSON. It sends the resource updates and events listed in <code>capabilities</code>, such as <code>health</code>, <code>device</code>, <code>sensing</code>, <code>wifi</code>, <code>ota</code>, <code>motion</code>, and <code>fault</code>. Missed events are not resent: after reconnecting, read the resources again.</p>
   <pre class="code"><code>curl -N -H 'Origin: https://espectre.dev' \
   http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/events</code></pre>
   <p>A motion event has the time of the decision, the state, and the score:</p>
   <pre class="code"><code>{"timestamp_ms":42000,"state":"motion","score":0.7312}</code></pre>
 
-  <h2 data-toc-label="Raw CSI">Collect raw CSI</h2>
+  <h2 id="collect-raw-csi" data-toc-label="Raw CSI">Collect raw CSI</h2>
   <p><code>GET /espectre/v1/csi</code> opens a binary CSI stream if <code>capabilities.features.csi</code> is true. Only one stream can be open at a time, and closing it ends the capture. While it is open, motion and other derived events stop. Capture and traffic keep running, and resource events stay published. Changes that conflict with it return HTTP <code>409</code>.</p>
   <div class="note"><strong>The CSI stream is binary.</strong> It contains CSI V8 records in order, each with a 60-byte little-endian header. See the API reference for the exact format.</div>
 
-  <h2 data-toc-label="Errors and security">Handle errors and security</h2>
+  <h2 id="handle-errors-and-security" data-toc-label="Errors and security">Handle errors and security</h2>
   <p>Check the HTTP status and <code>Content-Type</code> before parsing. Application errors come as a JSON result object. Malformed requests, a rejected Origin, bodies that are too large, rate limits, and an overloaded device can return plain text instead.</p>
   <p>Direct HTTP is meant for a trusted local network. It listens only on the Wi-Fi network, accepts only listed browser origins, limits resource use, and never returns stored Wi-Fi or MQTT passwords. Never expose it to the internet.</p>
 
-  <h2 data-toc-label="Protocol references">Protocol references</h2>
+  <h2 id="protocol-references" data-toc-label="Protocol references">Protocol references</h2>
   <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/API.md" target="_blank" rel="noopener">API reference</a> defines every field, limit, status code, and versioning rule. The <a href="https://github.com/francescopace/espectre/blob/main/docs/DISCOVERY.md" target="_blank" rel="noopener">discovery reference</a> covers mDNS, DNS-SD, browser discovery, and the <code>/devices</code> resource.</p>
 </article>

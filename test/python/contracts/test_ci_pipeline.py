@@ -1830,6 +1830,74 @@ def test_static_page_builder_escapes_and_verifies_route_metadata(
     assert "&lt;metadata&gt;" in generated
 
 
+def test_static_page_navigation_is_inserted_at_authored_offsets(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    static_pages = load_script("build_static_pages")
+    routes = [
+        {"name": "guides", "staticPath": "/guides/", "pathLabel": "Overview"},
+        {"name": "guide-a", "group": "guides", "staticPath": "/guides/a/", "pathLabel": "A"},
+        {"name": "guide-b", "group": "guides", "staticPath": "/guides/b/", "pathLabel": "B"},
+    ]
+    monkeypatch.setattr(static_pages, "ROUTE_MANIFEST", {
+        "routes": routes,
+        "by_name": {route["name"]: route for route in routes},
+    })
+    # Form feed and U+2028 are line breaks for str.splitlines() but not for HTMLParser.
+    content = (
+        '<article data-page-toc data-page-path="guides">\n'
+        '<p>Lead\x0cwith   separators.</p>\n'
+        '<section><h2 id="first" data-toc-label="Start">First.</h2></section>\n'
+        '<h2 id="second">Second <em>part</em>:</h2>\n'
+        '<h2 data-toc-exclude>Skipped</h2>\n'
+        '</article>'
+    )
+
+    rendered = static_pages.render_page_navigation(content, {"name": "guide-a"})
+
+    toc = rendered.index('<details class="page-toc"')
+    assert rendered.index('separators.</p>') < toc < rendered.index('<section>')
+    assert '<a href="#first">Start</a><a href="#second">Second part</a></nav>' in rendered
+    assert 'Skipped</a>' not in rendered
+    path = rendered.index('<details class="page-path"')
+    assert rendered.index('Skipped</h2>') < path < rendered.index('</article>')
+    assert '<a href="/guides/a/" aria-current="page">A</a>' in rendered
+    assert rendered.replace(rendered[toc:rendered.index('<section>')], '', 1).replace(
+        rendered[path:rendered.index('</article>')], '', 1
+    ) == content
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (
+            '<article data-page-toc><h2 id="one">One</h2><h2>Two</h2></article>',
+            "Section heading needs an explicit id in content/test.html: Two",
+        ),
+        (
+            '<article data-page-toc><div data-page-toc></div></article>',
+            "Nested data-page-toc containers are not supported",
+        ),
+    ],
+)
+def test_static_page_navigation_rejects_unstable_sections(content: str, message: str) -> None:
+    static_pages = load_script("build_static_pages")
+    with pytest.raises(ValueError, match=re.escape(message)):
+        static_pages.render_page_navigation(content, {"name": "test", "source": "content/test.html"})
+
+
+def test_pages_verifier_counts_only_article_sections() -> None:
+    verifier = load_script("verify_web_build")
+    parser = verifier.StaticPageMetadataParser()
+    parser.feed(
+        '<h2 id="before">Before</h2>'
+        '<article data-page-toc><article><h2 id="nested">Nested</h2></article>'
+        '<h2 id="inside">Inside</h2></article>'
+        '<footer><h2 id="after">After</h2></footer>'
+    )
+    assert parser.h2_ids == {"nested", "inside"}
+
+
 def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     static_pages = load_script("build_static_pages")
     sitemap_builder = load_script("build_sitemap")

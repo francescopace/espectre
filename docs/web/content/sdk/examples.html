@@ -20,7 +20,7 @@ idf.py build
 idf.py -p YOUR_PORT flash monitor</code></pre>
   <p>The example turns on CSI, starts Wi-Fi and logging, and reports motion once calibration is done. Its <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/examples/wifi_motion_detection/README.md" target="_blank" rel="noopener">guide</a> explains what to check on the board; the <a href="/sdk/#docs-quick-start-title">installation steps</a> explain the registry channels.</p>
 
-  <h2 data-toc-label="Product integration">Add sensing to your application</h2>
+  <h2 id="add-sensing-to-your-application" data-toc-label="Product integration">Add sensing to your application</h2>
   <p>In an existing project, add the SDK with <code>idf.py add-dependency</code> as shown in the <a href="/sdk/#docs-quick-start-title">installation steps</a>. The Component Manager keeps it in <code>managed_components/</code>. Put your own ESPectre code in your application component:</p>
   <pre class="code"><code>product-firmware/
 ├── managed_components/
@@ -39,7 +39,7 @@ idf_component_register(
 )</code></pre>
   <p>To copy the SDK into your project instead, download a source archive from the <a href="/sdk/">SDK page</a> and follow the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#build-integration" target="_blank" rel="noopener">build integration instructions</a>.</p>
 
-  <h2 data-toc-label="Logging">Choose the logging backend</h2>
+  <h2 id="choose-the-logging-backend" data-toc-label="Logging">Choose the logging backend</h2>
   <p>The SDK has no logger of its own and does not need ESP-IDF's <code>log</code> component. To see its messages, register a sink before setup:</p>
   <pre class="code"><code>espectre::LogSink sink{
     product_log_context,
@@ -49,7 +49,7 @@ idf_component_register(
 if (!espectre::set_log_sink(sink)) return false;</code></pre>
   <p>The enabled callback gets the level and tag, so you can skip messages before they are built. The write callback gets the source line, the format string, and a <code>va_list</code> that is valid only during the call. Both must be thread-safe, non-blocking, and must not log back into the SDK. Remove the sink only after shutdown.</p>
 
-  <h2 data-toc-label="Runtime task">Own the runtime from one task</h2>
+  <h2 id="own-the-runtime-from-one-task" data-toc-label="Runtime task">Own the runtime from one task</h2>
   <p>This example uses the sensing settings from menuconfig, ignores events until sensing is ready, and publishes outside the listener callback:</p>
   <pre class="code"><code>#include "espectre_sdk.h"
 
@@ -91,7 +91,7 @@ class ProductFrontend : public espectre::IRuntimeListener {
 };</code></pre>
   <div class="note"><strong>You write the placeholder functions.</strong> <code>publish_motion()</code> should hand any blocking work to another task. <code>record_runtime_fault()</code> must copy the message if it keeps it, because the pointer is valid only during the call.</div>
 
-  <h2 data-toc-label="Lifecycle">Handle startup, steady state, and shutdown</h2>
+  <h2 id="handle-startup-steady-state-and-shutdown" data-toc-label="Lifecycle">Handle startup, steady state, and shutdown</h2>
   <ol class="steps-list compact-steps">
     <li><h3>Create the station before setup</h3><p>Call setup after creating the Wi-Fi station and default event loop, ideally before connecting, so the radio is configured for CSI from the start. If Wi-Fi is already connected, the runtime picks up the current connection.</p></li>
     <li><h3>Check the setup result</h3><p>If <code>setup()</code> fails, nothing is configured. Fix the configuration or the Wi-Fi connection, then retry.</p></li>
@@ -99,7 +99,7 @@ class ProductFrontend : public espectre::IRuntimeListener {
     <li><h3>Shut down from the owner task</h3><p>Call <code>shutdown()</code> before stopping Wi-Fi or the services your code uses.</p></li>
   </ol>
 
-  <h2 data-toc-label="Reference frontends">Choose a reference frontend</h2>
+  <h2 id="choose-a-reference-frontend" data-toc-label="Reference frontends">Choose a reference frontend</h2>
   <p>ESPHome, Native, and Matter use the same public SDK headers you do. Use them as examples, but build your firmware on the public SDK API.</p>
   <p>To build one of them against a downloaded SDK bundle, set <code>ESPECTRE_SDK_ROOT</code> to the full path of the bundle's <code>src/cpp</code> folder. The <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md#building-against-an-sdk-bundle" target="_blank" rel="noopener">CLI reference</a> has the commands, including Docker builds for Native and Matter.</p>
   <div class="example-picker">

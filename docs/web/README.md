@@ -39,6 +39,8 @@ After changing first-party assets, refresh their cache hashes and rebuild the pa
 .venv/bin/python .github/scripts/build_static_pages.py
 ```
 
+Generated pages include section indexes and related-page navigation in their initial HTML. JavaScript enhances these controls without inserting navigation after first paint. Keep section IDs stable so inbound links and generated indexes remain valid.
+
 Routes use canonical paths; legacy hash links remain supported. The deployment build generates the sitemap from the route manifest and staged SDK channels.
 
 ## Browser tools
@@ -68,7 +70,9 @@ These checks trust the website code and public-key registry, and do not prevent 
 
 [analytics.js](assets/js/analytics.js) manages separate opt-in preferences for website statistics and campaign measurement. Both default to denied and can be changed through Cookie settings. Remarketing and advertising personalization remain disabled; debug hosts never send Ads conversions.
 
-Keep tracking changes within this module's event and parameter allowlists. Never send credentials, device identifiers, network details, pairing codes, raw CSI, or free-form error messages. The router owns manual page views, so GA4's automatic history-based page views must remain disabled to avoid duplicates.
+Keep tracking changes within this module's event and parameter allowlists. Never send credentials, device identifiers, network details, pairing codes, raw CSI, or free-form error messages. Analytics sends the initial page view after consent, before tool events; the router reports subsequent route changes and deduplicates its startup view. Legacy hash entries use their destination route. GA4's automatic history-based page views must remain disabled to avoid duplicates.
+
+Interpret firmware installation events as completed operations, not unique people or devices. Separate installation, real-device readiness, SDK link selections, and commercial contact link selections when evaluating acquisition. Consent-based collection does not measure every visit. Investigate missing landing pages against session timing and consent before treating them as lost traffic; these client-side ordering guarantees do not reconstruct historical data or control GA4 session expiration.
 
 Commercial contact and SDK download events measure link selections, not received leads or completed downloads. Ads measures these directly; importing the same GA4 events into Ads would duplicate the outcomes. The [privacy notice](content/privacy.html) describes the visitor-facing policy.
 

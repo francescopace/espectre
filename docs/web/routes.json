@@ -47,7 +47,7 @@
   "routes": [
     {
       "name": "home",
-      "title": "ESPectre — Wi-Fi motion sensing",
+      "title": "Wi-Fi sensing with ESP32: local motion detection | ESPectre",
       "description": "Turn a supported ESP32 into a local Wi-Fi motion sensor without cameras, microphones, or dedicated sensing hardware. Flash from the browser, or embed the C++ SDK into your firmware.",
       "staticPath": "/"
     },
@@ -122,8 +122,8 @@
       "name": "guide-detection",
       "group": "guides",
       "pathLabel": "Detection",
-      "title": "How Wi-Fi sensing detects movement | ESPectre",
-      "description": "How Wi-Fi packets, multipath, and Channel State Information let a low-cost ESP32 detect movement without cameras or microphones.",
+      "title": "What is Wi-Fi sensing? How motion detection works | ESPectre",
+      "description": "Learn how Wi-Fi sensing detects motion, what hardware you need, and how to try it with ESPectre, an ESP32, and your router. No cameras or microphones.",
       "staticPath": "/guides/detection/"
     },
     {

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import sys
 from html import escape
+from html.parser import HTMLParser
 from pathlib import Path
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
@@ -132,6 +133,102 @@ def breadcrumb(spec: dict[str, str]) -> str:
     )
 
 
+class PageNavigationParser(HTMLParser):
+    """Locate the authored article and its sections without rewriting its HTML."""
+
+    VOID_TAGS = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
+
+    def __init__(self, source: str) -> None:
+        super().__init__()
+        # HTMLParser counts lines on newlines only, unlike str.splitlines().
+        self.line_starts = [0]
+        self.line_starts.extend(index + 1 for index, char in enumerate(source) if char == '\n')
+        self.stack: list[tuple[str, int]] = []
+        self.root_depth = 0
+        self.group = ''
+        self.has_toc = False
+        self.has_path = False
+        self.end = 0
+        self.headings: list[dict] = []
+        self.heading: dict | None = None
+        self.feed(source)
+
+    def source_offset(self) -> int:
+        line, column = self.getpos()
+        return self.line_starts[line - 1] + column
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        offset = self.source_offset()
+        classes = (values.get('class') or '').split()
+        self.has_toc |= 'page-toc' in classes
+        self.has_path |= 'page-path' in classes
+        if 'data-page-toc' in values:
+            if self.root_depth:
+                raise ValueError('Nested data-page-toc containers are not supported')
+            self.root_depth = len(self.stack) + 1
+            self.group = values.get('data-page-path') or ''
+        if self.root_depth and tag == 'h2' and 'data-toc-exclude' not in values:
+            self.heading = {
+                'id': values.get('id'), 'label': values.get('data-toc-label'), 'text': [],
+                'insert': self.stack[self.root_depth][1] if len(self.stack) > self.root_depth else offset,
+            }
+            self.headings.append(self.heading)
+        if tag not in self.VOID_TAGS:
+            self.stack.append((tag, offset))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag not in self.VOID_TAGS:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == 'h2':
+            self.heading = None
+        if self.root_depth and len(self.stack) == self.root_depth:
+            self.end = self.source_offset()
+            self.root_depth = 0
+        if self.stack and self.stack[-1][0] == tag:
+            self.stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if self.heading is not None:
+            self.heading['text'].append(data)
+
+
+def render_page_navigation(content: str, spec: dict[str, str]) -> str:
+    """Ship crawlable navigation before first paint; JS enhances it in place."""
+    parser = PageNavigationParser(content)
+    edits: list[tuple[int, str]] = []
+    if len(parser.headings) >= 2 and not parser.has_toc:
+        links = []
+        for heading in parser.headings:
+            text = ' '.join(''.join(heading['text']).split())
+            # Authored IDs keep inbound links identical in static pages and the SPA.
+            if not heading['id']:
+                raise ValueError(f"Section heading needs an explicit id in {spec['source']}: {text}")
+            label = heading['label'] or text.rstrip('.:')
+            links.append(f'<a href="#{escape(heading["id"], quote=True)}">{escape(label)}</a>')
+        toc = '<details class="page-toc" data-toc-generated="true"><summary>Sections</summary><nav aria-label="Page sections"><strong>On this page</strong>' + ''.join(links) + '</nav></details>\n'
+        edits.append((parser.headings[0]['insert'], toc))
+    if parser.group and parser.end and not parser.has_path:
+        entries = [r for r in ROUTE_MANIFEST['routes'] if r.get('group') == parser.group and r.get('pathLabel')]
+        parent = ROUTE_MANIFEST['by_name'].get(parser.group)
+        if parent and parent.get('pathLabel'):
+            entries.insert(0, parent)
+        if len(entries) >= 2 and any(r['name'] == spec['name'] for r in entries):
+            label = {'guides': 'Guides', 'sdk': 'SDK guide', 'tools': 'Tools'}.get(parser.group, parser.group)
+            links = []
+            for entry in entries:
+                current = ' aria-current="page"' if entry['name'] == spec['name'] else ''
+                links.append(f'<a href="{escape(entry["staticPath"], quote=True)}"{current}>{escape(entry["pathLabel"])}</a>')
+            path = f'<details class="page-path" data-path-generated="true"><summary>{escape(label)}</summary><nav aria-label="{escape(label, quote=True)}"><strong>{escape(label)}</strong>' + ''.join(links) + '</nav></details>\n'
+            edits.append((parser.end, path))
+    for offset, markup in sorted(edits, reverse=True):
+        content = content[:offset] + markup + content[offset:]
+    return content
+
+
 def build() -> None:
     styles_version = asset_version("assets/css/styles.css")
     route_bootstrap_version = asset_version("assets/js/route-bootstrap.js")
@@ -142,6 +239,7 @@ def build() -> None:
 
     for spec in PAGES:
         content = (WEB_ROOT / spec["source"]).read_text().rstrip("\n")
+        content = render_page_navigation(content, spec)
         canonical = f"{SITE_ORIGIN}/{spec['output']}/"
         page = PAGE_TEMPLATE.format(
             name=escape(spec["name"], quote=True),

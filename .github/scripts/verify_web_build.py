@@ -81,6 +81,15 @@ class StaticPageMetadataParser(HTMLParser):
         self.meta: dict[str, str] = {}
         self.static_page = False
         self.main_content = False
+        self.ids: set[str] = set()
+        self.toc_targets: list[str] = []
+        self.section_paths: set[str] = set()
+        self.nav_kind = ''
+        self.has_article_navigation = False
+        self.article_tag = ''
+        self.article_depth = 0
+        self.h2_ids: set[str] = set()
+        self.has_toc = False
 
     @property
     def title(self) -> str:
@@ -88,6 +97,28 @@ class StaticPageMetadataParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
+        if values.get('id'):
+            self.ids.add(values['id'])
+        if self.article_depth and tag == self.article_tag:
+            self.article_depth += 1
+        elif 'data-page-toc' in values and not self.article_depth:
+            self.has_article_navigation = True
+            self.article_tag = tag
+            self.article_depth = 1
+        # Only article sections belong in the generated section index.
+        if self.article_depth and tag == 'h2' and 'data-toc-exclude' not in values:
+            self.h2_ids.add(values.get('id') or '')
+        if tag == 'details':
+            classes = (values.get('class') or '').split()
+            if 'page-toc' in classes:
+                self.nav_kind = 'toc'
+                self.has_toc = True
+            elif 'page-path' in classes:
+                self.nav_kind = 'path'
+        if tag == 'a' and self.nav_kind == 'toc':
+            self.toc_targets.append((values.get('href') or '').removeprefix('#'))
+        elif tag == 'a' and self.nav_kind == 'path':
+            self.section_paths.add(values.get('href') or '')
         if tag == "html":
             self.static_page = "data-static-page" in values
         elif tag == "title":
@@ -102,6 +133,10 @@ class StaticPageMetadataParser(HTMLParser):
             self.main_content = True
 
     def handle_endtag(self, tag: str) -> None:
+        if self.article_depth and tag == self.article_tag:
+            self.article_depth -= 1
+        if tag == 'details':
+            self.nav_kind = ''
         if tag == "title":
             self.in_title = False
 
@@ -144,6 +179,17 @@ def verify_generated_pages() -> None:
             "twitter:title": route["title"],
             "twitter:description": route["description"],
         }
+        if parser.has_article_navigation and len(parser.h2_ids) >= 2:
+            if not parser.has_toc or not parser.h2_ids.issubset(parser.toc_targets):
+                raise ValueError(f"Missing initial section navigation: {static_path}")
+            if any(target not in parser.ids for target in parser.toc_targets):
+                raise ValueError(f"Broken section navigation: {static_path}")
+        group = route.get('group') or route['name']
+        if route.get('pathLabel') and parser.has_article_navigation:
+            members = {r['staticPath'] for r in ROUTE_MANIFEST['routes']
+                       if r.get('pathLabel') and (r.get('group') == group or r['name'] == group)}
+            if len(members) >= 2 and parser.section_paths != members:
+                raise ValueError(f"Incomplete initial related-page navigation: {static_path}")
         if not parser.static_page or not parser.main_content:
             raise ValueError(f"Generated page has no static shell: {static_path}")
         if parser.title != route["title"] or parser.canonical != canonical:

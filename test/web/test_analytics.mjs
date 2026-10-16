@@ -176,7 +176,7 @@ describe('analytics privacy boundary', () => {
         const { api, window } = analyticsContext();
         api.trackEvent('firmware_catalog', { result: 'success' });
         assert.equal(window.dataLayer, undefined);
-        api.enableAnalytics({ sendPageView: false });
+        api.enableAnalytics();
         const before = window.dataLayer.length;
         api.trackEvent('firmware_catalog', { result: 'success' });
         assert.equal(window.dataLayer.length, before + 1);
@@ -311,12 +311,17 @@ describe('analytics privacy boundary', () => {
         assert.equal(pageViews.length, 1);
     });
 
-    it('leaves the returning visitor page view to the SPA router', () => {
-        const spa = analyticsContext({ storedConsent: 'granted' });
+    it('reports a returning visitor before tool events and deduplicates SPA startup', () => {
+        const spa = analyticsContext({ storedConsent: 'granted', hash: '#tool-monitor' });
         spa.api.initializeConsentControls();
+        spa.api.trackEvent('tool_connection', { result: 'success' });
+        spa.api.trackRouteView('tool-monitor');
+        const events = spa.window.dataLayer.filter((entry) => entry[0] === 'event');
+        assert.equal(events[0][1], 'page_view');
+        assert.equal(events[0][2].page_path, '/tools/monitor/');
         assert.equal(spa.window.dataLayer.filter(
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
-        ).length, 0);
+        ).length, 1);
 
         const staticPage = analyticsContext({ storedConsent: 'granted', staticPage: true });
         staticPage.api.initializeConsentControls();
@@ -342,12 +347,42 @@ describe('analytics privacy boundary', () => {
 });
 
 describe('analytics route metadata', () => {
+    it('uses the shared route resolver for legacy device entries without a false home view', () => {
+        for (const path of ['/', '/index.html']) {
+            const { api, window } = analyticsContext({ path, hash: '#device', storedConsent: 'granted' });
+            api.initializeConsentControls();
+            api.trackRouteView('tool-configure');
+            const views = window.dataLayer.filter((entry) => entry[0] === 'event' && entry[1] === 'page_view');
+            assert.equal(views.length, 1);
+            assert.equal(views[0][2].page_path, window.ESPectreRoutes.get('tool-configure').staticPath);
+        }
+        const staticPage = analyticsContext({ path: '/guides/setup/', hash: '#device', staticPage: true });
+        assert.equal(staticPage.api.getRouteTitle(), staticPage.window.ESPectreRoutes.title('guide-setup'));
+    });
+
+    it('reports views before early events and keeps later route changes', () => {
+        const { api, window } = analyticsContext({ hash: '#tool-monitor' });
+        api.enableAnalytics({ sendPageView: false });
+        api.trackEvent('tool_connection', { result: 'success' });
+        api.trackRouteView('tool-monitor');
+        api.trackRouteView('guide-detection');
+        api.trackRouteView('tool-monitor');
+        const events = window.dataLayer.filter((entry) => entry[0] === 'event');
+        assert.equal(events[0][1], 'page_view');
+        assert.deepEqual(Array.from(events.filter((entry) => entry[1] === 'page_view'),
+            (entry) => entry[2].page_path),
+            ['/tools/monitor/', '/guides/detection/', '/tools/monitor/']);
+        for (const entry of window.dataLayer.filter((entry) => entry[0] === 'config')) {
+            assert.equal(entry[2].send_page_view, false);
+        }
+    });
+
     it('waits for the directly fetched manifest before using route metadata', async () => {
         const { api, listeners, window } = analyticsContext({
             path: '/tools/monitor/', preloadManifest: false, storedConsent: 'granted'
         });
         await listeners.get('DOMContentLoaded')();
-        api.sendRoutePageView('tool-monitor');
+        api.trackRouteView('tool-monitor');
         const pageViews = window.dataLayer.filter(
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
         );
@@ -475,7 +510,7 @@ describe('analytics automatic events', () => {
 
         click();
         assert.equal(window.dataLayer, undefined);
-        api.enableAnalytics({ sendPageView: false });
+        api.enableAnalytics();
         const before = window.dataLayer.length;
         click();
         assert.equal(window.dataLayer.length, before + 1);

@@ -2,8 +2,8 @@
  * ESPectre - Privacy-conscious analytics
  *
  * Google Analytics is enabled only on production and allowlisted debug hosts
- * after explicit consent. The SPA router owns manual page views; generated
- * static pages report their canonical path directly.
+ * after explicit consent. Initial views precede tool events; the SPA router
+ * reports subsequent views, and static pages report their canonical path.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -259,12 +259,12 @@ let campaignsEnabled = false;
 let googleTagInitialized = false;
 let googleTagLoaded = false;
 let consentFocusTarget = null;
+let lastPageViewPath = null;
 
 function currentRoute() {
-    const registeredPath = window.ESPectreRoutes?.routeForPath(window.location.pathname);
-    if (registeredPath) return registeredPath;
-    const legacyHash = (window.location.hash || '').slice(1);
-    return window.ESPectreRoutes?.has(legacyHash) ? legacyHash : 'home';
+    const legacyRoute = window.ESPectreRoutes?.resolveRouteName((window.location.hash || '').slice(1));
+    if (['/', '/index.html'].includes(window.location.pathname) && legacyRoute) return legacyRoute;
+    return window.ESPectreRoutes?.routeForPath(window.location.pathname) || 'home';
 }
 
 function getRouteTitle(route = currentRoute()) {
@@ -378,7 +378,10 @@ function applyConsent(preferences, { sendPageView = true } = {}) {
     analyticsEnabled = preferences.analytics === true;
     campaignsEnabled = preferences.campaigns === true;
     window[`ga-disable-${GA_MEASUREMENT_ID}`] = !analyticsEnabled;
-    if (!analyticsEnabled) clearMeasurementCookies('_ga');
+    if (!analyticsEnabled) {
+        lastPageViewPath = null;
+        clearMeasurementCookies('_ga');
+    }
     if (!campaignsEnabled) clearMeasurementCookies('_gcl');
     if (!googleTagInitialized && !analyticsEnabled && !campaignsEnabled) return;
 
@@ -452,6 +455,7 @@ function trackCampaignConversion(eventName) {
 function updatePageConfig(pageLocation, pageTitle, contentGroup) {
     window.gtag('config', GA_MEASUREMENT_ID, {
         update: true,
+        send_page_view: false,
         allow_google_signals: false,
         allow_ad_personalization_signals: false,
         page_location: pageLocation,
@@ -461,6 +465,7 @@ function updatePageConfig(pageLocation, pageTitle, contentGroup) {
 }
 
 function sendStaticPageView() {
+    lastPageViewPath = window.location.pathname;
     const pageLocation = window.location.origin + window.location.pathname;
     updatePageConfig(pageLocation, document.title, STATIC_PAGE_SECTION);
     window.gtag('event', 'page_view', {
@@ -474,6 +479,7 @@ function sendStaticPageView() {
 
 function sendRoutePageView(route = currentRoute()) {
     const path = routePath(route);
+    lastPageViewPath = path;
     const pageLocation = window.location.origin + path;
     const pageTitle = getRouteTitle(route);
     const contentGroup = getSiteSection(route);
@@ -494,6 +500,11 @@ function trackEvent(eventName, params = {}) {
         console.warn(`Analytics event is not registered: ${String(eventName)}`);
         return false;
     }
+    // A tool can finish initialization before the SPA router reports its first view.
+    if (lastPageViewPath === null) {
+        if (IS_STATIC_PAGE) sendStaticPageView();
+        else sendRoutePageView();
+    }
     window.gtag('event', eventName, {
         send_to: GA_MEASUREMENT_ID,
         content_group: getSiteSection(),
@@ -505,7 +516,7 @@ function trackEvent(eventName, params = {}) {
 
 function trackRouteView(route = currentRoute(), { sendPageView = true } = {}) {
     if (!analyticsEnabled) return;
-    if (sendPageView) sendRoutePageView(route);
+    if (sendPageView && lastPageViewPath !== routePath(route)) sendRoutePageView(route);
 
     const capability = CAPABILITY_BY_ROUTE[route];
     if (!capability || reportedCapabilities.has(route)) return;
@@ -572,7 +583,7 @@ function initializeConsentControls() {
     const consent = storedConsent();
     if (consent) {
         if (!consent.campaigns && !consent.legacy) forgetCampaignClickIds();
-        applyConsent(consent, { sendPageView: IS_STATIC_PAGE });
+        applyConsent(consent);
     }
     if (!consent || consent.legacy) showConsentBanner();
 }
