@@ -5,7 +5,7 @@
 <article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">DETECTION PROFILES · 4 MIN READ</span>
     <h1>Choose your detection profile</h1>
-    <p class="article-lead">ESPectre has two motion detectors: Lightweight Detection and High-Accuracy Detection. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small pretrained model to detect better, and works better in rooms it was not tuned for.</p>
+    <p class="article-lead">ESPectre has two motion detectors: Lightweight Detection and High-Accuracy Detection. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small pretrained model that detects more reliably, even in rooms it was not tuned for.</p>
     <figure>
       <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
       <figcaption>One CSI stream, two detectors. Native, ESPHome, and Matter can switch between them while running.</figcaption>
@@ -19,7 +19,7 @@
     <h2 id="detectors-two">Two built-in detectors</h2>
     <div class="mini-cards profile-choice-cards">
       <article>
-        <span class="guide-tag">PUBLISHED DEFAULT</span>
+        <span class="guide-tag">DEFAULT</span>
         <h3>Lightweight Detection</h3>
         <p>Leaves more CPU and memory for the rest of the firmware. It adapts its threshold to the room during a short calibration at startup, while the room is quiet.</p>
         <p><code>lightweight</code></p>

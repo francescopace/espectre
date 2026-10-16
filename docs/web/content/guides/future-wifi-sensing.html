@@ -23,7 +23,7 @@
   <h2 id="future-sensing">From communication to sensing</h2>
   <p>A Wi-Fi receiver sees more than the data a router sends. It also sees how the signal traveled: walls, furniture, and moving people all change its paths. Channel State Information, or CSI, captures part of that across the Wi-Fi subcarriers.</p>
   <p>Most Wi-Fi devices use these measurements only to communicate better. Sensing asks a different question: what do changes in them say about the distance, speed, direction, or movement of things in a room?</p>
-  <p>That is the idea behind Wi-Fi sensing: the network no longer just carries data, the radio signal itself becomes useful information.</p>
+  <p>That’s the idea behind Wi-Fi sensing: the signal that carries your data also tells you something about the room.</p>
 
   <h2 id="future-standard">What IEEE 802.11bf changes</h2>
   <p><a href="https://standards.ieee.org/ieee/802.11bf/11574/" target="_blank" rel="noopener">IEEE 802.11bf-2025</a>, published in September 2025, is an amendment to the Wi-Fi standard for sensing. It covers the license-free bands between 1 and 7.125 GHz, and above 45 GHz.</p>
@@ -33,7 +33,7 @@
     <li>Ask for and set up the transmissions used to take sensing measurements.</li>
     <li>Share the measurement results.</li>
   </ul>
-  <p>Today's ESP32 sensing, instead, relies on ordinary network traffic and on the data the chip happens to provide.</p>
+  <p>Today's ESP32 sensing has none of this. It relies on ordinary network traffic and on whatever data the chip happens to provide.</p>
 
   <h2 id="future-not-algorithm">A standard for measurements, not meaning</h2>
   <p>IEEE 802.11bf does not define a motion detector, a presence detector, or an activity classifier. It only standardizes how devices take and share measurements. Turning those into reliable results is still a job for signal processing, machine learning, and testing.</p>
