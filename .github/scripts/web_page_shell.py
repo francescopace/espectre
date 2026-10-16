@@ -23,7 +23,7 @@ def render_header(manifest: dict, *, logo_version: str, active: str) -> str:
         current = ' aria-current="page"' if selected else ""
         links.append(
             f'      <a href="{escape(route["staticPath"], quote=True)}" class="{class_name}"{current}>'
-            f'{escape(route_label(route))}</a>'
+            f'{escape(route.get("navLabel") or route_label(route))}</a>'
         )
     links.append(
         '      <a href="https://github.com/francescopace/espectre" target="_blank" '
@@ -64,7 +64,7 @@ def render_footer(manifest: dict, *, logo_version: str) -> str:
   <div class="site-footer-inner">
     <div class="footer-brand">
       <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="23" height="23" aria-hidden="true">
-      ESPectre © 2026 · Open source Wi-Fi sensing platform
+      ESPectre © 2026 · Open-source Wi-Fi sensing
     </div>
     <div class="footer-links">
 {footer_links}

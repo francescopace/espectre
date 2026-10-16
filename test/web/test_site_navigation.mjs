@@ -299,6 +299,10 @@ describe('website navigation contracts', () => {
             const exploreLinks = source.match(/<div class="home-resource-links">([\s\S]*?)<\/div>/)?.[1] || '';
             assert.deepEqual(relativePaths(mainNavigation), mainNavigationPaths);
             assert.deepEqual(relativePaths(exploreLinks), mainNavigationPaths.slice(1));
+            for (const route of routeManifest.routes.filter(({ navLabel }) => navLabel)) {
+                assert.match(mainNavigation, new RegExp(`<a href="${route.staticPath}"[^>]*>${route.navLabel}</a>`));
+                assert.match(exploreLinks, new RegExp(`<a href="${route.staticPath}"><strong>${route.navLabel}</strong>`));
+            }
         }
     });
 

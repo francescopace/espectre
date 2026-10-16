@@ -2688,7 +2688,8 @@ body.modal-open { overflow: hidden; }
 }
 
 .article .note,
-.security-page .note {
+.security-page .note,
+.licensing-page > .note {
   background: var(--accent-soft);
   border: 1px solid var(--accent-line);
   border-radius: 12px;
@@ -2696,6 +2697,7 @@ body.modal-open { overflow: hidden; }
   font-size: 14px;
   margin: 18px 0;
 }
+.licensing-page > .note { margin: 0 0 32px; font-size: 15px; }
 .page-path {
   margin: 34px 0 16px;
   padding: 0;
@@ -3687,7 +3689,7 @@ body.modal-open { overflow: hidden; }
   .home-license-cta h3 { font-size: 21px; }
 }
 
-@media (max-width: 840px) {
+@media (max-width: 960px) {
   .site-header-inner { gap: 8px; padding: 0 14px; justify-content: space-between; }
   .main-nav {
     display: none;

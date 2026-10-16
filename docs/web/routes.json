@@ -1,7 +1,7 @@
 {
   "siteOrigin": "https://espectre.dev",
   "navigation": {
-    "main": ["home", "tools", "guides", "sdk", "roadmap", "media"],
+    "main": ["home", "tools", "guides", "sdk", "licensing", "roadmap", "media"],
     "footer": ["privacy", "terms", "legal", "security", "licensing", "contact"]
   },
   "contentGroups": {
@@ -285,6 +285,7 @@
     {
       "name": "licensing",
       "title": "Licensing | ESPectre",
+      "navLabel": "Pricing",
       "description": "ESPectre commercial license pricing for proprietary ESP-IDF firmware: perpetual product licenses, no per-device royalties, and optional maintenance and integration services.",
       "staticPath": "/licensing/"
     },

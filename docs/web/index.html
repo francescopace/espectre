@@ -24,7 +24,7 @@
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
 <style>html[data-frame-guard] { visibility: hidden; }</style>
-<link rel="stylesheet" href="/assets/css/styles.css?v=a29608c14854">
+<link rel="stylesheet" href="/assets/css/styles.css?v=88d084ef55b3">
 <noscript><style>html[data-frame-guard] { visibility: visible; }</style></noscript>
 <script src="/assets/js/route-bootstrap.js?v=58f6de142a63"></script>
 <script src="/assets/js/espectre-direct.js?v=3c3d09ccec2e" defer></script>
@@ -54,6 +54,7 @@
       <a href="/tools/" class="nav-link" data-route-link="tools">Tools</a>
       <a href="/guides/" class="nav-link" data-route-link="guides">Guides</a>
       <a href="/sdk/" class="nav-link" data-route-link="sdk">SDK</a>
+      <a href="/licensing/" class="nav-link" data-route-link="licensing">Pricing</a>
       <a href="/roadmap/" class="nav-link" data-route-link="roadmap">Roadmap</a>
       <a href="/media/" class="nav-link" data-route-link="media">Media</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
@@ -169,11 +170,11 @@
             <span data-published-release-tag>Install ESPectre</span>
           </a>
           <div class="hero-eyebrow"><a href="/guides/detection/">Wi-Fi sensing</a> · Local motion detection</div>
-          <h1>Sense motion with the Wi-Fi already there.</h1>
-          <p class="hero-sub">When people move, they change the Wi-Fi signal. ESPectre reads those changes and reports motion. You just need an ESP32 and the router you already own.</p>
+          <h1>Motion sensing with the Wi-Fi you already have.</h1>
+          <p class="hero-sub">As people move through a room, they change how Wi-Fi signals travel. ESPectre detects those changes and reports motion in real time. All you need is an ESP32 and your router.</p>
           <div class="hero-actions">
             <a href="/tools/flash/" class="hero-cta hero-cta-primary">Install from browser</a>
-            <a href="/sdk/" class="hero-cta hero-cta-secondary">Explore the SDK</a>
+            <a href="/sdk/" class="hero-cta hero-cta-secondary">SDK docs</a>
           </div>
         </div>
 
@@ -184,19 +185,19 @@
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="1" aria-hidden="true" inert>
           <div class="scrolly-kicker">Privacy first</div>
-          <h2>Motion without<br>images or audio.</h2>
-          <p>ESPectre detects motion from changes in the Wi-Fi signal. It collects no images or audio, which makes it easier to use in shared spaces such as schools, gyms, offices, and places of worship. <a href="/guides/detection/" class="scene-roadmap-link">How Wi-Fi sensing works →</a></p>
+          <h2>Motion sensing without<br>cameras or microphones.</h2>
+          <p>ESPectre detects motion by analyzing changes in Wi-Fi signals. It captures no images or audio, making it well suited to shared spaces such as schools, gyms, offices, and places of worship. <a href="/guides/detection/" class="scene-roadmap-link">How Wi-Fi sensing works →</a></p>
           <div class="scene-ui scene-ui-school">
             <span class="scene-ui-dot"></span>
-            <span><small>Privacy boundary</small><strong>No camera. No microphone.</strong></span>
-            <span class="scene-ui-action">Events local</span>
+            <span><small>Privacy</small><strong>No camera. No microphone.</strong></span>
+            <span class="scene-ui-action">Processed on device</span>
           </div>
         </article>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="2" aria-hidden="true" inert>
-          <div class="scrolly-kicker">Everyday automation</div>
-          <h2>Turn motion into automation.</h2>
-          <p>Motion can turn lights, heating, and cooling on when a room is in use. <br>Quiet periods can turn them down so empty rooms stop spending energy.</p>
+          <div class="scrolly-kicker">Home automation</div>
+          <h2>Lights and heating that follow you.</h2>
+          <p>Motion can turn on lights, heating, and cooling when a room is in use. When the room goes quiet, they can switch off or turn down automatically, so you don’t waste energy on empty rooms.</p>
           <div class="scene-ui scene-ui-motion">
             <span class="scene-ui-dot"></span>
             <span><small>Living room</small><strong>Motion detected</strong></span>
@@ -205,9 +206,9 @@
         </article>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="3" aria-hidden="true" inert>
-          <div class="scrolly-kicker">Security automation</div>
-          <h2>Alarm on unexpected motion.</h2>
-          <p>When the house is armed or should be empty, unexpected motion can sound an alarm or send a message through your existing automations.</p>
+          <div class="scrolly-kicker">Security</div>
+          <h2>Get alerted to unexpected motion.</h2>
+          <p>If motion is detected when your home is armed or should be empty, ESPectre can trigger an alarm or send an alert through your existing automation platform.</p>
           <div class="scene-ui scene-ui-industrial">
             <span class="scene-ui-dot"></span>
             <span><small>Home · Armed</small><strong>Unexpected motion detected</strong></span>
@@ -216,24 +217,24 @@
         </article>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="4" aria-hidden="true" inert>
-          <div class="scrolly-kicker">Matter · Limited validation</div>
-          <h2>Share motion<br>through Matter.</h2>
-          <p>ESPectre appears as a standard Matter occupancy sensor. <br>Testing with specific Matter apps is still limited. <a href="/guides/setup/#setup-matter-compatibility" class="scene-roadmap-link">Check Matter compatibility →</a></p>
+          <div class="scrolly-kicker">Matter · Early support</div>
+          <h2>Connect to your<br>smart home with Matter.</h2>
+          <p>Matter is the open smart-home standard used by Apple Home, Google Home, Alexa, and SmartThings. ESPectre appears as a standard Matter occupancy sensor. <a href="/guides/setup/#setup-matter-compatibility" class="scene-roadmap-link">Check Matter compatibility →</a></p>
           <div class="scene-ui scene-ui-integration">
             <span class="scene-ui-dot"></span>
-            <span><small>Living room</small><strong>Motion sensor shared</strong></span>
-            <span class="scene-ui-action">Validation limited</span>
+            <span><small>Living room</small><strong>Shared with your home app</strong></span>
+            <span class="scene-ui-action">Early support</span>
           </div>
         </article>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="5" aria-hidden="true" inert>
-          <div class="scrolly-kicker">Built to embed</div>
+          <div class="scrolly-kicker">For product makers</div>
           <h2>Add motion sensing to your product.</h2>
-          <p>ESPectre’s C++ SDK adds local motion sensing to ESP32 products, with no camera or radar. Choose Lightweight Detection when CPU and memory are tight, or High-Accuracy Detection when detection quality comes first. <a href="/sdk/" class="scene-roadmap-link">Explore the SDK →</a></p>
+          <p>ESPectre’s C++ SDK adds local motion sensing to ESP32 products, with no camera or radar. Choose Lightweight Detection when CPU and memory are tight, or High-Accuracy Detection when detection quality comes first. <a href="/sdk/" class="scene-roadmap-link">Read the SDK docs →</a></p>
           <div class="scene-ui scene-ui-embedded">
             <span class="scene-ui-dot"></span>
-            <span><small>Custom firmware</small><strong>ESPectre runtime active</strong></span>
-            <span class="scene-ui-action">Events local</span>
+            <span><small>Custom firmware</small><strong>ESPectre running</strong></span>
+            <span class="scene-ui-action">No cloud required</span>
           </div>
         </article>
 
@@ -244,7 +245,7 @@
           <span class="js-scrolly-marker" data-scene="4"></span>
           <span class="js-scrolly-marker" data-scene="5"></span>
         </div>
-        <div class="scrolly-cue" aria-hidden="true">Scroll to explore <span>↓</span></div>
+        <div class="scrolly-cue" aria-hidden="true">Scroll <span>↓</span></div>
         <a href="#get-started" class="scrolly-skip">Skip the story <span aria-hidden="true">↓</span></a>
       </div>
     </div>
@@ -253,8 +254,7 @@
   <section class="home-action-hub" id="get-started" aria-labelledby="home-action-title">
     <div class="home-action-inner">
       <header class="home-action-head">
-        <h2 class="page-title" id="home-action-title">Choose what you want to do.</h2>
-        <p class="page-sub">Run a browser tool, learn how ESPectre works, or evaluate it for your product.</p>
+        <h2 class="page-title" id="home-action-title">Get started</h2>
       </header>
 
       <div class="home-action-group">
@@ -262,21 +262,21 @@
         <div class="home-tool-grid" aria-label="Browser tools">
           <a href="/tools/flash/" class="home-tool-card home-tool-card-primary">
             <span class="home-card-label">INSTALL</span>
-            <h3>Install ESPectre.</h3>
-            <p>Turn a supported ESP32 into a Wi-Fi motion sensor over USB.</p>
-            <span class="home-card-action">Install ESPectre →</span>
+            <h3>Flash from your browser</h3>
+            <p>Connect a supported ESP32 over USB.</p>
+            <span class="home-card-action">Start →</span>
           </a>
           <a href="/tools/device-settings/" class="home-tool-card">
             <span class="home-card-label">SETTINGS</span>
-            <h3>Manage your sensor.</h3>
-            <p>Rename the device, check Wi-Fi, or connect it to Home Assistant.</p>
-            <span class="home-card-action">Open device settings →</span>
+            <h3>Manage your sensor</h3>
+            <p>Rename the device or connect it to Home Assistant.</p>
+            <span class="home-card-action">Open settings →</span>
           </a>
           <a href="/tools/monitor/" class="home-tool-card">
             <span class="home-card-label">LIVE MOTION</span>
-            <h3>Watch motion live.</h3>
-            <p>See motion as it happens, adjust detection, and check device health.</p>
-            <span class="home-card-action">View live motion →</span>
+            <h3>Tune detection</h3>
+            <p>Watch motion as it happens and adjust sensitivity.</p>
+            <span class="home-card-action">Open monitor →</span>
           </a>
         </div>
       </div>
@@ -288,20 +288,21 @@
             <h3 id="home-license-title">Building a proprietary product?</h3>
             <p>See what a commercial license can cover, where GPLv3 applies, and how to contact us.</p>
           </div>
-          <a href="/licensing/" class="btn-primary">Explore commercial licensing →</a>
+          <a href="/licensing/" class="btn-primary">See licensing options →</a>
         </aside>
       </div>
 
       <div class="home-action-group">
-        <span class="home-kicker">EXPLORE</span>
+        <span class="home-kicker">RESOURCES</span>
         <div class="home-resource-strip" aria-label="Explore ESPectre">
           <div class="home-resource-links">
-            <a href="/tools/"><strong>Tools</strong><span>Install, manage, and explore →</span></a>
-            <a href="/guides/"><strong>Guides</strong><span>Setup, placement, and detection →</span></a>
-            <a href="/sdk/"><strong>SDK</strong><span>Integration, API, and examples →</span></a>
-            <a href="/roadmap/"><strong>Roadmap</strong><span>Product direction and priorities →</span></a>
-            <a href="/media/"><strong>Media</strong><span>Demos, articles, and coverage →</span></a>
-            <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener"><strong>GitHub</strong><span>Source, issues, and discussions ↗</span></a>
+            <a href="/tools/"><strong>Tools</strong><span>Install and monitor →</span></a>
+            <a href="/guides/"><strong>Guides</strong><span>Setup and placement →</span></a>
+            <a href="/sdk/"><strong>SDK</strong><span>C++ API reference →</span></a>
+            <a href="/licensing/"><strong>Pricing</strong><span>Commercial licenses →</span></a>
+            <a href="/roadmap/"><strong>Roadmap</strong><span>What’s next →</span></a>
+            <a href="/media/"><strong>Media</strong><span>Demos and press →</span></a>
+            <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener"><strong>GitHub</strong><span>Source code ↗</span></a>
           </div>
         </div>
       </div>
@@ -567,7 +568,7 @@
   <espectre-direct-connect data-connection-panel="direct" data-transport="direct"></espectre-direct-connect>
   <section class="device-connect-card connection-card demo-connect-card empty-state" data-connection-panel="demo" data-transport="demo" hidden>
     <span class="connection-card-eyebrow">Demo</span>
-    <h2>Explore without a device</h2>
+    <h2>Try it without a device</h2>
     <p>Try the browser tools with simulated motion. <br>The demo does not connect to a device.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
@@ -584,9 +585,9 @@
     <p>Reach a device outside your local network using a relay service.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
-        <li>Connections would be encrypted and started by the device.</li>
-        <li>Remote sensing, controls, and diagnostics would be available.</li>
-        <li>No inbound port forwarding would be required.</li>
+        <li>Connections will be encrypted and started by the device.</li>
+        <li>Live motion, settings, and diagnostics will work remotely.</li>
+        <li>You won’t need to open ports on your router.</li>
       </ul>
     </div>
     <button type="button" class="btn-primary" disabled>Connect to relay</button>
@@ -597,7 +598,7 @@
   <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">
     <span class="connection-card-eyebrow">Local connection</span>
     <h2>Find your ESPectre</h2>
-    <p>Find ESPectre devices on your local network with Zeroconf discovery. <br>Chrome may ask for permission to access local devices.</p>
+    <p>Search your local network for ESPectre devices. Chrome may ask for permission first.</p>
     <p class="tool-note js-direct-browser-note" role="status">If Chrome asks for local network access, allow it only for this site and the network you want to manage.</p>
     <button type="button" class="btn-primary js-direct-discover">Find devices</button>
     <div class="direct-discovery js-direct-discovery" role="status" aria-live="polite" hidden></div>
@@ -620,7 +621,7 @@
   <div class="site-footer-inner">
     <div class="footer-brand">
       <img src="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5" alt="" width="23" height="23" aria-hidden="true">
-      ESPectre © 2026 · Open source Wi-Fi sensing platform
+      ESPectre © 2026 · Open-source Wi-Fi sensing
     </div>
     <div class="footer-links">
       <a href="/privacy/">Privacy</a>
