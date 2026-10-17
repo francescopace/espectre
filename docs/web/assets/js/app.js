@@ -777,6 +777,7 @@
     async function init() {
         routeRegistry = await window.ESPectreRoutesReady;
         if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
+        if (routeRegistry.redirecting) return;
         scrollyInit();
 
         renderBrowserSupport();

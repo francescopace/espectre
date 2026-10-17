@@ -24,13 +24,15 @@ To connect from localhost, build firmware with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGI
 | Source | Purpose |
 |---|---|
 | `content/` | Shared page fragments |
+| `../CHANGELOG.md` | Release notes rendered into `/changelog/` during the static-page build |
 | `assets/` | Styles, images, and browser code |
-| `routes.json` | Public routes, metadata, content groups, and SDK channels |
+| `routes.json` | Public routes, metadata, content groups, SDK channels, and legacy redirects |
 | `index.html`, `404.html` | SPA entry point and fallback page |
 | [web_page_shell.py](../../.github/scripts/web_page_shell.py) | Shared layout for generated pages |
-| `404-suggestions.json` | Suggested destinations for old paths |
 
 Edit fragments and shared sources, not the generated `index.html` files in route directories. The SPA and static-page builder use the same route manifest. Keep `app.js` last among the core deferred scripts so it can bind their initializers.
+
+The changelog build uses Python Markdown from `requirements.txt` and writes both `content/changelog.html` and `/changelog/index.html`. Edit `docs/CHANGELOG.md`; both generated files stay untracked. Release headings have stable `release-<version>` anchors, with dots replaced by hyphens, and work in progress is labelled Unreleased. Relative documentation links resolve against their release tag, or `develop` for unreleased notes. The roadmap links to this page. The authored `/guides/ml-data-collection/` guide covers recording and contributing datasets; `docs/ML_DATA_COLLECTION.md` remains the detailed reference.
 
 After changing first-party assets, refresh their cache hashes and rebuild the pages:
 
@@ -42,6 +44,12 @@ After changing first-party assets, refresh their cache hashes and rebuild the pa
 Generated pages include section indexes and related-page navigation in their initial HTML. JavaScript enhances these controls without inserting navigation after first paint. Keep section IDs stable so inbound links and generated indexes remain valid.
 
 Routes use canonical paths; legacy hash links remain supported. The deployment build generates the sitemap from the route manifest and staged SDK channels.
+
+`legacyRedirects` in `routes.json` maps retired paths and legacy `doc` identifiers to current routes on the same site. Each entry has a root-relative `href`, a `title`, and a `path`, a `doc`, or both. Destinations must be canonical site routes; an optional fragment selects a section. External destinations are rejected by both the build and the browser registry, so redirects stay on the current host, including the test host. The static-page build generates an immediate meta refresh, a canonical link, and a visible destination link for each retired path. These pages remain outside the sitemap. The router handles known `doc` parameters on `/` and `/index.html` before initializing the app or measurement; incoming query parameters and fragments are not forwarded. Unknown or repeated `doc` values do not redirect. Unknown paths show the 404 page with links to the main site sections.
+
+For a local Caddy preview, use `handle_errors 404` with `rewrite * /404.html` and `file_server` to serve the custom error page while preserving HTTP 404. Keep `X-Robots-Tag: noindex` on the test host. Production GitHub Pages serves `404.html` for unknown paths; known retired paths have their own generated redirect pages.
+
+`legacyNotFound` lists removed documents that have no replacement page. Each entry pairs a legacy `doc` identifier with its missing path. The build removes any old generated redirect at that path, and verification requires the path to remain absent. Legacy query links navigate to that missing path so the server returns HTTP 404; visiting `/404.html` directly would return 200. Contributing and Testing use this policy. Changelog and ML data collection instead redirect to their new pages on the site.
 
 ## Browser tools
 

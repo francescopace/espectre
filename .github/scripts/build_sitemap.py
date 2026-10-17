@@ -78,6 +78,12 @@ ROUTE_SOURCES = {
         )
         for route in static_routes(ROUTE_MANIFEST)
     },
+    "/changelog/": (
+        Path("docs/web/content/changelog.html"),
+        Path("docs/CHANGELOG.md"),
+        Path(".github/scripts/web_changelog.py"),
+        *SHARED_STATIC_INPUTS,
+    ),
 }
 SDK_CHANNELS_BY_PATH = {
     sdk_channel["path"]: sdk_channel["sdkChannel"]

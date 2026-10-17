@@ -34,6 +34,7 @@ function analyticsContext({
     navigatorValues = {}, storedConsent = null, preferences = null, storageBlocked = false, preloadManifest = true
 } = {}) {
     const appendedScripts = [];
+    const redirects = [];
     const listeners = new Map();
     const storage = new Map();
     if (storedConsent !== null) storage.set('espectre.analytics.consent.v1', storedConsent);
@@ -68,6 +69,7 @@ function analyticsContext({
         hash,
         search,
         origin: `https://${hostname}`,
+        replace: (href) => redirects.push(href),
         get href() { return this.origin + this.pathname + this.search + this.hash; }
     };
     const window = {
@@ -103,6 +105,7 @@ function analyticsContext({
         sitePolicy: context.window.ESPectreSite,
         window,
         appendedScripts,
+        redirects,
         consentBanner,
         controls, storage, document,
         listeners
@@ -347,6 +350,25 @@ describe('analytics privacy boundary', () => {
 });
 
 describe('analytics route metadata', () => {
+    it('does not initialize measurement or report a home view before a legacy doc redirect', async () => {
+        const entries = [...routeManifest.legacyRedirects.filter((entry) => entry.doc),
+            ...routeManifest.legacyNotFound.map((entry) => ({ ...entry, href: entry.path }))];
+        for (const preloadManifest of [true, false]) {
+            for (const entry of entries) {
+                const { api, listeners, window, appendedScripts, redirects } = analyticsContext({
+                    path: '/index.html', search: `?doc=${entry.doc}`, storedConsent: 'granted', preloadManifest
+                });
+                await listeners.get('DOMContentLoaded')();
+                api.initializeConsentControls();
+                api.trackEvent('select_tool', { tool_name: 'monitor' });
+                assert.deepEqual(redirects, [new URL(entry.href, routeManifest.siteOrigin).href]);
+                assert.equal(api.enabled(), false);
+                assert.equal(appendedScripts.length, 0);
+                assert.equal((window.dataLayer || []).filter((entry) => entry[0] === 'event').length, 0);
+            }
+        }
+    });
+
     it('uses the shared route resolver for legacy device entries without a false home view', () => {
         for (const path of ['/', '/index.html']) {
             const { api, window } = analyticsContext({ path, hash: '#device', storedConsent: 'granted' });
@@ -427,23 +449,6 @@ describe('analytics route metadata', () => {
         assert.equal(event[1], 'page_view');
         assert.equal(event[2].page_path, '/guides/setup/');
         assert.equal(event[2].page_location, 'https://espectre.dev/guides/setup/');
-    });
-
-    it('records 404 suggestions only with consent and keeps the requested page location', () => {
-        for (const storedConsent of [null, 'denied', 'granted']) {
-            const { api, window } = analyticsContext({
-                path: '/documentation/setup/', staticPage: true, storedConsent
-            });
-            api.initializeConsentControls();
-            api.trackEvent('select_404_suggestion', { source_url: 'private', destination: 'private' });
-            const events = window.dataLayer?.filter((entry) => entry[1] === 'select_404_suggestion') || [];
-            assert.equal(events.length, storedConsent === 'granted' ? 1 : 0);
-            if (storedConsent === 'granted') {
-                assert.deepEqual(Object.keys(events[0][2]), ['send_to', 'content_group', 'analytics_version']);
-                const pageView = window.dataLayer.find((entry) => entry[1] === 'page_view');
-                assert.equal(pageView[2].page_location, 'https://espectre.dev/documentation/setup/');
-            }
-        }
     });
 
     it('updates the Google tag configuration before a virtual page view', () => {

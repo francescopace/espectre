@@ -492,6 +492,36 @@ A subsequent C3-to-S3 check kept the transmitter associated to the same 2.4 GHz 
 
 The sensing pending-frame drop counter increased by four for ESP-NOW and six for Null Data shortly after closing the raw captures. Follow-up runs without raw collection completed another 1,500 acknowledged transmissions per source, with no sensing queue drops, CSI hardware errors, or Wi-Fi disconnections. Sensing-window occupancy averaged approximately 90% in those runs.
 
+### C5 peer acquisition and sensing comparison
+
+On 2026-10-17, an ESP32-C5 mini board and a standard ESP32-C5 board, both silicon revision 1.0, ran the same Native image built with ESP-IDF 5.5.5. The firmware reported `3.0.0-7-g1bdd165`; its application SHA-256 was `3f1dea916f623824f1a6315be894c596a40a962bb12b8ff8b69d40dcc8aff3df`. Both boards were pinned to the same 2.4-GHz AP on channel 2, about one meter apart, parallel, and facing the AP. The configured target was 100 pps. Promiscuous mode remained disabled.
+
+The mini first ran `wifi_raw` with the standard board's station MAC as its explicit destination; the standard board ran `external`. The generator captured legacy ACK CSI in `lltf20`, while the external receiver captured direct HT20 MCS0 Null Data in `ht20`. A six-second generator-off control reduced the external receiver's accepted and admitted rates to zero, and its serial log reported stale input. Reversing the roles also produced valid CSI on both boards.
+
+Each direction had a separate, simultaneous 15-second raw capture on both boards. Every delivered record was fresh, nonzero, and normalized to 64 subcarriers. All four captures had zero sequence gaps, out-of-order records, device raw-queue drops, and send-backpressure events during collection. The received data contained approximately 52 nonzero complex pairs for LLTF and 56 for HT-LTF.
+
+| Direction | Board and input | Delivered records | Measured rate | Mean frame RSSI | RX gap p95 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Mini to standard | Mini, ACK LLTF | 1,502 | 99.80 pps | -51.2 dBm | 12.40 ms |
+| Mini to standard | Standard, Null Data HT-LTF | 1,501 | 100.00 pps | -55.0 dBm | 12.36 ms |
+| Standard to mini | Standard, ACK LLTF | 1,498 | 99.78 pps | -55.0 dBm | 12.87 ms |
+| Standard to mini | Mini, Null Data HT-LTF | 1,502 | 99.99 pps | -50.0 dBm | 12.83 ms |
+
+Lightweight sensing was compared separately from raw collection, which pauses derived events. The first direction used 30 seconds still, 30 seconds walking between and around the boards, and 30 seconds still; the operator confirmed following those instructions. The reverse direction used a 15-second still reference and a second guided 30-second walk. Both detectors remained idle throughout the recorded still windows. The table reports the mean probability score and the fraction of delivered detector events whose filtered state was `motion`, not a validated recall estimate.
+
+| Walking trial | Board and input | Mean score | Events in `motion` | Mean window occupancy |
+| --- | --- | ---: | ---: | ---: |
+| Mini to standard | Mini, ACK LLTF | 0.1803 | 37.6% | 97.1% |
+| Mini to standard | Standard, Null Data HT-LTF | 0.0073 | 0.0% | 97.6% |
+| Standard to mini | Standard, ACK LLTF | 0.0886 | 5.1% | 96.8% |
+| Standard to mini | Mini, Null Data HT-LTF | 0.0086 | 0.0% | 96.6% |
+
+Each board supplied 140 successful one-second diagnostic samples across these five sensing windows, with zero HTTP request errors, hardware-quality rejections, pending-frame drops, or observed reboots. Lightweight's calibrated thresholds differed between sessions and could fall through settled-level recovery: the first walk started at 0.257616 on the mini and 0.226406 on the standard board, and both ended at 0.095013. The reverse walk started at 0.154532 on the standard board and 0.095013 on the mini; both ended at 0.095013. These threshold changes and manually repeated motion limit comparisons of the filtered state.
+
+The stronger motion score followed ACK/LLTF acquisition in both directions, rather than consistently following the mini board. This is evidence of a path-dependent response in this setup, not proof of its cause or a general board ranking. Direct HT20 acquisition worked on both C5 boards, but Lightweight did not assert motion on either external receiver during the guided walks. These trials do not validate ESP-NOW, direct legacy-rate Null Data reception, High Accuracy, other C5 revisions, or detector accuracy across environments.
+
+An initial paired ping reference was excluded because the operator manually reset the mini during sampling. A separate earlier reference attempt used unavailable Native diagnostic fields and produced no usable diagnostic samples. During setup, the mini needed one CLI reset after a provisioning timeout; both flash writes had passed hash verification. The final state restored the mini as the explicit-peer `wifi_raw` generator and the standard board as the `external` receiver, with both ready on the pinned AP. Local evidence, source and firmware fingerprints, raw arrays, diagnostic samples, events, serial logs, and measurement scripts are under `data/untracked/c5_pair/20261017/`; `comparison.json` summarizes the scored windows and exclusions.
+
 ### Timing and admission findings
 
 The packet's useful sensing instant is reception by the device, when the PHY estimates CSI from HT-LTF. AP transmit time is not directly available to the device, and callback processing time describes software latency rather than the RF channel sample. A CSI result cannot be deferred arbitrarily and recalculated later without retaining the original RF samples; the callback exposes the estimate already associated with that received packet.

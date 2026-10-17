@@ -28,6 +28,10 @@ runs:
       shell: bash
       run: ./test/web/run_coverage.sh
 
+    - name: Install documentation renderer dependencies
+      shell: bash
+      run: python3 -m pip install Markdown==3.10.2 Jinja2==3.1.6 Pygments==2.20.0
+
     - name: Build static pages
       shell: bash
       run: python3 .github/scripts/build_static_pages.py
@@ -47,10 +51,6 @@ runs:
         )
         sudo apt-get "${apt_options[@]}" update --error-on=any
         sudo apt-get "${apt_options[@]}" install -y --no-install-recommends graphviz
-
-    - name: Install SDK API renderer dependencies
-      shell: bash
-      run: python3 -m pip install Jinja2==3.1.6 Pygments==2.20.0
 
     - name: Generate SDK API reference
       shell: bash

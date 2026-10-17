@@ -21,6 +21,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from detect_git_version import detect_git_version, parse_version_core
 from generate_sdk_api import expected_header_paths
+from web_changelog import render_changelog
 from web_html_security import validate_passive_api_fragment
 from web_routes import SITEMAP_NAMESPACE, load_manifest, staged_sdk_channels
 
@@ -78,6 +79,8 @@ class StaticPageMetadataParser(HTMLParser):
         self.in_title = False
         self.title_parts: list[str] = []
         self.canonical = ""
+        self.refresh = ""
+        self.links: set[str] = set()
         self.meta: dict[str, str] = {}
         self.static_page = False
         self.main_content = False
@@ -97,6 +100,10 @@ class StaticPageMetadataParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
+        if tag == "a" and values.get("href"):
+            self.links.add(values["href"])
+        if tag == "meta" and values.get("http-equiv", "").lower() == "refresh":
+            self.refresh = values.get("content") or ""
         if values.get('id'):
             self.ids.add(values['id'])
         if self.article_depth and tag == self.article_tag:
@@ -206,6 +213,31 @@ def verify_generated_pages() -> None:
             raise ValueError(
                 f"Generated page metadata mismatch for {static_path}: {mismatched_meta}"
             )
+
+
+def verify_legacy_redirects() -> None:
+    for retired in ROUTE_MANIFEST["legacyNotFound"]:
+        path = WEB_ROOT / retired["path"].strip("/")
+        if path.exists():
+            raise ValueError(f"Retired path must remain missing for HTTP 404: {retired['path']}")
+    for redirect in ROUTE_MANIFEST["legacyRedirects"]:
+        href = redirect["href"]
+        target = urlparse(href)
+        page = require_file(f"{target.path.lstrip('/')}index.html")
+        if target.fragment:
+            destination = StaticPageMetadataParser()
+            destination.feed(page.read_text(encoding="utf-8"))
+            if target.fragment not in destination.ids:
+                raise ValueError(f"Missing legacy redirect anchor: {href}")
+        if not redirect.get("path"):
+            continue
+        source = require_file(f"{redirect['path'].strip('/')}/index.html")
+        parser = StaticPageMetadataParser()
+        parser.feed(source.read_text(encoding="utf-8"))
+        canonical = f"{ROUTE_MANIFEST['siteOrigin']}{href}".split("#", 1)[0]
+        if (parser.refresh != f"0; url={href}" or parser.canonical != canonical
+                or href not in parser.links or "noindex" in parser.meta.get("robots", "").lower()):
+            raise ValueError(f"Invalid generated legacy redirect: {redirect['path']}")
 
 
 def verify_sitemap(*, require_preview: bool, require_release: bool, require_develop: bool) -> None:
@@ -428,7 +460,10 @@ def verify(args: argparse.Namespace) -> None:
     ):
         require_file(path)
     verify_spa_routes()
+    if require_file("content/changelog.html").read_text(encoding="utf-8") != render_changelog():
+        raise ValueError("Website changelog is stale; rebuild from docs/CHANGELOG.md")
     verify_generated_pages()
+    verify_legacy_redirects()
     verify_sdk_api_version()
     verify_sitemap(
         require_preview=args.require_preview,

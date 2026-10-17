@@ -1,0 +1,61 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+  <span class="guide-tag">MACHINE LEARNING · 5 MIN READ</span>
+  <h1>Collect CSI data for machine learning</h1>
+  <p class="article-lead">Record labelled Wi-Fi measurements from your room, check their quality, and prepare them for research or a contribution to the High Accuracy model.</p>
+
+  <h2 id="collection-requirements">What you need</h2>
+  <ul class="checklist">
+    <li>An ESPectre device running Native, ESPHome, or Matter firmware, with Direct enabled. Follow the <a href="/guides/setup/">setup guide</a> if you need to install one.</li>
+    <li>A computer that can reach the device on the local network, with Python 3.14 and a copy of the <a href="https://github.com/francescopace/espectre">ESPectre repository on GitHub</a>.</li>
+    <li>A room where you can record quiet periods, a person sitting still, and movement without mixing those activities in one recording.</li>
+  </ul>
+  <p>The collector sends Wi-Fi traffic to the device and receives its raw CSI over HTTP. It saves a compressed NumPy file (<code>.npz</code>) for each device and recording. Micro-ESPectre does not expose the raw CSI stream needed for this workflow.</p>
+
+  <h2 id="collection-setup">Prepare the collector</h2>
+  <p>From the repository root, create the Python environment and install the dependencies:</p>
+  <pre class="code"><code>python3.14 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt</code></pre>
+  <p>In Windows PowerShell, activate with <code>.venv\Scripts\Activate.ps1</code> and use <code>.\espectre.cmd</code> instead of <code>./espectre</code>.</p>
+  <p>Find the device’s address in <a href="/tools/device-settings/">Device settings</a>, then try a live preview. Replace the example IP with your device’s address:</p>
+  <pre class="code"><code>./espectre collect --target 192.168.1.50</code></pre>
+  <p>Without a label, this shows the stream without saving a dataset. Press <kbd>Ctrl+C</kbd> to stop. You can also inspect the signal in the browser with the <a href="/tools/csi-visualizer/">CSI visualizer</a>.</p>
+
+  <h2 id="collection-labels">Choose the right label</h2>
+  <div class="table-wrap"><table>
+    <caption class="sr-only">Dataset labels and the detector states they train</caption>
+    <thead><tr><th scope="col">Label</th><th scope="col">During the whole recording</th><th scope="col">Model state</th></tr></thead>
+    <tbody>
+      <tr><td><code>empty</code></td><td>Nobody in the room, and nothing moving.</td><td>IDLE</td></tr>
+      <tr><td><code>static_presence</code></td><td>Someone present but mostly still.</td><td>IDLE</td></tr>
+      <tr><td><code>motion</code></td><td>Normal movement in the room.</td><td>MOTION</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>static_presence</code> teaches the motion detector to remain idle when someone is still. It does not train a separate stationary-presence state.</p>
+
+  <h2 id="collection-record">Record a session</h2>
+  <p>Run one command at a time, arranging the room for that label before each capture. Keep still until the collector reports that recording has started; for <code>motion</code>, then begin moving.</p>
+  <pre class="code"><code>./espectre collect --label empty --duration 60 --target 192.168.1.50
+./espectre collect --label static_presence --duration 60 --target 192.168.1.50
+./espectre collect --label motion --duration 60 --target 192.168.1.50</code></pre>
+  <p>The collector waits for the detector to be ready and below threshold before saving. Lightweight needs to finish calibration; High Accuracy needs a full feature window. Leave the readiness check enabled for normal collection.</p>
+  <p>Aim for 30–60 seconds per recording and at least 10 recordings per label if you can. Keep each <code>static_presence</code> and <code>motion</code> pair in comparable conditions: the same room, device placement, and radio setup. Vary the person’s position and distance across pairs.</p>
+  <div class="note">With <code>--duration</code>, pressing <kbd>Ctrl+C</kbd> discards an unfinished recording. In a labelled capture without <code>--duration</code>, it saves the packets received so far.</div>
+  <p>Collection switches the device to external traffic mode and leaves it there afterwards. When finished, use <a href="/tools/device-settings/">Device settings</a> to restore your previous traffic mode if the sensor normally generates its own traffic.</p>
+
+  <h2 id="collection-validate">Describe and check the recordings</h2>
+  <p>The collector creates entries in <code>data/dataset_info.json</code> with the technical metadata. Add an <code>environment</code> name for the room and start with <code>dataset_role</code> set to <code>exclude</code> while you review the data. Use the same room name across its recordings, and describe anything unusual in <code>description</code>.</p>
+  <pre class="code"><code>./espectre collect --info
+python tools/validate_dataset_quality.py</code></pre>
+  <p>The first command lists the recordings. The validator checks capture quality, creates the pair fields, and writes <code>data/auto_generated/DATASET_QUALITY_CHECK.md</code>. Fix every FAIL before submitting data or training. Do not add pair fields manually; the validator owns them.</p>
+  <p>Dataset roles decide which recordings are used for training, model selection, or the final test. Validation does not assign those roles. See the <a href="https://github.com/francescopace/espectre/blob/develop/docs/ML_DATA_COLLECTION.md#reference">dataset reference on GitHub</a> for the catalog schema and quality criteria.</p>
+
+  <h2 id="collection-contribute">Contribute a dataset</h2>
+  <p>Recordings from different chips, routers, and room layouts help test how well the model generalizes. Include the labelled files, their catalog entries, a short description of the setup, and a passing quality report in your pull request against <code>develop</code>.</p>
+  <p>CSI contains no images or audio, but its metadata and activity patterns can reveal private information. Tell the people involved before recording, and inspect both the NPZ metadata and catalog before sharing. Remove unnecessary identifying details; never submit Wi-Fi passwords, SSIDs, BSSIDs, local IP addresses, serial logs, or unrelated personal data.</p>
+  <p>Read the <a href="https://github.com/francescopace/espectre/blob/develop/CONTRIBUTING.md#dco-and-cla">contribution terms on GitHub</a> before submitting. To work on the model itself, continue with the <a href="https://github.com/francescopace/espectre/blob/develop/docs/ML_TRAINING.md">ML training reference on GitHub</a>.</p>
+</article>

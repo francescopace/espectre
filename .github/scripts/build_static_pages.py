@@ -28,6 +28,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from web_asset_versions import asset_version
+from web_changelog import render_changelog
 from web_page_shell import render_consent_banner, render_footer, render_header
 from web_routes import (
     active_navigation,
@@ -114,6 +115,25 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 
 {consent_banner}
 
+</body>
+</html>
+"""
+
+
+REDIRECT_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} | ESPectre</title>
+<link rel="canonical" href="{canonical}">
+<meta http-equiv="refresh" content="0; url={href}">
+</head>
+<body>
+<main>
+<h1>This page has moved</h1>
+<p>Continue to <a href="{href}">{title}</a>.</p>
+</main>
 </body>
 </html>
 """
@@ -230,6 +250,13 @@ def render_page_navigation(content: str, spec: dict[str, str]) -> str:
 
 
 def build() -> None:
+    (WEB_ROOT / "content/changelog.html").write_text(render_changelog(), encoding="utf-8")
+    for retired in ROUTE_MANIFEST["legacyNotFound"]:
+        stale_page = WEB_ROOT / retired["path"].strip("/") / "index.html"
+        stale_page.unlink(missing_ok=True)
+        if stale_page.parent.is_dir() and not any(stale_page.parent.iterdir()):
+            stale_page.parent.rmdir()
+
     styles_version = asset_version("assets/css/styles.css")
     route_bootstrap_version = asset_version("assets/js/route-bootstrap.js")
     route_registry_version = asset_version("assets/js/route-registry.js")
@@ -270,6 +297,21 @@ def build() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "index.html").write_text(page)
         print(f"wrote {spec['output']}/index.html")
+
+    for redirect in ROUTE_MANIFEST["legacyRedirects"]:
+        if not redirect.get("path"):
+            continue
+        href = redirect["href"]
+        canonical = f"{SITE_ORIGIN}{href}".split("#", 1)[0]
+        page = REDIRECT_TEMPLATE.format(
+            title=escape(redirect["title"]),
+            href=escape(href, quote=True),
+            canonical=escape(canonical, quote=True),
+        )
+        out_dir = WEB_ROOT / redirect["path"].strip("/")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "index.html").write_text(page, encoding="utf-8")
+        print(f"wrote {redirect['path'].strip('/')}/index.html")
 
 
 if __name__ == "__main__":

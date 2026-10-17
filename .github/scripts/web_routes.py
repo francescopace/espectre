@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +42,7 @@ def main_class(route: dict[str, str], *, static: bool) -> str:
     if group == "tools":
         suffix = " page-tool-static" if static else ""
         return f"page-narrow page-tool{suffix}"
-    if group in {"guides", "sdk"}:
+    if group in {"guides", "sdk"} or route["name"] == "changelog":
         return "page-narrow page-article"
     return "page-narrow"
 
@@ -65,6 +66,62 @@ def _validate_route(route: object, index: int) -> dict[str, str]:
     if not path.startswith("/") or not path.endswith("/"):
         raise ValueError(f"Route {route['name']} must use a canonical trailing-slash path")
     return route
+
+
+def _validate_legacy_redirects(entries: object, public_paths: list[str]) -> tuple[dict, ...]:
+    if not isinstance(entries, list):
+        raise ValueError("Route manifest legacyRedirects must be an array")
+    seen_paths: set[str] = set()
+    seen_docs: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or not (entry.get("path") or entry.get("doc")):
+            raise ValueError("Legacy redirects must have a path or a doc identifier")
+        path = entry.get("path")
+        if path is not None:
+            if not isinstance(path, str) or not re.fullmatch(r"/(?:[a-z0-9-]+/)+", path):
+                raise ValueError(f"Invalid legacy redirect path: {path}")
+            if path in seen_paths or any(
+                public != "/" and (path.startswith(public) or public.startswith(path))
+                for public in public_paths
+            ):
+                raise ValueError(f"Duplicate or overlapping legacy redirect path: {path}")
+            seen_paths.add(path)
+        doc = entry.get("doc")
+        if doc is not None:
+            if not isinstance(doc, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", doc) or doc in seen_docs:
+                raise ValueError(f"Invalid or duplicate legacy doc identifier: {doc}")
+            seen_docs.add(doc)
+        href = entry.get("href")
+        title = entry.get("title")
+        if not isinstance(href, str) or not isinstance(title, str) or not title.strip():
+            raise ValueError("Legacy redirects require an href and a title")
+        target = urlsplit(href)
+        if (not href.startswith("/") or href.startswith("//") or target.scheme
+                or target.netloc or target.query or "\\" in href):
+            raise ValueError(f"Invalid legacy redirect destination: {href}")
+        if target.path not in public_paths:
+            raise ValueError(f"Legacy redirect must target a canonical route: {href}")
+    return tuple(entries)
+
+
+def _validate_legacy_not_found(entries: object, public_paths: list[str], redirects: tuple[dict, ...]) -> tuple[dict, ...]:
+    if not isinstance(entries, list):
+        raise ValueError("Route manifest legacyNotFound must be an array")
+    occupied_paths = [*public_paths, *(entry["path"] for entry in redirects if "path" in entry)]
+    seen_docs = {entry["doc"] for entry in redirects if "doc" in entry}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("Legacy not-found entries must be objects")
+        path, doc = entry.get("path"), entry.get("doc")
+        if not isinstance(path, str) or not re.fullmatch(r"/(?:[a-z0-9-]+/)+", path):
+            raise ValueError(f"Invalid legacy not-found path: {path}")
+        if any(other.startswith(path) for other in occupied_paths):
+            raise ValueError(f"Overlapping legacy not-found path: {path}")
+        if not isinstance(doc, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", doc) or doc in seen_docs:
+            raise ValueError(f"Invalid or duplicate legacy doc identifier: {doc}")
+        occupied_paths.append(path)
+        seen_docs.add(doc)
+    return tuple(entries)
 
 
 def load_manifest(path: Path = ROUTES_PATH) -> dict:
@@ -132,11 +189,15 @@ def load_manifest(path: Path = ROUTES_PATH) -> dict:
         if not isinstance(sdk_channel.get("analyticsName"), str) or not sdk_channel["analyticsName"]:
             raise ValueError(f"SDK channel {sdk_channel_path} has no Analytics name")
 
+    redirects = _validate_legacy_redirects(manifest.get("legacyRedirects"), paths)
+    retired = _validate_legacy_not_found(manifest.get("legacyNotFound"), paths + list(sdk_channel_paths), redirects)
     return {
         **manifest,
         "routes": routes,
         "by_name": by_name,
         "sdkChannels": tuple(sdk_channels),
+        "legacyRedirects": redirects,
+        "legacyNotFound": retired,
     }
 
 

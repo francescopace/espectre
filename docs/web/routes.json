@@ -22,6 +22,7 @@
     "guide-home-assistant": "documentation",
     "guide-detectors": "documentation",
     "guide-micropython": "documentation",
+    "guide-ml-data-collection": "documentation",
     "guide-future-wifi-sensing": "documentation",
     "sdk": "documentation",
     "sdk-architecture": "documentation",
@@ -32,6 +33,7 @@
     "sdk-examples": "documentation",
     "media": "media",
     "roadmap": "documentation",
+    "changelog": "documentation",
     "privacy": "privacy",
     "terms": "terms",
     "legal": "legal",
@@ -43,6 +45,75 @@
     { "path": "/artifacts/sdk/release/", "analyticsName": "sdk_release", "sdkChannel": "release" },
     { "path": "/artifacts/sdk/preview/", "analyticsName": "sdk_preview", "sdkChannel": "preview" },
     { "path": "/artifacts/sdk/develop/", "analyticsName": "sdk_develop", "sdkChannel": "develop" }
+  ],
+  "legacyNotFound": [
+    { "path": "/documentation/contributing/", "doc": "CONTRIBUTING" },
+    { "path": "/documentation/testing/", "doc": "TESTING" }
+  ],
+  "legacyRedirects": [
+    {
+      "path": "/game/",
+      "href": "/tools/game/",
+      "title": "Play the motion game"
+    },
+    {
+      "path": "/documentation/",
+      "href": "/guides/",
+      "title": "Browse the guides"
+    },
+    {
+      "path": "/documentation/setup/",
+      "doc": "SETUP",
+      "href": "/guides/setup/",
+      "title": "Flash and set up your device"
+    },
+    {
+      "path": "/documentation/tuning/",
+      "doc": "TUNING",
+      "href": "/guides/placement/",
+      "title": "Placement and tuning"
+    },
+    {
+      "path": "/documentation/algorithms/",
+      "doc": "ALGORITHMS",
+      "href": "/sdk/detectors/",
+      "title": "How the detectors work"
+    },
+    {
+      "path": "/documentation/micro-espectre/",
+      "doc": "MICRO_ESPECTRE",
+      "href": "/guides/micropython/",
+      "title": "Run ESPectre on MicroPython"
+    },
+    {
+      "path": "/documentation/ml-data-collection/",
+      "doc": "ML_DATA_COLLECTION",
+      "href": "/guides/ml-data-collection/",
+      "title": "Collect CSI data for machine learning"
+    },
+    {
+      "path": "/documentation/roadmap/",
+      "doc": "ROADMAP",
+      "href": "/roadmap/",
+      "title": "Explore the roadmap"
+    },
+    {
+      "path": "/documentation/changelog/",
+      "doc": "CHANGELOG",
+      "href": "/changelog/",
+      "title": "Read the changelog"
+    },
+    {
+      "path": "/documentation/performance/",
+      "doc": "PERFORMANCE",
+      "href": "/guides/detectors/#detectors-evidence",
+      "title": "Detector performance and benchmarks"
+    },
+    {
+      "doc": "README",
+      "href": "/",
+      "title": "ESPectre home"
+    }
   ],
   "routes": [
     {
@@ -151,6 +222,14 @@
       "staticPath": "/guides/placement/"
     },
     {
+      "name": "guide-detectors",
+      "group": "guides",
+      "pathLabel": "Detection profiles",
+      "title": "Choose your detection profile | ESPectre",
+      "description": "Compare ESPectre Lightweight and High-Accuracy Detection: CPU, memory, startup, and detection quality.",
+      "staticPath": "/guides/detectors/"
+    },
+    {
       "name": "guide-home-assistant",
       "group": "guides",
       "pathLabel": "Home Assistant",
@@ -159,20 +238,19 @@
       "staticPath": "/guides/home-assistant/"
     },
     {
-      "name": "guide-detectors",
-      "group": "guides",
-      "pathLabel": "Detector profiles",
-      "title": "Choose your detection profile | ESPectre",
-      "description": "Compare ESPectre Lightweight and High-Accuracy Detection: CPU, memory, startup, and detection quality.",
-      "staticPath": "/guides/detectors/"
-    },
-    {
       "name": "guide-micropython",
       "group": "guides",
-      "pathLabel": "MicroPython",
       "title": "Run ESPectre on MicroPython | ESPectre",
       "description": "Detect motion on an ESP32 in MicroPython, using the Wi-Fi CSI support ESPectre added to MicroPython.",
       "staticPath": "/guides/micropython/"
+    },
+    {
+      "name": "guide-ml-data-collection",
+      "group": "guides",
+      "pathLabel": "ML data collection",
+      "title": "Collect CSI data for machine learning | ESPectre",
+      "description": "Record labelled Wi-Fi CSI datasets with ESPectre, check capture quality, and prepare data for machine-learning research or a contribution.",
+      "staticPath": "/guides/ml-data-collection/"
     },
     {
       "name": "guide-troubleshooting",
@@ -211,7 +289,7 @@
       "group": "sdk",
       "pathLabel": "Detectors",
       "title": "Detectors | ESPectre",
-      "description": "How ESPectre turns Wi-Fi CSI into motion detection on the device, step by step, with two detector profiles.",
+      "description": "How ESPectre turns Wi-Fi CSI into motion detection on the device, step by step, with two detection profiles.",
       "staticPath": "/sdk/detectors/"
     },
     {
@@ -251,6 +329,12 @@
       "title": "Media | ESPectre",
       "description": "Articles, tutorials, independent coverage, podcasts, and community conversations about the ESPectre Wi-Fi sensing platform.",
       "staticPath": "/media/"
+    },
+    {
+      "name": "changelog",
+      "title": "Changelog | ESPectre",
+      "description": "ESPectre release notes, fixes, breaking changes, and upgrade instructions, with unreleased work clearly marked.",
+      "staticPath": "/changelog/"
     },
     {
       "name": "roadmap",

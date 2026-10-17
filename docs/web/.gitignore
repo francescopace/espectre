@@ -4,6 +4,8 @@
 /sdk/
 /media/
 /roadmap/
+/changelog/
+/content/changelog.html
 /privacy/
 /terms/
 /legal/
@@ -11,6 +13,8 @@
 /licensing/
 /contact/
 /tools/
+/documentation/
+/game/
 /artifacts/
 /build/
 /node_modules/

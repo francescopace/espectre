@@ -8,37 +8,59 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { index, read, roadmapContent, routeBootstrap, routeManifest, routeRegistry, styles } from './fixtures/site_test_helpers.mjs';
 
-const errorSuggestions = JSON.parse(read('docs/web/404-suggestions.json'));
-
-async function renderErrorSuggestion(path, { map = errorSuggestions, ok = true, error = null } = {}) {
-    const section = { hidden: true };
-    const events = [];
-    const listeners = new Map();
-    const link = { addEventListener: (name, callback) => listeners.set(name, callback) };
-    const location = Object.freeze({
-        origin: 'https://espectre.dev', pathname: path, search: '?private=value', hash: '#old-heading'
-    });
-    await runInNewContext(read('docs/web/assets/js/404-suggestions.js'), {
-        URL, Object,
-        document: {
-            querySelector: (selector) => selector === '.js-error-suggestion' ? section : link
-        },
-        window: { location, trackEvent: (...args) => events.push(args) },
-        fetch: async (url, options) => {
-            assert.equal(url, '/404-suggestions.json');
-            assert.equal(options.cache, 'no-cache');
-            if (error) throw error;
-            return { ok, json: async () => map };
+describe('website navigation contracts', () => {
+    it('redirects legacy doc entries to their mapped destinations on the current host', () => {
+        const entries = [...routeManifest.legacyRedirects.filter((entry) => entry.doc),
+            ...routeManifest.legacyNotFound.map((entry) => ({ ...entry, href: entry.path }))];
+        for (const entry of entries) {
+            for (const origin of ['https://espectre.dev', 'https://test.espectre.dev']) {
+                for (const path of ['/', '/index.html']) {
+                    for (const doc of [entry.doc, entry.doc.toLowerCase()]) {
+                        const destinations = [];
+                        const location = new URL(`${origin}${path}?doc=${doc}&private=value#old-heading`);
+                        location.replace = (href) => destinations.push(href);
+                        const window = { location, ESPectreRouteManifest: routeManifest };
+                        runInNewContext(routeRegistry, { URL, window });
+                        assert.equal(window.ESPectreRoutes.redirecting, true);
+                        assert.deepEqual(destinations, [new URL(entry.href, origin).href]);
+                        assert.equal(new URL(destinations[0]).origin, origin);
+                    }
+                }
+            }
         }
     });
-    return { section, link, events, click: () => listeners.get('click')?.() };
-}
 
-describe('website navigation contracts', () => {
+    it('rejects removed documents that collide with current routes or doc identifiers', () => {
+        const retired = routeManifest.legacyNotFound[0];
+        const current = routeManifest.routes.find((route) => route.staticPath !== '/');
+        const legacyDoc = routeManifest.legacyRedirects.find((entry) => entry.doc).doc;
+        for (const entry of [{ ...retired, path: current.staticPath }, { ...retired, doc: legacyDoc }]) {
+            const destinations = [];
+            const location = new URL(`/?doc=${retired.doc}`, routeManifest.siteOrigin);
+            location.replace = (href) => destinations.push(href);
+            const window = { location, ESPectreRouteManifest: { ...routeManifest, legacyNotFound: [entry] } };
+            assert.throws(() => runInNewContext(routeRegistry, { URL, window }), /legacy/);
+            assert.deepEqual(destinations, []);
+        }
+    });
+
+    it('leaves unrelated routes and ambiguous or unknown doc parameters alone', () => {
+        const doc = routeManifest.legacyRedirects.find((entry) => entry.doc).doc;
+        for (const path of ['/', '/index.html', '/?doc=', '/?doc=constructor',
+            '/?doc=https://example.com/', `/?doc=${doc}&doc=${doc}`, `/guides/setup/?doc=${doc}`]) {
+            const destinations = [];
+            const location = new URL(path, routeManifest.siteOrigin);
+            location.replace = (href) => destinations.push(href);
+            const window = { location, ESPectreRouteManifest: routeManifest };
+            runInNewContext(routeRegistry, { URL, window });
+            assert.equal(window.ESPectreRoutes.redirecting, false);
+            assert.deepEqual(destinations, []);
+        }
+    });
+
     it('loads the current SDK reference, selects symbols, and rejects invalid manifests', async () => {
         const source = read('docs/web/assets/js/navigation.js');
         const functions = source.slice(source.indexOf('    const apiReferenceManifestPromises'),
@@ -112,51 +134,30 @@ describe('website navigation contracts', () => {
         }
     });
 
-    it('maps retired paths to existing public routes or project documents', () => {
-        for (const [path, suggestion] of Object.entries(errorSuggestions)) {
-            assert.ok(path.startsWith('/') && path.endsWith('/'));
-            const destination = new URL(suggestion.href, 'https://espectre.dev');
-            if (destination.origin === 'https://espectre.dev') {
-                assert.ok(routeManifest.routes.some((route) => route.staticPath === destination.pathname));
-            } else {
-                assert.equal(destination.origin, 'https://github.com');
-                const prefix = '/francescopace/espectre/blob/develop/';
-                assert.ok(destination.pathname.startsWith(prefix));
-                assert.ok(existsSync(new URL(`../../${destination.pathname.slice(prefix.length)}`, import.meta.url)));
-            }
+    it('maps legacy redirects to existing routes on the same site', () => {
+        for (const entry of routeManifest.legacyRedirects) {
+            const destination = new URL(entry.href, routeManifest.siteOrigin);
+            assert.equal(destination.origin, routeManifest.siteOrigin);
+            assert.ok(routeManifest.routes.some((route) => route.staticPath === destination.pathname));
         }
     });
 
-    it('offers the mapped destination on the 404 without forwarding query parameters or fragments', async () => {
-        for (const [path, suggestion] of Object.entries(errorSuggestions)) {
-            for (const variant of [path, path.slice(0, -1), `${path}index.html`]) {
-                const result = await renderErrorSuggestion(variant);
-                assert.equal(result.section.hidden, false);
-                assert.equal(result.link.href, new URL(suggestion.href, 'https://espectre.dev').href);
-                assert.deepEqual(result.events, []);
-                result.click();
-                assert.deepEqual(result.events, [['select_404_suggestion']]);
-            }
-        }
-    });
-
-    it('keeps generic navigation for unknown paths, unavailable maps, and unsafe destinations', async () => {
-        const scenarios = [
-            ['/unknown/'],
-            ['/documentation/setup/extra/'],
-            ['/documentation/setup/', { ok: false }],
-            ['/documentation/setup/', { error: new Error('Offline') }],
-            ['/documentation/setup/', { map: null }],
-            ['/documentation/setup/', { error: new SyntaxError('Invalid JSON') }],
-            ...['javascript:alert(1)', '//example.com/', 'https://github.com/another/project/'].map(
-                (href) => ['/documentation/setup/', { map: { '/documentation/setup/': { href, title: 'Link' } } }]
-            )
-        ];
-        for (const [path, options] of scenarios) {
-            const result = await renderErrorSuggestion(path, options);
-            assert.equal(result.section.hidden, true);
-            assert.equal(result.link.href, undefined);
-            assert.deepEqual(result.events, []);
+    it('rejects redirect destinations outside the current site before navigating', () => {
+        const entry = routeManifest.legacyRedirects.find((redirect) => redirect.doc);
+        for (const href of [
+            'https://github.com/francescopace/espectre/blob/develop/CONTRIBUTING.md',
+            'https://example.com/', '//example.com/', '/\t/example.com/',
+            '/\\example.com/', 'javascript:alert(1)'
+        ]) {
+            const destinations = [];
+            const location = new URL(`/?doc=${entry.doc}`, routeManifest.siteOrigin);
+            location.replace = (destination) => destinations.push(destination);
+            const window = { location, ESPectreRouteManifest: {
+                ...routeManifest, legacyRedirects: [{ ...entry, href }]
+            } };
+            assert.throws(() => runInNewContext(routeRegistry, { URL, window }),
+                /Invalid legacy redirect destination/);
+            assert.deepEqual(destinations, []);
         }
     });
 

@@ -70,6 +70,73 @@
             throw new Error('ESPectre route manifest contains duplicate routes');
         }
 
+        const legacyPaths = new Set();
+        const redirectsByDoc = new Map();
+        if (!Array.isArray(manifest.legacyRedirects)) {
+            throw new Error('ESPectre route manifest contains no legacy redirect map');
+        }
+        for (const entry of manifest.legacyRedirects) {
+            if (!entry || typeof entry.href !== 'string' || typeof entry.title !== 'string'
+                    || !entry.title.trim() || !(entry.path || entry.doc)) {
+                throw new Error('Invalid legacy redirect');
+            }
+            const target = new URL(entry.href, manifest.siteOrigin);
+            const local = entry.href.startsWith('/') && !entry.href.startsWith('//')
+                && target.origin === manifest.siteOrigin
+                && byStaticPath.has(target.pathname);
+            if (!local || target.search || target.username || target.password
+                    || entry.href.includes('\\')) {
+                throw new Error('Invalid legacy redirect destination');
+            }
+            const redirect = Object.freeze({ href: entry.href, title: entry.title });
+            if (entry.path !== undefined) {
+                if (!/^\/(?:[a-z0-9-]+\/)+$/.test(entry.path) || legacyPaths.has(entry.path)
+                        || definitions.some(({ staticPath }) => staticPath !== '/'
+                            && (entry.path.startsWith(staticPath) || staticPath.startsWith(entry.path)))) {
+                    throw new Error('Invalid or overlapping legacy redirect path');
+                }
+                legacyPaths.add(entry.path);
+            }
+            if (entry.doc !== undefined) {
+                if (!/^[A-Z][A-Z0-9_]*$/.test(entry.doc) || redirectsByDoc.has(entry.doc)) {
+                    throw new Error('Invalid or duplicate legacy doc identifier');
+                }
+                redirectsByDoc.set(entry.doc, redirect);
+            }
+        }
+
+        if (!Array.isArray(manifest.legacyNotFound)) {
+            throw new Error('ESPectre route manifest contains no legacy not-found map');
+        }
+        const occupiedPaths = [...byStaticPath.keys(), ...legacyPaths,
+            ...(manifest.sdkChannels || []).map((channel) => channel.path)];
+        for (const entry of manifest.legacyNotFound) {
+            if (!entry || typeof entry.path !== 'string' || !/^\/(?:[a-z0-9-]+\/)+$/.test(entry.path)
+                    || occupiedPaths.some((path) => path.startsWith(entry.path))) {
+                throw new Error('Invalid or overlapping legacy not-found path');
+            }
+            if (typeof entry.doc !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(entry.doc)
+                    || redirectsByDoc.has(entry.doc)) {
+                throw new Error('Invalid or duplicate legacy doc identifier');
+            }
+            occupiedPaths.push(entry.path);
+            // Navigate old query links to a missing path so the server can return HTTP 404.
+            redirectsByDoc.set(entry.doc, Object.freeze({ href: entry.path }));
+        }
+
+        function legacyDocTarget(locationLike) {
+            if (!locationLike?.href) return '';
+            const source = new URL(locationLike.href);
+            if (!['/', '/index.html'].includes(source.pathname)) return '';
+            const docs = source.searchParams.getAll('doc');
+            if (docs.length !== 1) return '';
+            const redirect = redirectsByDoc.get(docs[0].toUpperCase());
+            // Only the configured destination is forwarded, never arbitrary URL parameters.
+            return redirect ? new URL(redirect.href, source.origin).href : '';
+        }
+
+        const redirectTarget = legacyDocTarget(window.location);
+
         const emptyGroup = Object.freeze([]);
         const byGroup = new Map();
         definitions.forEach((definition) => {
@@ -136,6 +203,8 @@
             groupOf: (name) => byName.get(name)?.group || '',
             guideNameForPath: (path) => contentNameForPath(path, 'guide-', 'guides'),
             has: (name) => byName.has(name),
+            legacyDocTarget,
+            redirecting: Boolean(redirectTarget),
             membersOf: (group) => byGroup.get(group) || emptyGroup,
             resolveRouteName: (name) => {
                 const resolved = Object.hasOwn(legacyRoutes, name) ? legacyRoutes[name] : name;
@@ -147,6 +216,7 @@
             title: (name) => byName.get(name)?.title || ''
         });
         window.ESPectreRoutes = registry;
+        if (redirectTarget) window.location.replace(redirectTarget);
         return registry;
     }
 

@@ -89,7 +89,6 @@ const ANALYTICS_EVENT_PARAMETERS = Object.freeze({
         'duration_seconds', 'error_type', 'reason'
     ],
     sdk_download: ['channel', 'format', 'link_text'],
-    select_404_suggestion: [],
     select_documentation: ['document_name', 'link_text'],
     select_guide: ['guide_name', 'link_text'],
     select_tool: ['tool_name', 'link_text'],
@@ -290,7 +289,7 @@ function routePath(route) {
 }
 
 function analyticsAllowedHere() {
-    return SITE_POLICY.analyticsAllowed(window.location);
+    return !window.ESPectreRoutes?.redirecting && SITE_POLICY.analyticsAllowed(window.location);
 }
 
 function analyticsDebugEnabled() {
@@ -696,6 +695,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Analytics disabled because route metadata is unavailable:', error);
         return;
     }
+    if (window.ESPectreRoutes?.redirecting) return;
     initializeConsentControls();
     initializeAutoTracking();
 });
