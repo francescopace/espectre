@@ -44,6 +44,10 @@ updates:
       - dependency-name: "pyyaml"
       - dependency-name: "requests"
       - dependency-name: "zeroconf"
+      # ESP-IDF 5.5 dependency checks require idf-component-manager~=2.2.
+      # Allow 3.x once the supported ESP-IDF release accepts it.
+      - dependency-name: "idf-component-manager"
+        versions: [">=3"]
 
   # Website build and browser dependencies
   - package-ecosystem: "npm"
