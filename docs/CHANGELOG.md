@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - Wi-Fi raw traffic is stable on supported chips. ESP32-C6 remains unsupported; see [compatibility limits](CSI.md#compatibility-limits).
 
+- Monitor Demo mode now applies the motion-on and motion-off reading counts to state transitions and chart highlighting, and retains these settings while navigating between tools.
+
 - `wifi_raw` accepts a destination through `traffic_generator_target_mac`. The default, `auto`, follows the associated AP after reconnects and BSSID pin changes. A unicast MAC sends direct HT20 MCS0 Null Data to another sensor in `external` mode on the same channel, while the transmitter keeps LLTF sensing. No additional device role is required. Set it in ESPHome YAML, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, `RuntimeConfig`, `RuntimeFrontendController::set_traffic_generator_target_mac()`, `update_sensing`, or Monitor → Advanced sensing settings. Direct and MQTT share validation, state, and persistence; devices advertise support with `features.traffic_generator_target_mac`.
 
 - The SDK additions are source-compatible. `ICsiTrafficGenerator::set_target_mac()` has a default implementation, and `FrontendCommandEngine::execute()` takes the raw destination callback as a new optional trailing parameter. `RuntimeConfigError` and `EspectreDirectMethod` gain one value each, so exhaustive `switch` statements need a new case.

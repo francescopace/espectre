@@ -52,6 +52,8 @@ The main implementation entry points are:
 - [espectre-direct.js](assets/js/espectre-direct.js) and [device-session.js](assets/js/device-session.js): Direct HTTP, SSE, and the device session shared by the live tools.
 - [app.js](assets/js/app.js): routing, tool initialization, and interface behavior.
 
+In Demo mode, the Monitor applies the configured motion-on and motion-off reading counts to state transitions and chart highlighting. The movement score stays unchanged. These settings remain active while navigating between tools and reset when a new demo session starts.
+
 Live tools share a Local or Demo connection. Remote access is planned and has no relay implementation. The canonical device contract is in the [API reference](../API.md), with discovery rules in the [discovery reference](../DISCOVERY.md).
 
 ### Firmware signature verification

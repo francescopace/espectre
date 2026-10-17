@@ -678,6 +678,134 @@ describe('Improv Serial initialization', () => {
     }
 });
 
+function loadDemoMonitor() {
+    let now = 0;
+    let connect;
+    let tick;
+    const elements = new Map();
+    const element = (key) => {
+        if (!elements.has(key)) elements.set(key, {
+            value: '', dataset: {}, options: [], listeners: {},
+            classList: { toggle() {} },
+            addEventListener(type, handler) { this.listeners[type] = handler; },
+        });
+        return elements.get(key);
+    };
+    const context = vm.createContext({
+        window: { addEventListener() {} }, HTMLElement: class {},
+        customElements: { get: () => true },
+        Date: class extends Date { static now() { return now; } },
+        document: { getElementById: element },
+        $: (selector) => selector === '.js-mon-chart' ? null : element(selector),
+        $$: () => [],
+        setTimeout: (callback) => { connect = callback; return 1; },
+        setInterval: (callback) => { tick = callback; return 1; },
+        requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+        toast() {}, track() {}, cancelDirectDiscovery() {},
+        evaluateConfigVerification() {},
+        monitorEditOrCancel() {}, startMonitorDeviceNameEdit() {},
+        monitorPublishCommand() { assert.fail('Demo must not send device commands'); },
+    });
+    for (const file of ['device-session', 'monitor-tool']) {
+        runSiteScript(`docs/web/assets/js/${file}.js`, context);
+    }
+    const state = vm.runInContext('conn', context);
+    Object.assign(context, {
+        rememberConnectionOrigin() {}, connectionParams: () => ({}),
+        syncFirmwareUpdateNotice() {}, markToolReady() {}, renderTelemetry() {},
+        syncDiagnosticsPolling() {},
+    });
+    context.setStatus = (status) => { state.status = status; };
+    context.applySysinfo = context.applySensingSnapshot;
+    context.applyRemoteThreshold = (threshold) => { state.threshold = Number(threshold); };
+    context.monitorInit();
+
+    const demo = {
+        state,
+        connect() {
+            state.status = 'disconnected';
+            context.connectDemo();
+            connect();
+        },
+        hits: () => [element('sense-motion-on').value, element('sense-motion-off').value].map(Number),
+        setHits(on, off) {
+            element('sense-motion-on').value = String(on);
+            element('sense-motion-off').value = String(off);
+            element('sense-motion-on').listeners.change();
+        },
+        // Simulates a tool view change, which reapplies the demo snapshot to fresh inputs.
+        reapplySnapshot() {
+            element('sense-motion-on').value = '';
+            element('sense-motion-off').value = '';
+            context.applySensingSnapshot(vm.runInContext('demoSysinfoSnapshot', context));
+        },
+        sample(above) {
+            state.movement = above ? 1 : 0;
+            vm.runInContext(`demoInputEnergy = ${above ? 1 : 0}`, context);
+            now += context.evaluationIntervalMs();
+            tick();
+            const point = vm.runInContext('monitor.points.at(-1)', context);
+            assert.equal(point.m >= point.t, above, 'Hits must not alter the movement score');
+            assert.equal(point.on, state.motion, 'Chart and live state must agree');
+            return point.on;
+        },
+        samples: (pattern) => [...pattern].map((above) => demo.sample(above === '1')),
+    };
+    demo.connect();
+    return demo;
+}
+
+describe('Demo motion hits', () => {
+    it('requires consecutive opposite readings before changing state', () => {
+        const demo = loadDemoMonitor();
+        demo.setHits(3, 2);
+        assert.deepEqual(demo.samples('110'), [false, false, false], 'An idle reading restarts the on count');
+        assert.deepEqual(demo.samples('111'), [false, false, true]);
+        assert.deepEqual(demo.samples('0100'), [true, true, true, false], 'A motion reading restarts the off count');
+    });
+
+    it('applies the bounds of the accepted hit range', () => {
+        const demo = loadDemoMonitor();
+        for (const count of [1, 20]) {
+            demo.setHits(count, count);
+            for (const above of [true, false]) {
+                for (let i = 1; i <= count; i++) assert.equal(demo.sample(above), i === count ? above : !above);
+            }
+        }
+    });
+
+    it('discards pending readings when the settings change', () => {
+        const demo = loadDemoMonitor();
+        demo.setHits(3, 2);
+        demo.sample(true);
+        demo.setHits(2, 3);
+        assert.deepEqual(demo.samples('11'), [false, true]);
+        assert.deepEqual(demo.samples('000'), [true, true, false]);
+    });
+
+    it('keeps valid settings across tool views and ignores invalid ones', () => {
+        const demo = loadDemoMonitor();
+        demo.setHits(5, 6);
+        demo.reapplySnapshot();
+        assert.deepEqual(demo.hits(), [5, 6]);
+        demo.setHits(0, 21);
+        demo.reapplySnapshot();
+        assert.deepEqual(demo.hits(), [5, 6]);
+    });
+
+    it('restores the default settings for a new demo session', () => {
+        const demo = loadDemoMonitor();
+        const defaults = demo.hits();
+        demo.setHits(1, 1);
+        demo.sample(true);
+        demo.connect();
+        assert.equal(demo.state.motion, false);
+        assert.deepEqual(demo.hits(), defaults);
+        const [onHits] = defaults;
+        for (let i = 1; i <= onHits; i++) assert.equal(demo.sample(true), i === onHits);
+    });
+});
+
 describe('website tool contracts', () => {
     it('simulates motion from captured touch and pen drags while preserving mouse input', () => {
         let now = 0;

@@ -544,7 +544,8 @@
             runSensingCommand(
                 { command: 'update_sensing', motion_on_hits: motionOnHits, motion_off_hits: motionOffHits },
                 'Saving advanced motion settings…',
-                'Advanced motion settings updated.'
+                'Advanced motion settings updated.',
+                () => setDemoMotionHits(motionOnHits, motionOffHits)
             );
         };
         document.getElementById('sense-motion-on').addEventListener('change', applyMotionHits);

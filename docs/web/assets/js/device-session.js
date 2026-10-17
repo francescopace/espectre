@@ -130,6 +130,7 @@
     let demoTimer = null;
     let demoSysinfoSnapshot = null;
     let demoInputEnergy = 0;
+    let demoPendingMotionHits = 0;
     let connectionCalloutTimer = null;
     let directCalloutVisible = false;
     const DIRECT_CALLOUT_DURATION_MS = 4000;
@@ -275,7 +276,6 @@
         const detection = snapshot.detection || {};
         const detector = snapshot.detector || detection.algorithm;
         const threshold = Number(snapshot.threshold ?? detection.threshold);
-        const motionHits = String(snapshot.motion_hits || '').split('/');
         const detectorSelect = document.getElementById('sense-detector');
         const motionOnInput = document.getElementById('sense-motion-on');
         const motionOffInput = document.getElementById('sense-motion-off');
@@ -285,10 +285,6 @@
         }
         if (detector && detectorSelect) {
             detectorSelect.value = detector;
-        }
-        if (motionHits.length === 2 && motionOnInput && motionOffInput) {
-            motionOnInput.value = motionHits[0];
-            motionOffInput.value = motionHits[1];
         }
         if (snapshot.motion_on_hits !== undefined && motionOnInput) {
             motionOnInput.value = snapshot.motion_on_hits;
@@ -874,6 +870,27 @@
 
     /* ----------------------------------------------------------- demo mode */
 
+    function demoMotionState(movement) {
+        const candidate = movement >= conn.threshold;
+        if (candidate === conn.motion) {
+            demoPendingMotionHits = 0;
+            return Number(conn.motion);
+        }
+        const requiredHits = candidate
+            ? demoSysinfoSnapshot.motion_on_hits : demoSysinfoSnapshot.motion_off_hits;
+        if (++demoPendingMotionHits >= requiredHits) {
+            demoPendingMotionHits = 0;
+            return Number(candidate);
+        }
+        return Number(conn.motion);
+    }
+
+    function setDemoMotionHits(motionOnHits, motionOffHits) {
+        demoSysinfoSnapshot.motion_on_hits = motionOnHits;
+        demoSysinfoSnapshot.motion_off_hits = motionOffHits;
+        demoPendingMotionHits = 0;
+    }
+
     function connectDemo(openView = '') {
         if (conn.status !== 'disconnected') return;
         cancelDirectDiscovery({ clear: true });
@@ -889,6 +906,8 @@
             conn.deviceBannerSub = '—';
             conn.threshold = 0.5;
             conn.movement = 0.04;
+            conn.motion = false;
+            demoPendingMotionHits = 0;
             conn.connectedAt = Date.now();
             setStatus('connected');
             markToolReady('motion');
@@ -935,7 +954,8 @@
                 device_id: '3cf79180d3a0aca4',
                 device_name: 'Demo Device',
                 device_label: 'Demo Device',
-                motion_hits: '4/3'
+                motion_on_hits: 4,
+                motion_off_hits: 3
             };
             applySysinfo(demoSysinfoSnapshot);
             if (openView === 'live') completeLiveConnectionNavigation();
@@ -955,12 +975,9 @@
                 const energyTau = gameDemoActive ? 0.33 : 0.49;
                 demoInputEnergy *= Math.exp(-demoTickSec / energyTau);
                 if (demoInputEnergy < 0.01) demoInputEnergy = 0;
-                monitorFeed(
-                    conn.movement,
-                    conn.threshold,
-                    conn.movement >= conn.threshold ? 'motion' : 'idle'
-                );
-                applyLiveTelemetry(conn.movement, conn.threshold, conn.movement >= conn.threshold ? 1 : 0);
+                const motionState = demoMotionState(conn.movement);
+                monitorFeed(conn.movement, conn.threshold, motionState);
+                applyLiveTelemetry(conn.movement, conn.threshold, motionState);
             }, evaluationIntervalMs());
         }, 600);
     }
@@ -1068,6 +1085,7 @@
         directClient = null;
         demoSysinfoSnapshot = null;
         demoInputEnergy = 0;
+        demoPendingMotionHits = 0;
         demoPointer.id = null;
         demoPointer.x = null;
         demoPointer.y = null;
