@@ -17,6 +17,8 @@
 #include "esp_netif.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 #include "freertos/semphr.h"
 #include "direct_http_protocol.h"
 #include "espectre_protocol.h"
@@ -50,6 +52,7 @@ MdnsDiscoveryServiceConfig direct_config() {
 
 void reset_mocks() {
   mdns_mock_reset();
+  esp_wifi_mock_reset();
   esp_netif_mock_reset();
   esp_random_mock::value = 0U;
   g_freertos_fail_next_take = false;
@@ -87,10 +90,13 @@ void test_follows_wifi_lifecycle_and_updates_txt_atomically() {
   TEST_ASSERT_EQUAL_INT(MDNS_EVENT_ENABLE_IP4, g_mdns_mock.last_netif_action);
   service.on_wifi_connected();
   TEST_ASSERT_EQUAL_INT(MDNS_EVENT_ANNOUNCE_IP4, g_mdns_mock.last_netif_action);
-  TEST_ASSERT_TRUE(service.update_txt({{"name", "Office"}, {"protocol", "1"}}));
+  TEST_ASSERT_TRUE(service.update_txt({{"name", "Office"}, {"mac_address", ""}, {"protocol", "1"}}));
   TEST_ASSERT_EQUAL(2U, g_mdns_mock.txt_count);
   TEST_ASSERT_EQUAL_STRING("name", g_mdns_mock.txt_keys[0]);
   TEST_ASSERT_EQUAL_STRING("Office", g_mdns_mock.txt_values[0]);
+  TEST_ASSERT_TRUE(service.update_txt({{"name", "Office"}, {"mac_address", "02:ab:cd:ef:12:34"}}));
+  TEST_ASSERT_EQUAL(2U, g_mdns_mock.txt_count);
+  TEST_ASSERT_EQUAL_STRING("mac_address", g_mdns_mock.txt_keys[1]);
   service.on_wifi_disconnected();
   TEST_ASSERT_FALSE(service.service_enabled());
   TEST_ASSERT_EQUAL_INT(MDNS_EVENT_DISABLE_IP4, g_mdns_mock.last_netif_action);
@@ -951,7 +957,7 @@ uint32_t ipv4(uint8_t first, uint8_t second, uint8_t third, uint8_t fourth) {
 }
 
 struct PeerMdnsFixture {
-  mdns_txt_item_t txt[10] = {
+  mdns_txt_item_t txt[11] = {
       {"device_id", "2222222222222222"},
       {"name", "Office sensor"},
       {"frontend", "native"},
@@ -962,6 +968,7 @@ struct PeerMdnsFixture {
       {"firmware", "3.0.0-rc1"},
       {"chip", "esp32c3"},
       {"capabilities", "sensing,motion,devices"},
+      {"mac_address", "02:AA:BB:CC:DD:EE"},
   };
   mdns_ip_addr_t address{};
   mdns_result_t result{};
@@ -1000,7 +1007,7 @@ void test_peer_txt_case_duplicates_and_release_announcements() {
       PeerMdnsFixture fixture;
       fixture.txt[7].value = firmware;
       std::vector<std::string> keys;
-      keys.reserve(10U);
+      keys.reserve(std::size(fixture.txt));
       for (auto &item : fixture.txt) {
         keys.emplace_back(item.key);
         if (variant != 0U) {
@@ -1010,7 +1017,7 @@ void test_peer_txt_case_duplicates_and_release_announcements() {
         }
         item.key = keys.back().c_str();
       }
-      std::vector<mdns_txt_item_t> txt(fixture.txt, fixture.txt + 10U);
+      std::vector<mdns_txt_item_t> txt(std::begin(fixture.txt), std::end(fixture.txt));
       txt.push_back({"DEVICE_ID", "ffffffffffffffff"});
       txt.push_back({"unknown", nullptr});
       if (variant == 3U) txt.insert(txt.begin(), {"DEVICE_ID", nullptr});
@@ -1033,6 +1040,7 @@ void test_peer_txt_case_duplicates_and_release_announcements() {
         TEST_ASSERT_EQUAL_STRING("Office sensor", delivered.devices[0].name.c_str());
         TEST_ASSERT_EQUAL_STRING("ESpectre-2222222222222222", delivered.devices[0].hostname.c_str());
         TEST_ASSERT_EQUAL_STRING(firmware, delivered.devices[0].firmware.c_str());
+        TEST_ASSERT_EQUAL_STRING("02:aa:bb:cc:dd:ee", delivered.devices[0].mac_address.c_str());
       }
     }
   }
@@ -1051,6 +1059,7 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   const uint32_t station = ipv4(192U, 168U, 1U, 100U);
   const uint32_t netmask = ipv4(255U, 255U, 255U, 0U);
   PeerDiscoveryCandidate second = peer("2222222222222222", "espectre-2", station + (2U << 24U));
+  second.mac_address = "02:AA:BB:CC:DD:EE";
   PeerDiscoveryCandidate micro = peer(
       "3333333333333333", "espectre-3333333333333333", station + (3U << 24U));
   micro.frontend = "micro";
@@ -1075,6 +1084,46 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   TEST_ASSERT_TRUE(payload.find("8.8.8.8") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("devices") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"micro\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"mac_address\":\"02:aa:bb:cc:dd:ee\"") != std::string::npos);
+  TEST_ASSERT_TRUE(snapshot.devices[1].mac_address.empty());
+}
+
+void test_discovery_station_mac_is_optional_normalized_and_conflict_checked() {
+  esp_wifi_mock_reset();
+  const uint8_t mac[] = {0x02, 0xab, 0xcd, 0xef, 0x12, 0x34};
+  std::memcpy(g_esp_wifi_mock.mac, mac, sizeof(mac));
+  TEST_ASSERT_EQUAL_STRING("02:ab:cd:ef:12:34", read_direct_station_mac_address().c_str());
+  g_esp_wifi_mock.get_mac_result = ESP_FAIL;
+  TEST_ASSERT_TRUE(read_direct_station_mac_address().empty());
+  g_esp_wifi_mock.get_mac_result = ESP_OK;
+  g_esp_wifi_mock.mac[0] = 0x03;
+  TEST_ASSERT_TRUE(read_direct_station_mac_address().empty());
+  std::memset(g_esp_wifi_mock.mac, 0, sizeof(mac));
+  TEST_ASSERT_TRUE(read_direct_station_mac_address().empty());
+  esp_wifi_mock_reset();
+
+  const uint32_t station = ipv4(192U, 168U, 1U, 100U);
+  const uint32_t mask = ipv4(255U, 255U, 255U, 0U);
+  auto legacy = peer("1111111111111111", "espectre-one", station);
+  for (const char *invalid : {"", "bad", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "03:ab:cd:ef:12:34"}) {
+    auto candidate = legacy;
+    candidate.mac_address = invalid;
+    const auto snapshot = validate_peer_discovery_candidates({candidate}, station, mask, 1U, false);
+    TEST_ASSERT_EQUAL(1U, snapshot.devices.size());
+    TEST_ASSERT_TRUE(snapshot.devices[0].mac_address.empty());
+    TEST_ASSERT_TRUE(peer_discovery_snapshot_json(snapshot).find("mac_address") == std::string::npos);
+  }
+  auto advertised = legacy;
+  advertised.mac_address = "02:AB:CD:EF:12:34";
+  auto merged = validate_peer_discovery_candidates({legacy, advertised}, station, mask, 1U, false);
+  TEST_ASSERT_EQUAL(1U, merged.devices.size());
+  TEST_ASSERT_EQUAL_STRING("02:ab:cd:ef:12:34", merged.devices[0].mac_address.c_str());
+  advertised.mac_address = "02:ab:cd:ef:12:34";
+  TEST_ASSERT_EQUAL(1U, validate_peer_discovery_candidates({merged.devices[0], advertised}, station, mask, 1U, false).devices.size());
+  advertised.mac_address = "02:ab:cd:ef:12:35";
+  const auto conflict = validate_peer_discovery_candidates({merged.devices[0], advertised}, station, mask, 1U, false);
+  TEST_ASSERT_TRUE(conflict.devices.empty());
+  TEST_ASSERT_EQUAL(1U, conflict.rejected_results);
 }
 
 void test_peer_results_reject_every_malformed_and_nonlocal_boundary() {
@@ -1121,6 +1170,7 @@ void test_peer_results_enforce_address_device_and_serialized_size_limits() {
     std::snprintf(identity, sizeof(identity), "%016zx", index + 1U);
     PeerDiscoveryCandidate candidate = peer(identity, "espectre-peer", ipv4(192U, 168U, 1U, 10U + index));
     candidate.instance.assign(63U, 'I');
+    candidate.mac_address = "02:ab:cd:ef:12:34";
     candidate.hostname = std::string(62U, 'h') + std::to_string(index % 10U);
     candidate.name.assign(63U, 'N');
     candidate.firmware.assign(48U, 'F');
@@ -1173,6 +1223,7 @@ void test_peer_query_uses_fixed_bounds_and_frees_results_exactly_once() {
   service.loop();
   TEST_ASSERT_EQUAL(1U, completion_count);
   TEST_ASSERT_EQUAL(2U, delivered.devices.size());
+  TEST_ASSERT_EQUAL_STRING(read_direct_station_mac_address().c_str(), delivered.devices[0].mac_address.c_str());
   TEST_ASSERT_EQUAL(1, g_mdns_mock.query_results_free_call_count);
   TEST_ASSERT_EQUAL(1, g_mdns_mock.async_delete_call_count);
   TEST_ASSERT_TRUE(&fixture.result == g_mdns_mock.last_freed_results);
@@ -1267,6 +1318,7 @@ int main() {
   RUN_TEST(test_bootstrap_multicast_does_not_cancel_legacy_and_tc_cannot_hold_slots_forever);
   RUN_TEST(test_bootstrap_wrapper_always_forwards_to_espressif);
   RUN_TEST(test_peer_results_are_bounded_validated_sorted_and_serializable);
+  RUN_TEST(test_discovery_station_mac_is_optional_normalized_and_conflict_checked);
   RUN_TEST(test_peer_results_reject_every_malformed_and_nonlocal_boundary);
   RUN_TEST(test_peer_results_enforce_address_device_and_serialized_size_limits);
   RUN_TEST(test_peer_query_uses_fixed_bounds_and_frees_results_exactly_once);

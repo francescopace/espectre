@@ -54,6 +54,7 @@ struct MdnsDiscoveryServiceConfig {
   std::string service_protocol;
   /** Advertised port. Required. */
   uint16_t port{0U};
+  /** TXT records; an empty `mac_address` is omitted. */
   MdnsTxtRecords txt_records;
   MdnsResponderMode responder_mode{MdnsResponderMode::OWN_RESPONDER};
 };

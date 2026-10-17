@@ -200,6 +200,7 @@ std::string matter_mdns_hostname() {
 espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id, const std::string &device_label) {
   return {
       {"device_id", espectre::format_espectre_device_id(device_id)},
+      {"mac_address", espectre::read_direct_station_mac_address()},
       {"name", matter_display_name(device_id, device_label)},
       {"frontend", "matter"},
       {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
@@ -370,6 +371,17 @@ void ip_event_cb(void *arg, esp_event_base_t event_base, int32_t event_id, void 
   }
 }
 
+/** Re-read the station MAC into the discovery TXT records; true when it changed. */
+bool refresh_matter_mdns_mac() {
+  const std::string mac_address = espectre::read_direct_station_mac_address();
+  for (auto &record : g_mdns_config.txt_records) {
+    if (record.first != "mac_address" || record.second == mac_address) continue;
+    record.second = mac_address;
+    return true;
+  }
+  return false;
+}
+
 bool start_operational_services() {
   const TickType_t now = xTaskGetTickCount();
   if (static_cast<int32_t>(now - g_operational_start_not_before) < 0) {
@@ -388,6 +400,8 @@ bool start_operational_services() {
     (void) g_mdns_bootstrap_responder->update(g_station_ipv4);
   }
   if (g_dnssd_initialized && g_mdns_discovery != nullptr && !g_mdns_discovery->initialized()) {
+    // esp_matter::start() initializes Wi-Fi after g_mdns_config is built, so read the MAC here.
+    (void) refresh_matter_mdns_mac();
     if (g_mdns_discovery->setup(g_mdns_config)) {
       if (g_station_ipv4 != 0U) {
         g_mdns_discovery->on_wifi_connected();
@@ -450,6 +464,7 @@ void process_pending_platform_events() {
     }
     if (g_mdns_discovery != nullptr && g_mdns_discovery->initialized()) {
       if (g_station_ipv4 != 0U) {
+        if (refresh_matter_mdns_mac()) (void) g_mdns_discovery->update_txt(g_mdns_config.txt_records);
         g_mdns_discovery->on_wifi_connected();
       } else {
         g_mdns_discovery->on_wifi_disconnected();

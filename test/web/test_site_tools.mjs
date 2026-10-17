@@ -16,6 +16,7 @@ import { rollup } from '../../docs/web/node_modules/rollup/dist/es/rollup.js';
 import serialConfig from '../../docs/web/rollup.config.mjs';
 import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/improv-wifi-serial-sdk/dist/const.js';
 import { read, routeManifest, runSiteScript, toolContent } from './fixtures/site_test_helpers.mjs';
+import { peer, result } from './fixtures/peer_discovery_fixture.mjs';
 
 function loadFlashRuntime(globals = {}) {
     const window = {};
@@ -271,7 +272,8 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
     const panel = { open: true };
     const context = vm.createContext({
         window: {}, HTMLElement: class {}, customElements: { get: () => true },
-        URL, TextEncoder, console,
+        URL, TextEncoder, console, AbortController,
+        Option: class { constructor(text, value) { this.text = text; this.value = value; this.dataset = {}; } },
         Date: class extends Date { static now() { return now; } },
         document: { hidden: false, getElementById: () => null },
         $: (selector) => selector === '.device-live-diagnostics' ? panel : { hidden: false },
@@ -281,6 +283,8 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
         clearInterval: (id) => timers.delete(id),
         toast() {}, track() {},
     });
+    runSiteScript('docs/web/assets/js/espectre-direct.js', context);
+    context.DirectProtocolClient = context.window.ESPectreDirectClient;
     for (const file of ['device-session', 'monitor-tool', 'configure-tool', 'direct-discovery']) {
         runSiteScript(`docs/web/assets/js/${file}.js`, context);
     }
@@ -309,15 +313,140 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
     };
 }
 
+function rawTargetFields(runtime) {
+    let selection = 'auto';
+    const select = {
+        options: [{ value: 'auto', dataset: {} }], dataset: {},
+        get value() { return selection; },
+        set value(value) { selection = this.options.some((option) => option.value === value) ? value : ''; },
+        replaceChildren(...options) { this.options = options; this.value = options[0]?.value || ''; }
+    };
+    const refresh = { disabled: false, attributes: {}, classes: new Set(),
+        setAttribute(name, value) { this.attributes[name] = value; }
+    };
+    refresh.classList = { toggle(name, enabled) { if (enabled) refresh.classes.add(name); else refresh.classes.delete(name); } };
+    const fields = { 'sense-raw-target': select, 'sense-raw-target-refresh': refresh };
+    runtime.context.document.getElementById = (id) => fields[id] || null;
+    return { select, refresh };
+}
+
 describe('device HTTP request budgets', () => {
+    it('discovers raw destinations only on click, replaces results, and preserves the configured MAC', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const { select, refresh } = rawTargetFields(runtime);
+        const calls = [];
+        const self = peer({ mac_address: '02:aa:bb:cc:dd:00' });
+        const destination = peer({ device_id: '2222222222222222', mac_address: '02:AA:BB:CC:DD:EE' });
+        let snapshot = result([self, destination,
+            peer({ device_id: '3333333333333333', mac_address: destination.mac_address }),
+            peer({ device_id: '4444444444444444' })]);
+        runtime.setClient({ connected: true, capabilities: { resources: ['devices'] },
+            request: async (...args) => { calls.push(args); return snapshot; } });
+        const toasts = [];
+        runtime.context.toast = (message) => toasts.push(message);
+        runtime.run(`route = 'tool-monitor'; conn.deviceId = '${self.device_id}'`);
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: destination.mac_address });
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.equal(calls.length, 0);
+        await runtime.context.monitorRefreshRawTrafficTargets();
+        assert.equal(calls.length, 1);
+        assert.deepEqual(calls[0].slice(0, 2), ['get', 'devices']);
+        assert.equal(calls[0][3].retryTransportErrors, false);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        assert.equal(refresh.disabled, false);
+        assert.deepEqual(toasts, []);
+        snapshot = result([]);
+        await runtime.context.monitorRefreshRawTrafficTargets();
+        assert.equal(calls.length, 2);
+        assert.equal(toasts.length, 1);
+        assert.match(toasts[0], /No other ESPectre sensor/);
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        runtime.context.cancelRawTrafficDiscovery();
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        runtime.context.cancelRawTrafficDiscovery();
+        assert.equal(select.value, 'auto');
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+        assert.equal(calls.length, 2);
+    });
+
+    it('saves a discovered MAC and replaces an undiscovered configured destination', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const { select } = rawTargetFields(runtime);
+        const calls = [];
+        runtime.setClient({ connected: true, request: async (...args) => { calls.push(args); return {}; } });
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: '02:11:22:33:44:55' });
+        runtime.context.renderRawTrafficTargets([peer({ mac_address: '02:aa:bb:cc:dd:ee' })]);
+        select.value = '02:aa:bb:cc:dd:ee';
+        assert.equal(await runtime.context.monitorChangeRawTarget(), true);
+        assert.equal(calls[0][2].traffic_generator_target_mac, '02:aa:bb:cc:dd:ee');
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        runtime.run("conn.deviceId = 'another-device'");
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+    });
+
+    it('deduplicates active searches and ignores results after cancellation or a device change', async () => {
+        for (const end of ['cancel', 'device', 'route', 'hidden']) {
+            const runtime = loadDeviceHttpRuntime();
+            const { select, refresh } = rawTargetFields(runtime);
+            const requests = [];
+            const toasts = [];
+            runtime.context.toast = (message) => toasts.push(message);
+            runtime.setClient({ connected: true, capabilities: { resources: ['devices'] },
+                request: (...args) => new Promise((resolve) => requests.push({ args, resolve })) });
+            runtime.run("route = 'tool-monitor'");
+            runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+            const pending = runtime.context.monitorRefreshRawTrafficTargets();
+            await runtime.context.monitorRefreshRawTrafficTargets();
+            assert.equal(requests.length, 1);
+            assert.equal(refresh.attributes['aria-busy'], 'true');
+            if (end === 'cancel') runtime.context.cancelRawTrafficDiscovery();
+            if (end === 'device') runtime.run("conn.deviceId = 'new-device'");
+            if (end === 'route') runtime.run("route = 'tool-configure'");
+            if (end === 'hidden') runtime.context.document.hidden = true;
+            requests[0].resolve(result([peer({ mac_address: '02:aa:bb:cc:dd:ee' })]));
+            await pending;
+            assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+            assert.equal(select.value, 'auto');
+            assert.equal(refresh.attributes['aria-busy'], 'false');
+            assert.deepEqual(toasts, []);
+            if (end === 'cancel') assert.equal(requests[0].args[3].signal.aborted, true);
+        }
+    });
+
+    it('keeps edits and the configured destination when discovery fails', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const { select, refresh } = rawTargetFields(runtime);
+        let reject;
+        const toasts = [];
+        runtime.context.toast = (message) => toasts.push(message);
+        runtime.setClient({ connected: true, capabilities: { resources: ['devices'] },
+            request: () => new Promise((_resolve, fail) => { reject = fail; }) });
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: '02:11:22:33:44:55' });
+        const pending = runtime.context.monitorRefreshRawTrafficTargets();
+        select.value = 'auto';
+        select.dataset.dirty = 'true';
+        reject(new Error('offline'));
+        await pending;
+        assert.equal(select.value, 'auto');
+        assert.equal(refresh.disabled, false);
+        assert.equal(refresh.attributes['aria-busy'], 'false');
+        assert.equal(toasts.length, 1);
+        assert.match(toasts[0], /search failed/);
+        runtime.context.cancelRawTrafficDiscovery();
+        assert.equal(select.value, '02:11:22:33:44:55');
+    });
+
     it('autosaves raw MAC choices in order and preserves pending edits', async () => {
         const runtime = loadDeviceHttpRuntime();
-        let focused = false;
-        const input = { value: '', focus() { focused = true; } };
-        const select = { value: 'auto', dataset: {} };
-        const custom = { hidden: true };
-        const fields = { 'sense-raw-target': select, 'sense-raw-target-mac': input, 'sense-raw-target-custom': custom };
-        runtime.context.document.getElementById = (id) => fields[id] || null;
+        const { select } = rawTargetFields(runtime);
         const calls = [];
         runtime.setClient({ connected: true, request: async (method, resource, params) => {
             calls.push({ method, resource, params });
@@ -325,35 +454,28 @@ describe('device HTTP request budgets', () => {
         } });
         runtime.run("route = 'tool-monitor'");
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
-        assert.equal(custom.hidden, true);
-        select.value = 'custom';
-        runtime.context.monitorChangeRawTarget();
-        assert.equal(custom.hidden, false);
-        assert.equal(focused, true);
-        for (const bad of ['', 'ff:ff:ff:ff:ff:ff', '01:22:33:44:55:66', '00:00:00:00:00:00', '10:b4:1d:e8:ec:0']) {
-            input.value = bad;
-            assert.equal(await runtime.context.monitorSaveRawTarget(), false);
-        }
         assert.equal(calls.length, 0);
-        input.value = '10:B4:1D:E8:EC:00';
-        assert.equal(await runtime.context.monitorSaveRawTarget(), true);
+        runtime.context.renderRawTrafficTargets([
+            peer({ mac_address: '10:b4:1d:e8:ec:00' }),
+            peer({ mac_address: '10:b4:1d:e8:ec:02' }),
+            peer({ mac_address: '02:11:22:33:44:55' })
+        ]);
+        select.value = '10:b4:1d:e8:ec:00';
+        assert.equal(await runtime.context.monitorChangeRawTarget(), true);
         assert.equal(calls[0].resource, 'sensing');
         assert.equal(calls[0].method, 'patch');
         assert.equal(calls[0].params.traffic_generator_target_mac, '10:b4:1d:e8:ec:00');
-        assert.equal(input.value, '10:b4:1d:e8:ec:00');
+        assert.equal(select.value, '10:b4:1d:e8:ec:00');
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: '10:b4:1d:e8:ec:00' });
         assert.equal(runtime.run('pendingConfigVerification'), null);
         select.value = 'auto';
         assert.equal(await runtime.context.monitorChangeRawTarget(), true);
         assert.equal(calls[1].params.traffic_generator_target_mac, 'auto');
-        assert.equal(custom.hidden, true);
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
-        select.value = 'custom';
-        input.value = '10:b4:1d:e8:ec:02';
+        select.value = '10:b4:1d:e8:ec:02';
         select.dataset.dirty = 'true';
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
-        assert.equal(select.value, 'custom');
-        assert.equal(input.value, '10:b4:1d:e8:ec:02');
+        assert.equal(select.value, '10:b4:1d:e8:ec:02');
         const caps = { operations: [{ name: 'update_sensing' }], resources: ['sensing'] };
         assert.equal(runtime.context.directCapabilitiesSnapshot(caps).supports_traffic_target_mac, false);
         caps.features = { traffic_generator_target_mac: true };
@@ -362,14 +484,14 @@ describe('device HTTP request budgets', () => {
         runtime.setClient({ connected: true, request: (method, resource, params) => new Promise((resolve) => {
             requests.push({ target: params.traffic_generator_target_mac, resolve });
         }) });
-        const saving = runtime.context.monitorSaveRawTarget();
+        const saving = runtime.context.monitorChangeRawTarget();
         await Promise.resolve();
-        input.value = '02:11:22:33:44:55';
-        const nextSave = runtime.context.monitorSaveRawTarget();
+        select.value = '02:11:22:33:44:55';
+        const nextSave = runtime.context.monitorChangeRawTarget();
         assert.equal(requests.length, 1);
         requests[0].resolve({});
         await saving;
-        assert.equal(input.value, '02:11:22:33:44:55');
+        assert.equal(select.value, '02:11:22:33:44:55');
         assert.equal(requests.length, 2);
         requests[1].resolve({});
         await nextSave;
@@ -378,9 +500,9 @@ describe('device HTTP request budgets', () => {
         select.value = 'auto';
         await runtime.context.monitorChangeRawTarget();
         assert.equal(runtime.run('demoSysinfoSnapshot.traffic_generator_target_mac'), 'auto');
-        select.value = 'custom';
+        select.value = '02:11:22:33:44:55';
         await runtime.context.monitorChangeRawTarget();
-        assert.equal(runtime.run('demoSysinfoSnapshot.traffic_generator_target_mac'), input.value);
+        assert.equal(runtime.run('demoSysinfoSnapshot.traffic_generator_target_mac'), select.value);
         assert.equal(requests.length, 2, 'Demo must not send a request');
     });
 
@@ -687,12 +809,15 @@ function loadDemoMonitor() {
         if (!elements.has(key)) elements.set(key, {
             value: '', dataset: {}, options: [], listeners: {},
             classList: { toggle() {} },
+            setAttribute() {},
+            replaceChildren(...options) { this.options = options; },
             addEventListener(type, handler) { this.listeners[type] = handler; },
         });
         return elements.get(key);
     };
     const context = vm.createContext({
         window: { addEventListener() {} }, HTMLElement: class {},
+        Option: class { constructor(text, value) { this.text = text; this.value = value; this.dataset = {}; } },
         customElements: { get: () => true },
         Date: class extends Date { static now() { return now; } },
         document: { getElementById: element },

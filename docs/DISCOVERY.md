@@ -26,6 +26,7 @@ A manually entered address can use another port; clients never try old ports. ES
 | `txtvers` | `1` |
 | `protovers` | `1.0` |
 | `device_id` | 16 lowercase hexadecimal characters |
+| `mac_address` | Optional Wi-Fi station MAC, as lowercase colon-separated hex |
 | `name` | Effective display name |
 | `frontend` | `native`, `esphome`, `matter`, or `micro` |
 | `transport` | `http` |
@@ -42,6 +43,8 @@ Rules for clients:
 - A record is valid only with an IPv4 address, a non-zero port, a valid `device_id`, a known `frontend`, the exact `txtvers`, `protovers`, and `transport` values above, and `path=/espectre/v1`. `name`, `firmware`, `chip`, and `capabilities` are extra information, not identity.
 
 Devices send lowercase keys, with `txtvers` first.
+
+`mac_address` is the active station interface address, not the associated AP's BSSID. Missing, empty, or invalid MAC metadata is ignored; a usable value must be a nonzero unicast MAC. Older firmware remains discoverable without this field. Clients normalize accepted MACs to lowercase.
 
 ### Service lifecycle
 
@@ -98,6 +101,7 @@ The result schema is:
   "devices": [
     {
       "device_id": "0123456789abcdef",
+      "mac_address": "02:11:22:33:44:55",
       "instance": "ESPectre 0123456789abcdef",
       "hostname": "espectre-0123456789abcdef",
       "name": "ESPectre C3 abcdef",
@@ -132,6 +136,7 @@ Each device object uses this schema:
 | Field | Type and constraint |
 | --- | --- |
 | `device_id` | 16-character lowercase hexadecimal string |
+| `mac_address` | Optional nonzero unicast MAC, as lowercase colon-separated hex; omitted when unavailable or invalid |
 | `instance` | printable ASCII string, 1 to 63 characters |
 | `hostname` | 1 to 63 letters, digits, `-`, or `_`, without the `.local` suffix |
 | `name` | printable ASCII string, 0 to 63 characters |
@@ -150,7 +155,7 @@ How the device builds the list:
 
 - The answering device always includes itself.
 - Devices are merged by `device_id` and sorted by it. Addresses of the same device are merged and sorted numerically. Host names are compared without regard to case, keeping the first spelling.
-- If two records for one `device_id` disagree on host name, frontend, port, or path, that device is rejected.
+- If two records for one `device_id` disagree on host name, frontend, port, path, or two valid station MACs, that device is rejected. A valid MAC enriches a matching record that has no usable MAC.
 - Only unicast IPv4 addresses on the device's own subnet are kept.
 
 The response contains no credentials, settings, motion data, CSI, or broker details.
@@ -163,6 +168,8 @@ The response contains no credentials, settings, motion data, CSI, or broker deta
 ## Client validation and fallback
 
 The portal checks the whole result before showing any device. It remembers only the address you pick, never the bootstrap name or the list. After you pick a device, it reads `GET /device` and `GET /capabilities` and checks that `device_id`, frontend, protocol version, and base path match the discovery data.
+
+In Monitor → Advanced sensing settings, the Destination MAC refresh button starts a new `/devices` search through the connected device. Opening the page or changing the traffic source does not start discovery. The menu lists other devices with valid station MACs, alongside Automatic (AP); it has no manual MAC entry. It never reuses Find devices results, retains no peer cache, and clears the options found by the search when leaving the view, hiding the page, or changing the connection. The configured destination stays selected even when a search fails or no longer finds it; without a configured MAC, the default is `auto`. Discovery does not verify that a peer is in `external` mode or on the same radio channel.
 
 Routers, multicast filtering, client isolation, and browser permissions can block discovery while the device itself is still reachable. In that case, connect with the device IP, its `espectre-{device_id}.local` name, a saved address, or Improv Serial.
 

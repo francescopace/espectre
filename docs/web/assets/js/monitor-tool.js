@@ -47,7 +47,8 @@
         diagRequestPending: false,
         calibrating: false,
         calibrationTimer: null,
-        rawTargetSavePending: null
+        rawTargetSavePending: null,
+        rawTargetDiscovery: null
     };
 
     function monitorStatus(message) {
@@ -437,53 +438,123 @@
     }
 
     function syncRawTrafficTargetControls() {
+        const refresh = document.getElementById('sense-raw-target-refresh');
+        if (refresh) {
+            const scanning = monitor.rawTargetDiscovery !== null;
+            refresh.disabled = scanning || (conn.mode !== 'demo' && (!directClient?.connected
+                || !directClient.capabilities?.resources?.includes('devices')));
+            refresh.classList.toggle('is-scanning', scanning);
+            refresh.setAttribute('aria-busy', String(scanning));
+        }
+    }
+
+    function rawTrafficTargetValue() {
+        return document.getElementById('sense-raw-target')?.value || 'auto';
+    }
+
+    function renderRawTrafficTargets(peers, target = rawTrafficTargetValue()) {
         const select = document.getElementById('sense-raw-target');
-        const custom = document.getElementById('sense-raw-target-custom');
-        if (select && custom) custom.hidden = select.value !== 'custom';
+        if (!select) return;
+        const options = [new Option('Automatic (AP)', 'auto')];
+        // Results live only in this menu; each click replaces them with a fresh search.
+        if (peers === undefined) {
+            options.push(...[...select.options].filter((option) => option.dataset.discovered === 'true'));
+        } else {
+            const seen = new Set();
+            for (const peer of peers) {
+                const mac = peer.mac_address;
+                if (peer.device_id === conn.deviceId || !mac || seen.has(mac)) continue;
+                seen.add(mac);
+                const option = new Option(`${peer.name || `ESPectre ${peer.device_id.slice(-6)}`} · ${mac}`, mac);
+                option.dataset.discovered = 'true';
+                options.push(option);
+            }
+        }
+        if (!options.some((option) => option.value === target)) options.push(new Option(target, target));
+        select.replaceChildren(...options);
+        select.value = target;
+        syncRawTrafficTargetControls();
+    }
+
+    function cancelRawTrafficDiscovery({ clear = true } = {}) {
+        monitor.rawTargetDiscovery?.abort();
+        monitor.rawTargetDiscovery = null;
+        if (clear) {
+            const select = document.getElementById('sense-raw-target');
+            if (select) {
+                select.dataset.dirty = '';
+                renderRawTrafficTargets([], select.dataset.configuredTarget || 'auto');
+            }
+        }
+        syncRawTrafficTargetControls();
+    }
+
+    async function monitorRefreshRawTrafficTargets() {
+        const client = directClient;
+        const deviceId = conn.deviceId;
+        const mode = conn.mode;
+        if (monitor.rawTargetDiscovery || document.hidden || route !== 'tool-monitor') return;
+        if (mode !== 'demo' && (!client?.connected || !client.capabilities?.resources?.includes('devices'))) return;
+        const controller = new AbortController();
+        monitor.rawTargetDiscovery = controller;
+        const current = () => monitor.rawTargetDiscovery === controller && !controller.signal.aborted
+            && directClient === client && conn.deviceId === deviceId && conn.mode === mode
+            && route === 'tool-monitor' && !document.hidden;
+        renderRawTrafficTargets([]);
+        try {
+            let peers;
+            if (mode === 'demo') {
+                await new Promise((resolve) => setTimeout(resolve, 700));
+                peers = [{ device_id: '2222222222222222', name: 'Demo sensor', mac_address: '02:11:22:33:44:55' }];
+            } else {
+                const result = DirectProtocolClient.validatePeerDiscoveryResult(await client.request('get', 'devices', {}, {
+                    signal: controller.signal, timeoutMs: 10000, retryTransportErrors: false
+                }));
+                peers = result.devices;
+            }
+            if (!current()) return;
+            renderRawTrafficTargets(peers);
+            const select = document.getElementById('sense-raw-target');
+            if (![...(select?.options || [])].some((option) => option.dataset.discovered === 'true')) {
+                toast('No other ESPectre sensor with a station MAC was found.');
+            }
+        } catch (error) {
+            if (!current()) return;
+            console.warn('Device discovery failed:', error);
+            toast('The search failed. Check the connection and try again.');
+        } finally {
+            if (monitor.rawTargetDiscovery === controller) {
+                monitor.rawTargetDiscovery = null;
+                syncRawTrafficTargetControls();
+            }
+        }
     }
 
     function applyRawTrafficSettings(snapshot) {
         const select = document.getElementById('sense-raw-target');
-        const input = document.getElementById('sense-raw-target-mac');
-        if (!select || !input || snapshot.traffic_generator_target_mac === undefined) return;
+        if (!select || snapshot.traffic_generator_target_mac === undefined) return;
         const target = String(snapshot.traffic_generator_target_mac).toLowerCase();
         if (select.dataset.deviceId !== conn.deviceId) {
+            cancelRawTrafficDiscovery({ clear: false });
             select.dataset.dirty = '';
-            input.value = '';
+            renderRawTrafficTargets([], target);
         }
         select.dataset.deviceId = conn.deviceId;
-        const draft = select.value === 'auto' ? 'auto' : input.value.trim().toLowerCase();
+        select.dataset.configuredTarget = target;
+        const draft = rawTrafficTargetValue();
         if (!select.dataset.dirty || draft === target) {
-            select.value = target === 'auto' ? 'auto' : 'custom';
-            if (target !== 'auto') input.value = target;
+            renderRawTrafficTargets(undefined, target);
             select.dataset.dirty = '';
         }
         syncRawTrafficTargetControls();
         evaluateConfigVerification({ traffic_generator_target_mac: target });
     }
 
-    function monitorChangeRawTarget() {
+    async function monitorChangeRawTarget() {
         const select = document.getElementById('sense-raw-target');
-        const input = document.getElementById('sense-raw-target-mac');
+        const target = select.value;
+        if (!target) return false;
         select.dataset.dirty = 'true';
-        syncRawTrafficTargetControls();
-        if (select.value === 'auto' || input.value.trim()) return monitorSaveRawTarget();
-        input.focus();
-    }
-
-    async function monitorSaveRawTarget() {
-        const select = document.getElementById('sense-raw-target');
-        const input = document.getElementById('sense-raw-target-mac');
-        const selection = select.value;
-        const enteredValue = input.value;
-        const target = selection === 'auto' ? 'auto' : enteredValue.trim().toLowerCase();
-        const octets = target.split(':');
-        select.dataset.dirty = 'true';
-        if (target !== 'auto' && (!/^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/.test(target)
-                || (parseInt(octets[0], 16) & 1) || octets.every((octet) => octet === '00'))) {
-            cfgValidationFailed('update_sensing', 'Enter a unicast MAC such as 02:11:22:33:44:55.');
-            return false;
-        }
         const client = directClient;
         const deviceId = conn.deviceId;
         const mode = conn.mode;
@@ -496,9 +567,10 @@
                 (snapshot) => String(snapshot.traffic_generator_target_mac).toLowerCase() === target);
             if (!sameSession()) return false;
             if (ok && mode === 'demo') demoSysinfoSnapshot.traffic_generator_target_mac = target;
-            if (ok && select.value === selection && input.value === enteredValue) {
-                if (selection === 'custom') input.value = target;
+            if (ok) select.dataset.configuredTarget = target;
+            if (ok && select.value === target) {
                 select.dataset.dirty = '';
+                renderRawTrafficTargets(undefined, target);
             }
             return ok;
         });
@@ -565,9 +637,6 @@
             );
         });
         document.getElementById('sense-raw-target').addEventListener('change', monitorChangeRawTarget);
-        document.getElementById('sense-raw-target-mac').addEventListener('change', monitorSaveRawTarget);
-        document.getElementById('sense-raw-target-mac').addEventListener('input', () => {
-            document.getElementById('sense-raw-target').dataset.dirty = 'true';
-        });
+        document.getElementById('sense-raw-target-refresh').addEventListener('click', monitorRefreshRawTrafficTargets);
         window.addEventListener('resize', monitorResizeChart);
     }

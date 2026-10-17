@@ -10,7 +10,7 @@ import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { DIRECT_PORT, peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
+import { DIRECT_PORT, peer, result, peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
 
 globalThis.window = globalThis.window ?? {};
 createRequire(import.meta.url)('../../docs/web/assets/js/espectre-direct.js');
@@ -332,6 +332,16 @@ describe('Direct HTTP connection failures', () => {
 });
 
 describe('Peer discovery schema v2', () => {
+    it('normalizes optional station MACs and ignores missing or unusable metadata', () => {
+        for (const mac of [undefined, '', null, 42, 'bad', '00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff', '01:22:33:44:55:66']) {
+            const snapshot = Client.validatePeerDiscoveryResult(result([peer({ mac_address: mac })]));
+            assert.equal(snapshot.devices.length, 1);
+            assert.equal(snapshot.devices[0].mac_address, undefined);
+        }
+        const snapshot = Client.validatePeerDiscoveryResult(result([peer({ mac_address: '02:AA:BB:CC:DD:EE' })]));
+        assert.equal(snapshot.devices[0].mac_address, '02:aa:bb:cc:dd:ee');
+    });
+
     it('uses one bootstrap GET without opening SSE or querying capabilities', async () => {
         const calls = installHttpFixture({ resultFor: (_method, resource) => {
             assert.equal(resource, 'devices');

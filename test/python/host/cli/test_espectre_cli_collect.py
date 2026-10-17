@@ -311,6 +311,19 @@ def test_discovery_frontends_exclude_streamer() -> None:
     assert device_discovery.SUPPORTED_DISCOVERY_FRONTENDS == ("native", "esphome", "matter", "micro")
 
 
+@pytest.mark.parametrize("advertised,expected", [
+    (None, None), (b"", None), (b"bad", None), (b"00:00:00:00:00:00", None),
+    (b"ff:ff:ff:ff:ff:ff", None), (b"01:22:33:44:55:66", None),
+    (b"02:AA:BB:CC:DD:EE", "02:aa:bb:cc:dd:ee"),
+])
+def test_discovery_normalizes_optional_station_mac(advertised, expected):
+    info = discovery_info(properties={b"mac_address": advertised})
+    record = device_discovery._parse_record(ESPECTRE_SERVICE_TYPE, "sensor._espectre._tcp.local.", info)
+    assert record is not None
+    assert record.mac_address == expected
+    assert record.as_serializable_dict()["mac_address"] == expected
+
+
 def discovery_info(**overrides):
     properties = {
         b"device_id": b"0x1234",

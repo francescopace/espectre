@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "peer_discovery_service_esp_idf.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 
 #include <algorithm>
 #include <cstring>
@@ -73,6 +74,7 @@ std::vector<PeerDiscoveryCandidate> copy_candidates(mdns_result_t *results) {
     candidate.instance = text(result->instance_name, 63U);
     candidate.hostname = text(result->hostname, 63U);
     candidate.device_id = txt_value(result, "device_id", 16U);
+    candidate.mac_address = txt_value(result, "mac_address", 17U);
     candidate.name = txt_value(result, "name", 63U);
     candidate.frontend = txt_value(result, "frontend", 16U);
     candidate.txt_version = txt_value(result, "txtvers", 8U);
@@ -164,6 +166,7 @@ void EspIdfPeerDiscoveryService::finish_(mdns_result_t *results, bool deliver) {
   if (have_ip && !local_candidate_.device_id.empty()) {
     PeerDiscoveryCandidate local_candidate = local_candidate_;
     local_candidate.ipv4_addresses = {ip_info.ip.addr};
+    local_candidate.mac_address = read_direct_station_mac_address();
     candidates.push_back(std::move(local_candidate));
   }
   PeerDiscoverySnapshot snapshot = validate_peer_discovery_candidates(

@@ -62,6 +62,8 @@ The main implementation entry points are:
 
 In Demo mode, the Monitor applies the configured motion-on and motion-off reading counts to state transitions and chart highlighting. The movement score stays unchanged. These settings remain active while navigating between tools and reset when a new demo session starts.
 
+The Monitor's Destination MAC menu offers Automatic (AP) and discovered ESPectre sensors, with no manual address entry. A configured MAC remains selected even when its sensor has not been discovered. The menu searches only when its refresh button is clicked. Every click starts a fresh discovery through the connected device, without caching or reusing Find devices results. Search progress appears only on the refresh button, as with the BSSID refresh in Device settings. A failed search, or one that finds no other sensor, shows a short notice. Leaving the Monitor or changing the connection discards the results while preserving the configured MAC, or `auto` when none is configured. The discovery contract and receiver requirements are described in the [discovery reference](../DISCOVERY.md#client-validation-and-fallback).
+
 Live tools share a Local or Demo connection. Remote access is planned and has no relay implementation. The canonical device contract is in the [API reference](../API.md), with discovery rules in the [discovery reference](../DISCOVERY.md).
 
 ### Firmware signature verification

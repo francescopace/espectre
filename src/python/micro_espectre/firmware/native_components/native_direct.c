@@ -15,6 +15,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -1278,7 +1279,17 @@ static esp_err_t direct_add_mdns_service(
   if (result != ESP_OK) {
     return result;
   }
+  uint8_t station_mac[6] = {0};
+  char mac_address[18] = {0};
+  // Advertise only a nonzero unicast station MAC, like the C++ frontends.
+  if (esp_wifi_get_mac(WIFI_IF_STA, station_mac) == ESP_OK && (station_mac[0] & 1U) == 0U &&
+      (station_mac[0] | station_mac[1] | station_mac[2] | station_mac[3] | station_mac[4] | station_mac[5]) != 0U) {
+    snprintf(mac_address, sizeof(mac_address), "%02x:%02x:%02x:%02x:%02x:%02x",
+             station_mac[0], station_mac[1], station_mac[2], station_mac[3], station_mac[4], station_mac[5]);
+  }
   mdns_txt_item_t txt[] = {
+      // Optional and kept first so an unavailable MAC is skipped below.
+      {"mac_address", mac_address},
       {"protovers", direct_state.protocol_version},
       {"device_id", device_id},
       {"name", instance},
@@ -1291,7 +1302,8 @@ static esp_err_t direct_add_mdns_service(
       // Espressif prepends TXT items; txtvers must be first on the wire.
       {"txtvers", direct_state.dns_sd_schema_version},
   };
-  result = mdns_service_add(instance, "_espectre", "_tcp", port, txt, MP_ARRAY_SIZE(txt));
+  const size_t txt_skip = mac_address[0] == '\0' ? 1U : 0U;
+  result = mdns_service_add(instance, "_espectre", "_tcp", port, txt + txt_skip, MP_ARRAY_SIZE(txt) - txt_skip);
   if (result != ESP_OK) {
     return result;
   }

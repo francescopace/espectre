@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "peer_discovery.h"
+#include "mac_address_helpers.h"
 
 #include <algorithm>
 #include <cctype>
@@ -118,6 +119,7 @@ std::string device_json(const PeerDiscoveryCandidate &device) {
   append_json_pair(&out, "path", device.path.c_str());
   append_json_pair(&out, "firmware", device.firmware.c_str());
   append_json_pair(&out, "chip", device.chip.c_str());
+  if (!device.mac_address.empty()) append_json_pair(&out, "mac_address", device.mac_address.c_str());
   out += ",\"port\":" + std::to_string(device.port) + ",\"capabilities\":[";
   const auto capabilities = capability_tokens(device.capabilities);
   for (size_t index = 0U; index < capabilities.size(); ++index) {
@@ -148,6 +150,13 @@ PeerDiscoverySnapshot validate_peer_discovery_candidates(
   std::map<std::string, PeerDiscoveryCandidate> accepted;
   std::set<std::string> conflicted;
   for (PeerDiscoveryCandidate candidate : candidates) {
+    uint8_t mac[6]{};
+    if (!parse_unicast_mac_address(candidate.mac_address, mac)) {
+      candidate.mac_address.clear();
+    } else {
+      std::transform(candidate.mac_address.begin(), candidate.mac_address.end(), candidate.mac_address.begin(),
+                     [](char c) { return c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c; });
+    }
     if (!valid_candidate(candidate)) {
       snapshot.rejected_results += 1U;
       continue;
@@ -185,10 +194,13 @@ PeerDiscoverySnapshot validate_peer_discovery_candidates(
         });
     const bool same_endpoint = same_hostname && current.frontend == candidate.frontend &&
                                current.port == candidate.port && current.path == candidate.path;
-    if (!same_endpoint) {
+    const bool conflicting_mac = !current.mac_address.empty() && !candidate.mac_address.empty() &&
+                                 current.mac_address != candidate.mac_address;
+    if (!same_endpoint || conflicting_mac) {
       conflicted.insert(candidate.device_id);
       continue;
     }
+    if (current.mac_address.empty()) current.mac_address = candidate.mac_address;
     current.ipv4_addresses.insert(current.ipv4_addresses.end(),
                                   candidate.ipv4_addresses.begin(), candidate.ipv4_addresses.end());
     std::sort(current.ipv4_addresses.begin(), current.ipv4_addresses.end());

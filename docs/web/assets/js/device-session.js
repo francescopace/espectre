@@ -362,6 +362,7 @@
             details.hidden = ![...details.querySelectorAll('[data-device-command]')]
                 .some((panel) => !panel.hidden);
         });
+        syncRawTrafficTargetControls();
     }
 
     function setCalibrationBusy(busy) {
@@ -1036,6 +1037,7 @@
     }
 
     function resetMonitorSession() {
+        cancelRawTrafficDiscovery();
         monitor.commands.clear();
         monitor.commandCatalogReady = false;
         setCalibrationBusy(false);
@@ -1054,6 +1056,7 @@
     }
 
     function teardownConnection(reason = 'route_change') {
+        cancelRawTrafficDiscovery();
         cancelWifiScan();
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();

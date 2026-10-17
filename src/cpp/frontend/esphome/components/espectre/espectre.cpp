@@ -233,6 +233,7 @@ std::string ESpectreComponent::mdns_instance_name_() const {
 MdnsTxtRecords ESpectreComponent::mdns_txt_records_() const {
   return {
       {"device_id", format_espectre_device_id(this->runtime_.config().device_id)},
+      {"mac_address", read_direct_station_mac_address()},
       {"name", this->display_name_()},
       {"frontend", "esphome"},
       {"txtvers", ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},

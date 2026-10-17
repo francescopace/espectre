@@ -322,6 +322,7 @@
         }
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
+        if (previousRoute === 'tool-monitor' && target !== previousRoute) cancelRawTrafficDiscovery();
         if (previousRoute === 'tool-configure' && target !== previousRoute) {
             cancelWifiScan();
             // Re-read resources without SSE updates on the next settings visit.
@@ -841,7 +842,10 @@
     });
     document.addEventListener('visibilitychange', () => {
         syncDiagnosticsPolling();
-        if (document.hidden) cancelWifiScan();
+        if (document.hidden) {
+            cancelWifiScan();
+            cancelRawTrafficDiscovery();
+        }
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;

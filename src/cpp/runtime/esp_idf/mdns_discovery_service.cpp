@@ -132,6 +132,8 @@ bool MdnsDiscoveryService::set_service_txt_() {
   records.reserve(config_.txt_records.size());
   for (const auto &record : config_.txt_records) {
     if (record.first == "txtvers") continue;
+    // The station MAC is optional; publish it only when the driver supplied one.
+    if (record.first == "mac_address" && record.second.empty()) continue;
     records.push_back(mdns_txt_item_t{record.first.c_str(), record.second.c_str()});
   }
   // Espressif prepends TXT items to its list. Pass txtvers last so it is

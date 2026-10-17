@@ -45,7 +45,7 @@ An ESP32 transmitter can send Null Data or ESP-NOW directly to the receiver's st
 
 For direct Null Data at MCS0, configure the transmitter bandwidth explicitly with `esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20)`, and use `FF:FF:FF:FF:FF:FF` as the BSSID in address 3. Keep address 1 equal to the receiver's station MAC, address 2 equal to the transmitter's station MAC, and `ToDS = FromDS = 0`. The destination remains unicast. ESP-NOW uses the same [connectionless MAC addressing](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_now.html#frame-format), and its per-peer PHY configuration selects HT20 independently of the interface's default bandwidth. Set the raw rate with `esp_wifi_config_80211_tx_rate()` before starting Wi-Fi, as specified by [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_wifi.html).
 
-For hardware measurements, see the [external radio acquisition trials](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c3-to-s3-external-radio-acquisition).
+For hardware validation, see the [external radio and peer sensing checks](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation).
 
 On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on sends UDP marker traffic and adds a panel to switch ESPHome and Native MQTT devices between internal and external mode. Match its `rate_pps` to the device's `csi_target_pps`. Stop the add-on before running `./espectre collect` on the same devices, because collection starts its own generator. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md).
 

@@ -37,4 +37,7 @@ DirectWifiSnapshot read_direct_wifi_snapshot();
 /** Read cached IPv4 link readiness without querying the Wi-Fi driver. */
 bool read_direct_wifi_connected();
 
+/** Read the active station MAC for discovery, as lowercase colon-separated hex; empty when unavailable. */
+std::string read_direct_station_mac_address();
+
 }  // namespace espectre

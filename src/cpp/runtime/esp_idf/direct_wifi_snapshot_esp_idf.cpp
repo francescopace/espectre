@@ -6,6 +6,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "direct_wifi_snapshot_esp_idf.h"
+#include "runtime/mac_address_helpers.h"
 
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,19 @@
 #endif
 
 namespace espectre {
+
+std::string read_direct_station_mac_address() {
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
+  uint8_t mac[6]{};
+  if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK && !is_zero_mac_address(mac) && (mac[0] & 1U) == 0U) {
+    char text[18]{};
+    std::snprintf(text, sizeof(text), "%02x:%02x:%02x:%02x:%02x:%02x",
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return text;
+  }
+#endif
+  return {};
+}
 
 DirectWifiSnapshot read_direct_wifi_snapshot() {
   DirectWifiSnapshot snapshot;

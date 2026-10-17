@@ -105,6 +105,7 @@ std::string native_instance_name(const espectre::EspectreDeviceConfig &config) {
 espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &config) {
   return {
       {"device_id", espectre::format_espectre_device_id(config.device_id)},
+      {"mac_address", espectre::read_direct_station_mac_address()},
       {"name", native_display_name(config)},
       {"frontend", "native"},
       {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},

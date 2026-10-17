@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 import math
+import re
 import threading
 import time
 
@@ -54,6 +55,7 @@ class DiscoveredDevice:
     firmware: str | None = None
     capabilities: tuple[str, ...] = ()
     metadata: tuple[tuple[str, str], ...] = ()
+    mac_address: str | None = None
 
     @property
     def display_id(self) -> str:
@@ -154,6 +156,11 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
     capabilities_text = _decode_txt(info.properties, "capabilities") or ""
     capabilities = tuple(value.strip() for value in capabilities_text.split(",") if value.strip())
     metadata = ()
+    mac_address = (_decode_txt(info.properties, "mac_address") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{2}(?::[0-9a-f]{2}){5}", mac_address) or (
+        int(mac_address[:2], 16) & 1 or mac_address == "00:00:00:00:00:00"
+    ):
+        mac_address = None
     return DiscoveredDevice(
         service_name=service_name,
         service_type=service_type,
@@ -171,6 +178,7 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         firmware=_decode_txt(info.properties, "firmware"),
         capabilities=capabilities,
         metadata=metadata,
+        mac_address=mac_address,
     )
 
 

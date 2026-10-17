@@ -374,7 +374,12 @@
                 const host = address.includes(':') ? `[${address}]` : address;
                 return normalizeEndpoint(`http://${host}:${peer.port}${peer.path}`);
             });
-            return Object.freeze({ ...peer, capabilities: [...capabilities], addresses: [...addresses], endpoints });
+            const { mac_address: advertisedMac, ...metadata } = peer;
+            const mac = typeof advertisedMac === 'string' ? advertisedMac.toLowerCase() : '';
+            const validMac = /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/.test(mac)
+                && !(parseInt(mac.slice(0, 2), 16) & 1) && mac !== '00:00:00:00:00:00';
+            return Object.freeze({ ...metadata, ...(validMac ? { mac_address: mac } : {}),
+                capabilities: [...capabilities], addresses: [...addresses], endpoints });
         });
         return Object.freeze({ ...result, devices });
     }

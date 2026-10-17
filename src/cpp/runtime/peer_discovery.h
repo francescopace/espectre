@@ -60,6 +60,8 @@ struct PeerDiscoveryCandidate {
   uint16_t port{0U};
   /** IPv4 addresses in network byte order. */
   std::vector<uint32_t> ipv4_addresses;
+  /** Optional station MAC; normalized to lowercase, or empty when unavailable or invalid. */
+  std::string mac_address;
 };
 
 /** Validated result of one discovery search. */
