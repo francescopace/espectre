@@ -41,7 +41,7 @@ Release checks and artifact publication follow the [release procedure](RELEASING
 - [ ] Define Matter OTA ownership, Requestor and Provider responsibilities, and release-artifact requirements
 - [x] Assess manufacturer certification gaps, including vendor identity, device attestation, factory provisioning, and certification test coverage; see [certification readiness](../src/cpp/frontend/matter/README.md#certification-readiness)
 - [x] Support direct Null Data and ESP-NOW reception in `external` mode, with an ESP32-C3 transmitter and ESP32-S3 receiver validated at HT20 MCS0 and legacy OFDM/LLTF; see [external sources](CSI.md#external-sources)
-- [ ] Validate direct Null Data and ESP-NOW reception in `external` mode on receiver chips beyond the ESP32-S3
+- [ ] Validate direct Null Data and ESP-NOW reception in `external` mode on ESP32, ESP32-S2, ESP32-C3, ESP32-C5, and ESP32-C6 receivers at HT20 MCS0 and legacy OFDM/LLTF, and document any chip-specific limits
 - [ ] Publish a standalone Docker image of the traffic generator with a web UI for configuration, start/stop controls, and status, usable alongside Home Assistant Container or without Home Assistant, including with Native or Matter firmware
 
 **Exit criteria**: each selected controller passes or has its limits documented, OTA and certification have a documented design and a list of what is missing, and each supported receiver chip either accepts direct Null Data and ESP-NOW or has its limits documented. The standalone Docker image has documented setup instructions, and its web UI can configure, control, and monitor traffic generation both alongside Home Assistant Container and without Home Assistant or Supervisor.

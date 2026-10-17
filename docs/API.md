@@ -85,6 +85,7 @@ Mutations return a result object:
 | `operations` | array of objects | Supported operations as `{name, method, path}` |
 | `events` | array of strings | Event names published by this frontend |
 | `features.csi` | boolean | Whether `GET /csi` is available |
+| `features.traffic_generator_target_mac` | boolean, optional | Whether `update_sensing` accepts a raw destination MAC; absent means unsupported |
 | `csi` | object, optional | CSI endpoint, framing versions, queue parameters, and external traffic settings |
 
 Clients must ignore resources, operations, events, and fields they do not know.
@@ -101,7 +102,8 @@ Clients must ignore resources, operations, events, and fields they do not know.
 | `detector` | string | `lightweight` or `high_accuracy` |
 | `threshold` | number | Current detector threshold in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integer | Consecutive evaluations required for each state transition |
-| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)) for the device's own traffic, or `external` when another host sends it |
+| `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (see [compatibility limits](CSI.md#compatibility-limits)) for the device's own traffic, or `external` when another host sends it |
+| `traffic_generator_target_mac` | string, optional | Configured `wifi_raw` destination: `auto` (currently associated AP) or an explicit unicast peer MAC; `auto` remains the configured value after AP changes |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
@@ -227,9 +229,12 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `detector` | `lightweight` or `high_accuracy` |
 | `threshold` | finite number in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integers from `1` through `20`; both must be present together |
-| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, `wifi_raw` (experimental; see [compatibility limits](CSI.md#compatibility-limits)), or `external` |
+| `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, `wifi_raw` (see [compatibility limits](CSI.md#compatibility-limits)), or `external` |
+| `traffic_generator_target_mac` | `auto` or a nonzero, colon-separated unicast MAC; requires `features.traffic_generator_target_mac` |
 
 All fields are checked before anything changes: either the whole request applies or none of it does. If the device itself fails while applying, for example when it cannot save a setting, the fields applied so far stay applied and the device publishes `sensing` with the resulting state. Success returns HTTP `200` and publishes `sensing`.
+
+The raw destination is independent of `traffic_generator_mode`: it can be saved before enabling `wifi_raw`, and other traffic sources ignore it. Hex digits are case-insensitive and are reported in lower case. The device's own MAC is rejected as `invalid_params` before anything changes. An explicit destination remains fixed across AP changes; `auto` resolves the actual associated AP after reconnecting, including a changed or cleared BSSID pin. Updates restart active raw traffic and recalibrate Lightweight detection. Saving this field does not disable sensing or change the receiver's capture profile. See [traffic destination](SDK.md#traffic-destination) for persistence and radio behavior.
 
 `POST /sensing/calibrations` takes no parameters. It returns `202` when calibration starts, or `409` with code `busy` if one is already running.
 

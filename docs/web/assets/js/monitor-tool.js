@@ -46,7 +46,8 @@
         diagIntervalMs: 0,
         diagRequestPending: false,
         calibrating: false,
-        calibrationTimer: null
+        calibrationTimer: null,
+        rawTargetSavePending: null
     };
 
     function monitorStatus(message) {
@@ -435,6 +436,76 @@
         document.querySelector('espectre-connection-picker[data-surface="monitor"]')?.select(mode);
     }
 
+    function syncRawTrafficTargetControls() {
+        const select = document.getElementById('sense-raw-target');
+        const custom = document.getElementById('sense-raw-target-custom');
+        if (select && custom) custom.hidden = select.value !== 'custom';
+    }
+
+    function applyRawTrafficSettings(snapshot) {
+        const select = document.getElementById('sense-raw-target');
+        const input = document.getElementById('sense-raw-target-mac');
+        if (!select || !input || snapshot.traffic_generator_target_mac === undefined) return;
+        const target = String(snapshot.traffic_generator_target_mac).toLowerCase();
+        if (select.dataset.deviceId !== conn.deviceId) {
+            select.dataset.dirty = '';
+            input.value = '';
+        }
+        select.dataset.deviceId = conn.deviceId;
+        const draft = select.value === 'auto' ? 'auto' : input.value.trim().toLowerCase();
+        if (!select.dataset.dirty || draft === target) {
+            select.value = target === 'auto' ? 'auto' : 'custom';
+            if (target !== 'auto') input.value = target;
+            select.dataset.dirty = '';
+        }
+        syncRawTrafficTargetControls();
+        evaluateConfigVerification({ traffic_generator_target_mac: target });
+    }
+
+    function monitorChangeRawTarget() {
+        const select = document.getElementById('sense-raw-target');
+        const input = document.getElementById('sense-raw-target-mac');
+        select.dataset.dirty = 'true';
+        syncRawTrafficTargetControls();
+        if (select.value === 'auto' || input.value.trim()) return monitorSaveRawTarget();
+        input.focus();
+    }
+
+    async function monitorSaveRawTarget() {
+        const select = document.getElementById('sense-raw-target');
+        const input = document.getElementById('sense-raw-target-mac');
+        const selection = select.value;
+        const enteredValue = input.value;
+        const target = selection === 'auto' ? 'auto' : enteredValue.trim().toLowerCase();
+        const octets = target.split(':');
+        select.dataset.dirty = 'true';
+        if (target !== 'auto' && (!/^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/.test(target)
+                || (parseInt(octets[0], 16) & 1) || octets.every((octet) => octet === '00'))) {
+            cfgValidationFailed('update_sensing', 'Enter a unicast MAC such as 02:11:22:33:44:55.');
+            return false;
+        }
+        const client = directClient;
+        const deviceId = conn.deviceId;
+        const mode = conn.mode;
+        const sameSession = () => directClient === client && conn.deviceId === deviceId && conn.mode === mode;
+        // Preserve edit order when a previous autosave is still in flight.
+        const saving = (monitor.rawTargetSavePending || Promise.resolve()).then(async () => {
+            if (!sameSession()) return false;
+            const ok = await cfgApply('update_sensing', 'Raw Wi-Fi destination saved.',
+                'patch', 'sensing', { traffic_generator_target_mac: target },
+                (snapshot) => String(snapshot.traffic_generator_target_mac).toLowerCase() === target);
+            if (!sameSession()) return false;
+            if (ok && mode === 'demo') demoSysinfoSnapshot.traffic_generator_target_mac = target;
+            if (ok && select.value === selection && input.value === enteredValue) {
+                if (selection === 'custom') input.value = target;
+                select.dataset.dirty = '';
+            }
+            return ok;
+        });
+        monitor.rawTargetSavePending = saving.catch(() => false);
+        return saving;
+    }
+
     function monitorInit() {
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
@@ -481,11 +552,21 @@
         $('.js-sense-recalibrate').addEventListener('click', beginCalibration);
         document.getElementById('sense-generator-mode').addEventListener('change', () => {
             const trafficGeneratorMode = document.getElementById('sense-generator-mode').value;
+            syncSensingControls();
             runSensingCommand(
                 { command: 'update_sensing', traffic_generator_mode: trafficGeneratorMode },
                 'Changing the Wi-Fi traffic source…',
-                'Wi-Fi traffic source updated.'
+                'Wi-Fi traffic source updated.',
+                () => {
+                    demoSysinfoSnapshot.traffic_mode = trafficGeneratorMode;
+                    applySensingSnapshot({ traffic_generator_mode: trafficGeneratorMode });
+                }
             );
+        });
+        document.getElementById('sense-raw-target').addEventListener('change', monitorChangeRawTarget);
+        document.getElementById('sense-raw-target-mac').addEventListener('change', monitorSaveRawTarget);
+        document.getElementById('sense-raw-target-mac').addEventListener('input', () => {
+            document.getElementById('sense-raw-target').dataset.dirty = 'true';
         });
         window.addEventListener('resize', monitorResizeChart);
     }

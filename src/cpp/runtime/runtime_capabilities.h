@@ -47,6 +47,8 @@ struct RuntimeCapabilities {
   bool supports_traffic_control{false};
   /** The runtime can temporarily bypass sensing and expose normalized raw CSI. */
   bool supports_raw_csi{false};
+  /** The runtime can retarget WIFI_RAW to the AP or an explicit peer. */
+  bool supports_traffic_target_mac{false};
 };
 
 }  // namespace espectre

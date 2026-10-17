@@ -36,7 +36,7 @@
     <p>Lightweight Detection calibrates on about ten seconds of clean input, and without input it never finishes. The usual cause is a router that blocks or limits ping, the traffic the sensor uses by default. <em>Traffic RX</em> is then far below <em>Traffic TX</em>, and <em>CSI occupancy</em> stays low. Change the traffic source:</p>
     <ol class="steps-list">
       <li><h3>Open the advanced settings</h3><p>In Live motion, open <em>Advanced sensing settings</em> under <em>Motion settings</em>.</p></li>
-      <li><h3>Switch to Wi-Fi raw</h3><p>Set <em>Wi-Fi traffic source</em> to <em>Wi-Fi raw</em>. It talks to the access point directly, so routers rarely block it. It is experimental and not offered on ESP32-C6.</p></li>
+      <li><h3>Switch to Wi-Fi raw</h3><p>Set <em>Wi-Fi traffic source</em> to <em>Wi-Fi raw</em>. It talks to the access point directly, so routers rarely block it. It is not offered on ESP32-C6.</p></li>
       <li><h3>Check occupancy</h3><p>In <em>Diagnostics</em>, <em>CSI occupancy</em> should rise above 70%. With Wi-Fi raw, judge by occupancy only.</p></li>
       <li><h3>Try DNS if needed</h3><p>If occupancy stays low, try <em>DNS (UDP)</em>, then <em>DNS (TCP)</em>, and keep the one with the highest occupancy.</p></li>
       <li><h3>Let it calibrate</h3><p>Keep the room still for about ten seconds. Calibration restarts on its own after each change.</p></li>

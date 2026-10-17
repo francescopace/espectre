@@ -33,6 +33,7 @@ enum class RuntimeConfigError : uint8_t {
   TRAFFIC_GENERATOR_TARGET_IP,
   CSI_CAPTURE_PROFILE,
   CSI_CAPTURE_PROFILE_TRAFFIC,
+  TRAFFIC_GENERATOR_TARGET_MAC,
 };
 
 /** Whether a threshold is finite and inside the range shared by every detector. */
@@ -43,6 +44,11 @@ bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorith
 bool runtime_traffic_generator_mode_supported(TrafficGeneratorMode mode);
 /** Whether a configured CSI profile can be combined with the internal source. */
 bool runtime_capture_profile_supports_traffic(CsiCapturePolicy profile, TrafficGeneratorMode mode);
+
+/** Accept `auto` or a nonzero, colon-separated unicast MAC address. */
+bool validate_traffic_generator_target_mac(const std::string &target);
+/** Return a valid target with lower-case hex digits; other values are returned unchanged. */
+std::string canonical_traffic_generator_target_mac(const std::string &target);
 
 /** Validate the complete configuration before creating runtime state. */
 RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);
@@ -66,13 +72,15 @@ struct RuntimeControlUpdate {
   uint8_t motion_off_hits{0U};
   bool has_traffic_generator_mode{false};
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
+  bool has_traffic_generator_target_mac{false};
+  std::string traffic_generator_target_mac{"auto"};
 };
 
 /**
  * Return `config` with `update` applied, as the controller setters apply it.
  *
  * Fields apply in the order detector, threshold, motion hits, then traffic
- * generator mode. Switching to a different detector also adopts that
+ * destination and mode. Switching to a different detector also adopts that
  * detector's default threshold unless the update sets one. Pass the result to
  * validate_runtime_config() to check the change before applying it.
  */

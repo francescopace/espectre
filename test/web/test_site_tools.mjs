@@ -310,6 +310,80 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
 }
 
 describe('device HTTP request budgets', () => {
+    it('autosaves raw MAC choices in order and preserves pending edits', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        let focused = false;
+        const input = { value: '', focus() { focused = true; } };
+        const select = { value: 'auto', dataset: {} };
+        const custom = { hidden: true };
+        const fields = { 'sense-raw-target': select, 'sense-raw-target-mac': input, 'sense-raw-target-custom': custom };
+        runtime.context.document.getElementById = (id) => fields[id] || null;
+        const calls = [];
+        runtime.setClient({ connected: true, request: async (method, resource, params) => {
+            calls.push({ method, resource, params });
+            return { traffic_generator_target_mac: params?.traffic_generator_target_mac || 'auto' };
+        } });
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        assert.equal(custom.hidden, true);
+        select.value = 'custom';
+        runtime.context.monitorChangeRawTarget();
+        assert.equal(custom.hidden, false);
+        assert.equal(focused, true);
+        for (const bad of ['', 'ff:ff:ff:ff:ff:ff', '01:22:33:44:55:66', '00:00:00:00:00:00', '10:b4:1d:e8:ec:0']) {
+            input.value = bad;
+            assert.equal(await runtime.context.monitorSaveRawTarget(), false);
+        }
+        assert.equal(calls.length, 0);
+        input.value = '10:B4:1D:E8:EC:00';
+        assert.equal(await runtime.context.monitorSaveRawTarget(), true);
+        assert.equal(calls[0].resource, 'sensing');
+        assert.equal(calls[0].method, 'patch');
+        assert.equal(calls[0].params.traffic_generator_target_mac, '10:b4:1d:e8:ec:00');
+        assert.equal(input.value, '10:b4:1d:e8:ec:00');
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: '10:b4:1d:e8:ec:00' });
+        assert.equal(runtime.run('pendingConfigVerification'), null);
+        select.value = 'auto';
+        assert.equal(await runtime.context.monitorChangeRawTarget(), true);
+        assert.equal(calls[1].params.traffic_generator_target_mac, 'auto');
+        assert.equal(custom.hidden, true);
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        select.value = 'custom';
+        input.value = '10:b4:1d:e8:ec:02';
+        select.dataset.dirty = 'true';
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        assert.equal(select.value, 'custom');
+        assert.equal(input.value, '10:b4:1d:e8:ec:02');
+        const caps = { operations: [{ name: 'update_sensing' }], resources: ['sensing'] };
+        assert.equal(runtime.context.directCapabilitiesSnapshot(caps).supports_traffic_target_mac, false);
+        caps.features = { traffic_generator_target_mac: true };
+        assert.equal(runtime.context.directCapabilitiesSnapshot(caps).supports_traffic_target_mac, true);
+        const requests = [];
+        runtime.setClient({ connected: true, request: (method, resource, params) => new Promise((resolve) => {
+            requests.push({ target: params.traffic_generator_target_mac, resolve });
+        }) });
+        const saving = runtime.context.monitorSaveRawTarget();
+        await Promise.resolve();
+        input.value = '02:11:22:33:44:55';
+        const nextSave = runtime.context.monitorSaveRawTarget();
+        assert.equal(requests.length, 1);
+        requests[0].resolve({});
+        await saving;
+        assert.equal(input.value, '02:11:22:33:44:55');
+        assert.equal(requests.length, 2);
+        requests[1].resolve({});
+        await nextSave;
+        assert.deepEqual(requests.map((request) => request.target), ['10:b4:1d:e8:ec:02', '02:11:22:33:44:55']);
+        runtime.run("conn.mode = 'demo'; demoSysinfoSnapshot = {}");
+        select.value = 'auto';
+        await runtime.context.monitorChangeRawTarget();
+        assert.equal(runtime.run('demoSysinfoSnapshot.traffic_generator_target_mac'), 'auto');
+        select.value = 'custom';
+        await runtime.context.monitorChangeRawTarget();
+        assert.equal(runtime.run('demoSysinfoSnapshot.traffic_generator_target_mac'), input.value);
+        assert.equal(requests.length, 2, 'Demo must not send a request');
+    });
+
     it('renders selected diagnostics and every demo indicator, preserving unavailable values', async () => {
         const runtime = loadDeviceHttpRuntime({ renderDiagnostics: true });
         const stats = new Map(Array.from(toolContent.monitor.matchAll(/class="stat-value (js-mon-[\w-]+)"/g),

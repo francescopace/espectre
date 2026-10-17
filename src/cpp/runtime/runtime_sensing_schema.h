@@ -57,7 +57,7 @@ enum class TrafficGeneratorMode {
   DNS,
   /** Internal generator, length-prefixed DNS queries over a persistent TCP connection. */
   DNS_TCP,
-  /** Internal generator, raw Wi-Fi Null Data frames addressed to the associated AP. */
+  /** Internal generator, raw Wi-Fi Null Data frames addressed to the associated AP or a configured peer. */
   WIFI_RAW,
   /**
    * No internal generator: another host sends exact UDP markers, unicast

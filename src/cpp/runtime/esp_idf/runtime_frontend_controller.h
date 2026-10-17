@@ -233,6 +233,11 @@ class RuntimeFrontendController : private IRuntimeListener {
    */
   bool set_traffic_generator_mode(TrafficGeneratorMode mode);
   /**
+   * Set auto or a unicast raw destination, stored with lower-case hex digits.
+   * Rejects this station's MAC, restarts active raw traffic, and persists when enabled.
+   */
+  bool set_traffic_generator_target_mac(const std::string &target);
+  /**
    * Switch detector while running.
    *
    * The threshold follows the detector: the controller adopts the new

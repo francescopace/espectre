@@ -110,6 +110,7 @@ void EspIdfRuntime::initialize_runtime_state_() {
   capabilities_.supports_live_telemetry = true;
   capabilities_.supports_extended_diagnostics = true;
   capabilities_.supports_traffic_control = true;
+  capabilities_.supports_traffic_target_mac = runtime_traffic_generator_mode_supported(TrafficGeneratorMode::WIFI_RAW);
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
   // Raw CSI uses the same ESP-IDF capture boundary on every supported chip.
   capabilities_.supports_raw_csi = true;
@@ -152,6 +153,19 @@ void EspIdfRuntime::load_persisted_overrides_() {
     ESPECTRE_LOGW(RUNTIME_TAG, "Ignoring persisted traffic source incompatible with this target or CSI profile");
   }
 
+  bool has_saved_target = false;
+  std::string saved_target;
+  const esp_err_t target_err = load_runtime_traffic_generator_target_mac(&saved_target, &has_saved_target);
+  if (target_err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load raw destination: %s", esp_err_to_name(target_err));
+  } else if (has_saved_target) {
+    if (saved_target != config_.traffic_generator_target_mac) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted raw destination override: configured=%s saved=%s",
+                    config_.traffic_generator_target_mac.c_str(), saved_target.c_str());
+    }
+    config_.traffic_generator_target_mac = saved_target;
+  }
+
   uint8_t saved_motion_on_hits = config_.motion_on_hits;
   uint8_t saved_motion_off_hits = config_.motion_off_hits;
   bool has_saved_motion_hits = false;
@@ -190,6 +204,7 @@ bool EspIdfRuntime::setup() {
     notify_fault_(runtime_config_error_message(config_error));
     return false;
   }
+  config_.traffic_generator_target_mac = canonical_traffic_generator_target_mac(config_.traffic_generator_target_mac);
 
   ESPECTRE_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
 
@@ -521,6 +536,37 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
     recalibrate_for_traffic_change_();
   }
   ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_generator_mode_name(mode));
+  return true;
+}
+
+bool EspIdfRuntime::set_traffic_generator_target_mac(const std::string &requested_target) {
+  const std::string target = canonical_traffic_generator_target_mac(requested_target);
+  if (!capabilities_.supports_traffic_target_mac ||
+      operation_state() == RuntimeOperationState::RAW_COLLECTION ||
+      !validate_traffic_generator_target_mac(target) || traffic_target_mac_is_station(target)) return false;
+  if (target == config_.traffic_generator_target_mac) return true;
+  const RuntimeConfig previous_config = config_;
+  config_.traffic_generator_target_mac = target;
+  const bool active_raw = config_.traffic_generator_mode == TrafficGeneratorMode::WIFI_RAW;
+  if (active_raw && !apply_traffic_runtime_config_(true, false)) {
+    restore_traffic_runtime_config_(previous_config);
+    return false;
+  }
+  const esp_err_t err = config_.persist_runtime_overrides
+      ? save_runtime_traffic_generator_target_mac(target) : ESP_OK;
+  if (err != ESP_OK) {
+    if (active_raw) restore_traffic_runtime_config_(previous_config);
+    else config_ = previous_config;
+    return false;
+  }
+  if (active_raw) calibrated_setup_.valid = false;
+  if (active_raw && config_.detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
+    if (deferred_capture_action_ == DeferredCaptureAction::FinishTrafficApply) {
+      deferred_traffic_recalibrate_ = true;
+    } else {
+      recalibrate_for_traffic_change_();
+    }
+  }
   return true;
 }
 

@@ -17,6 +17,7 @@ namespace {
 
 constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kTrafficGeneratorModeKey = "traffic_gen";
+constexpr const char *kTrafficTargetMacKey = "traffic_mac";
 
 esp_err_t load_string_key(const char *key, char *value, size_t value_size, bool *has_saved_value) {
   if (key == nullptr || value == nullptr || value_size == 0U || has_saved_value == nullptr) {
@@ -88,6 +89,25 @@ esp_err_t save_runtime_traffic_generator_mode(TrafficGeneratorMode mode) {
 
 esp_err_t clear_runtime_traffic_generator_mode() {
   return detail::erase_espectre_nvs_keys({kTrafficGeneratorModeKey});
+}
+
+esp_err_t load_runtime_traffic_generator_target_mac(std::string *target, bool *has_saved_value) {
+  if (target == nullptr || has_saved_value == nullptr) return ESP_ERR_INVALID_ARG;
+  char value[18]{};
+  const esp_err_t err = load_string_key(kTrafficTargetMacKey, value, sizeof(value), has_saved_value);
+  if (err != ESP_OK || !*has_saved_value) return err;
+  if (!validate_traffic_generator_target_mac(value)) return ESP_ERR_INVALID_STATE;
+  *target = value;
+  return ESP_OK;
+}
+
+esp_err_t save_runtime_traffic_generator_target_mac(const std::string &target) {
+  if (!validate_traffic_generator_target_mac(target)) return ESP_ERR_INVALID_ARG;
+  return save_string_key(kTrafficTargetMacKey, target.c_str());
+}
+
+esp_err_t clear_runtime_traffic_generator_target_mac() {
+  return detail::erase_espectre_nvs_keys({kTrafficTargetMacKey});
 }
 
 }  // namespace espectre

@@ -87,6 +87,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_generator_mode(mode.c_str());
   }
+  void set_traffic_generator_target_mac(const std::string &target) {
+    this->runtime_.config().traffic_generator_target_mac = target;
+  }
   void set_traffic_generator_target_ip(const std::string &address) {
     this->runtime_.config().traffic_generator_target_ip = address;
   }

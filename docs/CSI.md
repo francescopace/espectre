@@ -17,11 +17,13 @@ The runtime never switches source on its own. Low occupancy is reported as a dia
 | `ping` (default) | ICMP Echo Requests | Reply to ping |
 | `dns` | DNS root queries over UDP | Be a resolver on port `53` |
 | `dns_tcp` | DNS queries over a persistent TCP connection | Accept TCP queries on port `53` |
-| `wifi_raw` | Experimental 802.11 Null Data frames | Be the access point, with usable ACK CSI on this chip |
+| `wifi_raw` | 802.11 Null Data frames | Be the associated AP or the configured peer, with usable ACK CSI on the transmitting chip |
 
 `ping`, `dns`, and `dns_tcp` send to `traffic_generator_target_ip`, or to the Wi-Fi gateway when it is empty. The address is refreshed after every reconnect. See [traffic destination](SDK.md#traffic-destination) for valid values.
 
-`wifi_raw` sends Null Data frames to the access point at 6 Mbps and measures CSI on the ACKs that come back. If the driver rejects that rate, `wifi_raw` does not start. It ignores the IP destination and follows the access point after roaming. Check the [compatibility limits](#compatibility-limits) before using it.
+`wifi_raw` measures CSI on the ACKs answering its Null Data frames. With `traffic_generator_target_mac: auto` (default), it sends to the currently associated AP at 6 Mbps and refreshes that destination after every reconnect, roam, or BSSID pin change. With an explicit unicast MAC, it sends directly to that peer at HT20 MCS0 with long GI, clears ToDS/FromDS, and uses a wildcard BSSID. This lets another ESPectre in `external`/HT20 receive the frames while the transmitter keeps sensing ACKs in LLTF. Both devices must use the same channel. An explicit destination does not follow the AP. No generator role or promiscuous mode is needed.
+
+If the driver rejects the selected rate, `wifi_raw` does not start. It ignores the IP destination. Set the MAC through the SDK or Monitor → Advanced sensing settings; see [traffic destination](SDK.md#traffic-destination) and the [compatibility limits](#compatibility-limits).
 
 #### Transmit rate
 
@@ -43,18 +45,7 @@ An ESP32 transmitter can send Null Data or ESP-NOW directly to the receiver's st
 
 For direct Null Data at MCS0, configure the transmitter bandwidth explicitly with `esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20)`, and use `FF:FF:FF:FF:FF:FF` as the BSSID in address 3. Keep address 1 equal to the receiver's station MAC, address 2 equal to the transmitter's station MAC, and `ToDS = FromDS = 0`. The destination remains unicast. ESP-NOW uses the same [connectionless MAC addressing](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_now.html#frame-format), and its per-peer PHY configuration selects HT20 independently of the interface's default bandwidth. Set the raw rate with `esp_wifi_config_80211_tx_rate()` before starting Wi-Fi, as specified by [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_wifi.html).
 
-The following acquisition checks used an ESP32-C3 transmitter, an ESP32-S3 Native receiver, ESP-IDF 5.5.5, and no promiscuous reception. They cover CSI acquisition; detector accuracy across environments remains unmeasured.
-
-| Source | TX rate | Receiver profile | Result |
-|--------|---------|------------------|--------|
-| Unicast ESP-NOW v2 | HT20 MCS0 | `ht20` | 2,500 successful sends, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
-| Unicast ESP-NOW v2, 300-byte payload | OFDM 6 Mbps | `lltf20` | 1,500 successful sends; multi-element frames admitted with zero CSI hardware errors |
-| Direct non-QoS Null Data | OFDM 6 Mbps | `lltf20` | 1,500 successful sends, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
-| Direct non-QoS Null Data, wildcard BSSID | HT20 MCS0 | `ht20` | 2,500 successful sends with the final transmitter, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
-
-Both transmitter settings are needed on this C3-to-S3 setup: with a wildcard BSSID but the default HT40 interface bandwidth, all 1,500 sends failed; with explicit HT20 but the AP's BSSID, all 750 sends failed. With both settings corrected, Null Data supplies HT20 CSI without changing ESPectre's receiver profile or registering an ESP-NOW peer.
-
-Raw Null Data collection delivered 996 HT20 records at MCS0 and 1,002 legacy LLTF20 records at 6 Mbps in separate runs of approximately 10 seconds. Every record was fresh, nonzero, and contained 64 subcarriers, with no sequence gaps, device queue drops, or stream backpressure.
+For hardware measurements, see the [external radio acquisition trials](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c3-to-s3-external-radio-acquisition).
 
 On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on sends UDP marker traffic and adds a panel to switch ESPHome and Native MQTT devices between internal and external mode. Match its `rate_pps` to the device's `csi_target_pps`. Stop the add-on before running `./espectre collect` on the same devices, because collection starts its own generator. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md).
 
@@ -77,7 +68,7 @@ The estimates below compare all traffic sources under one explicit radio model. 
 #### Calculation assumptions
 
 - **Topology and cadence:** one AP on a 2.4-GHz, 20-MHz channel, with `100` generator cycles per second per device. Internal IP destinations and external IP senders are on the AP itself or its wired LAN. Direct Null Data and ESP-NOW senders transmit to the device without the AP. No additional wireless forwarding or mesh backhaul is counted. All requests succeed and receive the expected response.
-- **PHY:** IP data frames in both directions use HT20 MCS0 at `6.5 Mbps`, with a mixed-format preamble, one spatial stream, BCC coding, long GI, and no STBC. Internal `wifi_raw` Null Data and all Wi-Fi ACKs use legacy OFDM at `6 Mbps`. Direct Null Data and ESP-NOW rows show both validated rates, legacy OFDM at `6 Mbps` and HT20 MCS0 at `6.5 Mbps`. This is a low-rate example, not the default rate of every link: see [transmit rate](#transmit-rate). The AP chooses its own downlink rate.
+- **PHY:** IP data frames in both directions use HT20 MCS0 at `6.5 Mbps`, with a mixed-format preamble, one spatial stream, BCC coding, long GI, and no STBC. AP-directed `wifi_raw` Null Data and all Wi-Fi ACKs use legacy OFDM at `6 Mbps`. Explicit-peer `wifi_raw` uses the direct HT20 Null Data row. Direct Null Data and ESP-NOW rows show both validated rates, legacy OFDM at `6 Mbps` and HT20 MCS0 at `6.5 Mbps`. This is a low-rate example, not the default rate of every link: see [transmit rate](#transmit-rate). The AP chooses its own downlink rate.
 - **Framing:** IPv4 headers are `20 B`, UDP headers are `8 B`, and established TCP headers are `20 B`, without options. Unicast IP packets add `54 B`: a `26 B` QoS MAC header, `8 B` LLC/SNAP, `8 B` CCMP header, `8 B` CCMP MIC, and `4 B` FCS. True multicast uses a `24 B` non-QoS MAC header, so its overhead is `52 B`. There is no aggregation, fragmentation, RTS/CTS, CTS-to-self, or retransmission.
 - **DNS:** the query is `17 B`. Each response is assumed to contain `R = 100 B` of DNS data, before UDP headers or the TCP length prefix. This is an illustrative response size, not a measured average or a fixed resolver behavior. DNS over TCP adds a `2 B` length prefix to each message. Each query and response occupies one TCP segment on an already established connection.
 - **Acknowledgments:** each unicast data or Null Data frame gets one `14 B` Wi-Fi ACK after `10 µs` SIFS. True multicast gets no Wi-Fi ACK or application reply. TCP acknowledgments are separate from Wi-Fi ACKs: the TCP range allows zero to two additional standalone TCP ACK segments per query/response cycle, depending on piggybacking and delayed ACKs. Connection setup, teardown, and recovery are excluded.
@@ -92,7 +83,7 @@ Frame lengths below include the MAC header, encryption overhead where applicable
 | Internal `ping` | `82 + 82 B` | `420 µs` | `4.20%` | `42.00%` |
 | Internal `dns`, `R = 100 B` | `99 + 182 B` | `560 µs` | `5.60%` | `56.00%` |
 | Internal `dns_tcp`, `R = 100 B` | `113 + 196 B`, plus `0–2 × 94 B` TCP ACKs | `596–1,040 µs` | `5.96–10.40%` | `59.60–104.00%` |
-| Internal `wifi_raw` | `28 B` | `130 µs` | `1.30%` | `13.00%` |
+| AP-directed `wifi_raw` | `28 B` | `130 µs` | `1.30%` | `13.00%` |
 | External UDP unicast | `86 B` per device | `214 µs` | `2.14%` | `21.40%` |
 | External UDP true multicast | One shared `84 B` frame | `150 µs` | `1.50%` | `1.50%` |
 | External ICMP unicast, no extra payload | `82 + 82 B` | `420 µs` | `4.20%` | `42.00%` |
@@ -196,10 +187,10 @@ Raw collection keeps the normalized data and hardware flags without those fills.
 
 ## Compatibility limits
 
-`wifi_raw` is experimental and not available on ESP32-C6 in any frontend. A saved `wifi_raw` selection on C6 is ignored. Use `ping`, `dns`, or `dns_tcp` instead.
+`wifi_raw` is stable on supported chips. It is not available on ESP32-C6 in any frontend. A saved `wifi_raw` selection on C6 is ignored. Use `ping`, `dns`, or `dns_tcp` instead.
 
-On ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, ACK CSI estimates were invalid ([esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062)). The restriction applies to all C6 revisions until a working setup is validated.
+On ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, ACK CSI estimates were invalid ([esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062)). The restriction applies to all C6 revisions until a working setup is validated. The hardware trials are in the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
 
-Direct Null Data and ESP-NOW acquisition in `external` mode is validated only with an ESP32-S3 receiver. Other receiver chips may report the frame body differently; ESPectre then rejects ESP-NOW frames instead of misreading them, so [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input) before relying on these sources.
+For direct Null Data and ESP-NOW in `external` mode, match the transmitter's PHY rate to the receiver's capture profile, and [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input) to confirm that CSI samples are accepted.
 
-The hardware trials are in the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation). Detection results are in the [performance report](performance/README.md).
+Detection results are in the [performance report](performance/README.md).

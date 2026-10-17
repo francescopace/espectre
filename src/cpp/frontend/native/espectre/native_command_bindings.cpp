@@ -212,6 +212,9 @@ FrontendCommandResult NativeCommandBindings::execute(const EspectreCommand &comm
       },
       [this](const RuntimeControlUpdate &update, std::string *message) {
         return this->owner_.runtime_.validate_control_update(update, message);
+      },
+      [this](const std::string &target, std::string *) {
+        return this->owner_.runtime_.set_traffic_generator_target_mac(target);
       });
 
   if (result.changes != FrontendCommandChange::NONE) {
@@ -253,6 +256,7 @@ EspectreCapabilityProfile NativeCommandBindings::capability_profile(bool allow_l
   profile.set(Method::SET_DETECTOR, owner_.runtime_.capabilities().supports_runtime_detector_selection);
   profile.set(Method::RECALIBRATE, owner_.runtime_.capabilities().supports_manual_recalibration);
   profile.set(Method::SET_TRAFFIC_GENERATOR_MODE, owner_.runtime_.capabilities().supports_traffic_control);
+  profile.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, owner_.runtime_.capabilities().supports_traffic_target_mac);
   profile.set(Method::WIFI_ACCESS_POINTS, allow_local_config);
   profile.set(Method::SCAN_WIFI_ACCESS_POINTS, allow_local_config);
   profile.set(Method::SET_WIFI_BSSID, allow_local_config);

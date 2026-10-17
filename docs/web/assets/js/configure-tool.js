@@ -114,7 +114,9 @@
         const device = config.device || {};
         const wifi = config.wifi || {};
         const mqtt = config.mqtt || {};
+        const sensing = config.sensing || {};
         return {
+            traffic_generator_target_mac: sensing.traffic_generator_target_mac,
             device_label: device.label ?? '',
             wifi_ssid: wifi.ssid || '',
             wifi_band: wifi.band || '',
@@ -234,7 +236,7 @@
     function evaluateConfigVerification(snapshot) {
         const pending = pendingConfigVerification;
         if (!pending) return;
-        const field = { device: 'device_label', wifi: 'wifi_bssid', mqtt: 'mqtt_host' }[pending.resource];
+        const field = { device: 'device_label', wifi: 'wifi_bssid', mqtt: 'mqtt_host', sensing: 'traffic_generator_target_mac' }[pending.resource];
         if (field && snapshot[field] === undefined) return;
         clearTimeout(pending.timer);
         if (pending.evaluate) {

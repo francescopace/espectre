@@ -18,6 +18,7 @@
 #include "runtime_motion_hits_store.h"
 #include "runtime_performance_diagnostics.h"
 #include "runtime_traffic_mode_store.h"
+#include "traffic_generator_service.h"
 #include "wifi_lifecycle.h"
 
 #include <algorithm>
@@ -295,6 +296,22 @@ bool RuntimeFrontendController::set_traffic_generator_mode(TrafficGeneratorMode 
   return true;
 }
 
+bool RuntimeFrontendController::set_traffic_generator_target_mac(const std::string &requested_target) {
+  const std::string target = canonical_traffic_generator_target_mac(requested_target);
+  if (!validate_traffic_generator_target_mac(target)) return false;
+  const bool staged_for_next_setup = runtime_ &&
+      config_.traffic_generator_target_mac != active_config_.traffic_generator_target_mac;
+  if (runtime_ && (!capabilities_.supports_traffic_target_mac ||
+                   !runtime_->set_traffic_generator_target_mac(target))) {
+    apply_deferred_shutdown_();
+    return false;
+  }
+  if (!staged_for_next_setup) config_.traffic_generator_target_mac = target;
+  if (runtime_) active_config_.traffic_generator_target_mac = target;
+  apply_deferred_shutdown_();
+  return true;
+}
+
 bool RuntimeFrontendController::set_detection_algorithm(DetectionAlgorithm algorithm) {
   if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;
@@ -334,8 +351,13 @@ bool RuntimeFrontendController::validate_control_update(const RuntimeControlUpda
     if ((update.has_detection_algorithm && !capabilities_.supports_runtime_detector_selection) ||
         (update.has_threshold && !capabilities_.supports_runtime_threshold_updates) ||
         (update.has_motion_hits && !capabilities_.supports_runtime_motion_hits_updates) ||
-        (update.has_traffic_generator_mode && !capabilities_.supports_traffic_control)) {
+        (update.has_traffic_generator_mode && !capabilities_.supports_traffic_control) ||
+        (update.has_traffic_generator_target_mac && !capabilities_.supports_traffic_target_mac)) {
       return reject("sensing control is unsupported by the active runtime");
+    }
+    if (update.has_traffic_generator_target_mac &&
+        traffic_target_mac_is_station(update.traffic_generator_target_mac)) {
+      return reject("raw destination cannot be this device's MAC");
     }
   }
   const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
@@ -400,7 +422,7 @@ RuntimeOperationState RuntimeFrontendController::operation_state() const {
 
 bool RuntimeFrontendController::clear_persisted_overrides() {
   bool cleared = true;
-  for (const esp_err_t err : {clear_runtime_traffic_generator_mode(), clear_runtime_motion_hits(),
+  for (const esp_err_t err : {clear_runtime_traffic_generator_mode(), clear_runtime_traffic_generator_target_mac(), clear_runtime_motion_hits(),
                               clear_runtime_detection_algorithm()}) {
     if (err != ESP_OK) {
       ESPECTRE_LOGW(TAG, "Failed to clear saved sensing controls: %s", esp_err_to_name(err));

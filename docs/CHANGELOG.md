@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [3.1.0] - work in progress
 
+- Wi-Fi raw traffic is stable on supported chips. ESP32-C6 remains unsupported; see [compatibility limits](CSI.md#compatibility-limits).
+
+- `wifi_raw` accepts a destination through `traffic_generator_target_mac`. The default, `auto`, follows the associated AP after reconnects and BSSID pin changes. A unicast MAC sends direct HT20 MCS0 Null Data to another sensor in `external` mode on the same channel, while the transmitter keeps LLTF sensing. No additional device role is required. Set it in ESPHome YAML, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, `RuntimeConfig`, `RuntimeFrontendController::set_traffic_generator_target_mac()`, `update_sensing`, or Monitor → Advanced sensing settings. Direct and MQTT share validation, state, and persistence; devices advertise support with `features.traffic_generator_target_mac`.
+
+- The SDK additions are source-compatible. `ICsiTrafficGenerator::set_target_mac()` has a default implementation, and `FrontendCommandEngine::execute()` takes the raw destination callback as a new optional trailing parameter. `RuntimeConfigError` and `EspectreDirectMethod` gain one value each, so exhaustive `switch` statements need a new case.
+
 - External traffic mode accepts direct non-QoS Null Data and unencrypted unicast ESP-NOW v1/v2 frames, subject to the existing CSI quality and capture-profile checks. C3-to-S3 acquisition is validated with both sources at HT20 MCS0, and with legacy OFDM/LLTF, with promiscuous mode disabled. Direct Null Data at MCS0 requires explicit transmitter HT20 bandwidth and a wildcard BSSID; the receiver keeps its standard HT20 profile.
 
 ## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools

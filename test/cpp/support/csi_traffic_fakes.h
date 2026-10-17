@@ -32,6 +32,9 @@ class FakeCsiTrafficGenerator : public ICsiTrafficGenerator {
     send_successes = 0U;
   }
 
+  bool set_target_mac(const std::string &target) override { target_mac = target; return true; }
+  std::string target_mac{"auto"};
+
   bool start(uint32_t gateway) override {
     start_calls++;
     gateway_addr = gateway;

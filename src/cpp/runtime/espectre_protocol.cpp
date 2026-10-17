@@ -516,7 +516,8 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
     if (name == "command_id" || name == "command") return true;
     if (parsed.command == "update_sensing") {
       return name == "enabled" || name == "threshold" || name == "motion_on_hits" ||
-             name == "motion_off_hits" || name == "detector" || name == "traffic_generator_mode";
+             name == "motion_off_hits" || name == "detector" || name == "traffic_generator_mode" ||
+             name == "traffic_generator_target_mac";
     }
     if (parsed.command == "read_diagnostics") return name == "fields";
     if (parsed.command == "update_device") return name == "label";
@@ -589,8 +590,17 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
       }
       parsed.has_traffic_generator_mode = true;
     }
+    if (find_json_object_field(fields, "traffic_generator_target_mac") != nullptr) {
+      if (!string_field("traffic_generator_target_mac", &parsed.traffic_generator_target_mac) ||
+          !validate_traffic_generator_target_mac(parsed.traffic_generator_target_mac)) {
+        return reject("invalid raw destination (accepted: auto or a unicast MAC)");
+      }
+      parsed.traffic_generator_target_mac =
+          canonical_traffic_generator_target_mac(parsed.traffic_generator_target_mac);
+      parsed.has_traffic_generator_target_mac = true;
+    }
     if (!parsed.has_sensing_enabled && !parsed.has_threshold && !parsed.has_motion_hits &&
-        !parsed.has_detector && !parsed.has_traffic_generator_mode) {
+        !parsed.has_detector && !parsed.has_traffic_generator_mode && !parsed.has_traffic_generator_target_mac) {
       return reject("sensing update is empty");
     }
   } else if (parsed.command == "update_device") {
@@ -932,6 +942,9 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
       capabilities.supports(EspectreDirectMethod::STOP_RAW_STREAM);
   out += "],\"features\":{\"csi\":";
   out += supports_raw_csi ? "true" : "false";
+  if (capabilities.supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_TARGET_MAC)) {
+    out += ",\"traffic_generator_target_mac\":true";
+  }
   out += "}";
   if (supports_raw_csi) {
     out += ",\"csi\":{\"endpoint\":\"/espectre/v1/csi\","
@@ -977,6 +990,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   capabilities.set(Method::SET_DETECTOR, info.supports_runtime_detector);
   capabilities.set(Method::RECALIBRATE, info.supports_manual_recalibration);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, info.supports_traffic_control);
+  capabilities.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, info.supports_traffic_target_mac);
   capabilities.set(Method::WIFI_ACCESS_POINTS, supports_wifi_bssid);
   capabilities.set(Method::SCAN_WIFI_ACCESS_POINTS, supports_wifi_bssid);
   capabilities.set(Method::SET_WIFI_BSSID, supports_wifi_bssid);

@@ -110,6 +110,13 @@ struct RuntimeConfig {
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   /** Unicast IPv4 destination for internal IP traffic; empty uses the Wi-Fi gateway. Ignored by `wifi_raw`. */
   std::string traffic_generator_target_ip;
+  /**
+   * WIFI_RAW destination: `auto` follows the currently associated AP after every
+   * reconnect or BSSID pin change. An explicit unicast MAC sends direct HT20
+   * MCS0 Null Data to that peer on the station's channel. Local ACK sensing
+   * still requires AUTO or LLTF. Other traffic modes ignore this setting.
+   */
+  std::string traffic_generator_target_mac{"auto"};
   /** UDP port used by the external CSI traffic mode. */
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
   /**
@@ -156,7 +163,7 @@ struct RuntimeConfig {
    *
    * Off by default: this config is the only source of truth, and the runtime
    * neither reads nor writes saved controls. When true, `setup()` restores the
-   * traffic generator mode and motion hits saved by earlier control calls,
+   * traffic generator mode, raw destination, and motion hits saved by earlier control calls,
    * plus the detector when `runtime_detector_selection_enabled` is set, and
    * those calls save their new values in the `ESPECTRE_NVS_NAMESPACE` NVS
    * namespace. Saved values then take precedence over this config until

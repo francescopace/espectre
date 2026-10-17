@@ -6,6 +6,7 @@
 #include "native_frontend_test_support.h"
 
 #include "esp_wifi.h"
+#include "protocol_json.h"
 
 void test_native_frontend_direct_service_follows_station_address_lifecycle(void) {
   MockDirectHttpService direct;
@@ -669,10 +670,66 @@ void test_native_frontend_keeps_direct_available_for_a_legacy_mqtt_endpoint(void
   TEST_ASSERT_TRUE(visible_config.find("\"configured\":false") != std::string::npos);
 }
 
+
+void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void) {
+  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+  MockMqttTransport mqtt;
+  MockDirectHttpService direct;
+  NativeFrontend frontend(&mqtt, nullptr, &direct);
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
+  config.mqtt_host = "localhost";
+  config.mqtt_port = 1883;
+  frontend.set_device_config(config);
+  EspectreDeviceInfo info;
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  direct.emit_client_count(1U);
+  const auto catalog = direct.emit_request(DirectRequest{"", "capabilities", "{}", "/espectre/v1/capabilities", "GET"});
+  TEST_ASSERT_TRUE(catalog.find("\"traffic_generator_target_mac\":true") != std::string::npos);
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_connection(true);
+  const int catalog_index = mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/capabilities");
+  TEST_ASSERT_TRUE(catalog_index >= 0);
+  std::vector<JsonObjectField> mqtt_catalog, direct_catalog;
+  TEST_ASSERT_TRUE(parse_json_object_fields(
+      mqtt_transport_mock::state.publishes[static_cast<size_t>(catalog_index)].payload, &mqtt_catalog));
+  TEST_ASSERT_TRUE(parse_json_object_fields(catalog, &direct_catalog));
+  const auto *mqtt_features = find_json_object_field(mqtt_catalog, "features");
+  const auto *direct_features = find_json_object_field(direct_catalog, "features");
+  TEST_ASSERT_NOT_NULL(mqtt_features);
+  TEST_ASSERT_NOT_NULL(direct_features);
+  TEST_ASSERT_EQUAL_STRING(direct_features->value.c_str(), mqtt_features->value.c_str());
+  for (bool via_mqtt : {false, true}) {
+    mqtt_transport_mock::state.publishes.clear();
+    direct_http_service_mock::state.published_events.clear();
+    const std::string target = via_mqtt ? "auto" : "10:b4:1d:e8:ec:00";
+    const std::string field = "\"traffic_generator_target_mac\":\"" + target + "\"";
+    if (via_mqtt) mqtt.emit_command("{\"command_id\":\"raw\",\"command\":\"update_sensing\"," + field + "}");
+    else {
+      const auto result = direct.emit_request(DirectRequest{"raw", "update_sensing", "{" + field + "}"});
+      TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
+    }
+    const int index = mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/sensing");
+    TEST_ASSERT_TRUE(index >= 0);
+    const auto &payload = mqtt_transport_mock::state.publishes[static_cast<size_t>(index)].payload;
+    TEST_ASSERT_TRUE(payload.find(field) != std::string::npos);
+    const auto read = direct.emit_request(DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+    TEST_ASSERT_EQUAL_STRING(payload.c_str(), read.c_str());
+    TEST_ASSERT_TRUE(std::any_of(direct_http_service_mock::state.published_events.begin(),
+        direct_http_service_mock::state.published_events.end(), [&](const auto &event) {
+          return event.event_name == "sensing" && event.data_json == payload;
+        }));
+  }
+}
+
 int main(int argc, char **argv) {
   (void) argc;
   (void) argv;
   UNITY_BEGIN();
+  RUN_TEST(test_raw_destination_commands_publish_identical_direct_and_mqtt_state);
   RUN_TEST(test_native_frontend_direct_service_follows_station_address_lifecycle);
   RUN_TEST(test_native_frontend_direct_requests_share_command_dispatch_and_return_correlated_results);
   RUN_TEST(test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded);

@@ -59,6 +59,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool set_threshold(float threshold) override;
   bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) override;
   bool set_traffic_generator_mode(TrafficGeneratorMode mode) override;
+  /** Set auto or a unicast raw destination other than this station; restart active raw traffic and persist when enabled. */
+  bool set_traffic_generator_target_mac(const std::string &target) override;
   bool set_detection_algorithm(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;

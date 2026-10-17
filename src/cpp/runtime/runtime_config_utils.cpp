@@ -9,6 +9,7 @@
  */
 #include "runtime_config_utils.h"
 #include "runtime_config_validation.h"
+#include "mac_address_helpers.h"
 
 #if __has_include("sdkconfig.h")
 #include "sdkconfig.h"
@@ -18,6 +19,20 @@
 #include <cstring>
 
 namespace espectre {
+
+bool validate_traffic_generator_target_mac(const std::string &target) {
+  uint8_t mac[6]{};
+  return target == "auto" || parse_unicast_mac_address(target, mac);
+}
+
+std::string canonical_traffic_generator_target_mac(const std::string &target) {
+  if (target == "auto" || !validate_traffic_generator_target_mac(target)) return target;
+  std::string canonical = target;
+  for (char &c : canonical) {
+    if (c >= 'A' && c <= 'F') c = static_cast<char>(c - 'A' + 'a');
+  }
+  return canonical;
+}
 
 bool validate_runtime_threshold(float threshold) {
   return std::isfinite(threshold) && threshold >= RUNTIME_THRESHOLD_MIN && threshold <= RUNTIME_THRESHOLD_MAX;
@@ -107,6 +122,7 @@ RuntimeConfig apply_runtime_control_update(RuntimeConfig config, const RuntimeCo
     config.motion_on_hits = update.motion_on_hits;
     config.motion_off_hits = update.motion_off_hits;
   }
+  if (update.has_traffic_generator_target_mac) config.traffic_generator_target_mac = update.traffic_generator_target_mac;
   if (update.has_traffic_generator_mode) config.traffic_generator_mode = update.traffic_generator_mode;
   return config;
 }
@@ -127,6 +143,9 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   }
   if (!runtime_capture_profile_supports_traffic(config.csi_capture_policy, config.traffic_generator_mode)) {
     return RuntimeConfigError::CSI_CAPTURE_PROFILE_TRAFFIC;
+  }
+  if (!validate_traffic_generator_target_mac(config.traffic_generator_target_mac)) {
+    return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_MAC;
   }
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
@@ -195,6 +214,7 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS: return "invalid segmentation window duration";
     case RuntimeConfigError::CSI_TARGET_PPS: return "invalid CSI target PPS";
     case RuntimeConfigError::TRAFFIC_GENERATOR_MODE: return "invalid traffic generator mode";
+    case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_MAC: return "invalid traffic generator target MAC (use auto or a unicast MAC)";
     case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP: return "invalid traffic generator target IPv4 address";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";

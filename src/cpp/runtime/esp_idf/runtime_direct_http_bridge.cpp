@@ -263,6 +263,9 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
       },
       [this](const RuntimeControlUpdate &update, std::string *message) {
         return runtime_->validate_control_update(update, message);
+      },
+      [this](const std::string &target, std::string *) {
+        return runtime_->set_traffic_generator_target_mac(target);
       });
   if (result.changes != FrontendCommandChange::NONE) {
     (void) publish_changes(result.changes);
@@ -394,6 +397,7 @@ EspectreCapabilityProfile RuntimeDirectHttpBridge::capability_profile_() const {
   profile.set(Method::SET_DETECTOR, runtime_capabilities.supports_runtime_detector_selection);
   profile.set(Method::RECALIBRATE, runtime_capabilities.supports_manual_recalibration);
   profile.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
+  profile.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, runtime_capabilities.supports_traffic_target_mac);
   profile.set(Method::WIFI_ACCESS_POINTS);
   profile.set(Method::SCAN_WIFI_ACCESS_POINTS);
   profile.set(Method::SET_WIFI_BSSID);
@@ -622,6 +626,7 @@ std::string RuntimeDirectHttpBridge::capabilities_payload_() const {
   info.supports_runtime_detector = capabilities.supports_runtime_detector_selection;
   info.supports_manual_recalibration = capabilities.supports_manual_recalibration;
   info.supports_traffic_control = capabilities.supports_traffic_control;
+  info.supports_traffic_target_mac = capabilities.supports_traffic_target_mac;
   info.csi_traffic_udp_port = runtime_->config().csi_traffic_udp_port;
   info.csi_traffic_multicast_group = runtime_->config().csi_traffic_multicast_group;
   return espectre_capabilities_payload(device, info, capability_profile_());
@@ -663,6 +668,7 @@ std::string RuntimeDirectHttpBridge::sensing_payload_() const {
   append_uint(&out, "motion_on_hits", config.motion_on_hits);
   append_uint(&out, "motion_off_hits", config.motion_off_hits);
   append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
+  append_json_pair(&out, "traffic_generator_target_mac", config.traffic_generator_target_mac.c_str());
   append_uint(&out, "csi_target_pps", config.csi_target_pps);
   append_uint(&out, "csi_traffic_udp_port", config.csi_traffic_udp_port);
   append_json_pair(&out, "csi_traffic_multicast_group", config.csi_traffic_multicast_group.c_str());

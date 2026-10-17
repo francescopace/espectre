@@ -39,7 +39,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendWifiBssidCallback wifi_bssid_callback,
     FrontendMqttConfigCallback mqtt_config_callback,
     FrontendSensingControlCallback sensing_control_callback,
-    FrontendSensingPreflightCallback sensing_preflight_callback) const {
+    FrontendSensingPreflightCallback sensing_preflight_callback,
+    FrontendTrafficTargetMacCallback traffic_target_mac_callback) const {
   FrontendCommandResult result;
   result.handled = true;
   result.command = command;
@@ -175,6 +176,10 @@ FrontendCommandResult FrontendCommandEngine::execute(
         (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE) || !traffic_generator_mode_callback)) {
       return reject("unsupported", "traffic generator update is unsupported");
     }
+    if (command.has_traffic_generator_target_mac &&
+        (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_TARGET_MAC) || !traffic_target_mac_callback)) {
+      return reject("unsupported", "raw destination update is unsupported");
+    }
     if (command.has_sensing_enabled &&
         (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback)) {
       return reject("unsupported", "sensing state update is unsupported");
@@ -188,6 +193,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
       update.has_motion_hits = command.has_motion_hits;
       update.motion_on_hits = command.motion_on_hits;
       update.motion_off_hits = command.motion_off_hits;
+      update.has_traffic_generator_target_mac = command.has_traffic_generator_target_mac;
+      update.traffic_generator_target_mac = command.traffic_generator_target_mac;
       update.has_traffic_generator_mode = command.has_traffic_generator_mode;
       update.traffic_generator_mode = parse_traffic_generator_mode(command.traffic_generator_mode.c_str());
       std::string preflight_message;
@@ -216,6 +223,9 @@ FrontendCommandResult FrontendCommandEngine::execute(
           [&] { return threshold_callback(command.threshold, &result.message); });
     apply(command.has_motion_hits, "motion hits", [&] {
       return motion_hits_callback(command.motion_on_hits, command.motion_off_hits, &result.message);
+    });
+    apply(command.has_traffic_generator_target_mac, "raw destination", [&] {
+      return traffic_target_mac_callback(command.traffic_generator_target_mac, &result.message);
     });
     apply(command.has_traffic_generator_mode, "traffic generator mode", [&] {
       return traffic_generator_mode_callback(

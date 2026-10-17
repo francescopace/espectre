@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory>
@@ -1908,10 +1909,58 @@ void test_traffic_source_target_support_applies_to_config_controls_persistence_a
   }
 }
 
+void test_raw_destination_persists_and_restarts_only_raw_traffic(void) {
+  RuntimeConfig config;
+  config.persist_runtime_overrides = true;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  TEST_ASSERT_TRUE(runtime.setup());
+  if (!runtime_traffic_generator_mode_supported(TrafficGeneratorMode::WIFI_RAW)) {
+    TEST_ASSERT_FALSE(runtime.set_traffic_generator_target_mac("10:b4:1d:e8:ec:00"));
+    runtime.shutdown();
+    return;
+  }
+  esp_netif_ip_info_t ip{};
+  ip.ip.addr = ip.gw.addr = 0x0101A8C0U;
+  runtime.on_wifi_connected_(ip);
+  const auto starts = generator.start_calls;
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_target_mac("10:b4:1d:e8:ec:00"));
+  TEST_ASSERT_EQUAL(starts, generator.start_calls);
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(TrafficGeneratorMode::WIFI_RAW));
+  TEST_ASSERT_EQUAL_STRING("10:b4:1d:e8:ec:00", generator.target_mac.c_str());
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_target_mac("auto"));
+  TEST_ASSERT_EQUAL_STRING("auto", generator.target_mac.c_str());
+  TEST_ASSERT_TRUE(generator.start_calls > starts);
+  nvs_mock_set_open_result(ESP_FAIL);
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_target_mac("10:b4:1d:e8:ec:02"));
+  TEST_ASSERT_EQUAL_STRING("auto", runtime.effective_config().traffic_generator_target_mac.c_str());
+  TEST_ASSERT_EQUAL_STRING("auto", generator.target_mac.c_str());
+  nvs_mock_set_open_result(ESP_OK);
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_target_mac("ff:ff:ff:ff:ff:ff"));
+  const uint8_t station[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+  std::memcpy(g_esp_wifi_mock.mac, station, sizeof(station));
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_target_mac("02:11:22:33:44:55"));
+  TEST_ASSERT_EQUAL_STRING("auto", runtime.effective_config().traffic_generator_target_mac.c_str());
+  // Hex case does not change the destination, so the stored form is canonical.
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_target_mac("10:B4:1D:E8:EC:00"));
+  TEST_ASSERT_EQUAL_STRING("10:b4:1d:e8:ec:00", runtime.effective_config().traffic_generator_target_mac.c_str());
+  const auto restarts = generator.start_calls;
+  TEST_ASSERT_TRUE(runtime.set_traffic_generator_target_mac("10:b4:1d:e8:ec:00"));
+  TEST_ASSERT_EQUAL(restarts, generator.start_calls);
+  runtime.shutdown();
+  EspIdfRuntime restored(config, generator, ingress);
+  TEST_ASSERT_TRUE(restored.setup());
+  TEST_ASSERT_EQUAL_STRING("10:b4:1d:e8:ec:00", restored.effective_config().traffic_generator_target_mac.c_str());
+  restored.shutdown();
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_raw_destination_persists_and_restarts_only_raw_traffic);
   RUN_TEST(test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected);
   RUN_TEST(test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeout);
   RUN_TEST(test_runtime_stray_callbacks_do_not_hide_a_silent_receive_path);

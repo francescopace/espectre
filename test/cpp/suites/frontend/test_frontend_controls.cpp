@@ -188,6 +188,20 @@ void test_espectre_component_direct_client_enables_live_telemetry(void) {
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
 }
 
+void test_esphome_raw_destination_uses_shared_direct_contract(void) {
+  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+  ESpectreComponentProbe component;
+  component.setup();
+  TEST_ASSERT_FALSE(component.is_failed());
+  const auto catalog = component.direct_bridge_.handle_request_(DirectRequest{"caps", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(catalog.find("\"traffic_generator_target_mac\":true") != std::string::npos);
+  const auto result = component.direct_bridge_.handle_request_(DirectRequest{
+      "raw", "update_sensing", R"({"traffic_generator_target_mac":"10:b4:1d:e8:ec:00"})"});
+  TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
+  const auto state = component.direct_bridge_.handle_request_(DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(state.find("\"traffic_generator_target_mac\":\"10:b4:1d:e8:ec:00\"") != std::string::npos);
+}
+
 void test_espectre_component_raw_session_uses_shared_controller_and_recovers(void) {
   frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
   ESpectreComponentProbe component;
@@ -1113,6 +1127,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
   RUN_TEST(test_espectre_component_loop_does_not_poll_wifi_without_peer_discovery);
   RUN_TEST(test_espectre_component_direct_client_enables_live_telemetry);
+  RUN_TEST(test_esphome_raw_destination_uses_shared_direct_contract);
   RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);
   RUN_TEST(test_wifi_bssid_pin_applies_config_during_station_reassociation);

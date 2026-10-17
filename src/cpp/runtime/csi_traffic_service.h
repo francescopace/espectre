@@ -36,10 +36,12 @@ struct CsiTrafficServiceConfig {
   uint16_t udp_port{5555U};
   /** IPv4 multicast group the external listener joins; empty for unicast only. */
   std::string multicast_group;
+  /** WIFI_RAW destination: `auto` or a unicast peer MAC. */
+  std::string target_mac{"auto"};
 };
 
 /**
- * Internal traffic source that makes the access point answer the device.
+ * Internal traffic source that makes an access point or peer answer the device.
  *
  * TrafficGeneratorService is the ESP-IDF implementation. Call every method
  * from the owner task.
@@ -50,6 +52,8 @@ class ICsiTrafficGenerator {
 
   /** Configure the send rate and mode while stopped. */
   virtual void init(uint32_t target_pps, TrafficGeneratorMode mode) = 0;
+  /** Stage a raw destination for the next start. Legacy implementations only accept auto. */
+  virtual bool set_target_mac(const std::string &target) { return target == "auto"; }
   /** Start sending to an IPv4 address in network byte order; false on failure. */
   virtual bool start(uint32_t target_addr) = 0;
   /** Signal the sender to stop. loop() releases it; this call does not block. */
@@ -182,6 +186,7 @@ class CsiTrafficService {
 
  private:
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
+  bool target_mac_supported_{true};
   ICsiTrafficGenerator &traffic_generator_;
   ICsiTrafficIngress &traffic_ingress_;
 };

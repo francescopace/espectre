@@ -354,6 +354,7 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
   info.supports_manual_recalibration = runtime_.capabilities().supports_manual_recalibration;
   info.supports_traffic_control = runtime_.capabilities().supports_traffic_control;
+  info.supports_traffic_target_mac = runtime_.capabilities().supports_traffic_target_mac;
   info.traffic_mode = traffic_generator_mode_name(runtime_.config().traffic_generator_mode);
   info.csi_target_pps = runtime_.config().csi_target_pps;
   info.csi_traffic_udp_port = runtime_.config().csi_traffic_udp_port;

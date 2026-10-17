@@ -72,6 +72,14 @@ config ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP
         a resolver on port 53 at this address. Ignored by wifi_raw and external
         traffic. Invalid addresses are rejected by runtime configuration.
 
+config ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC
+    string "Raw Wi-Fi destination MAC"
+    default "auto"
+    help
+        auto follows the currently associated AP, including after a BSSID pin
+        change. A unicast MAC sends direct HT20 MCS0 Null Data to that peer on
+        the same channel. Local sensing keeps LLTF. Ignored outside wifi_raw.
+
 choice ESPECTRE_CSI_CAPTURE_PROFILE
     prompt "CSI capture profile"
     default ESPECTRE_CSI_CAPTURE_PROFILE_AUTO

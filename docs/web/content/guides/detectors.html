@@ -3,7 +3,7 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">DETECTION PROFILES · 4 MIN READ</span>
+    <span class="guide-tag">DETECTION PROFILES · 5 MIN READ</span>
     <h1>Choose your detection profile</h1>
     <p class="article-lead">ESPectre has two motion detectors: Lightweight Detection and High-Accuracy Detection. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small pretrained model that detects more reliably, even in rooms it was not tuned for.</p>
     <figure>
@@ -13,7 +13,7 @@
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#detectors-two">Two detectors</a><a href="#detectors-choose">Choose a profile</a><a href="#detectors-difference">Compare profiles</a><a href="#detectors-controls">Select a profile</a><a href="#detectors-evidence">Evidence</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#detectors-two">Two detectors</a><a href="#detectors-choose">Choose a profile</a><a href="#detectors-difference">Compare profiles</a><a href="#detectors-controls">Select a profile</a><a href="#detectors-traffic">Traffic source</a><a href="#detectors-evidence">Evidence</a></nav>
     </details>
 
     <h2 id="detectors-two">Two built-in detectors</h2>
@@ -101,6 +101,21 @@ espectre&gt; update_sensing detector=high_accuracy</code></pre>
 config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code></pre>
       </div>
     </div>
+
+    <h2 id="detectors-traffic" data-toc-label="Traffic source">Choose a traffic source</h2>
+    <p>The traffic source determines how the sensor gets its CSI measurements. The detection profile determines how it interprets them. You choose these settings separately, and both profiles need a regular stream of usable CSI.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Traffic source</th><th scope="col">When to use it</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Ping</th><td>The default. Sends ping requests and measures CSI from the replies. Keep it when CSI arrives regularly.</td></tr>
+        <tr><th scope="row">DNS (UDP) / DNS (TCP)</th><td>Alternatives when the router blocks or limits ping. The destination must answer DNS queries over the selected protocol.</td></tr>
+        <tr><th scope="row">Wi-Fi raw</th><td>Sends Wi-Fi frames directly and measures CSI from their acknowledgments. Unavailable on ESP32-C6.</td></tr>
+        <tr><th scope="row">External</th><td>Receives traffic from another device, such as the <a href="/guides/home-assistant/#ha-traffic-generator">Home Assistant traffic generator app</a>. The external sender must stay running for sensing to continue.</td></tr>
+      </tbody>
+    </table></div>
+    <p>In <a href="/tools/monitor/">Live motion</a>, open <em>Advanced sensing settings</em> and choose <em>Wi-Fi traffic source</em>. The device saves your choice and never switches sources on its own. Changing the source restarts Lightweight calibration.</p>
+    <p>Check <em>CSI occupancy</em> in Diagnostics: it shows how much of the detector window contains usable measurements. A high packet count alone does not guarantee regular CSI, and High Accuracy also needs enough input before it can detect motion. For missing or irregular input, follow the <a href="/guides/troubleshooting/#trouble-calibration">traffic troubleshooting steps</a>.</p>
+    <div class="note">When comparing detection profiles, keep the sensor position and traffic source the same so you can judge the effect of the profile change.</div>
 
     <h2 id="detectors-evidence">Evidence and deeper reference</h2>
     <p>The <a href="/sdk/detectors/">SDK detector reference</a> explains how each detector works, step by step, and shows the measured performance of both.</p>

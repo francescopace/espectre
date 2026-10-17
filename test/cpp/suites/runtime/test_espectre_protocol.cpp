@@ -1545,8 +1545,31 @@ void test_engine_rejects_unknown_commands_and_commands_forbidden_over_mqtt(void)
   TEST_ASSERT_TRUE(engine.execute(engine_command("read_diagnostics"), mqtt, everything, payload).accepted);
 }
 
+void test_raw_target_validation_is_shared_by_direct_and_mqtt(void) {
+  for (const char *target : {"auto", "10:B4:1D:E8:EC:00", "", "AUTO", "00:00:00:00:00:00",
+                           "ff:ff:ff:ff:ff:ff", "01:22:33:44:55:66", "10:b4:1d:e8:ec:00x"}) {
+    const bool valid = std::string(target) == "auto" || std::string(target) == "10:B4:1D:E8:EC:00";
+    const std::string field = std::string("\"traffic_generator_target_mac\":\"") + target + "\"";
+    EspectreCommand direct, mqtt;
+    std::string error;
+    TEST_ASSERT_EQUAL(valid, parse_espectre_command_request("raw", "update_sensing", "{" + field + "}", &direct, &error));
+    TEST_ASSERT_EQUAL(valid, parse_espectre_command("{\"command_id\":\"raw\",\"command\":\"update_sensing\"," + field + "}", &mqtt, &error));
+    if (valid) {
+      TEST_ASSERT_TRUE(direct.has_traffic_generator_target_mac && mqtt.has_traffic_generator_target_mac);
+      const char *canonical = valid && std::string(target) != "auto" ? "10:b4:1d:e8:ec:00" : target;
+      TEST_ASSERT_EQUAL_STRING(canonical, direct.traffic_generator_target_mac.c_str());
+      TEST_ASSERT_EQUAL_STRING(canonical, mqtt.traffic_generator_target_mac.c_str());
+    }
+  }
+  EspectreCapabilityProfile profile;
+  TEST_ASSERT_TRUE(espectre_capabilities_payload({}, {}, profile).find("\"traffic_generator_target_mac\"") == std::string::npos);
+  profile.set(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_TARGET_MAC);
+  TEST_ASSERT_TRUE(espectre_capabilities_payload({}, {}, profile).find("\"traffic_generator_target_mac\":true") != std::string::npos);
+}
+
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_raw_target_validation_is_shared_by_direct_and_mqtt);
   RUN_TEST(test_engine_read_commands_require_the_matching_capability_and_a_payload);
   RUN_TEST(test_engine_wifi_commands_flag_wifi_changes_except_a_scan);
   RUN_TEST(test_engine_label_mqtt_and_recalibrate_commands_report_their_outcome);

@@ -80,6 +80,7 @@ CONF_HAMPEL_THRESHOLD = "hampel_threshold"
 # Traffic generator mode
 CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 CONF_TRAFFIC_GENERATOR_TARGET_IP = "traffic_generator_target_ip"
+CONF_TRAFFIC_GENERATOR_TARGET_MAC = "traffic_generator_target_mac"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
@@ -178,6 +179,19 @@ def validate_csi_traffic_multicast_group(value):
     return str(address)
 
 
+def validate_traffic_generator_target_mac(value):
+    value = cv.string_strict(value)
+    if value == "auto":
+        return value
+    parts = value.split(":")
+    if len(parts) != 6 or any(len(part) != 2 or any(c not in "0123456789abcdefABCDEF" for c in part) for part in parts):
+        raise cv.Invalid("traffic_generator_target_mac must be auto or a colon-separated unicast MAC")
+    octets = [int(part, 16) for part in parts]
+    if octets[0] & 1 or not any(octets):
+        raise cv.Invalid("traffic_generator_target_mac must be a nonzero unicast MAC")
+    return value.lower()
+
+
 def validate_traffic_generator_target_ip(value):
     value = cv.string_strict(value)
     if value == "":
@@ -216,6 +230,7 @@ CONFIG_SCHEMA = cv.Schema({
         "ping", "dns", "dns_tcp", "wifi_raw", "external", lower=True
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_IP, default=""): validate_traffic_generator_target_ip,
+    cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_MAC, default="auto"): validate_traffic_generator_target_mac,
     
     # Detection profile: Lightweight (default) or High Accuracy.
     # Lightweight uses feature fusion and an adaptive startup threshold.
@@ -556,6 +571,7 @@ async def to_code(config):
     cg.add(var.set_csi_traffic_multicast_group(config[CONF_CSI_TRAFFIC_MULTICAST_GROUP]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_traffic_generator_target_ip(config[CONF_TRAFFIC_GENERATOR_TARGET_IP]))
+    cg.add(var.set_traffic_generator_target_mac(config[CONF_TRAFFIC_GENERATOR_TARGET_MAC]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_evaluation_interval_ms(config[CONF_EVALUATION_INTERVAL_MS]))
     cg.add(var.set_motion_on_hits(config[CONF_MOTION_ON_HITS]))

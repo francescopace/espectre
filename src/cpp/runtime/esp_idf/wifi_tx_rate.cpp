@@ -15,20 +15,22 @@
 
 namespace espectre {
 
-esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap) {
+esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap, bool direct_peer) {
+  const wifi_phy_rate_t rate = direct_peer ? WIFI_PHY_RATE_MCS0_LGI : WIFI_OFDM_TX_RATE;
   // Raw injection defaults to DSSS on 2.4 GHz; its ACKs cannot supply LLTF CSI.
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
   wifi_tx_rate_config_t rate_config{};
-  rate_config.phymode = ap.primary > 14U ? WIFI_PHY_MODE_11A : WIFI_PHY_MODE_11G;
-  rate_config.rate = WIFI_OFDM_TX_RATE;
+  rate_config.phymode = direct_peer ? WIFI_PHY_MODE_HT20 :
+      (ap.primary > 14U ? WIFI_PHY_MODE_11A : WIFI_PHY_MODE_11G);
+  rate_config.rate = rate;
   const esp_err_t err = esp_wifi_config_80211_tx(WIFI_IF_STA, &rate_config);
 #else
   (void)ap;
   // ESP-IDF 5.5.5 accepts the newer API but leaves raw TX at 1 Mbps on ESP32/S2/S3/C3.
-  const esp_err_t err = esp_wifi_config_80211_tx_rate(WIFI_IF_STA, WIFI_OFDM_TX_RATE);
+  const esp_err_t err = esp_wifi_config_80211_tx_rate(WIFI_IF_STA, rate);
 #endif
   if (err != ESP_OK) {
-    ESPECTRE_LOGE("WiFiRate", "Failed to configure raw OFDM TX rate: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE("WiFiRate", "Failed to configure raw TX rate: %s", esp_err_to_name(err));
   }
   return err;
 }

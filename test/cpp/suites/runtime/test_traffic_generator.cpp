@@ -863,8 +863,80 @@ void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(voi
     }
 }
 
+void test_raw_peer_destination_and_return_to_auto(void) {
+  TrafficGeneratorService generator;
+  active_generator = &generator;
+  g_esp_wifi_mock.raw_tx_hook = stop_raw_test_generator;
+  const uint8_t peer[6] = {0x10, 0xb4, 0x1d, 0xe8, 0xec, 0x00};
+  const uint8_t wildcard[6] = {255, 255, 255, 255, 255, 255};
+  for (const char *bad : {"", "AUTO", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff",
+                         "01:11:22:33:44:55", "10:b4:1d:e8:ec:0", "10:b4:1d:e8:ec:00x"}) {
+    TEST_ASSERT_FALSE(generator.set_target_mac(bad));
+  }
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    // Peer addressing is independent of association. Returning to auto uses the latest AP.
+    g_esp_wifi_mock.current_ap_info.bssid[5] += 1;
+    TEST_ASSERT_TRUE(generator.set_target_mac(attempt < 2 ? "10:B4:1D:E8:EC:00" : "auto"));
+    generator.init(100, TrafficGeneratorMode::WIFI_RAW);
+    g_esp_wifi_mock.raw_tx_call_count = 0;
+    TEST_ASSERT_TRUE(generator.start(0));
+    const auto *frame = g_esp_wifi_mock.raw_tx_frame;
+    TEST_ASSERT_EQUAL(0x48, frame[0]);
+    TEST_ASSERT_EQUAL(attempt < 2 ? 0 : 1, frame[1]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 2 ? peer : g_esp_wifi_mock.current_ap_info.bssid, frame + 4, 6);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(g_esp_wifi_mock.mac, frame + 10, 6);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 2 ? wildcard : g_esp_wifi_mock.current_ap_info.bssid, frame + 16, 6);
+    TEST_ASSERT_EQUAL(attempt < 2 ? WIFI_PHY_RATE_MCS0_LGI : WIFI_PHY_RATE_6M, g_esp_wifi_mock.raw_rate_config.rate);
+#if CONFIG_IDF_TARGET_ESP32C5
+    if (attempt < 2) TEST_ASSERT_EQUAL(WIFI_PHY_MODE_HT20, g_esp_wifi_mock.raw_rate_config.phymode);
+#endif
+    TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
+  }
+  uint8_t frame[24]{};
+  TEST_ASSERT_EQUAL(0, build_null_data_frame(peer, peer, frame, sizeof(frame), true));
+  std::memcpy(g_esp_wifi_mock.mac, peer, sizeof(peer));
+  TEST_ASSERT_TRUE(traffic_target_mac_is_station("10:B4:1D:E8:EC:00"));
+  TEST_ASSERT_FALSE(traffic_target_mac_is_station("auto"));
+  TEST_ASSERT_TRUE(generator.set_target_mac("10:b4:1d:e8:ec:00"));
+  generator.init(100, TrafficGeneratorMode::WIFI_RAW);
+  TEST_ASSERT_FALSE(generator.start(0));
+  active_generator = nullptr;
+  g_esp_wifi_mock.raw_tx_hook = nullptr;
+}
+
+void test_raw_destination_waits_for_the_old_worker_before_retargeting(void) {
+  prepare_lifecycle_test();
+  const uint8_t bssid[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+  std::memcpy(g_esp_wifi_mock.current_ap_info.bssid, bssid, sizeof(bssid));
+  TrafficGeneratorService generator;
+  generator.init(100U, TrafficGeneratorMode::WIFI_RAW);
+  TEST_ASSERT_TRUE(generator.start(0U));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.raw_rate_call_count);
+  TEST_ASSERT_EQUAL(WIFI_PHY_RATE_6M, g_esp_wifi_mock.raw_rate_config.rate);
+  generator.stop();
+  TEST_ASSERT_TRUE(generator.set_target_mac("10:b4:1d:e8:ec:00"));
+  generator.init(100U, TrafficGeneratorMode::WIFI_RAW);
+  TEST_ASSERT_TRUE(generator.start(0U));
+  TEST_ASSERT_EQUAL(1, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.raw_rate_call_count);
+  finish_stopping_task();
+  generator.loop();
+  TEST_ASSERT_EQUAL(2, g_freertos_task_mock.create_calls);
+  TEST_ASSERT_EQUAL(WIFI_PHY_RATE_MCS0_LGI, g_esp_wifi_mock.raw_rate_config.rate);
+  active_generator = &generator;
+  g_esp_wifi_mock.raw_tx_hook = stop_raw_test_generator;
+  finish_stopping_task();
+  const uint8_t peer[6] = {0x10, 0xb4, 0x1d, 0xe8, 0xec, 0};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(peer, g_esp_wifi_mock.raw_tx_frame + 4, 6);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.raw_tx_frame[1]);
+  g_esp_wifi_mock.raw_tx_hook = nullptr;
+  active_generator = nullptr;
+}
+
 int process(void) {
     UNITY_BEGIN();
+    RUN_TEST(test_raw_peer_destination_and_return_to_auto);
+    RUN_TEST(test_raw_destination_waits_for_the_old_worker_before_retargeting);
     RUN_TEST(test_dns_udp_generator_sends_one_paced_query_per_wait);
     RUN_TEST(test_ping_generator_counts_rejected_sends_as_errors);
     RUN_TEST(test_dns_tcp_generator_streams_length_prefixed_queries_on_an_established_connection);
@@ -911,5 +983,7 @@ int process(void) {
 #if defined(ESP_PLATFORM)
 extern "C" void app_main(void) { process(); }
 #else
+
+
 int main(int argc, char **argv) { return process(); }
 #endif

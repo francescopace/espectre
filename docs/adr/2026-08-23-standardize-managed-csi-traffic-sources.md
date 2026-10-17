@@ -2,13 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-08-23
-- Updated: 2026-09-08
+- Updated: 2026-10-17
 
 ## Context
 
 ESPectre needs a regular supply of HT20/HT-LTF packets so motion detection can cover its fixed temporal grid. Runtime diagnostics repeatedly showed average occupancy around 85% even when a traffic generator reported approximately `100 pps`. Raw callback rate alone could not distinguish missing packets from AP scheduling bursts, device-side send bursts, retransmissions, legacy-PHY delivery, same-slot excess, or processing backlog.
 
-The project supports internal ICMP ping, internal DNS over UDP or TCP, experimental raw Wi-Fi Null Data traffic that elicits AP ACKs, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths differ in protocol state, QoS treatment, target-specific Wi-Fi behavior, and missed-deadline behavior. The standalone external tool also initially lacked the fixed-phase behavior used by the internal generator.
+The project supports internal ICMP ping, internal DNS over UDP or TCP, raw Wi-Fi Null Data traffic that elicits AP ACKs, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths differ in protocol state, QoS treatment, target-specific Wi-Fi behavior, and missed-deadline behavior. The standalone external tool also initially lacked the fixed-phase behavior used by the internal generator.
 
 Motion sensing also requires a precise definition of packet time. The CSI delivered by the Wi-Fi callback is estimated by the PHY from the packet training field at RF reception. Later callback or loop handling does not move that channel observation forward in time. The fixed admission grid must therefore use the Wi-Fi RX timestamp carried with the frame, while software clocks may measure only processing backlog.
 
@@ -410,7 +410,7 @@ A standalone application in `test/hardware/esp_idf/csi_ack_dump` removed the ESP
 
 Together, these standalone runs completed 12,500 transmissions successfully and observed 12,512 ACKs, with no valid estimates, zero reported RX errors, and software and hardware CSI lengths of 128 bytes throughout. They found no correction among the evaluated PHY dump controls. Association failures before acquisition were excluded. The standalone C5 application compiled, but its hardware run lost USB communication during startup and did not produce a scored CSI window; recovery requires manual BOOT/RESET intervention. That run is not a passing C5 control or evidence about C5 CSI validity. C6 was restored to the original Native firmware and verified on the original AP in `wifi_raw` mode. Sources, ROM and driver disassembly, binaries, logs, audited results, and an unposted issue draft are retained under `init-compare` in the local evidence directory.
 
-The demonstrated ACK failure is in the C6 driver/hardware short-frame CSI path before application normalization and admission. These tests do not separate a silicon limitation from a driver workaround opportunity, establish behavior on other C6 revisions or SDK releases, or validate detector accuracy. Espressif has separately acknowledged invalid C6 callback estimates and the need to inspect `rx_channel_estimate_info_vld` in [issue #14271](https://github.com/espressif/esp-idf/issues/14271); that report does not establish a fix for this ACK case. Keep the quality filter and `wifi_raw`'s experimental status, and explicitly select `ping` on this failing C6 configuration. The operator also reported working C3 and S3 devices; those reports are outside this paired investigation.
+The demonstrated ACK failure is in the C6 driver/hardware short-frame CSI path before application normalization and admission. These tests do not separate a silicon limitation from a driver workaround opportunity, establish behavior on other C6 revisions or SDK releases, or validate detector accuracy. Espressif has separately acknowledged invalid C6 callback estimates and the need to inspect `rx_channel_estimate_info_vld` in [issue #14271](https://github.com/espressif/esp-idf/issues/14271); that report does not establish a fix for this ACK case. Keep the quality filter, and explicitly select `ping` on this failing C6 configuration. The operator also reported working C3 and S3 devices; those reports are outside this paired investigation.
 
 Local evidence is under `/private/tmp/espectre-c5-c6-raw-investigation`, including probe sources, firmware images, serial logs, configuration snapshots, disassembly, and machine-readable results. All temporary production hooks were removed after acquisition.
 
@@ -473,6 +473,25 @@ IP occupancy differences were small, and the single sequential pair does not est
 
 The completed C6 arms are `c6-auto-usb` and `c6-fixed6-usb` under `data/untracked/wifi_tx_rate_c5c6/20260914`. Earlier `c6-auto` and `c6-auto-rom-flash` attempts failed during setup and contain no scored acquisition; the complete Auto image was subsequently restored and hash-verified before measurement. `comparison-c5c6-final.json`, its Markdown table, and `campaign-summary-final.json` cover the four completed C5/C6 arms, all 1,920 successful HTTP requests, and the archived hash checks. The C6 was left on fixed 6 Mbps with PING enabled and ready; C5 was already disconnected by the user.
 
+### C3-to-S3 external radio acquisition
+
+The following acquisition checks used an ESP32-C3 transmitter, an ESP32-S3 Native receiver, ESP-IDF 5.5.5, and no promiscuous reception. They cover CSI acquisition; detector accuracy across environments remains unmeasured.
+
+| Source | TX rate | Receiver profile | Result |
+|--------|---------|------------------|--------|
+| Unicast ESP-NOW v2 | HT20 MCS0 | `ht20` | 2,500 successful sends, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
+| Unicast ESP-NOW v2, 300-byte payload | OFDM 6 Mbps | `lltf20` | 1,500 successful sends; multi-element frames admitted with zero CSI hardware errors |
+| Direct non-QoS Null Data | OFDM 6 Mbps | `lltf20` | 1,500 successful sends, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
+| Direct non-QoS Null Data, wildcard BSSID | HT20 MCS0 | `ht20` | 2,500 successful sends with the final transmitter, approximately 100 accepted CSI samples/s, and zero CSI hardware errors |
+
+Explicit HT20 transmitter bandwidth and a wildcard BSSID were both needed on this C3-to-S3 setup: with a wildcard BSSID but the default HT40 interface bandwidth, all 1,500 sends failed; with explicit HT20 but the AP's BSSID, all 750 sends failed. With both settings corrected, Null Data supplies HT20 CSI without changing ESPectre's receiver profile or registering an ESP-NOW peer.
+
+Raw Null Data collection delivered 996 HT20 records at MCS0 and 1,002 legacy LLTF20 records at 6 Mbps in separate runs of approximately 10 seconds. Every record was fresh, nonzero, and contained 64 subcarriers, with no sequence gaps, device queue drops, or stream backpressure.
+
+A subsequent C3-to-S3 check kept the transmitter associated to the same 2.4 GHz AP as the receiver. ESP-NOW and Null Data each completed 3,000 acknowledged transmissions at HT20 MCS0, approximately 99 packets/s, with no disconnections during either run or receiver CSI hardware errors. Separate ten-second captures contained 985 ESP-NOW records and 987 Null Data records, all fresh, nonzero, and HT with 64 subcarriers, without raw-stream sequence gaps, raw queue drops, or stream backpressure. The receiver remained in `external` mode with its standard HT20 profile, and promiscuous mode stayed disabled. The transmitter needed one initial association retry before these runs.
+
+The sensing pending-frame drop counter increased by four for ESP-NOW and six for Null Data shortly after closing the raw captures. Follow-up runs without raw collection completed another 1,500 acknowledged transmissions per source, with no sensing queue drops, CSI hardware errors, or Wi-Fi disconnections. Sensing-window occupancy averaged approximately 90% in those runs.
+
 ### Timing and admission findings
 
 The packet's useful sensing instant is reception by the device, when the PHY estimates CSI from HT-LTF. AP transmit time is not directly available to the device, and callback processing time describes software latency rather than the RF channel sample. A CSI result cannot be deferred arbitrarily and recalculated later without retaining the original RF samples; the callback exposes the estimate already associated with that received packet.
@@ -491,7 +510,7 @@ Standardize managed CSI traffic as follows:
 - centralize station and raw TX-rate configuration in the shared Wi-Fi rate component; the Wi-Fi lifecycle requests station configuration before connected services start and reevaluates the AP on reconnection or roaming, while the generator requests raw configuration through that component; retain the station rate when sensing stops or traffic selection changes;
 - reuse that station-rate policy in Micro-ESPectre Wi-Fi setup and recovery through a native Wi-Fi binding, independently of the native traffic generator;
 - fail Wi-Fi lifecycle initialization on station-rate configuration errors and `wifi_raw` startup on raw injection rate errors; report driver errors explicitly, and do not mask lifecycle or configuration faults by silently switching station rates to Auto;
-- expose explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff, and experimental `wifi_raw` for Null Data requests and LLTF ACK capture;
+- expose explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff, and `wifi_raw` for Null Data requests and LLTF ACK capture;
 - keep `ping` as the shared schema default and the published Native, Matter, ESPHome, and Micro-ESPectre product configuration default; keep `dns` and `dns_tcp` as explicit operator selections;
 - preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;
 - request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
@@ -524,6 +543,7 @@ Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally r
 | 2026-09-06 | Bypass S3 sensing to regularize the uplink | Retain the sensing path; callback time fell from about 224 to 42 µs without a demonstrated uplink regularity gain, while most observed irregularity arose after the measured driver handoff |
 | 2026-09-06 | Disable S3 CSI to isolate outbound timing | Retain CSI; the qualified baseline improvement persisted after re-enabling CSI, while C6 observation gaps prevented an under-load A/B/A conclusion |
 | 2026-09-06 | Add S3 TX-completion timing to isolate uplink irregularity | Keep production settings; exact packet joins locate the main cadence change after driver handoff and before or at radio transmission, without separating driver/MAC scheduling from shared-channel access |
+| 2026-10-17 | Promote `wifi_raw` to stable on supported chips | Accepted after operational validation; ESP32-C6 remains excluded because its ACK CSI is unusable |
 
 ## Alternatives Considered
 

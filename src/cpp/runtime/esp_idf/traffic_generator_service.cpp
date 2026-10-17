@@ -367,18 +367,27 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
 }
 
 size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
-                             uint8_t *buffer, size_t buffer_len) {
+                             uint8_t *buffer, size_t buffer_len, bool direct_peer) {
   if (bssid == nullptr || station_mac == nullptr || buffer == nullptr ||
       buffer_len < TRAFFIC_NULL_DATA_FRAME_SIZE || is_zero_mac_address(bssid) ||
-      is_zero_mac_address(station_mac) || ((bssid[0] | station_mac[0]) & 0x01U) != 0U) return 0U;
+      is_zero_mac_address(station_mac) || std::memcmp(bssid, station_mac, 6U) == 0 || ((bssid[0] | station_mac[0]) & 0x01U) != 0U) return 0U;
   std::memset(buffer, 0, TRAFFIC_NULL_DATA_FRAME_SIZE);
   buffer[0] = 0x48U;  // Non-QoS Null Data, protocol version zero.
-  buffer[1] = 0x01U;  // ToDS; keep power management, retry, and fragmentation clear.
+  buffer[1] = direct_peer ? 0x00U : 0x01U;  // AP traffic uses ToDS; peer traffic stays direct.
   std::memcpy(buffer + 4U, bssid, 6U);
   std::memcpy(buffer + 10U, station_mac, 6U);
-  std::memcpy(buffer + 16U, bssid, 6U);
+  if (direct_peer) std::memset(buffer + 16U, 0xFF, 6U);
+  else std::memcpy(buffer + 16U, bssid, 6U);
   // ESP-IDF supplies the sequence number and FCS.
   return TRAFFIC_NULL_DATA_FRAME_SIZE;
+}
+
+bool traffic_target_mac_is_station(const std::string &target) {
+  uint8_t destination[6]{};
+  uint8_t station[6]{};
+  return target != "auto" && parse_unicast_mac_address(target, destination) &&
+         esp_wifi_get_mac(WIFI_IF_STA, station) == ESP_OK &&
+         std::memcmp(destination, station, sizeof(station)) == 0;
 }
 
 TrafficGeneratorService::~TrafficGeneratorService() {
@@ -394,6 +403,7 @@ TrafficGeneratorService::~TrafficGeneratorService() {
 void TrafficGeneratorService::apply_init_() {
   target_addr_ = 0U;
   mode_ = staged_mode_;
+  target_mac_ = staged_target_mac_;
   icmp_identifier_ = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this));
   target_pps_ = staged_target_pps_;
   current_rate_pps_.store(staged_target_pps_, std::memory_order_relaxed);
@@ -405,6 +415,14 @@ void TrafficGeneratorService::apply_init_() {
            "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s)",
            target_pps_,
            generator_traffic_mode_name(mode_));
+}
+
+bool TrafficGeneratorService::set_target_mac(const std::string &target) {
+  uint8_t mac[6]{};
+  if (target != "auto" && !parse_unicast_mac_address(target, mac)) return false;
+  staged_target_mac_ = target;
+  init_pending_ = true;
+  return true;
 }
 
 void TrafficGeneratorService::init(uint32_t target_pps, TrafficGeneratorMode mode) {
@@ -448,13 +466,28 @@ bool TrafficGeneratorService::launch_(uint32_t target_addr) {
   if (mode_ == TrafficGeneratorMode::WIFI_RAW) {
     wifi_ap_record_t ap{};
     uint8_t station_mac[6]{};
+    uint8_t peer_mac[6]{};
+    const bool direct_peer = target_mac_ != "auto";
     if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK ||
-        esp_wifi_get_mac(WIFI_IF_STA, station_mac) != ESP_OK ||
-        build_null_data_frame(ap.bssid, station_mac, null_data_frame_, sizeof(null_data_frame_)) == 0U) {
+        esp_wifi_get_mac(WIFI_IF_STA, station_mac) != ESP_OK) {
       ESPECTRE_LOGE(TAG, "Associated AP or station MAC is unavailable");
       return false;
     }
-    if (apply_raw_tx_rate(ap) != ESP_OK) return false;
+    if (direct_peer && (!parse_unicast_mac_address(target_mac_, peer_mac) ||
+                        std::memcmp(peer_mac, station_mac, sizeof(station_mac)) == 0)) {
+      ESPECTRE_LOGE(TAG, "Raw destination %s is invalid or this device's own MAC", target_mac_.c_str());
+      return false;
+    }
+    if (build_null_data_frame(direct_peer ? peer_mac : ap.bssid, station_mac,
+                              null_data_frame_, sizeof(null_data_frame_), direct_peer) == 0U) {
+      ESPECTRE_LOGE(TAG, "Cannot build raw Null Data for the associated AP");
+      return false;
+    }
+    if (apply_raw_tx_rate(ap, direct_peer) != ESP_OK) return false;
+    const uint8_t *destination = null_data_frame_ + 4U;
+    ESPECTRE_LOGI(TAG, "Raw destination %02x:%02x:%02x:%02x:%02x:%02x (%s)",
+                  destination[0], destination[1], destination[2], destination[3],
+                  destination[4], destination[5], direct_peer ? "direct HT20 MCS0" : "AP OFDM");
   }
 
   DnsTcpTrafficProtocol dns_tcp_protocol;

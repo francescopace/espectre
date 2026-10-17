@@ -28,6 +28,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 using namespace espectre;
@@ -265,6 +266,28 @@ void test_runtime_frontend_controller_validates_a_combined_control_update(void) 
   detector.has_detection_algorithm = true;
   detector.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
   TEST_ASSERT_FALSE(controller.validate_control_update(detector, &message));
+}
+
+void test_runtime_frontend_controller_preflight_rejects_the_station_raw_destination(void) {
+  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+  const uint8_t station[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+  std::memcpy(g_esp_wifi_mock.mac, station, sizeof(station));
+  RuntimeFrontendController controller;
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+
+  RuntimeControlUpdate update;
+  update.has_threshold = true;
+  update.threshold = 0.4f;
+  update.has_traffic_generator_target_mac = true;
+  update.traffic_generator_target_mac = "02:11:22:33:44:55";
+  std::string message;
+  TEST_ASSERT_FALSE(controller.validate_control_update(update, &message));
+  TEST_ASSERT_EQUAL_STRING("raw destination cannot be this device's MAC", message.c_str());
+
+  update.traffic_generator_target_mac = "10:b4:1d:e8:ec:00";
+  TEST_ASSERT_TRUE(controller.validate_control_update(update, &message));
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_target_mac("10:B4:1D:E8:EC:00"));
+  TEST_ASSERT_EQUAL_STRING("10:b4:1d:e8:ec:00", controller.config().traffic_generator_target_mac.c_str());
 }
 
 void test_runtime_frontend_controller_rejects_default_threshold_in_control_updates(void) {
@@ -750,6 +773,7 @@ void test_runtime_frontend_controller_defers_firmware_scans_during_sdk_recovery(
 }
 
 void test_runtime_frontend_controller_clears_persisted_overrides(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_target_mac("10:b4:1d:e8:ec:00"));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(7U, 5U));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
@@ -758,6 +782,9 @@ void test_runtime_frontend_controller_clears_persisted_overrides(void) {
   TEST_ASSERT_TRUE(controller.clear_persisted_overrides());
 
   bool has_saved_value = true;
+  std::string target;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_target_mac(&target, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
   TrafficGeneratorMode mode = TrafficGeneratorMode::PING;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&mode, &has_saved_value));
   TEST_ASSERT_FALSE(has_saved_value);
@@ -869,6 +896,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_validates_a_combined_control_update);
+  RUN_TEST(test_runtime_frontend_controller_preflight_rejects_the_station_raw_destination);
   RUN_TEST(test_runtime_frontend_controller_rejects_default_threshold_in_control_updates);
   RUN_TEST(test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);

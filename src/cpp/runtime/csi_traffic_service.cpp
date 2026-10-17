@@ -14,6 +14,7 @@ namespace espectre {
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
   CsiTrafficServiceConfig traffic_config;
   traffic_config.mode = config.traffic_generator_mode;
+  traffic_config.target_mac = config.traffic_generator_target_mac;
   traffic_config.rate_pps = config.csi_target_pps;
   traffic_config.udp_port = config.csi_traffic_udp_port;
   traffic_config.multicast_group = config.csi_traffic_multicast_group;
@@ -23,6 +24,7 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
   if (mode_ != TrafficGeneratorMode::EXTERNAL_HOST) {
+    target_mac_supported_ = traffic_generator_.set_target_mac(config.target_mac);
     traffic_generator_.init(config.rate_pps, mode_);
   }
   traffic_ingress_.init(config.udp_port);
@@ -37,6 +39,7 @@ bool CsiTrafficService::start(uint32_t target_addr) {
   if (mode_ == TrafficGeneratorMode::EXTERNAL_HOST) {
     return traffic_ingress_.is_running() || traffic_ingress_.start();
   }
+  if (mode_ == TrafficGeneratorMode::WIFI_RAW && !target_mac_supported_) return false;
   return traffic_generator_.is_running() || traffic_generator_.start(target_addr);
 }
 

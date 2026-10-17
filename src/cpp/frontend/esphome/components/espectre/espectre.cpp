@@ -716,6 +716,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
   capabilities.set(Method::SET_DETECTOR, runtime_capabilities.supports_runtime_detector_selection);
   capabilities.set(Method::RECALIBRATE, runtime_capabilities.supports_manual_recalibration);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
+  capabilities.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, runtime_capabilities.supports_traffic_target_mac);
   capabilities.set(EspectreConfigSection::RUNTIME);
   FrontendCommandResult result = this->command_engine_.execute(
       command,
@@ -773,6 +774,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
           out += ",\"motion_on_hits\":" + std::to_string(config.motion_on_hits);
           out += ",\"motion_off_hits\":" + std::to_string(config.motion_off_hits);
           append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
+          append_json_pair(&out, "traffic_generator_target_mac", config.traffic_generator_target_mac.c_str());
           out += "}";
           return out;
         }
@@ -796,6 +798,9 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
       },
       [this](const RuntimeControlUpdate &update, std::string *message) {
         return this->runtime_.validate_control_update(update, message);
+      },
+      [this](const std::string &target, std::string *) {
+        return this->runtime_.set_traffic_generator_target_mac(target);
       });
   if (result.changes != FrontendCommandChange::NONE) {
     (void) this->direct_bridge_.publish_changes(result.changes);

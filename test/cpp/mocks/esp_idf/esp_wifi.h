@@ -31,7 +31,7 @@ typedef enum {
 // WiFi interface
 typedef enum { WIFI_IF_STA = 0, WIFI_IF_AP, WIFI_IF_MAX } wifi_interface_t;
 
-typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3 } wifi_phy_mode_t;
+typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3, WIFI_PHY_MODE_HT20 = 4 } wifi_phy_mode_t;
 typedef enum {
   WIFI_PHY_RATE_24M = 0x09,
   WIFI_PHY_RATE_12M = 0x0A,

@@ -11,7 +11,7 @@
   <p>Demo mode simulates movement without a device. With a device, events come straight from it over your local network.</p>
   <div class="tool-static-actions">
     <a href="/#tool-monitor" class="btn-primary">Open live motion</a>
-    <a href="/guides/detectors/" class="btn-secondary">Compare detector profiles</a>
+    <a href="/guides/detectors/" class="btn-secondary">Compare detection profiles</a>
   </div>
 </section>
 
@@ -85,7 +85,18 @@
                   </div>
                   <div class="field" data-device-command="update_sensing">
                     <label for="sense-generator-mode">Wi-Fi traffic source</label>
-                    <select id="sense-generator-mode"><option value="ping">Ping (ICMP)</option><option value="dns">DNS (UDP)</option><option value="dns_tcp">DNS (TCP)</option><option value="wifi_raw">Wi-Fi raw (Experimental)</option><option value="external">External device</option></select>
+                    <select id="sense-generator-mode"><option value="ping">Ping (ICMP)</option><option value="dns">DNS (UDP)</option><option value="dns_tcp">DNS (TCP)</option><option value="wifi_raw">Wi-Fi raw</option><option value="external">External device</option></select>
+                  </div>
+                  <div data-capability="supports_traffic_target_mac" hidden>
+                    <div class="field" data-device-command="update_sensing" data-traffic-mode="wifi_raw" hidden>
+                      <label for="sense-raw-target">Destination MAC</label>
+                      <select id="sense-raw-target" aria-describedby="sense-raw-target-help"><option value="auto">Automatic (AP)</option><option value="custom">Custom MAC…</option></select>
+                      <div class="field" id="sense-raw-target-custom" hidden>
+                        <label for="sense-raw-target-mac">Custom destination MAC</label>
+                        <input type="text" id="sense-raw-target-mac" class="mono-input" placeholder="02:11:22:33:44:55" maxlength="17" autocomplete="off" spellcheck="false" aria-describedby="sense-raw-target-help">
+                      </div>
+                      <small class="field-help" id="sense-raw-target-help">Auto follows the AP. A peer must use External mode on the same channel.</small>
+                    </div>
                   </div>
                 </div>
               </details>

@@ -1,7 +1,7 @@
 /*
  * ESPectre - Traffic Generator Service
  *
- * Generates paced traffic to the configured IPv4 target or associated AP at the configured
+ * Generates paced traffic to the configured IPv4 target, associated AP, or raw peer at the configured
  * CSI target. Scheduling, local send backoff, and stall logging are shared by
  * all backends. Occupancy never changes the send rate.
  *
@@ -103,7 +103,10 @@ constexpr size_t TRAFFIC_DNS_TCP_FRAME_SIZE = TRAFFIC_DNS_QUERY_PAYLOAD_SIZE + 2
 constexpr size_t TRAFFIC_NULL_DATA_FRAME_SIZE = 24U;
 
 size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
-                             uint8_t *buffer, size_t buffer_len);
+                             uint8_t *buffer, size_t buffer_len, bool direct_peer = false);
+
+/** Whether an explicit raw destination is this station's MAC; false for `auto` or before Wi-Fi starts. */
+bool traffic_target_mac_is_station(const std::string &target);
 
 size_t build_dns_query_payload(uint16_t transaction_id,
                                uint8_t *buffer,
@@ -127,6 +130,9 @@ class TrafficGeneratorService final : public ICsiTrafficGenerator {
   /** Configure the send rate and backend while stopped. */
   void init(uint32_t target_pps,
             TrafficGeneratorMode mode = TrafficGeneratorMode::PING) override;
+
+  /** Stage auto or a unicast peer MAC; the active worker keeps its existing frame. */
+  bool set_target_mac(const std::string &target) override;
 
   /** Start sending to an IPv4 address in network byte order; WIFI_RAW ignores the address. */
   bool start(uint32_t target_addr) override;
@@ -204,6 +210,8 @@ class TrafficGeneratorService final : public ICsiTrafficGenerator {
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
   TrafficGeneratorMode staged_mode_{TrafficGeneratorMode::PING};
   bool init_pending_{false};
+  std::string target_mac_{"auto"};
+  std::string staged_target_mac_{"auto"};
   uint16_t icmp_identifier_{0U};
   uint8_t null_data_frame_[TRAFFIC_NULL_DATA_FRAME_SIZE]{};
   std::atomic<uint32_t> current_rate_pps_{0U};

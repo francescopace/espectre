@@ -52,6 +52,21 @@ void setUp(void) {
 
 void tearDown(void) {}
 
+void test_matter_raw_destination_uses_shared_direct_contract(void) {
+  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 11, &direct);
+  TEST_ASSERT_TRUE(frontend.setup());
+  const auto catalog = direct.emit_request(DirectRequest{"caps", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(catalog.find("\"traffic_generator_target_mac\":true") != std::string::npos);
+  const auto result = direct.emit_request(DirectRequest{
+      "raw", "update_sensing", R"({"traffic_generator_target_mac":"10:b4:1d:e8:ec:00"})"});
+  TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
+  const auto state = direct.emit_request(DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(state.find("\"traffic_generator_target_mac\":\"10:b4:1d:e8:ec:00\"") != std::string::npos);
+}
+
 void test_matter_frontend_setup_registers_runtime_listener(void) {
   frontend_runtime_shim::state.snapshot.threshold = 3.25f;
 
@@ -488,6 +503,7 @@ int main(int argc, char **argv) {
   (void) argc;
   (void) argv;
   UNITY_BEGIN();
+  RUN_TEST(test_matter_raw_destination_uses_shared_direct_contract);
   RUN_TEST(test_matter_frontend_setup_registers_runtime_listener);
   RUN_TEST(test_matter_frontend_setup_fails_without_bindings);
   RUN_TEST(test_matter_frontend_setup_fails_when_runtime_setup_fails);

@@ -285,7 +285,6 @@
         }
         if (detector && detectorSelect) {
             detectorSelect.value = detector;
-            syncSensingControls();
         }
         if (motionHits.length === 2 && motionOnInput && motionOffInput) {
             motionOnInput.value = motionHits[0];
@@ -304,6 +303,8 @@
                 trafficGeneratorSelect.value = trafficGeneratorMode;
             }
         }
+        syncSensingControls();
+        applyRawTrafficSettings(snapshot);
         applySensingCadence(snapshot);
     }
 
@@ -347,15 +348,17 @@
     function syncSensingControls() {
         syncTrafficGeneratorOptions();
         const detector = document.getElementById('sense-detector')?.value;
+        const trafficMode = document.getElementById('sense-generator-mode')?.value;
         $$('[data-device-command]').forEach((panel) => {
             const supported = conn.mode === 'demo'
                 || !monitor.commandCatalogReady
                 || monitor.commands.has(panel.dataset.deviceCommand);
             const lightweightOnly = panel.dataset.deviceCommand === 'recalibrate' && detector !== 'lightweight';
-            panel.hidden = !supported || lightweightOnly;
+            const trafficModeMismatch = panel.dataset.trafficMode && panel.dataset.trafficMode !== trafficMode;
+            panel.hidden = !supported || lightweightOnly || !!trafficModeMismatch;
             panel.querySelectorAll('button, input, select').forEach((control) => {
                 const calibrating = panel.dataset.deviceCommand === 'recalibrate' && monitor.calibrating;
-                control.disabled = !supported || lightweightOnly || calibrating
+                control.disabled = !supported || lightweightOnly || !!trafficModeMismatch || calibrating
                     || (conn.mode !== 'demo' && !hasLiveDetection());
             });
         });
@@ -901,6 +904,7 @@
                 supports_wifi_bssid: 'true',
                 supports_wifi_clear: 'true',
                 supports_mqtt_config: 'true',
+                supports_traffic_target_mac: 'true',
                 supports_device_config: 'true',
                 supports_extended_diagnostics: 'true',
                 supports_ota: 'false',
@@ -912,6 +916,7 @@
                 hampel_window: '5',
                 hampel_threshold: '3.0',
                 traffic_mode: 'ping',
+                traffic_generator_target_mac: 'auto',
                 csi_target_pps: '98',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',

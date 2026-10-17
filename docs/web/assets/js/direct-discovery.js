@@ -115,6 +115,8 @@
             supports_runtime_detector: methods.has('update_sensing'),
             supports_manual_recalibration: methods.has('recalibrate'),
             supports_traffic_control: methods.has('update_sensing'),
+            supports_traffic_target_mac: methods.has('update_sensing')
+                && capabilities.features?.traffic_generator_target_mac === true,
             supports_ota: sections.has('ota')
         };
     }

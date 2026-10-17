@@ -98,6 +98,8 @@ enum class EspectreDirectMethod : uint8_t {
   CLEAR_MQTT_CONFIG,
   /** `devices`, the peer discovery result. */
   DISCOVER_PEERS,
+  /** The `traffic_generator_target_mac` field of `update_sensing`. */
+  SET_TRAFFIC_GENERATOR_TARGET_MAC,
   /** Number of values; not a capability. */
   COUNT,
 };
@@ -346,6 +348,7 @@ struct EspectreDeviceInfo {
   bool supports_runtime_detector{false};
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
+  bool supports_traffic_target_mac{false};
   /** @} */
   /**
    * Traffic generator mode: `"ping"`, `"dns"`, `"dns_tcp"`, `"wifi_raw"`, or `"external"`.
@@ -404,6 +407,9 @@ struct EspectreCommand {
   /** `update_sensing` mode name; see parse_traffic_generator_mode(). */
   std::string traffic_generator_mode;
   bool has_traffic_generator_mode{false};
+  /** Raw destination: auto or an explicit unicast MAC. */
+  std::string traffic_generator_target_mac;
+  bool has_traffic_generator_target_mac{false};
   /** `update_sensing` detector name; see parse_detection_algorithm(). */
   std::string detector;
   bool has_detector{false};

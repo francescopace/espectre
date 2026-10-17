@@ -77,6 +77,8 @@ class IEspectreRuntime {
   virtual bool set_motion_hits(uint8_t motion_on_hits, uint8_t motion_off_hits) = 0;
   /** Change how CSI traffic is produced, including `EXTERNAL_HOST`. False when not applied. */
   virtual bool set_traffic_generator_mode(TrafficGeneratorMode mode) = 0;
+  /** Set a raw destination; unsupported by default for existing backends. */
+  virtual bool set_traffic_generator_target_mac(const std::string &target) { (void)target; return false; }
   /** Switch detector, rebuilding detector state. False when not applied. */
   virtual bool set_detection_algorithm(DetectionAlgorithm algorithm) = 0;
   /** Restart startup calibration. False when calibration cannot start. */

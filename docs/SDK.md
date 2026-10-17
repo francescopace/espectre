@@ -271,8 +271,9 @@ Defaults and checks are defined in [runtime_sensing_schema.h](../src/cpp/runtime
 | `csi_capture_policy` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Set before setup; no runtime setter. `HT_VHT` resolves HT20 or VHT20 from chip and band; `WIFI_RAW` requires `AUTO` or `LLTF` |
 | `csi_traffic_udp_port` | `uint16_t` | `5555` | UDP port the listener binds with `EXTERNAL_HOST` traffic |
 | `csi_traffic_multicast_group` | `std::string`: IPv4 multicast address, or empty | `"239.255.0.1"` | Joined by the UDP listener with `EXTERNAL_HOST` traffic. Empty disables the join. Unicast to the device IP still works |
-| `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, `WIFI_RAW`, or `EXTERNAL_HOST` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and experimental `WIFI_RAW` sends Null Data to the AP. `EXTERNAL_HOST` sends nothing and listens for [external CSI traffic](API.md#external-csi-traffic) from another host, independently from `csi_target_pps` |
+| `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, `WIFI_RAW`, or `EXTERNAL_HOST` | `PING` | `DNS` uses UDP, `DNS_TCP` uses persistent TCP, and `WIFI_RAW` sends Null Data to the AP or configured peer. `EXTERNAL_HOST` sends nothing and listens for [external CSI traffic](API.md#external-csi-traffic) from another host, independently from `csi_target_pps` |
 | `traffic_generator_target_ip` | `std::string`: unicast IPv4 address, or empty | empty | Destination for internal `PING`, `DNS`, and `DNS_TCP`; empty uses the Wi-Fi default gateway. Ignored by `WIFI_RAW` and external traffic |
+| `traffic_generator_target_mac` | `std::string`: `auto` or a colon-separated unicast MAC | `auto` | Destination for `WIFI_RAW`; follows the associated AP or sends directly to a peer on the same channel. Ignored by other sources |
 | `evaluation_interval_ms` | `uint32_t` | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | `uint8_t` | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` |
 | `motion_off_hits` | `uint8_t` | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` |
@@ -294,6 +295,10 @@ Only some settings can change at runtime. Check the advertised capabilities, the
 `traffic_generator_target_ip` sets where `ping`, `dns`, and `dns_tcp` send their packets. Leave it empty to use the Wi-Fi gateway. It is ignored by `wifi_raw` and external traffic, and can be set only before setup (or with `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP` in menuconfig).
 
 Use a plain unicast IPv4 address, such as `192.168.1.10`, of a host that answers the selected protocol. DNS modes need a resolver on port `53`. Hostnames, loopback, multicast, and reserved addresses are rejected.
+
+`traffic_generator_target_mac` selects the `wifi_raw` destination. The default `auto` reads the BSSID of the currently associated AP whenever traffic starts, including after roaming, reconnecting, changing the BSSID pin, or falling back after a failed pin. It does not cache the preferred BSSID. An explicit unicast MAC uses direct HT20 MCS0 Null Data and stays fixed across AP changes; the receiving ESPectre must remain on the same channel in `external` mode. The transmitter continues sensing ACKs with `auto`/LLTF. See [traffic sources](CSI.md#traffic-sources) for capture restrictions.
+
+Set the initial value through `RuntimeConfig`, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, or ESPHome YAML. At runtime, use `RuntimeFrontendController::set_traffic_generator_target_mac()`, Monitor → Advanced sensing settings with Wi-Fi raw selected, or the canonical `update_sensing` command. The Monitor offers Automatic (AP) or a custom MAC and saves each change automatically. The setting is saved when `persist_runtime_overrides` is enabled. Empty, zero, group, broadcast, and malformed MAC addresses are rejected; use the literal `auto` for automatic targeting. A running station also rejects its own MAC. Hex digits are stored and reported in lower case.
 
 Motion-hit timing is explained in [motion-hit filtering](ALGORITHMS.md#motion-hit-filtering).
 

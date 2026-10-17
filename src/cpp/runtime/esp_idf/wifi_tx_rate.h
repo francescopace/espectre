@@ -36,12 +36,12 @@ constexpr float WIFI_TX_RATE_MBPS =
     WIFI_TX_RATE_SETTING == "6.5" ? 6.5f : -1.0f;
 static_assert(WIFI_TX_RATE_MBPS >= 0.0f,
               "Wi-Fi TX rate must be 0 (auto), 6, or 6.5 Mbps");
-// Raw Null Data retains legacy OFDM for ACK CSI under Auto and HT selection.
+// AP-directed raw Null Data uses legacy OFDM; explicit peers use HT20 MCS0.
 constexpr wifi_phy_rate_t WIFI_OFDM_TX_RATE = WIFI_PHY_RATE_6M;
 constexpr wifi_phy_rate_t WIFI_STATION_TX_RATE =
     WIFI_TX_RATE_MBPS == 6.5f ? WIFI_PHY_RATE_MCS0_LGI : WIFI_OFDM_TX_RATE;
 
-/** Configure raw-frame OFDM transmission for the associated AP's band. */
-esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap);
+/** Configure OFDM for the AP, or HT20 MCS0 for direct peer traffic. */
+esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap, bool direct_peer = false);
 
 }  // namespace espectre

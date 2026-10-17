@@ -114,6 +114,11 @@ bool EspIdfRuntime::set_traffic_generator_mode(TrafficGeneratorMode mode) {
   return true;
 }
 
+bool EspIdfRuntime::set_traffic_generator_target_mac(const std::string &target) {
+  config_.traffic_generator_target_mac = target;
+  return true;
+}
+
 bool EspIdfRuntime::set_detection_algorithm(DetectionAlgorithm algorithm) {
   frontend_runtime_shim::state.set_detector_calls++;
   frontend_runtime_shim::state.last_detector = algorithm;
