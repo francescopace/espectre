@@ -53,6 +53,21 @@ The host generator sends multicast with TTL 8, so it can cross up to seven route
 
 Broadcast traffic does not give reliable HT20 CSI; use unicast or multicast. Ports and markers are defined in [external CSI traffic](API.md#external-csi-traffic), and host commands in [`collect`](CLI.md#collect).
 
+### Two-device sensing
+
+An explicit `traffic_generator_target_mac` lets two ESPectre devices form a direct sensing link. This is useful when the AP is in a hallway, cabinet, or another room and its link to a sensor does not cross the area of interest. Place the two boards across a passage or a part of the room to choose both endpoints independently of the AP's position. The sensing frames and their ACKs travel directly between the boards; external IP traffic from a host or the Home Assistant add-on still travels through the AP and does not create this geometry.
+
+| Setting or input | Device A: direct sender | Device B: external receiver |
+|------------------|-------------------------|-----------------------------|
+| `traffic_generator_mode` | `wifi_raw` | `external` |
+| `traffic_generator_target_mac` | B's Wi-Fi station MAC | Ignored in `external` mode |
+| Build-time capture policy | `auto` or `lltf` | `auto` or `ht-vht`, on 2.4 GHz |
+| Measured input | B's ACKs, in LLTF | A's direct HT20 MCS0 Null Data frames |
+
+Keep both devices connected to Wi-Fi on the same 2.4 GHz channel and use the same `csi_target_pps`. A supplies the traffic cadence; B's configured rate sets its detector timing. Connecting both to the same AP is the simplest arrangement. On a mesh, pin both to the same BSSID to prevent independent roaming onto different channels. The explicit peer MAC stays fixed after an AP change; it does not make the peer follow a channel change. ESP32-C6 cannot be A because `wifi_raw` is unsupported; see [compatibility limits](#compatibility-limits). No separate generator firmware or device role is needed.
+
+Each device runs its own detector and publishes its own motion state. There is no fused pair state or spatial boundary. An oval around the endpoints is only a placement sketch: reflected paths can make movement outside it visible, and movement inside it can still be missed. Stop other external traffic sources feeding B while evaluating the direct link, and test both desired and unwanted detection areas. The [two-device placement guide](https://espectre.dev/guides/placement/#placement-pair) covers the Monitor setup and room test; [traffic destination](SDK.md#traffic-destination) covers configuration interfaces and validation.
+
 ### Pacing
 
 The device and host generators send packets at an even rate and avoid bursts after delays. Delivery errors can lower the measured rate, but the runtime keeps your target and source.

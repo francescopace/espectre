@@ -3281,7 +3281,8 @@ body.modal-open { overflow: hidden; }
 .mini-cards h3 { font-size: 14.5px; margin: 0 0 8px; }
 .mini-cards ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--dim); }
 .mini-cards li { margin-bottom: 4px; }
-.profile-choice-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.profile-choice-cards,
+.sensing-link-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .profile-choice-cards article { display: flex; flex-direction: column; gap: 10px; }
 .profile-choice-cards h3 { margin: 0; font-size: 20px; }
 .profile-choice-cards p { margin: 0; color: var(--dim); font-size: 13.5px; }
@@ -3725,7 +3726,8 @@ body.modal-open { overflow: hidden; }
   .page-sub { font-size: 17px; }
   .contact-team-media { aspect-ratio: 4 / 3; margin-bottom: 40px; border-radius: 16px; }
   .profile-comparison-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .profile-choice-cards { grid-template-columns: minmax(0, 1fr); }
+  .profile-choice-cards,
+  .sensing-link-cards { grid-template-columns: minmax(0, 1fr); }
   .profile-comparison-row h3 { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
   .multipath-sequence { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .tools-grid, .config-grid { grid-template-columns: minmax(0, 1fr); }

@@ -3,34 +3,51 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">INSTALLATION · 5 MIN READ</span>
+    <span class="guide-tag">INSTALLATION · 8 MIN READ</span>
     <h1>Place your ESPectre sensor</h1>
-    <p class="article-lead">Distance, antenna orientation, obstacles, and a short room test to find a spot that detects movement and ignores noise.</p>
+    <p class="article-lead">Place a sensor relative to your access point, or use two ESPectre devices to choose both ends of the sensing link. Test distance, antenna orientation, and room coverage before tuning.</p>
     <figure>
       <img src="/assets/images/guides/sensor-placement-card.avif" alt="Top-down room showing a router, an ESP32, a walking person, and reflected Wi-Fi paths" width="1068" height="600" loading="eager">
-      <figcaption>A good start: keep the router and the sensor apart, the antenna clear, and people's usual route crossing the radio paths.</figcaption>
+      <figcaption>With an AP–sensor link, keep the router and the sensor apart, the antenna clear, and people's usual route crossing the radio paths.</figcaption>
     </figure>
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#placement-link">The sensing link</a><a href="#placement-start">Starting position</a><a href="#placement-distance">Distance and RSSI</a><a href="#placement-orientation">Orientation</a><a href="#placement-layouts">Room layouts</a><a href="#placement-avoid">Placements to avoid</a><a href="#placement-test">Ten-minute test</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#placement-link">The sensing link</a><a href="#placement-pair">Two ESPectre devices</a><a href="#placement-start">Starting position</a><a href="#placement-distance">Distance and RSSI</a><a href="#placement-orientation">Orientation</a><a href="#placement-layouts">Room layouts</a><a href="#placement-avoid">Placements to avoid</a><a href="#placement-test">Ten-minute test</a></nav>
     </details>
 
-    <h2 id="placement-link">Think of a radio link, not a detection cone</h2>
-    <p>ESPectre does not watch a circle around the board. The access point's signal reaches the ESP32 directly and through many reflections off walls, furniture, and people. Motion is easiest to detect when it changes several of these paths, so the positions of the access point and the sensor, and the route people take, all matter.</p>
+    <h2 id="placement-link">Choose the sensing link</h2>
+    <p>ESPectre measures changes in a radio link. Signals travel between its two ends directly and through reflections off walls, furniture, and people. Both endpoints and the route people take affect detection.</p>
+    <div class="mini-cards sensing-link-cards">
+      <article><h3>Access point ↔ ESPectre</h3><ul><li>The usual setup uses the link between the AP and one sensor.</li><li>Place the sensor so people's routes cross that link.</li><li>The AP's position determines one end of the sensing geometry.</li></ul></article>
+      <article><h3>ESPectre A ↔ ESPectre B</h3><ul><li>One device sends directly to the other.</li><li>You choose both endpoints, even when the AP is elsewhere.</li><li>Both devices still need a Wi-Fi connection on the same channel.</li></ul></article>
+    </div>
+    <p>A pair lets you try a link across a doorway, along a corridor, or across one part of a room without moving the router. An oval drawn around the two endpoints can help picture the geometry, but it is not a detection boundary. Reflections can carry motion effects beyond it, including from adjacent rooms. Check the actual coverage with the <a href="#placement-test">room test</a>.</p>
     <div class="note">Placement matters more than small threshold changes. Find a good spot first, then calibrate and tune.</div>
+
+    <h2 id="placement-pair">Placement with two ESPectre devices</h2>
+    <p>Use this setup when the AP–sensor path misses the area you care about. For example, put one board on each side of a passage, or place them diagonally across a seating area. Keep both antennas clear and both boards fixed.</p>
+    <ol class="steps-list">
+      <li><h3>Keep both devices on the same channel</h3><p>Start on 2.4 GHz. Connecting both to the same AP is the simplest arrangement. On a mesh, choose the same <em>Preferred access point</em> for both in <a href="/tools/device-settings/">Device settings</a>; sharing an SSID alone does not ensure the same channel.</p></li>
+      <li><h3>Set device B to receive</h3><p>Connect to B in <a href="/tools/monitor/">Live motion</a>. Under <em>Advanced sensing settings</em>, set <em>Wi-Fi traffic source</em> to <em>External device</em>. Find B's Wi-Fi station MAC in your router's connected-client list, matching its IP address. Use that MAC, not the AP's BSSID or ESPectre's device ID.</p></li>
+      <li><h3>Point device A at B</h3><p>Connect to A, select <em>Wi-Fi raw</em>, and set <em>Destination MAC</em> to <em>Custom MAC…</em>. Enter B's station MAC. Changes save automatically. This requires firmware with destination-MAC support; ESP32-C6 cannot be device A because it does not support Wi-Fi raw.</p></li>
+      <li><h3>Check input on both devices</h3><p>Keep the default capture profile and packet rate for a first test. With custom builds, use <code>auto</code> capture on both and matching <code>csi_target_pps</code>. Check <em>CSI accepted</em>, <em>CSI occupancy</em>, and readiness on each device. Stop any host traffic generator or Home Assistant traffic-generator add-on feeding B during the test.</p></li>
+      <li><h3>Test each detector</h3><p>A measures the acknowledgments from B; B measures A's incoming frames. They keep separate motion states. Follow the <a href="#placement-test">ten-minute test</a> on each, and repeat it after changing either endpoint.</p></li>
+    </ol>
+    <p>For capture settings and configuration details, see <a href="https://github.com/francescopace/espectre/blob/develop/docs/CSI.md#two-device-sensing" target="_blank" rel="noopener">two-device sensing</a>.</p>
+    <p>To return to AP-based sensing, set A's <em>Destination MAC</em> to <em>Automatic (AP)</em>, and return B to <em>Ping (ICMP)</em> or its previous internal traffic source. Recheck detection after the change.</p>
 
     <h2 id="placement-start">A good starting placement</h2>
     <ul class="checklist">
-      <li>Put the ESP32 in the area you want to monitor, about 3–8&nbsp;m from the access point if the layout allows it.</li>
-      <li>Choose a spot where people normally walk between the access point and the sensor, not only behind one of them.</li>
+      <li>With an AP–sensor link, put the ESP32 in the area you want to monitor, about 3–8&nbsp;m from the AP if the layout allows it.</li>
+      <li>With a pair, place the two boards around the area you want to test. Choose spots where people normally walk between the endpoints, and test the approaches and sides too.</li>
       <li>Keep the antenna end of the board open to the room, away from metal, electronics, and large obstacles.</li>
       <li>Mount it firmly. A board or cable that swings, vibrates, or gets moved during cleaning causes false motion on its own.</li>
       <li>Make sure the sensor gets steady traffic, and settle the placement before changing detector settings.</li>
     </ul>
 
-    <h2 id="placement-distance">Distance: use RSSI as the final check</h2>
-    <p>Distances are only a starting point: walls, router power, antennas, and furniture all change the link. Use the Wi-Fi signal strength (RSSI) to check the result. ESPHome has a <strong>WiFi RSSI</strong> diagnostic sensor, and Live motion shows it under Diagnostics.</p>
+    <h2 id="placement-distance">Distance and RSSI</h2>
+    <p>Distances are only a starting point: walls, transmit power, antennas, and furniture all change the link. ESPHome has a <strong>WiFi RSSI</strong> diagnostic sensor, and Live motion shows RSSI under Diagnostics. The ranges below are useful checks for an AP–sensor installation. For a pair, check accepted CSI and occupancy on both devices, then test movement; RSSI alone cannot establish coverage.</p>
     <div class="table-wrap"><table>
       <caption class="sr-only">How to interpret the Wi-Fi RSSI observed at the sensor</caption>
       <thead><tr><th scope="col">Observed RSSI</th><th scope="col">What it suggests</th><th scope="col">What to do</th></tr></thead>
@@ -46,7 +63,7 @@
     <h2 id="placement-orientation">Angle and antenna orientation</h2>
     <p>There is no single best angle. The antenna type, the case, and nearby materials all change the result. Start with this test:</p>
     <ol class="steps-list">
-      <li><h3>Start clear and facing the link</h3><p>Keep the antenna end away from walls and the case, and point the device toward the access point. Keep an external antenna vertical.</p></li>
+      <li><h3>Start clear and facing the link</h3><p>Keep the antenna end away from walls and the case, and point the device toward the other end of the link: the AP or the second ESPectre. Keep an external antenna vertical.</p></li>
       <li><h3>Check a quiet room</h3><p>Leave the room empty and still long enough to see whether the score stays stable.</p></li>
       <li><h3>Walk the real route</h3><p>Walk through the doorway, corridor, or path you want to detect. Waving a hand next to the board is not enough.</p></li>
       <li><h3>Rotate by 90 degrees</h3><p>Change only the orientation. With Lightweight, restart the device and let it calibrate with the room still, then repeat the same walk. Keep the orientation where quiet and motion differ most.</p></li>
@@ -55,27 +72,27 @@
 
     <h2 id="placement-layouts">Room layouts</h2>
     <div class="mini-cards">
-      <article><h3>Single room</h3><ul><li>Keep the router and the sensor apart.</li><li>Let common walking routes cross between them.</li><li>Keep the sensor out of cabinets and from behind furniture.</li></ul></article>
-      <article><h3>Doorway or corridor</h3><ul><li>Place the router and sensor so the route crosses between them, straight or diagonally.</li><li>Test the whole approach, not only the doorway.</li><li>Watch for motion leaking in from adjacent rooms.</li></ul></article>
-      <article><h3>One per floor or apartment</h3><ul><li>Start with one sensor per floor or apartment.</li><li>Add another if tests show blind spots or you need motion per room.</li><li>Name and tune each sensor separately.</li></ul></article>
+      <article><h3>Single room</h3><ul><li>Let common walking routes cross the AP–sensor link.</li><li>If the AP is poorly placed for that route, try two boards across the target area.</li><li>Keep antennas out of cabinets and from behind furniture.</li></ul></article>
+      <article><h3>Doorway or corridor</h3><ul><li>Place the endpoints so the route crosses between them, straight or diagonally.</li><li>A pair lets you choose that crossing without relocating the AP.</li><li>Test the whole approach and motion in adjacent rooms.</li></ul></article>
+      <article><h3>Several rooms</h3><ul><li>Start with one link and map where it detects motion.</li><li>Add another only after testing blind spots and unwanted detections.</li><li>Name and tune each sensor separately; a pair does not create an isolated room or a combined motion state.</li></ul></article>
     </div>
 
     <h2 id="placement-avoid">Placements to avoid</h2>
     <ul class="checklist">
       <li>Inside a metal cabinet, behind a television, or pressed against a large metal surface.</li>
-      <li>Right next to the access point, where the signal is strong but covers little of the room.</li>
+      <li>Both endpoints clustered in a corner, with the usual walking routes outside the link.</li>
       <li>At the edge of coverage, with patchy traffic or RSSI below about <code>-80 dBm</code>.</li>
       <li>Next to fans, curtains that move in the air, vibrating appliances, or anything else that moves.</li>
-      <li>Where people can easily bump the board, antenna, power cable, or access point.</li>
+      <li>Where people can easily bump either board, antenna, power cable, or access point.</li>
     </ul>
 
     <h2 id="placement-test">A repeatable ten-minute test</h2>
     <ol class="steps-list">
-      <li><h3>Check the link</h3><p>Check that traffic is steady and, if you can see it, that RSSI is in the good range.</p></li>
+      <li><h3>Check the link</h3><p>Check accepted CSI, occupancy, and readiness. For a pair, check both devices and confirm that they are on the same channel.</p></li>
       <li><h3>Check the quiet room</h3><p>With Lightweight, keep the room still while the sensor starts or recalibrates. Then watch the empty room for one or two minutes; the threshold may still drop a little if the first seconds were noisier.</p></li>
-      <li><h3>Walk the target area</h3><p>Walk the routes that should trigger motion, including the farthest part of the room.</p></li>
-      <li><h3>Check unwanted areas</h3><p>Move in nearby spaces that should be ignored, and run the fans or appliances that are normally on.</p></li>
-      <li><h3>Change one thing</h3><p>Move or rotate the sensor, then restart it if you use Lightweight: the old threshold may reject the new quiet baseline during manual recalibration. Let startup calibration finish with the room still, and repeat the same steps. High Accuracy needs no calibration, but still repeat the empty-and-motion check after each move.</p></li>
+      <li><h3>Walk the target area</h3><p>Walk the routes that should trigger motion, including the farthest part of the room. With a pair, cross between the boards and approach from both ends and sides. Check each detector's score and motion state separately.</p></li>
+      <li><h3>Check unwanted areas</h3><p>Walk outside the intended area and in adjacent rooms, even when those routes fall outside an oval around the endpoints. Run the fans or appliances that are normally on. Record unwanted detections as well as missed movement.</p></li>
+      <li><h3>Change one thing</h3><p>Move or rotate one endpoint at a time, then restart any device using Lightweight: the old threshold may reject the new quiet baseline during manual recalibration. For a pair, moving either board changes the link for both detectors. Let startup calibration finish with the room still, and repeat the same steps. High Accuracy needs no calibration, but still repeat the empty-and-motion check after each move.</p></li>
       <li><h3>Tune only after placement</h3><p>Once you have the best spot, make small threshold or filter changes if still needed.</p></li>
     </ol>
     <div class="note">ESPectre detects changes in the radio environment. It does not identify people, cannot guarantee an exact detection area, and does not replace a safety-certified presence sensor.</div>

@@ -218,7 +218,7 @@
       "group": "guides",
       "pathLabel": "Placement",
       "title": "Place your ESPectre sensor | ESPectre",
-      "description": "Where to place an ESPectre sensor: distance, signal strength, antenna orientation, obstacles, and a short room test.",
+      "description": "Place an ESPectre sensor relative to your AP, or use two devices to choose both ends of the sensing link. Includes pair setup and a room coverage test.",
       "staticPath": "/guides/placement/"
     },
     {

@@ -61,9 +61,11 @@ Match the add-on's `rate_pps` to the device's `csi_target_pps`, then check the C
 
 ## Sensor placement
 
-Keep the device out of metal enclosures and away from heavy obstacles. About 3–8 m from the access point is a good start, but walls, antennas, and furniture often matter more than distance.
+Keep the device out of metal enclosures and away from heavy obstacles. With the usual AP–sensor link, about 3–8 m from the access point is a good start, but walls, antennas, and furniture often matter more than distance.
 
-Open [Monitor](https://espectre.dev/tools/monitor/) at the chosen spot and check that CSI packets arrive steadily and occupancy stays high. The [placement guide](https://espectre.dev/guides/placement/) covers room layouts, RSSI ranges, and a repeatable placement test.
+If that link misses the area you want to monitor, two ESPectre devices let you choose both ends of a direct sensing link without moving the AP. Set one to `external` and the other to `wifi_raw`, with `traffic_generator_target_mac` set to the external device's Wi-Fi station MAC. Both still need Wi-Fi connectivity on the same channel. Follow [placement with two ESPectre devices](https://espectre.dev/guides/placement/#placement-pair) for the browser steps, and [two-device sensing](CSI.md#two-device-sensing) for firmware requirements. This setup lets you test different geometries; it does not guarantee an isolated detection zone.
+
+Open [Monitor](https://espectre.dev/tools/monitor/) at the chosen spot and check that CSI packets arrive steadily and occupancy stays high. With a pair, check each device separately. The [placement guide](https://espectre.dev/guides/placement/) covers room layouts, RSSI ranges, and a repeatable test for missed movement and detections outside the intended area.
 
 ## Check the first detection
 
