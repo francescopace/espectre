@@ -7,62 +7,42 @@
 
 ## Context
 
-Before the split, firmware concerns were clustered too closely around the ESPHome component layout. Detection logic, runtime orchestration, and ecosystem-specific integration surfaces were harder to evolve independently, which made new firmware targets expensive and risked leaking integration details into reusable sensing code.
-
-The resulting layout supports ESPHome, Native, and Matter without duplicating the sensing pipeline. The former Streamer frontend used the same boundaries before raw collection moved into the maintained sensing frontends; removing that frontend did not change the layer contract.
+The firmware code had grown around the ESPHome component. Detection, orchestration, and integration code were tangled together, so every new firmware target was expensive and integration details kept leaking into the sensing code.
 
 ## Decision
 
-Split the firmware-side C++ code into three explicit layers:
+The C++ firmware code is split into three layers:
 
-- `src/cpp/core/` for reusable detectors, signal processing, and domain logic
-- `src/cpp/runtime/` for portable lifecycle, event, snapshot, and boundary contracts, with ESP-IDF implementations under `runtime/esp_idf/`
-- `src/cpp/frontend/` for integration-specific surfaces such as ESPHome, Native, and Matter
+- `src/cpp/core/`: detectors, signal processing, and domain logic. Knows nothing about frontends.
+- `src/cpp/runtime/`: portable lifecycle, events, snapshots, and boundary contracts, with the ESP-IDF implementation in `runtime/esp_idf/`.
+- `src/cpp/frontend/`: ESPHome, Native, Matter, and anything ecosystem-specific.
 
-Keep `core` frontend-agnostic, keep platform orchestration in `runtime`, and keep ecosystem-specific behavior in the relevant `frontend`.
+Logging follows the same rule. `core` and `runtime` write to a portable sink and never include a platform logger. Each frontend registers its own sink before runtime setup; without one, the SDK stays silent. Micro-ESPectre does the same: its native MicroPython frontend owns the ESP-IDF sink.
 
-Shared logging follows the same boundary. `core` and `runtime` emit through a portable sink contract and do not include or require a platform logger. Each frontend registers its adapter before runtime setup; an integration that does not register a sink remains silent. Micro-ESPectre applies the same rule to its core-only and focused traffic components: the native MicroPython frontend owns the ESP-IDF adapter, and both shared components use the core-owned sink.
+Python keeps its role as the prototype and research path (see the Python-first ADR). Anything that graduates to production lands in the shared C++ layers.
 
-Python retains a complementary role: Micro-ESPectre provides the device-side prototype path, while host-side Python owns research, validation, training, and export. Production behavior that graduates from Python must still land in the shared C++ layers and relevant frontends.
-
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2025-12-06 | Use a dual C++ production and Python experimentation model | Retained as the development workflow |
-| 2026-06-03 | Split production C++ into Core, Runtime, and Frontend layers | Accepted as the firmware architecture |
-| 2026-08-25 | Remove the dedicated Streamer frontend and move raw collection into the shared runtime | Retained the layer split while reducing the frontend set |
-| 2026-08-30 | Replace the shared `esp_log` dependency with a frontend-owned sink | Kept logging policy and formatting above the reusable SDK layers |
+| 2025-12-06 | C++ for production, Python for experiments | Kept as the development workflow |
+| 2026-06-03 | Split C++ into core, runtime, and frontend | Accepted |
+| 2026-08-25 | Remove the Streamer frontend; raw collection moves into the shared runtime | Layer split unchanged, one fewer frontend |
+| 2026-08-30 | Replace the shared `esp_log` dependency with frontend-owned sinks | Logging policy now lives above the SDK layers |
 
-## Alternatives Considered
+## Alternatives considered
 
-### Keep the ESPHome-centered layout
-
-Rejected. It would reduce short-term work for ESPHome but require Native, Matter, and future frontends to copy or depend on ESPHome-specific logic.
-
-### Split only by platform or chip family
-
-Rejected. That would organize build targets, but would not separate reusable motion-detection logic from runtime and integration concerns.
+- **Keep the ESPHome-centered layout.** Cheaper for ESPHome in the short term, but Native, Matter, and later frontends would have to copy or depend on ESPHome code.
+- **Split by platform or chip family.** That organizes build targets, not responsibilities.
 
 ## Consequences
 
-Benefits:
-
-- new frontends can reuse the same sensing and calibration foundations
-- algorithm work in `core` no longer depends on a single integration surface
-- runtime behavior can be shared across multiple ESP-IDF frontends
-- SDK consumers can omit logging or connect their own backend without inheriting `esp_log`
-
-Trade-offs:
-
-- cross-layer boundaries must stay disciplined
-- some refactors become larger because contracts have to remain explicit
-- sink callbacks must honor the runtime's task and capture-context constraints
+New frontends reuse the same sensing and calibration code, algorithm work in `core` does not depend on any one integration, and SDK users can drop logging or plug in their own backend. The price is discipline: layer boundaries must hold, some refactors get bigger because contracts stay explicit, and sink callbacks must respect the runtime's task and capture-context limits.
 
 ## Related
 
 - [`2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md`](2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md)
 - [`2025-11-28-prototype-in-python-before-porting-to-production-firmware.md`](2025-11-28-prototype-in-python-before-porting-to-production-firmware.md)
-- [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)
+- [`2026-07-02-use-one-resource-oriented-protocol-across-transports.md`](2026-07-02-use-one-resource-oriented-protocol-across-transports.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
-- git commits: `57b126ba`, `c43d51b8`, `77fa9f48`
+- Commits `605e8e37` (split), `9b5ae041` (Streamer removal), `dbfbd2a5` (frontend log sinks)

@@ -1,4 +1,4 @@
-# ADR: prototype in python before porting to production firmware
+# ADR: prototype in Python before porting to production firmware
 
 - Status: Accepted
 - Date: 2025-11-28
@@ -6,45 +6,23 @@
 
 ## Context
 
-The `1.4.0` versioned changelog records that lessons from the MicroPython implementation drove the C firmware refactor. Micro-ESPectre allowed faster parameter tuning and configuration tests, and the successful patterns were then ported to the C firmware.
-
-That workflow remains visible today in the project rules and structure: host-side and Python-side experimentation are used to validate ideas before they are promoted into shared C++ production paths.
+Micro-ESPectre made tuning parameters and trying configurations much faster than the C firmware. The 1.4.0 refactor of the C firmware was built on what we learned there.
 
 ## Decision
 
-Use Python-first experimentation as the preferred innovation workflow:
+New algorithms start in Python, either in Micro-ESPectre or in host tools. Once they hold up on datasets and tests, we port them to the shared C++ core or runtime. Python is where we explore; C++ is where production behavior lives.
 
-- prototype and tune algorithms quickly in Micro-ESPectre or host-side Python
-- validate promising results with tooling, datasets, and tests
-- port the validated behavior into the shared C++ runtime or core layers
+## Alternatives considered
 
-Treat the Python path as the fast exploration environment, and treat the shared C++ codebase as the place where validated production behavior is consolidated.
-
-## Alternatives Considered
-
-### Evolve the production firmware first and prototype directly there
-
-Rejected. Firmware-only iteration is slower and makes experimental work harder to compare, tune, and revisit.
-
-### Maintain completely separate algorithm evolution in Python and C++
-
-Rejected. The project benefits when the Python path informs the production path instead of drifting into a parallel but disconnected implementation.
+- **Iterate directly in the firmware.** Slower, and experiments are harder to compare and tune.
+- **Let Python and C++ evolve separately.** The two would drift, and Python results would stop saying anything about production.
 
 ## Consequences
 
-Benefits:
-
-- algorithms can be compared and tuned in Python before production code changes
-- production C++ changes can be grounded in prior Python evidence
-- parity checks connect the experimental implementation to the deployed one
-
-Trade-offs:
-
-- parity between Python and C++ must be maintained intentionally
-- experimental Python code cannot be treated as production behavior until it is ported and revalidated
+C++ changes arrive with Python evidence behind them, and parity tests tie the two implementations together. The cost is that parity must be kept on purpose, and Python code is not production behavior until it is ported and revalidated.
 
 ## Related
 
-- versioned changelog snapshot: `1.4.0:CHANGELOG.md`
+- `1.4.0:CHANGELOG.md`
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
-- git commits: `c971f874`, `14e3ceb0`
+- Commits `c971f874` and `14e3ceb0`

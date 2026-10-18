@@ -4,97 +4,65 @@
 - Date: 2026-08-17
 - Updated: 2026-08-26
 
-The transport choice, port, CORS boundary, and discovery service remain accepted. The `/request` RPC and explicit bearer-bound CSI session are superseded by the resource API in [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md).
+Transport, port, CORS boundary, and discovery still hold. The `/request` RPC and the bearer-bound CSI session were replaced by the resource API in [`2026-07-02-use-one-resource-oriented-protocol-across-transports.md`](2026-07-02-use-one-resource-oriented-protocol-across-transports.md).
 
 ## Context
 
-Native originally used first-party BLE for provisioning, recovery, configuration, status, and live sensing. BLE and Wi-Fi CSI share the ESP32 radio. Measurements showed that keeping BLE active reduced CSI occupancy from about 80–90% to 35–45%, so the runtime had to pause sensing during setup. Requiring both Wi-Fi and MQTT before BLE could stop then made a broker mandatory for the first supported sensing session.
+Native used its own BLE service for provisioning, recovery, configuration, status, and live sensing. BLE and Wi-Fi CSI share the radio: with BLE active, CSI occupancy fell from about 80–90% to 35–45%, so sensing had to pause during setup. And since BLE could only stop once Wi-Fi and MQTT were up, a broker became mandatory just to start sensing.
 
-Standard Improv Serial already provides Wi-Fi provisioning after a browser flash without adding another radio workload. Once the device joins the LAN, ESPectre needs one first-party discovery and control surface that carries the canonical ESPectre identity and command model. Upstream ESPHome and Matter discovery records do not provide that stable contract.
+Improv Serial already handles Wi-Fi provisioning right after a browser flash, with no extra radio load. Once on the LAN, ESPectre needs one discovery and control surface of its own with a stable identity; the ESPHome and Matter discovery records do not provide that.
 
-The production portal is served over HTTPS, while devices expose a trusted-LAN cleartext service. A local `ws://` connection caused a visible browser security downgrade. Streaming `fetch()` to local HTTP was validated without changing the page security indicator and can request local-network access through `targetAddressSpace: "local"`. Processed events and raw CSI are server-to-client streams, so neither requires WebSocket framing.
+The web portal is served over HTTPS and devices speak plain HTTP on the LAN. A local `ws://` connection showed a visible security downgrade in the browser. Streaming `fetch()` to local HTTP did not, and can request local-network access with `targetAddressSpace: "local"`. Events and raw CSI only flow from device to client, so they do not need WebSocket.
 
 ## Decision
 
-Remove the first-party Native BLE surface. Use standard Improv Serial for initial Native and ESPHome Wi-Fi provisioning and USB recovery, without private protocol extensions. Matter retains its standard commissioning flow, and ESPHome retains any behavior owned by its upstream integration.
+The Native BLE service is removed. Native and ESPHome use standard Improv Serial, without private extensions, for first Wi-Fi setup and USB recovery. Matter keeps standard commissioning, and ESPHome keeps whatever its upstream integration owns.
 
-Expose local ESPectre control through one shared Direct HTTP service:
+Local control goes through one shared Direct HTTP service:
 
-- `POST /espectre/v1/request` carries canonical correlated JSON requests and responses;
-- `GET /espectre/v1/events` carries canonical processed events as SSE with a 10-second heartbeat, fixed queues, at most two subscribers, telemetry coalescing, and slow-client eviction;
-- `GET /espectre/v1/csi` carries the capability-gated bearer-bound raw CSI stream defined by the raw-collection ADR;
-- Native, Matter, and ESPHome listen on TCP port `62587` (`0xF47B`, the low 16 bits of `U+1F47B` GHOST), independent of frontend-owned port-80 servers, captive portals, and native APIs;
-- every response uses `Cache-Control: no-store`, exact Origin allowlisting, CORS, and Private Network Access preflight handling; and
-- no local Direct WebSocket endpoint, subprotocol, alias, or automatic compatibility fallback remains.
+- TCP port `62587` (`0xF47B`, the low 16 bits of U+1F47B 👻) on Native, Matter, and ESPHome, separate from any port-80 server, captive portal, or native API;
+- `GET /espectre/v1/events` streams processed events as SSE, with a 10 s heartbeat, fixed queues, at most two clients, telemetry coalescing, and eviction of slow clients;
+- `GET /espectre/v1/csi` streams raw CSI as defined in the raw-collection ADR;
+- every response sends `Cache-Control: no-store`, an exact Origin allowlist, CORS, and Private Network Access preflight;
+- there is no local WebSocket endpoint, alias, or fallback.
 
-Native keeps MQTT optional. Direct and MQTT use the same application messages through independent bounded outbound queues. MQTT remains the Home Assistant Discovery, automation, remote-broker, and multi-consumer path; local sensing does not depend on it.
+MQTT stays optional on Native. Direct and MQTT carry the same messages through separate bounded queues. MQTT remains the path for Home Assistant discovery, automations, remote brokers, and multiple consumers, but local sensing does not need it.
 
-Native stages remote Wi-Fi changes, verifies association and address acquisition, and preserves or restores the last-known-good network on failure. Improv Serial and the documented physical recovery action remain available without the portal or MQTT. Stored Wi-Fi and MQTT passwords are never returned through Direct.
+Native stages remote Wi-Fi changes, checks association and addressing, and falls back to the last working network on failure. Improv Serial and the physical recovery action work without the portal or MQTT. Stored Wi-Fi and MQTT passwords are never returned over Direct.
 
-ESPectre frontends publish `_espectre._tcp.local.` through their existing mDNS lifecycle. The TXT record carries the canonical `device_id`, frontend, TXT and protocol versions, HTTP transport, endpoint paths, firmware, chip, and coarse capabilities. `./espectre devices` performs one fresh browse for this record and filters by the ESPectre-owned `frontend` field. It does not inspect `_esphomelib`, `_matterc`, or other upstream schemas. Explicit IP addresses, unique `.local` names, full device IDs, remembered endpoints, and Improv Serial remain deterministic fallbacks when multicast discovery is unavailable.
+Every frontend publishes `_espectre._tcp.local.` through its existing mDNS responder. The TXT record carries `device_id`, frontend, TXT and protocol versions, transport, endpoint paths, firmware, chip, and coarse capabilities. `./espectre devices` browses only this record and filters on `frontend`; it never reads `_esphomelib`, `_matterc`, or other upstream records. When multicast fails, explicit IPs, unique `.local` names, device IDs, remembered endpoints, and Improv Serial still work. Direct mutations go through the shared command engine; ESPHome republishes the affected entities, and Matter keeps commissioning and occupancy in Matter while using Direct for the controls Matter lacks.
 
-ESPHome and Matter add only the ESPectre service to the responder they already own. Direct mutations pass through the shared command engine; ESPHome republishes affected entity state, while Matter keeps commissioning and occupancy in Matter and uses Direct for the controls absent from standard occupancy clusters.
+The LAN is the trust boundary. Devices still restrict browser Origins, validate every request, limit clients, mutation rate, frame size, and queue depth, bind only to the station interface, and add no UPnP. A future optional relay would use outbound authenticated WSS from devices and WSS from browsers, be documented and self-hostable, and never carry raw CSI. Local Direct HTTP stays the default.
 
-The local network is the access trust boundary. Devices still restrict browser Origins, validate every request before dispatch, limit clients, mutation rate, frame size, and queue depth, bind only to intended station interfaces, and do not add UPnP exposure. A future optional relay must use outbound authenticated WSS from devices and WSS from browsers, remain protocol-documented and self-hostable, and never carry raw CSI. Local Direct HTTP remains the autonomous default.
-
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2026-03-17 | Use first-party BLE for provisioning, runtime control, and live sensing | Rejected after BLE coexistence reduced CSI occupancy |
-| 2026-08-17 | Restrict Native BLE to setup and recovery while keeping MQTT as the sensing plane | Replaced because it still made a broker mandatory for the first supported sensing session |
-| 2026-08-23 | Remove first-party BLE, provision through Improv Serial, and use Direct WebSocket on the LAN | Retained the BLE removal and Improv boundary; replaced WebSocket after browser mixed-content validation |
-| 2026-08-24 | Publish one `_espectre._tcp` record and one Direct bridge across C++ frontends | Retained with HTTP endpoint metadata instead of WebSocket metadata |
-| 2026-08-25 | Use HTTP POST for commands, SSE for processed events, and binary HTTP for raw CSI | Accepted |
-| 2026-08-26 | Carry the same canonical application messages over Direct HTTP and MQTT | Retained as the protocol contract |
+| 2026-03-17 | First-party BLE for provisioning, control, and live sensing | Dropped: BLE coexistence cut CSI occupancy |
+| 2026-08-17 | BLE only for setup and recovery, MQTT as the sensing plane | Replaced: still needed a broker to start sensing |
+| 2026-08-23 | Remove BLE, provision with Improv Serial, Direct WebSocket on the LAN | BLE removal and Improv kept; WebSocket replaced after browser mixed-content tests |
+| 2026-08-24 | One `_espectre._tcp` record and one Direct bridge for all C++ frontends | Kept, with HTTP endpoint metadata |
+| 2026-08-25 | HTTP POST for commands, SSE for events, binary HTTP for raw CSI | Accepted |
+| 2026-08-26 | Same messages over Direct HTTP and MQTT | Kept as the protocol contract |
 
-## Alternatives Considered
+## Alternatives considered
 
-### Keep BLE for setup and add Direct alongside it
-
-Rejected. It preserves the radio coexistence cost and duplicate SDK, firmware, and portal surfaces.
-
-### Require MQTT for all operation after Improv
-
-Rejected. A browser and device on the same LAN can exchange local telemetry and commands without a broker.
-
-### Keep local WebSocket and accept the warning
-
-Rejected. The security downgrade is visible to production users and can become a hard block as browser policy tightens.
-
-### Issue TLS certificates for `.local` devices
-
-Rejected. Public certificate authorities cannot generally validate arbitrary private `.local` names, while a private trust root requires per-client administration.
-
-### Discover upstream ESPHome and Matter records
-
-Rejected. It couples the CLI to schemas outside ESPectre and does not provide a stable ESPectre identity after Matter commissioning.
-
-### Publish one service type per frontend
-
-Rejected. It duplicates browse, parsing, and lifecycle behavior and makes every frontend addition a host-protocol change.
-
-### Depend on automatic browser mDNS enumeration
-
-Rejected. Ordinary web pages cannot enumerate DNS-SD services, so manual and remembered endpoints remain first-class.
-
-### Require a managed relay
-
-Rejected. Local setup and sensing must work without an account, external service, or Internet connection.
+- **Keep BLE for setup and add Direct.** Keeps the radio cost and duplicates SDK, firmware, and portal surfaces.
+- **Require MQTT after Improv.** A browser and a device on the same LAN can talk without a broker.
+- **Keep local WebSocket and live with the warning.** Users see the downgrade, and browsers may block it outright later.
+- **TLS certificates for `.local` devices.** Public CAs cannot validate private `.local` names, and a private root needs setup on every client.
+- **Read ESPHome and Matter discovery records.** Ties the CLI to foreign schemas and gives no stable identity after Matter commissioning.
+- **One service type per frontend.** Duplicates browsing and parsing, and every new frontend becomes a host-protocol change.
+- **Rely on browser mDNS.** Web pages cannot enumerate DNS-SD, so manual and remembered endpoints must stay first-class.
+- **Require a managed relay.** Setup and sensing must work with no account, external service, or Internet.
 
 ## Consequences
 
-- Native can provision over USB, sense on Wi-Fi, and expose local monitoring without BLE or an MQTT broker;
-- every maintained C++ frontend uses one Direct HTTP port, discovery record, command model, and processed-event stream;
-- BLE no longer competes with CSI or occupies the Native SDK and firmware surface;
-- browser local-network permission and Origin policy remain release-critical compatibility boundaries;
-- older BLE and Direct WebSocket clients require a deliberate migration; and
-- recovery depends on Improv Serial, the physical network-reset action, explicit addressing, or MQTT where configured.
+Native can be provisioned over USB, sense on Wi-Fi, and be monitored locally with no BLE and no broker. All C++ frontends share one Direct port, discovery record, command model, and event stream, and BLE no longer competes with CSI. Browser local-network permission and Origin policy become release-critical. Old BLE and WebSocket clients have to migrate, and recovery relies on Improv Serial, the physical reset, explicit addressing, or MQTT where configured.
 
 ## Related
 
-- [`../API.md`](../API.md)
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
-- [`../SDK.md`](../SDK.md)
-- [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)
+- [API reference](../API.md), [discovery](../DISCOVERY.md), [architecture](../ARCHITECTURE.md), and [SDK guide](../SDK.md)
+- [`2026-07-02-use-one-resource-oriented-protocol-across-transports.md`](2026-07-02-use-one-resource-oriented-protocol-across-transports.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
+- Commits `cd9bec13` (BLE API), `a245dafd` (BLE for setup only), `8f0e81d3` (BLE removed), `781aa8f0` (unified discovery), `49af058c` (HTTP and SSE)

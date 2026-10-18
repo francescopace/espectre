@@ -2,38 +2,38 @@
 
 - Status: Accepted
 - Date: 2026-09-16
-- Supersedes: None
-- Superseded by: None
 
 ## Context
 
-HTTPS authenticates the download endpoint but does not independently establish who authorized a firmware image. Native and ESPHome support OTA, while Matter currently supports only full-image USB installation. Local development and ESPHome Device Builder must remain usable without access to ESPectre release secrets.
+HTTPS proves where a download came from, not who approved the firmware. Native and ESPHome support OTA; Matter only installs full images over USB. Local development and ESPHome Device Builder must keep working without access to release secrets.
 
 ## Decision
 
-Official Native and ESPHome builds require software-only ESP-IDF application signatures during OTA. Publication CI enables this policy and signs every official channel. Local builds retain unsigned defaults. Non-publishing CI validates the signing configuration with ephemeral keys. The compiled configuration and resulting OTA and factory images are checked before artifacts become publication inputs.
+**Device side.** Official Native and ESPHome builds accept OTA images only with a valid ESP-IDF application signature, checked in software. Publication CI turns this on and signs every official channel. Local builds stay unsigned by default, and non-publishing CI checks the signing setup with throwaway keys. The compiled configuration and the resulting OTA and factory images are checked before they can be published. Classic ESP32 uses the legacy ECDSA scheme so older chip revisions keep working; the other targets use RSA-3072. Hardware Secure Boot, flash encryption, and hardware anti-rollback stay out of general-purpose builds, because those irreversible choices belong to a designed manufacturing process.
 
-Use the legacy ECDSA application-signature scheme on classic ESP32 to retain older chip revisions, and RSA-3072 on the other supported targets. Keep hardware Secure Boot, flash encryption, and hardware anti-rollback outside general-purpose builds. Those irreversible provisioning choices belong to an explicitly designed production manufacturing process.
+**Browser side.** Each release has a signed, immutable inventory covering every frontend's artifacts, Matter factory images included. The web flasher checks the inventory signature and the downloaded bytes before it erases or writes flash, and a failure blocks installation in production. On localhost and `test.espectre.dev` the same checks run, but the user can explicitly override a failure for that attempt, so unsigned development builds still work. Website staging can move artifacts and filter what is shown, but it cannot authorize new bytes or re-sign anything. The CLI does not change.
 
-Sign an immutable release inventory covering every frontend's artifacts, including Matter factory images. The browser checks the signed inventory and the downloaded bytes before erasing or writing flash. Production verification failures block installation. Localhost and `test.espectre.dev` run the same checks but allow a failed verification to be overridden through explicit confirmation for the current attempt, supporting unsigned development builds without a query parameter. Website staging may relocate artifacts and filter the displayed inventory, but it cannot authorize new bytes or re-sign downloads. The CLI has no new verification behavior.
+Private keys live in GitHub Actions secrets, and public keys in a registry checked into the repository. Key custody and rotation are in [RELEASING.md](../RELEASING.md#firmware-signing), the USB versus OTA workflow in [SETUP.md](../SETUP.md#official-images-and-personal-builds), and the browser verifier in the [website README](../web/README.md#firmware-signature-verification).
 
-Use GitHub Actions secrets for private release keys and an enrolled public-key registry in the repository. Key custody, provisioning, and rotation are owned by [RELEASING.md](../RELEASING.md#firmware-signing). The operator USB versus OTA workflow is owned by [SETUP.md](../SETUP.md#official-images-and-personal-builds). Browser verification is isolated and documented as an executable example in [README.md](../web/README.md#firmware-signature-verification).
+## Alternatives considered
+
+- **Require signatures in every local build.** Puts release-key infrastructure on ordinary development and personal ESPHome configs.
+- **Enable hardware Secure Boot in public images.** Flashing a general-purpose image must not silently burn eFuses or remove normal USB recovery.
+- **Browser verification only.** A compromised website could replace its own verifier; checking on the device adds a separate trust boundary.
+- **No browser verification.** Authenticated USB downloads help on every frontend and show catalog-signature and hash checking in practice.
 
 ## Consequences
 
-- Official firmware accepts only OTA images signed by its trusted key. Switching to a personal build requires a USB installation, including the first personalized ESPHome Device Builder image after adoption.
-- Initial OTA key rotation uses USB recovery. Catalog keys may overlap during a transition, but that does not add multi-key OTA support to the running firmware.
-- Release custodians enroll production public keys in the checked-in registry. Missing or mismatched secrets and trust records block publication; unsigned legacy website channels are omitted until rebuilt.
-- Browser verification assumes the website code and public-key registry remain trusted. It adds an artifact-authentication check but cannot protect against replacement of the verifier itself.
-- Signing does not establish startup health or prevent replay of previously signed artifacts. Native rollback remains separate work; existing ESPHome rollback behavior must still be validated with signed images.
+Official firmware only accepts OTA images signed with its trusted key. Moving to a personal build, including the first personalized ESPHome Device Builder image after adoption, needs a USB install. The first OTA key rotation also goes through USB; catalog keys can overlap during a transition, but the firmware itself trusts one key.
 
-## Alternatives Considered
+Release custodians enroll production public keys in the registry. Missing or mismatched secrets or trust records block publication, and unsigned old website channels are hidden until rebuilt.
 
-- Require signatures in all local builds: rejected because it would impose release-key infrastructure on ordinary development and personal ESPHome configurations.
-- Enable hardware Secure Boot in public images: rejected because flashing a general-purpose image must not silently introduce irreversible eFuse policy or remove ordinary USB recovery.
-- Rely only on browser verification: rejected for OTA-capable frontends because a compromised website can replace its own verifier. Device-side verification provides a separate trust boundary.
-- Omit browser verification: rejected because authenticated USB downloads are useful across all frontends and provide a practical example of catalog-signature and firmware-hash verification.
+Browser verification trusts the website code and the key registry; it cannot protect against someone replacing the verifier. Signing also says nothing about startup health and does not stop replay of an older signed image. Native rollback is separate work, and ESPHome rollback still has to be validated with signed images.
 
 ## Validation
 
-Host tests exercise real RSA and ECDSA signatures, altered catalogs, wrong keys, corrupt images, staging preservation, and rejection before erase or write. CI builds all supported Native and ESPHome targets and checks their effective configuration and signed artifacts. Production key provisioning and per-target hardware upgrade, interruption, recovery, and rollback evidence remain required before release, as documented in [RELEASING.md](../RELEASING.md#firmware-signing).
+Host tests cover real RSA and ECDSA signatures, altered catalogs, wrong keys, corrupt images, staging, and rejection before erase or write. CI builds every Native and ESPHome target and checks their configuration and signed artifacts. Production key setup and per-target hardware evidence for upgrade, interruption, recovery, and rollback are still required before release, as listed in [RELEASING.md](../RELEASING.md#firmware-signing).
+
+## Related
+
+- Commit `31e807c1`

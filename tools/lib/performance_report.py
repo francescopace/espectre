@@ -1723,7 +1723,7 @@ def replay_idle_stream(
 
     Empty-room recordings are the only ground truth in the corpus that contains
     no person at all, which makes them the reference both detectors are gated
-    on. See the empty-room false-positive ADR.
+    on. See docs/adr/2026-03-08-use-host-side-validation-gates-for-detector-promotion.md.
     """
     interval_us = measure_packet_interval_us(packets)
     target_pps = target_pps_for_packets(packets, interval_us)

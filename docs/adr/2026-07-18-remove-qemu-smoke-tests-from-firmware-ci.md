@@ -6,85 +6,31 @@
 
 ## Context
 
-When this decision was made, ESPectre built ESPHome, Native, Matter, and the former Streamer frontend across their supported target matrices. The maintained C++ set is now ESPHome, Native, and Matter, and the exact chip matrix differs by frontend. QEMU smoke coverage multiplied that CI surface with extra matrix branches, artifact handling, log uploads, and frontend-specific workarounds.
+CI builds every maintained frontend (then ESPHome, Native, Matter, and Streamer; now the first three) across its chip matrix. QEMU smoke tests multiplied that with extra matrix branches, artifacts, log uploads, and per-frontend workarounds.
 
-The intended value of the QEMU smoke tests was limited boot validation:
+What QEMU could check was early boot: a valid merged image, a running bootloader, a readable partition table, a loaded app, maybe a startup marker. That is not where ESPectre breaks. Espressif QEMU does not emulate Wi-Fi PHY and modem-clock bring-up, the Bluetooth controller and NimBLE, Matter or Improv over BLE, or all the chips we ship.
 
-- the merged flash image is structurally valid
-- the bootloader starts
-- the partition table is readable
-- the application image loads
-- a minimal startup marker may be printed before later hardware init
-
-That signal is weak for ESPectre's actual product risk. The frontends depend on hardware paths which Espressif QEMU does not fully emulate:
-
-- Wi-Fi PHY and modem-clock bring-up
-- Bluetooth controller and NimBLE
-- Matter-over-BLE commissioning
-- ESPHome Improv / BLE provisioning
-- full chip coverage across the shipped targets
-
-Local validation confirmed the mismatch:
-
-- `Native` product firmware on `ESP32-C3` booted in QEMU only until Bluetooth controller initialization, then asserted before the frontend could exercise any real BLE fallback logic
-- the former `Streamer` frontend could reach the early startup marker, but still failed later in the known Wi-Fi PHY path that QEMU does not model
-- QEMU never exercised the real runtime value of CSI sensing, provisioning, Wi-Fi association, BLE, or Matter commissioning
-
-As a result, QEMU increased CI time and complexity while not covering the frontends' highest-risk behavior. It also covered only a subset of the shipped chips, creating an asymmetric and potentially misleading quality signal.
+Local runs confirmed it. Native on ESP32-C3 asserted at Bluetooth controller init, before any real BLE logic ran. Streamer reached its startup marker and then failed in the Wi-Fi PHY path. CSI sensing, provisioning, association, BLE, and Matter commissioning were never exercised. And since only some chips were covered, a green check looked more meaningful than it was.
 
 ## Decision
 
-Remove QEMU smoke tests from firmware CI.
+QEMU smoke tests are removed from firmware CI, together with their workflow branches, helper actions, configs, log artifacts, and any code that existed only for them.
 
-This includes:
+CI still builds every supported firmware target, produces the snapshot and release artifacts, and runs the host-side tests.
 
-- deleting QEMU-specific workflow branches and log artifacts
-- deleting QEMU-specific helper actions and configs
-- deleting code or config changes that existed only to support QEMU smoke paths
-- keeping the supported product-build matrix for each maintained frontend in CI
+## Alternatives considered
 
-CI remains responsible for:
-
-- building all supported firmware targets
-- producing publishable artifacts for snapshot and release workflows
-- verifying non-firmware test surfaces already covered by host-side tests
-
-## Alternatives Considered
-
-### Keep QEMU only for some frontends
-
-Rejected. The former Streamer frontend could provide a narrow early-boot signal, but that signal was too small to justify the custom CI path and did not cover real Wi-Fi or CSI behavior.
-
-### Keep QEMU only for some chips
-
-Rejected. Partial chip coverage adds maintenance cost and makes the resulting status check look more representative than it really is.
-
-### Keep QEMU as a non-blocking informational job
-
-Rejected. Even as advisory-only, it still consumes CI time, adds workflow complexity, and invites future QEMU-specific code or configuration drift.
+- **Keep QEMU for some frontends.** Streamer gave a thin early-boot signal, not worth a custom CI path, and it said nothing about Wi-Fi or CSI.
+- **Keep QEMU for some chips.** More maintenance, and a status check that looks more representative than it is.
+- **Keep it as a non-blocking job.** Still costs CI time and complexity, and invites QEMU-specific code to creep back in.
 
 ## Consequences
 
-Benefits:
+Firmware CI is shorter and simpler, with fewer per-frontend exceptions, and production firmware no longer bends around emulator limits. A green CI means the product matrix built, not that an emulator half-booted.
 
-- shorter and simpler firmware CI
-- fewer frontend-specific CI exceptions and artifacts
-- less pressure to keep production firmware shaped around emulator limitations
-- clearer signal: successful CI means the product matrix built, not that an emulator partially booted
-
-Trade-offs:
-
-- CI no longer has an emulator-based early-boot sanity check
-- some image-assembly regressions may be discovered later than before
-
-Mitigations:
-
-- keep host-side tests strong
-- rely on the product build itself as the primary artifact-integrity check
-- prefer targeted hardware smoke testing when radio behavior matters
+We lose the early-boot sanity check, so some image-assembly bugs may surface later. To compensate: strong host-side tests, the product build itself as the integrity check, and targeted hardware smoke tests when radio behavior matters.
 
 ## Related
 
-- `.github/workflows/ci.yml`
-- `.github/workflows/cd.yml`
-- `docs/CHANGELOG.md`
+- `.github/workflows/ci.yml` and `.github/workflows/cd.yml`
+- Commits `3eff278c` (QEMU extended to Native and Streamer) and `af9060a5` (QEMU removed)

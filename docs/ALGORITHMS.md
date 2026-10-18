@@ -264,7 +264,7 @@ The recovery has these safeguards:
 - The candidate is the median of block maxima. One spike or one quiet block cannot move it.
 - It never lowers the threshold below the training idle `q95` (`0.095`).
 
-The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design and current operating point live in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md). The temporal-admission contract that prompted the `2.7` revalidation is recorded in the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
+The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The reasoning behind the recovery rule is in the [Lightweight detector ADR](adr/2026-07-08-define-the-lightweight-detector.md). The temporal-admission contract that prompted the `2.7` revalidation is recorded in the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
 Its limit is the mirror of its safety. A room that grows genuinely noisier after the threshold has come down cannot push it back up; only a recalibration does that.
 

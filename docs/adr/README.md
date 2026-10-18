@@ -1,56 +1,35 @@
-# ADR Guide
+# ADR guide
 
-This directory contains Architecture Decision Records (ADRs) for durable project-level and architectural decisions.
+Architecture Decision Records for durable project and architecture decisions. Each record describes the current decision; earlier choices in the same line of work live in its decision history instead of separate files.
 
-The catalog is intentionally organized around current decisions. Earlier choices that belong to the same decision lineage are summarized inside the current ADR instead of remaining as separate navigation entries.
+## What belongs here
 
-## What Belongs Here
+Write an ADR for a choice that shaped the project: a production architecture change, a runtime or protocol direction, a detector or ML baseline promotion, a long-lived workflow or validation policy, or a rejected direction that would be costly to try again.
 
-An ADR belongs here when it captures a durable choice that shaped the project, for example:
+Not for routine cleanup, temporary experiments or sweeps, generated benchmark results, or exact seeds, weights, and other values owned by generated artifacts or current docs. Feature evidence goes in `FEATURES.md`, external research in `LITERATURE.md`, release history in the versioned changelogs, and deployed behavior in `ALGORITHMS.md`, `ARCHITECTURE.md`, and `ML_TRAINING.md`.
 
-- a production architecture change
-- a runtime or protocol direction
-- a detector or ML baseline promotion
-- a long-lived workflow or validation policy
-- a rejected direction whose rationale prevents costly repetition
+## Current decisions
 
-An ADR should not be used for:
-
-- routine implementation cleanup
-- temporary experiments or parameter sweeps
-- generated benchmark results
-- exact model seeds, weights, or other operational values already owned by generated artifacts or current documentation
-
-Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATURE.md` for external research, versioned changelog snapshots for release history, and current documents such as `ALGORITHMS.md`, `ARCHITECTURE.md`, and `ML_TRAINING.md` for the deployed behavior.
-
-## Current Decision Index
-
-### Architecture And Product Surfaces
-
-- [`2026-09-16-consume-sdk-through-public-facades.md`](2026-09-16-consume-sdk-through-public-facades.md)
+### Architecture and product surfaces
 
 - [`2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md`](2025-12-06-adopt-esphome-as-the-primary-home-assistant-integration.md)
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
-- [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)
-- [`2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md`](2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md)
-- [`2026-09-03-adopt-resource-oriented-device-api.md`](2026-09-03-adopt-resource-oriented-device-api.md)
-- [`2026-07-15-adopt-persisted-runtime-detector-selection.md`](2026-07-15-adopt-persisted-runtime-detector-selection.md)
+- [`2026-07-02-use-one-resource-oriented-protocol-across-transports.md`](2026-07-02-use-one-resource-oriented-protocol-across-transports.md)
+- [`2026-07-15-define-the-detection-profiles.md`](2026-07-15-define-the-detection-profiles.md)
 - [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)
-- [`2026-08-13-adopt-goal-oriented-detector-profile-names.md`](2026-08-13-adopt-goal-oriented-detector-profile-names.md)
+- [`2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md`](2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md)
+- [`2026-09-16-consume-sdk-through-public-facades.md`](2026-09-16-consume-sdk-through-public-facades.md)
 
-### Sensing And Detection
+### Sensing and detection
 
 - [`2026-07-04-keep-agc-active-and-standardize-cv-normalization.md`](2026-07-04-keep-agc-active-and-standardize-cv-normalization.md)
-- [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
+- [`2026-07-08-define-the-lightweight-detector.md`](2026-07-08-define-the-lightweight-detector.md)
 - [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](2026-07-23-adopt-classifier-first-ht20-sensing-contract.md)
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
-- [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
-- [`2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md`](2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md)
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
 - [`2026-08-23-standardize-managed-csi-traffic-sources.md`](2026-08-23-standardize-managed-csi-traffic-sources.md)
-- [`2026-08-28-retain-provenance-filtered-csi-admission.md`](2026-08-28-retain-provenance-filtered-csi-admission.md)
 
-### ML And Validation
+### ML and validation
 
 - [`2025-11-28-prototype-in-python-before-porting-to-production-firmware.md`](2025-11-28-prototype-in-python-before-porting-to-production-firmware.md)
 - [`2026-02-15-adopt-an-exportable-mlp-runtime-for-on-device-ml.md`](2026-02-15-adopt-an-exportable-mlp-runtime-for-on-device-ml.md)
@@ -58,83 +37,82 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-06-30-separate-ml-training-data-from-promotion-replays.md`](2026-06-30-separate-ml-training-data-from-promotion-replays.md)
 - [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
 
-### Data And Delivery
+### Data and delivery
 
-- [`2026-09-16-sign-published-firmware-and-verify-browser-downloads.md`](2026-09-16-sign-published-firmware-and-verify-browser-downloads.md)
-- [`2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md`](2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
+- [`2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md`](2026-07-18-remove-qemu-smoke-tests-from-firmware-ci.md)
 - [`2026-07-29-make-dataset-quality-review-detector-agnostic.md`](2026-07-29-make-dataset-quality-review-detector-agnostic.md)
+- [`2026-09-16-sign-published-firmware-and-verify-browser-downloads.md`](2026-09-16-sign-published-firmware-and-verify-browser-downloads.md)
 
-## File And Metadata Rules
+## Files and metadata
 
-- Use `YYYY-MM-DD-slug.md`, ordered by the date of the first durable decision in the lineage.
-- Keep one coherent decision topic per file.
-- Use `Status: Accepted`, `Superseded`, or `Superseded in part`.
-- Add `Recorded: YYYY-MM-DD (retrospective)` when the record was reconstructed later.
-- Use `Supersedes` metadata only when both independently useful records remain in the repository.
-- Keep superseded records out of the current decision index.
+- Name files `YYYY-MM-DD-slug.md`, dated by the first decision in the line of work. One topic per file.
+- `Status` is `Accepted`, `Superseded`, or `Superseded in part`. A partly superseded ADR opens with one sentence on what still holds and a link to the replacement.
+- Add `Recorded: YYYY-MM-DD (retrospective)` when the record was written later, and `Updated: YYYY-MM-DD` when the decision changed.
+- Use `Supersedes` only when both records stay useful. Superseded records leave the index above.
 
-## Recommended Structure
+## Template
 
 ```md
 # ADR: short title
 
 - Status: Accepted
 - Date: YYYY-MM-DD
-- Recorded: YYYY-MM-DD (retrospective)
 - Updated: YYYY-MM-DD
 
 ## Context
 
-Why the decision was needed.
+What problem forced a decision.
 
 ## Decision
 
-What is currently accepted.
+What we do now.
 
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| YYYY-MM-DD | Earlier choice | Why it changed |
+| YYYY-MM-DD | Earlier choice | What replaced it and why |
 
-## Alternatives Considered
+## Evidence
 
-### Option name
+Only the measurements a reader needs to trust the decision.
 
-Rejected. Why it was not chosen.
+## Alternatives considered
+
+- **Option.** Why not.
 
 ## Consequences
 
-Benefits and trade-offs.
+What gets easier, and what it costs.
 
 ## Related
 
-- current documentation
-- feature or literature evidence
-- versioned changelog snapshots
-- relevant commits
+- current docs and other ADRs
+- Commits `abcdef12` (what it did)
 ```
 
-Include `Decision History` only when the topic has a meaningful earlier direction. Keep the table concise; detailed experimental results belong in their owning ledger or generated report.
+Skip `Decision history` when there was no earlier direction, and `Evidence` when the context already carries the reasoning.
 
-## Updating ADRs
+## Writing style
 
-When a choice evolves within the same coherent topic:
+- Short sentences and plain words. Say what was decided and why, then stop.
+- Keep the decision readable without the evidence. Put numbers in `Evidence` or the decision history, and only the ones that justify the choice.
+- Leave out per-run details, checksums, and image hashes. Do not point to local or untracked folders: readers of the repository cannot open them, so bring any detail the decision needs into the ADR itself.
+- Do not repeat mutable values (coefficients, thresholds, column definitions) that another document or a generated artifact owns; link to it.
+- Cite commits by short hash, and check that they exist before adding them.
 
-- update the current decision;
-- retain the previous direction in `Decision History`;
-- move feature measurements and rejected experiments to `FEATURES.md`;
-- update current documentation and inbound links; and
-- avoid creating a new ADR solely for a model seed, coefficient change, cleanup, or intermediate baseline.
+## Updating an ADR
 
-Create a new ADR when the new decision is independently useful, changes a different architectural concern, or supersedes a decision that was already published and must remain addressable as a stable historical record.
+When the decision changes within the same topic, update `Decision`, add a row to the decision history, move feature measurements and rejected experiments to `FEATURES.md`, and fix current docs and inbound links. Do not open a new ADR just for a seed, coefficient, cleanup, or intermediate baseline.
 
-## Quality Bar
+Write a new ADR when the new decision stands on its own, concerns a different architectural question, or replaces a published decision that must stay addressable.
 
-Create or retain an ADR only when at least one of these is clearly true, and preferably more than one:
+## Quality bar
 
-- the decision changed project direction across releases;
-- later code or documentation is difficult to understand without the rationale;
-- it affects both Python and C++, multiple frontends, or a published compatibility surface;
-- the rejected alternative is likely to recur and was expensive enough to justify a durable record.
+Keep or create an ADR only if at least one of these holds, ideally more:
+
+- it changed project direction across releases;
+- later code or docs are hard to understand without the reasoning;
+- it touches both Python and C++, several frontends, or a published compatibility surface;
+- the rejected alternative is likely to come back and was expensive enough to record.

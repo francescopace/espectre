@@ -1,601 +1,181 @@
-# ADR: standardize managed CSI traffic sources
+# ADR: standardize managed CSI traffic sources and their admission
 
 - Status: Accepted
 - Date: 2026-08-23
-- Updated: 2026-10-17
+- Updated: 2026-10-18
 
 ## Context
 
-ESPectre needs a regular supply of HT20/HT-LTF packets so motion detection can cover its fixed temporal grid. Runtime diagnostics repeatedly showed average occupancy around 85% even when a traffic generator reported approximately `100 pps`. Raw callback rate alone could not distinguish missing packets from AP scheduling bursts, device-side send bursts, retransmissions, legacy-PHY delivery, same-slot excess, or processing backlog.
+Motion detection needs a steady supply of HT20 or LLTF packets to fill its fixed temporal grid. Diagnostics kept showing average occupancy around 85% even when the generator reported about 100 pps. The raw callback rate cannot tell missing packets apart from AP bursts, device send bursts, retries, legacy-PHY delivery, same-slot excess, or processing backlog.
 
-The project supports internal ICMP ping, internal DNS over UDP or TCP, raw Wi-Fi Null Data traffic that elicits AP ACKs, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths differ in protocol state, QoS treatment, target-specific Wi-Fi behavior, and missed-deadline behavior. The standalone external tool also initially lacked the fixed-phase behavior used by the internal generator.
+ESPectre can drive traffic in several ways: internal ICMP ping, internal DNS over UDP or TCP, raw Wi-Fi Null Data that makes the AP (or a peer) answer with ACKs, external UDP through the AP, and unicast ICMP Echo Requests or direct frames from another host. These paths behave differently in protocol state, QoS, chip-specific Wi-Fi handling, and missed-deadline behavior.
 
-Motion sensing also requires a precise definition of packet time. The CSI delivered by the Wi-Fi callback is estimated by the PHY from the packet training field at RF reception. Later callback or loop handling does not move that channel observation forward in time. The fixed admission grid must therefore use the Wi-Fi RX timestamp carried with the frame, while software clocks may measure only processing backlog.
+Other local traffic produces valid CSI too: Direct HTTP requests, SSE clients, and ambient packets. Whether that incidental traffic could stand in for part of the generator was tested on an ESP32-S3 and rejected (see Evidence).
 
-## Evidence
-
-### Capture method
-
-Five monitor-mode captures were recorded on 2026-08-23 with a Mac on channel 2 (`2417 MHz`), an ESP32-C3 station at `ac:eb:e6:4a:e7:08`, and BSSID `e6:fa:c4:20:19:de`. Internal traffic crossed the gateway MAC `e4:fa:c4:b0:19:f8`; external traffic came from the Home Assistant host at `2c:cf:67:9b:80:2d`. The controlled target was `100 pps`.
-
-The analysis decoded radiotap and IEEE 802.11 headers directly. It counted data-frame direction, Retry flags, QoS TID, HT versus legacy PHY, and gaps between observed non-Retry data frames. Control ACK, RTS, CTS, beacon, and unrelated data frames were excluded from the protocol tables. Because WPA3 payloads remained encrypted, protocol attribution comes from the controlled generator mode active during each capture rather than payload inspection.
-
-The pcaps are local laboratory artifacts rather than versioned repository inputs. Their identities are retained here so an archived copy can be verified later.
-
-| Mode | Local filename | Frames | Duration | SHA-256 prefix |
-| --- | --- | ---: | ---: | --- |
-| optimized ping | `espectre_air_ch2.pcap` | 31,286 | 57.159 s | `9bdc5a1bbff7` |
-| C3 DNS/UDP | `espectre_air_dns_ch2.pcap` | 142,452 | 111.721 s | `31479d6ae622` |
-| external UDP, DSCP 46 | `espectre_air_udp_external_ch2.pcap` | 68,568 | 189.611 s | `9b2f9035f343` |
-| external UDP, best effort | `espectre_air_udp_be_ch2.pcap` | 100,112 | 291.025 s | `6f131aef9a0c` |
-| DNS/TCP | `espectre_air_dns_tcp_ch2.pcap` | 86,860 | 155.657 s | `70450799fbca` |
-
-### Generator-direction findings
-
-`Retry share` is the fraction of observed data transmissions whose IEEE 802.11 Retry bit was set. It is not an AP retry counter: an independent sniffer can miss an original attempt or a retry. The large cross-mode differences remain useful, but the percentages are specific to this capture position and AP.
-
-| Generator path | Measured direction | Observed data transmissions | Retry share | HT share | Dominant QoS mapping | Median non-Retry gap |
-| --- | --- | ---: | ---: | ---: | --- | ---: |
-| ping | C3 → AP | 6,080 | 2.81% | 99.74% | TID 5 / AC_VI | 10.009 ms |
-| DNS/UDP | C3 → AP | 18,037 | 76.49% | 5.32% | TID 7 / AC_VO | 19.950 ms |
-| DNS/TCP | C3 → AP | 17,760 | 4.05% | 99.78% | TID 5 / AC_VI | 9.941 ms |
-| external UDP, DSCP 46 | AP → C3 | 22,188 | 9.73% | 99.93% | TID 6 / AC_VO | 9.978 ms |
-| external UDP, best effort | AP → C3 | 33,621 | 9.29% | 99.93% | TID 3 / AC_BE | 9.988 ms |
-
-DNS/UDP was the severe anomaly in the C3 matrix. Approximately 94.7% of its observed uplink transmissions used legacy PHY, predominantly `1` or `6 Mbit/s`, and approximately 94.7% carried TID 7. Its Retry-frame share was about twenty-seven times the optimized ping value. RTS/CTS exchanges and repeated attempts were visible around the legacy data frames. DNS/TCP removed this behavior on that target: almost every observed uplink frame returned to HT, its spacing returned to approximately `10 ms`, and its Retry share became close to ping.
-
-DSCP 46 changed the external downlink mapping from this AP's TID 3 / AC_BE to predominantly TID 6 / AC_VO, but it did not materially reduce observed Retry share or median spacing on the otherwise healthy link. QoS marking is therefore a latency request, not a portable guarantee of higher occupancy. The exact TID selected for the same DSCP also differed by sender implementation: the C3 mapped its marked ping and DNS/TCP uplink mainly to TID 5 / AC_VI, while the AP mapped marked external downlink mainly to TID 6 / AC_VO.
-
-### C3 receive-direction findings
-
-The receive direction is the one that produces CSI on the C3. Every healthy path remained almost entirely HT in this direction.
-
-| Mode | Observed AP → C3 Retry share | HT share | Median gap | 95th-percentile gap | Gaps below 5 ms |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| ping | 7.62% | 99.86% | 9.976 ms | 15.845 ms | 12.59% |
-| DNS/UDP | 9.92% | 99.93% | 9.465 ms | 21.512 ms | 21.82% |
-| DNS/TCP | 8.46% | 99.91% | 9.951 ms | 15.076 ms | 9.84% |
-| external UDP, DSCP 46 | 9.73% | 99.93% | 9.978 ms | 13.244 ms | 9.15% |
-| external UDP, best effort | 9.29% | 99.93% | 9.988 ms | 13.500 ms | 9.42% |
-
-The AP did not emit a perfectly uniform stream, but the paced healthy paths remained centered near `10 ms`. DNS/UDP had both the highest close-gap share and the longest 95th-percentile gap, which is consistent with its uplink retry behavior producing less regular downlink opportunities. The encrypted capture establishes correlation, not per-query causality. External DSCP and best-effort traffic were nearly indistinguishable in retry and spacing on this AP despite their different QoS access categories.
-
-Short device-log observations agreed with the air captures. Optimized ping produced roughly 94% median occupancy. After the DNS/TCP firmware was flashed, the C3 reported `99-100 tx/s`, mostly `93-99%` steady-state occupancy with a median around 96%, and zero stale or out-of-order packets during the observed interval. External paced UDP reached approximately `96-98%` occupancy. These are diagnostic observations, not detector performance gates.
-
-### Classic ESP32 DNS/UDP findings
-
-Classic ESP32 investigation on 2026-08-29 showed that the C3 result was not portable across targets. Three 60-second Native runs with internal DNS/UDP at `100 pps` completed all `360/360` Direct attempts and all `180/180` diagnostic samples without censored failures, `csi:0/0`, generator errors, watchdogs, or reboots. Mean admitted occupancy ranged from `82.87%` to `86.42%` while the benchmark exercised the control plane.
-
-A separate monitor-mode capture on channel 10 observed 70,178 frames over 118.492 seconds (`dns-udp-monitor-ch10-fixed.pcap`, SHA-256 prefix `2b2a04e3b248`). Classic ESP32 uplink remained almost entirely legacy `6 Mbit/s` with TID 7, but its Retry share was only `3.08%`, its median non-Retry gap was `10.022 ms`, and its non-Retry rate was `98.91 pps`. AP-to-device traffic was `99.97%` HT with a `2.63%` Retry share and a `9.998 ms` median gap. No radio gap exceeded `61.3 ms`; a post-capture diagnostic window reported `100.9` generated packets/s, `101.9` CSI callbacks/s, `94.9` admitted packets/s, and `95%` occupancy.
-
-The classic capture preserves the legacy PHY, TID 7, and some RTS/CTS behavior that accompanied the C3 failure, but not its retry storm or cadence collapse. Legacy PHY and that WMM mapping are therefore exposure characteristics, not sufficient causes. Generator choice must remain device-, driver-, AP-, and resolver-specific.
-
-### S3 internal ping QoS trial
-
-A bounded A/B/A trial on 2026-09-06 compared `IP_TOS=184` (DSCP 46, Video), `IP_TOS=192` (DSCP 48, Voice), and a return to `184` on an ESP32-S3 at `10:b4:1d:e8:ec:00`, using ESP-IDF 5.5.5. The same socket, boot, gateway target, `100 pps` cadence, HT20 profile, and BSSID `e6:fa:c4:20:19:de` on channel 10 were retained. A passive ESP32-C6 observed that link while the Mac stayed associated. Temporary instrumentation reserved 112 KiB for software-send and hardware-RX records; it did not log individual packets during measurement.
-
-Each setting had a 32-second S3 trace, with trace starts 210 seconds apart. Each trace contained 10 seconds of baseline HTTP observation, 10 seconds targeting 16 additional diagnostic GETs/s, and 10 seconds of recovery. Socket readback confirmed `184 → 192 → 184`. Regularity below means the percentage of consecutive first-reply hardware RX intervals within `8–12 ms`; it is distinct from admitted occupancy, whose mean uses the 30 diagnostic samples per setting.
-
-| Setting | Successful sends | RX interval pairs | RX regularity | RX gaps below 5 ms | Mean occupancy |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Video A1 | 3,201 | 3,200 | 64.53% | 8.47% | 87.07% |
-| Voice B | 3,200 | 3,197 | 65.31% | 7.79% | 92.37% |
-| Video A2 | 3,200 | 3,199 | 64.55% | 8.78% | 91.07% |
-
-The C6 confirmed uplink TID `5 → 6 → 5` during the scored windows. The corresponding replies used TID `6 → 7 → 6`; both reply TIDs belong to Voice. Consecutive uplink radio intervals pooled across the three HTTP windows were regular in `76.92%`, `79.05%`, and `75.87%` of 2,925, 2,926, and 2,864 pairs, respectively. Voice's observed uplink improvement was therefore 2.13–3.18 percentage points relative to the two Video intervals. Encrypted uplink identification used frame structure and sequence continuity; exact downlink matches to the S3 trace supplied the clock mapping. The radio capture was cropped to the scored windows because QoS changed after each frozen S3 dump, before the next measurement window.
-
-C6 record checksums verified from a complete serial copy for each setting, with zero capture-buffer overflow. C6-to-S3 RX matching covered `97.18%`, `96.56%`, and `94.68%` of the S3 records. Requiring consecutive sequence numbers avoids treating missing observer frames as long packet intervals, but the differing coverage still limits comparisons; this is not a lossless radio capture.
-
-All 9,601 sends succeeded, and 9,600 had a corresponding first CSI reply. The unmatched send in Voice does not establish packet loss on the network. All 475 actual load GETs and 90 diagnostic samples succeeded; the load scheduler issued 160, 157, and 158 requests against a target of 160 per setting. S3 trace checksums verified with zero record overflow or callback mismatch.
-
-Voice improved observed RX regularity by approximately 0.8 percentage points relative to either Video interval, rather than the eight-point recovery hypothesized from a prior timing replay. This short run does not establish a repeatable gain. Occupancy remained elevated after returning to Video, so its increase cannot be attributed to the QoS setting. Frozen trace dumps paused the generator outside measurement and could shift its send phase relative to the unchanged admission grid. The replay's eliminated software-to-air variability also included medium-access waiting, rather than identifying a particular S3 queue.
-
-Retain DSCP 46 as the production request. The trial does not justify changing the default to DSCP 48, and it does not establish a portable QoS improvement. Both original firmwares and all temporary production hooks were restored after acquisition.
-
-The local evidence is under `espectre-s3-qos/run2`; `run1` was discarded because the HTTP load helper rejected an argument before load generation. Raw trace identities are retained for verification of an archived copy:
-
-| Setting | S3 serial log SHA-256 prefix | C6 serial log SHA-256 prefix |
-| --- | --- | --- |
-| `a1-video` | `e888ab521ed5` | `571096c86cbd` |
-| `b-voice` | `f9a792177796` | `5fdb99e641d3` |
-| `a2-video` | `7d7a85822425` | `15b3c2a50db8` |
-
-### S3 DNS/TCP and TX allocation trials
-
-Two further bounded comparisons on 2026-09-06 retained the same S3, ESP-IDF version, BSSID, channel, gateway, HT20 profile, lightweight detector, and `100 pps` target. The protocol comparison used `ping → dns_tcp → ping` within one boot. The allocation comparison used fresh boots with `dynamic32 → static32 → dynamic32`; its effective configuration differences were limited to the Wi-Fi TX allocation selection, the corresponding 32-buffer count, and ESP-IDF's legacy aliases. Power saving, TX/RX AMPDU, CPU frequency, and task configuration were unchanged. The gateway at `192.168.1.1` answered a preliminary TCP/53 DNS query, so this test needed no manually supplied AP management address. MQTT was disconnected.
-
-Each setting had 30 seconds of warm-up, a 17-second send trace, and two additional seconds of RX matching grace. Identical temporary arrays reserved 72 KiB, plus a bounded lifecycle-event buffer. No packet records were printed during acquisition. A passive C6 captured the same link for 22 seconds while the Mac remained associated. Each HTTP observation contained five seconds of baseline, five seconds targeting 16 additional diagnostic GETs/s, and five seconds of recovery, with one SSE connection throughout. Occupancy below averages the three trailing one-second snapshots wholly contained in each phase after a 100 ms boundary guard; the small sample count is not a detector performance gate. The 17-second RX window uses callback ESP timestamps for membership; regularity uses hardware RX timestamp intervals between eligible CSI records, including repeated replies, rather than counting all Wi-Fi frames or assuming every callback supplies sensing data.
-
-| Protocol setting | Eligible CSI/s | RX intervals in 8–12 ms | Baseline occupancy | HTTP occupancy | Recovery occupancy |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Ping A1 | 100.06 | 59.29% | 84.67% | 78.00% | 84.00% |
-| DNS/TCP | 98.12 | 55.13% | 97.00% | 91.67% | 98.00% |
-| Ping A2 | 100.00 | 59.74% | 92.67% | 94.00% | 92.00% |
-
-DNS/TCP reduced gaps below 5 ms from approximately 6.4% to 3.2%, but did not improve the 8–12 ms interval share. Its 95th-percentile gap improved to 14.81 ms from 15.51/15.47 ms, while its 99th percentile worsened to 18.85 ms from 17.03/16.81 ms. Its higher occupancy did not reverse when ping returned, and its HTTP occupancy was below the returning ping control. This again shows why ordered occupancy observations cannot isolate protocol effects from time and sender phase relative to the admission grid. The C6 also observed different complete behaviors: eligible DNS replies were 188-byte frames on downlink TID 3, while ping replies were 100-byte frames on TID 6. The production DNS eligibility filter rejects pure TCP ACKs and requires one complete DNS response per TCP segment; ACK traffic did not inflate the reported CSI supply. DNS/TCP remains an explicit compatibility-dependent option, with no demonstrated repeatable occupancy gain on this S3.
-
-| TX buffers | Uplink intervals in 8–12 ms | RX intervals in 8–12 ms | Baseline occupancy | HTTP occupancy | Recovery occupancy |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Dynamic32 A1 | 80.45% | 58.50% | 95.00% | 94.67% | 95.00% |
-| Static32 B, qualified | 80.93% | 60.44% | 94.67% | 93.67% | 94.00% |
-| Dynamic32 A2 | 79.87% | 59.80% | 94.33% | 94.33% | 94.00% |
-
-The uplink comparison used 1,693, 1,699, and 1,694 adjacent MAC-sequence intervals within the common 17-second windows. It selected the observed 82-byte/TID-5 ping signature and excluded other HTTP frame signatures; encrypted payloads prevent direct ICMP identification. Exact C6-to-S3 downlink joins supplied the clock mapping, but observer omissions remain possible. Static allocation improved this observed uplink endpoint by only 0.48–1.06 percentage points, without improving occupancy. RX 95th percentiles were 15.19/15.28/15.35 ms and 99th percentiles were 16.65/16.61/16.68 ms; gaps of at least 20 ms occurred 1/2/1 times. These short, qualified measurements do not establish a useful gain from static allocation.
-
-Static32 reduced observed free heap after capture by 55,448–55,500 bytes, approximately 54.2 KiB, relative to its dynamic controls. The nominal 32 × 1,600-byte static TX payload reservation is 50 KiB; the whole observed difference is not an isolated allocation measurement. The largest free internal DMA block was approximately 38 KiB with static allocation versus 92 KiB with dynamic allocation. These are snapshots with the same temporary trace memory present, not measurements of peak DMA demand. Retain dynamic32; the result does not justify reserving additional memory or identify dynamic TX allocation as the source of the remaining timing variation.
-
-Serial-export integrity limits were retained explicitly. The DNS run lost 23 TX log rows, while all 1,862 RX records and their checksum verified; its results therefore use RX-only timing and independent HTTP telemetry, without a query success-rate claim. The first static run lost 21 RX rows, including primary-window data, and was excluded from the timing comparison. A repeat slowed only the frozen export to two ticks per row; it still lost three RX rows, all in the grace interval after the verified TX ID range 3,001–4,700. Every one of those 1,700 primary queries had a recorded first reply, and independent C6 joins supported the common timing window, but the complete S3 RX checksum still failed. The repeated static timing is consequently qualified, not a fully checksum-verified capture. The flanking dynamic traces passed all component checksums. Missing serial rows are not evidence of packet loss on the network.
-
-All six tabled observations completed their 478/478 actual load GETs and 90/90 diagnostic samples. Their C6 record checksums verified with no capture overflow, and the firmware reported no trace overflow or callback-identity mismatch. Both original firmwares were restored after acquisition. The restored S3 application rebuilt byte-for-byte to SHA-256 `419c50513be7…`, with its original dynamic32 configuration, and returned ready with `ping`, `100 pps`, and the pinned BSSID. All temporary production hooks were removed.
-
-Local evidence is under `espectre-s3-followup`, including component validation, the qualified static analysis, independent uplink CSVs, effective configuration comparisons, artifact manifests, and restoration checks. Raw serial identities are retained for verification of an archived copy:
-
-| Observation | S3 serial log SHA-256 prefix | C6 serial log SHA-256 prefix |
-| --- | --- | --- |
-| `run1/p1-ping-dynamic` | `64d61c61de5e` | `86187d4b5ee9` |
-| `run1/p2-dns-tcp-dynamic` | `d709ba0e60cb` | `b175e27bfffd` |
-| `run1/p3-ping-dynamic` | `530d4a080a7d` | `8859e21e40d2` |
-| `run1/p4-ping-static`, excluded timing | `f70fe5a6c0c4` | `69bdef147a94` |
-| `run1/p5-ping-dynamic` | `8b824b474761` | `19f02bdba1d0` |
-| `run2/r1-ping-static`, qualified timing | `1a2a98802150` | `1a622886f53c` |
-| `run2/r2-ping-dynamic` | `2eb08092a3b4` | `4274bdbbd11b` |
-
-### S3 driver handoff and sensing bypass trial
-
-A further bounded A/B/A trial on 2026-09-06 compared the normal sensing path, a minimal CSI callback, and the restored normal path within one S3 boot and ping socket. It retained the same BSSID, channel, gateway, HT20 profile, lightweight detector, `100 pps`, dynamic32 allocation, and 160 MHz configuration. Each treatment had 30 seconds of settling, a 17-second send window, and two seconds of RX grace. The temporary probe recorded application `sendto` entry/return, `esp_netif_transmit_wrap` entry/return, and identified CSI reply timestamps in 95 KiB of fixed arrays. Export ran only after capture was frozen, on a temporary task that was deleted before the next measurement. The C6 passively captured the link, target and foreign beacons, sampled surrounding headers, and 10 ms received-frame count bins.
-
-The minimal treatment retained the common trace parser but bypassed production CSI processing, queueing, and resulting inference. It did not disable CSI generation or processing inside the Wi-Fi driver. Each treatment used five seconds of baseline, five seconds targeting 16 additional diagnostic GETs/s, and five seconds of recovery. SSE was disabled in every treatment so that suppressing detector events could not remove an extra stream of radio traffic. Occupancy during the bypass is not a valid sensing endpoint.
-
-All 5,100 sends had an exact driver-handoff record and a first reply, with no send or handoff error. The application-to-handoff median was 186/182/187 µs, its 95th percentile was 309/311/291 µs, and its maximum was 1,097/1,275/1,131 µs. No such wait exceeded 2 ms. The wrapper-call 95th percentile was 661/492/662 µs. Interval regularity below means `[8, 12) ms`; software and S3 RX columns use the complete 17-second windows, while the radio comparison uses the well-observed baseline windows.
-
-| Treatment | APP intervals regular | Handoff intervals regular | Mean callback duration | Baseline uplink intervals regular | S3 RX intervals regular |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Normal A1 | 99.82% | 99.76% | 224.0 µs | 78.20% | 63.74% |
-| Minimal B | 99.76% | 99.65% | 42.0 µs | 78.74% | 63.92% |
-| Normal A2 | 99.94% | 99.88% | 221.7 µs | 79.45% | 66.33% |
-
-The baseline radio comparison contains 477/475/477 adjacent MAC-sequence pairs, corresponding to 100%/99.58%/100% of the expected adjacent application pairs in those scored windows. Uplink identification remains conditional on the encrypted 82-byte/TID-5 signature and sequence continuity. Exact downlink joins separately validate the C6-to-S3 hardware clock mapping. The minimal callback reduced measured callback time substantially without demonstrating an uplink or RX regularity benefit; callback durations include preemption and are not isolated CPU-time measurements. Under HTTP, complete S3 RX regularity was 65.05%/63.87%/66.46%, also without a bypass benefit. This result does not establish equivalence across other chips, detectors, or workloads.
-
-The measured pre-driver path does not explain most of the observed radio timing variation. In this ESP-IDF configuration, `sendto` waits for TCPIP processing, and the wrapped netif call forwards into `esp_wifi_internal_tx`; successful return establishes driver acceptance, not transmission over the air. Subsequent variation can still arise in driver/MAC scheduling or medium access. Radio transmission can begin before the wrapped call returns, and C6, S3 hardware, and S3 software timestamps belong to different clocks. Conditional latency bounds therefore retain their clock assumptions; no exact absolute queue residence time is claimed.
-
-The pinned BSSID directly transmitted beacons advertising a 100-TU (102.4 ms) interval, consistent with the earlier periodicity observation; actual arrivals can be delayed. In the two normal controls, target beacons were 2.92 and 1.55 times as concentrated inside long uplink intervals (at least 12 ms) as their share of observed elapsed time would predict; the later nine-second holdouts retained enrichment of 2.86 and 1.75. This supports an association with beacon activity, but its variable strength and multiple staggered beacon sources do not establish that the target AP alone causes the delays. A four-harmonic 102.4 ms model of conditional handoff-to-air variation had held-out `R²` of -0.015 in A1 and 0.149 in A2; the earlier periodicity observation must not be promoted to a universal driver-delay model.
-
-Observer coverage is a separate limit from trace integrity. In B, the C6 recorded no frames in 466 ten-millisecond bins (4.66 seconds total), including two continuous gaps of 1.60 and 2.74 seconds. Its HTTP and recovery uplink pair coverage fell to 77.94% and 31.24%, so those radio subsets are excluded from treatment-effect conclusions. The S3 still recorded every first reply. Foreign-beacon pools overflowed by 73/0/124 records; target-beacon, link, and context pools did not overflow. Valid beacon fixed fields and TIM data were retained even when the trailing IE parse was incomplete; this does not establish malformed AP transmissions. Received-frame bins and sampled headers are not CCA-busy or airtime measurements and cannot exclude hidden contenders.
-
-All decoded component checksums verified. Four APP records were absent from the first serial copy of A1, but both later copies were complete and verified; no missing records were invented or inferred. All other S3 streams and all C6 pools had complete verified copies. The 237/237 actual load GETs and 45/45 diagnostic samples succeeded, with no SSE connection. A preliminary run was discarded after the probe overflowed the generator stack during frozen export; moving export to its own task fixed that instrumentation fault without increasing the measured generator stack. The repeated run retained at least 5,348 bytes of export-task stack headroom.
-
-Retain the production sensing path and existing task and buffer configuration. This experiment does not justify a scheduling or queue change for occupancy. All probe changes were isolated from production sources and the normal build. Both original full-flash images were restored and verified; the S3 returned ready with its original application SHA-256 `419c50513be7…`, `ping`, `100 pps`, and the pinned BSSID. Local evidence is under `espectre-s3-outbound/run2`, with beacon analysis under `espectre-s3-outbound/beacon-association` and independent restoration verification.
-
-| Observation | S3 serial log SHA-256 prefix | C6 serial log SHA-256 prefix |
-| --- | --- | --- |
-| `run2/p1-normal` | `f2965d3e66c4` | `0e14d9249acd` |
-| `run2/p2-minimal` | `c01a5ae8cc65` | `18111caa5bb6` |
-| `run2/p3-normal` | `d6997a5254dd` | `b6428954b35f` |
-
-### S3 CSI-disabled isolation trial
-
-A subsequent same-boot A/B/A trial on 2026-09-06 retained the preceding S3 configuration and used one ping socket throughout A1/B/A2, but called `esp_wifi_set_csi(false)` for B and re-enabled CSI for A2. This disables the exposed CSI feature rather than merely bypassing the application callback; it does not disable ordinary PHY channel estimation needed to receive Wi-Fi. The public API wrapper recorded successful transitions, no unexpected calls, and no API errors. B produced zero callbacks and zero CSI RX records throughout the 17-second capture and two-second grace period. The runtime service's logical enabled flag was not used as evidence of hardware state. The trace allocation, 30-second settling period, five-second baseline/load/recovery phases, 16 additional HTTP GETs/s, and absence of SSE remained unchanged.
-
-The C6 probe added a callback-entry `esp_timer` timestamp to each link record and bracketed every capture with six serial clock exchanges before and after acquisition. Feasible affine clock mappings retained the complete host send/receive brackets; cohort boundaries had 9.78–11.48 ms uncertainty and an additional 100 ms guard. Radio intervals still used C6 hardware RX timestamps. This allowed an independently timed OFF cohort without reusing an ON-only S3 CSI clock fit. Uplink and downlink separately required at least 98% packet-count and adjacent-pair coverage against the actual application cohort. Encrypted frame identity remains conditional on the link, TID, length, and sequence signature. Exact CSI joins validated the downlink signature independently in each ON control; OFF downlink is an observed AP-to-S3 cadence proxy, not proof of individual ping delivery.
-
-All 5,100 sends succeeded. There were 5,099 matching driver-handoff records: A1's final send started 185 µs before the capture cutoff and returned afterward, making its absent handoff compatible with boundary censoring. It fell outside every scored HTTP cohort. Both ON controls recorded all 1,700 first replies; OFF deliberately had no CSI-based reply observation. Application-to-handoff 95th percentiles were 316/314/304 µs, with maxima of 1,335/1,191/1,132 µs. Wrapper-call 95th percentiles were 684/502/683 µs, and mean measured callback duration was 240.4/0/242.7 µs. Callback durations include preemption. Regularity below means `[8, 12) ms`; APP, handoff, and S3 RX use complete 17-second windows, while C6 radio columns use the qualified baseline cohorts.
-
-| Treatment | APP intervals regular | Handoff intervals regular | Baseline uplink intervals regular | Baseline downlink intervals regular | S3 RX intervals regular |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| CSI on A1 | 99.71% | 99.47% | 80.96% | 61.34% | 62.39% |
-| CSI off B | 99.88% | 99.94% | 85.12% | 71.00% | Unavailable |
-| CSI on A2 | 99.88% | 99.71% | 84.66% | 70.46% | 70.57% |
-
-The baseline uplink comparison contains 478/477/476 adjacent pairs, with count coverage of 100.21%/100%/99.79%; the corresponding downlink counts are 476/469/474, with 99.79%/98.32%/99.37% coverage. Ratios slightly above 100% reflect independently mapped, guarded cohort boundaries and conditional radio identity, rather than delivery probabilities. The apparent A1-to-B improvement remained after CSI was re-enabled. The independently complete S3 RX trace also improved between the two ON controls, including 62.47% to 69.33% regularity under HTTP. This does not demonstrate a reversible CSI-disable benefit or prove zero CSI influence: time variation, sender phase, and possible toggle carryover remain alternatives. Even with CSI disabled, substantial irregularity remained between the regular driver handoff and observed radio transmission.
-
-The third C6 capture cannot support an under-load A/B/A conclusion. Its HTTP/recovery uplink pair coverage fell to 83.82%/13.00%, and downlink coverage to 78.57%/12.37%; both subsets are excluded. It contained all-frame observation gaps of 0.95 and 3.45 seconds while the S3 still recorded every first reply. C6 callback-minus-hardware variation also reached approximately 123 ms under load and 1.10 seconds in recovery, exceeding the cohort guard. The qualified A2 baseline had approximately 10.4 ms of this variation and no empty all-frame bins in its scored envelope. The target beacon's advertised and observed nominal cadence remained 100 TU, but baseline target-beacon enrichment inside long uplink intervals varied from 1.45 to 0.58 to zero across A1/B/A2. These observations do not identify a stable target-beacon cause, and the sniffer does not measure medium-busy time.
-
-All frozen component checksums verified, all 240 actual load GETs and 45 diagnostic samples succeeded, and S3 trace, C6 link, target-beacon, and context pools had no overflow. Foreign-beacon pools overflowed by 75/79/0 records and cannot describe complete neighboring activity. Every export retained at least 5,352 bytes of task-stack headroom. A preliminary run was excluded because delayed HTTP startup placed scored phases outside the S3 trace; a post-capture clock command could also be discarded before the C6 returned ready. The repeated acquisition imported the HTTP client before resetting the S3, checked phase containment, and waited for C6 readiness before requesting post-capture anchors.
-
-Retain the production CSI path and current task and buffer configuration. The measured application-to-driver path does not explain most radio interval variation, but these traces cannot separate internal driver/MAC scheduling from channel access, contention, or retries. A further completion timestamp inside the S3 could measure driver handoff to software completion on the same clock, after validating packet identity and callback timing. That interval would still include medium access, retries, and callback-dispatch delay; it would not isolate queue residence or provide a hardware RF or ACK timestamp. All probe changes remained outside production sources and builds. At the user's request, the lab firmware was left installed on both devices, with the C6 idle and the S3 ready, CSI re-enabled, the pinned BSSID unchanged, and `ping` targeting `100 pps`. A final live check observed 100 generated and accepted packets/s with zero pending-frame drops; its 95% occupancy is an operational snapshot, not a treatment-effect result.
-
-Local evidence is under `espectre-s3-csi-off/run2`, including clock anchors, decoded traces, independent beacon audits, and live verification. The S3 probe application SHA-256 is `ed98e87da95a…`, and the C6 probe application SHA-256 is `ea258f9de01c…`.
-
-| Observation | S3 serial log SHA-256 prefix | C6 serial log SHA-256 prefix |
-| --- | --- | --- |
-| `run2/p1-normal` | `30a52b968fa6` | `155ac15318a7` |
-| `run2/p2-csi_off` | `317228fcd2f7` | `c9a6177d6dfb` |
-| `run2/p3-normal` | `ec471e052f9f` | `e663859906c7` |
-
-### S3 TX-completion timing trial
-
-A subsequent isolation probe used the ESP-IDF 5.5.5 private `esp_wifi_set_tx_done_cb` API to observe software transmission completion on the same S3 clock as application sends and driver handoffs. The installed header describes a transmitted-data pointer, a length pointer, an interface index, and a success boolean; it does not specify a hardware RF timestamp or establish independently observed ACK delivery. The temporary callback retained bounded values only, without modifying or retaining driver-owned buffers, allocating memory, or logging during capture. Registration and CSI state were audited, admitted writers were drained before export, and the completion callback was unregistered before the frozen records were printed.
-
-An initial five-second pilot, following 30 seconds of settling and including one second of completion grace, recorded 500 application sends, 501 handoffs, and 600 completion callbacks with CSI enabled. Every application send had one matching handoff; the extra handoff belonged to a send crossing the opening boundary. Application-to-handoff latency had a median of 192 µs, a 95th percentile of 292 µs, and a maximum of 522 µs. All completion callbacks reported success and ran in task context on core 0. The bounded prefix-copy instrumentation took 32 µs at the median, 51 µs at the 95th percentile, and 83 µs at the maximum; these elapsed times include possible preemption.
-
-The pilot established a necessary packet-format distinction. Every callback reported 56 accessible bytes containing a protected QoS Wi-Fi header, a structural eight-byte security header, plaintext LLC/SNAP at offset 34, and only the first 14 bytes of an IPv4 header at offset 42. The ICMP identifier and sequence were outside the reported length and were not read. IPv4 identification, MAC sequence control, and a six-byte security-header PN candidate were visible and individually unique across all 600 records. The observed link addresses, TID 5, IPv4 version, 20-byte IPv4 header length, 28-byte IP total length, and ICMP protocol were consistent throughout. These observations motivated recording IPv4 identification at the driver handoff and validating the Wi-Fi header identifiers against the independent C6 capture before joining timing records.
-
-All pilot component checksums verified: APP `d4383234`, HANDOFF `755e5cca`, and DONE `5ba16d49`. Two APP serial copies and all three HANDOFF/DONE copies were complete; the incomplete APP copy was not filled with invented records. Fifteen sanitizer cases exercised the actual callback body, including bounded copies, null pointers, capacity overflow, and concurrent publication. Local pilot evidence is under `espectre-s3-txdone/pilot1`; the pilot application SHA-256 is `4fc21abc9cd83…`.
-
-The full probe retained CSI, the existing firmware configuration, and the generator stack. It captured 17 seconds of APP/HAND records and two additional seconds of RX/DONE grace after 30 seconds of settling. Fixed arrays occupied 153,600 bytes: APP16, HAND24, RX16, and DONE24 records. The completion recognizer accepted only the pilot-validated bounded header layout, with explicit rejection counters. The C6 was reset before acquisition and used only its first capture after boot; this was an observer-lifecycle mitigation rather than a demonstrated repair of its earlier deterioration. HTTP again used five-second baseline/load/recovery phases, targeting 16 additional GETs/s without SSE. Serial clock brackets and guarded cohort containment were retained.
-
-All 1,700 application sends linked uniquely to their driver handoff by ICMP identifier/sequence, then to completion by the independently recorded IPv4 identification, and finally to C6 uplink frames by the pinned link, TID, key ID, PN, and raw MAC sequence control. No ordinal matching or key collision was involved. All 1,699 adjacent application-query pairs were observed in every uplink timing stream. The complete grace window contained 1,900 DONE identities and 1,951 C6 attempts matching those identities. Within the primary window there were 42 extra observed attempts and eight packet groups whose first observed attempt already had Retry set. First and last observed attempts are therefore distinct endpoints, and neither label guarantees that the observer saw every physical attempt. Callback length 56 was not equated with the observed radio frame length of 82 bytes.
-
-| Measurement boundary | Intervals in `[8, 12) ms`, same 1,699 query pairs |
-| --- | ---: |
-| Application send entry | 100% |
-| Driver handoff entry | 99.76% |
-| First observed radio attempt | 74.04% |
-| Last observed radio attempt | 73.28% |
-| TX-completion callback entry | 73.16% |
-
-On the single S3 software clock, application-to-handoff latency had a 197 µs median, 315 µs 95th percentile, and 2,504 µs maximum. Handoff-to-completion latency had a 693 µs median, 4,411 µs 95th percentile, 8,665 µs 99th percentile, and 14,739 µs maximum. Five completion callbacks preceded the wrapped call's return, and 47 preceded `sendto` return; these signed observations were retained. A return timestamp is consequently unsuitable as an assumed boundary preceding physical transmission. All 1,700 sends and handoff calls succeeded, all 1,900 completion records reported success in task context on core 0, and all 1,700 first replies were present in the independent S3 CSI trace.
-
-Completion intervals and last-observed-radio intervals correlated at 0.99924; the 95th percentile of their absolute interval difference was 157 µs. This is interval agreement between exactly identified packets, not an absolute completion-to-air latency measurement. It places most observed cadence variation after driver handoff and before or at radio transmission, rather than attributing it solely to delayed completion notification. Of 280 packets with handoff-to-completion delay of at least 2 ms, 247 had only one observed non-Retry attempt; 33 had an observed Retry indication. Of 11 delays of at least 10 ms, six had an observed Retry indication. Observed retries do not explain most of the 2 ms cases, but missing attempts, initial contention/backoff, and internal driver/MAC work remain possible.
-
-The guarded baseline/load/recovery cohorts contained 477/476/477 adjacent query pairs. First-observed-radio regularity was 74.42%/75.21%/74.42%, last-observed-radio regularity was 74.21%/74.37%/72.54%, and completion regularity was 73.79%/74.16%/72.54%. Handoff-to-completion 95th percentiles were 4.61/4.17/4.68 ms. This bounded HTTP workload did not produce a distinct outbound degradation in this trace; the ordered short windows do not establish equivalence under other loads or across boots. The actual workload issued 79 successful load GETs, corresponding to 15.8/s, and all 15 diagnostic samples succeeded.
-
-A fresh C6-to-S3 hardware RX clock fit used 1,894 unique downlink matches, including a 378-pair holdout, with approximately ±1.03 µs residual and -6.105 ppm relative scale. Independent clock bounds used handoff-before-uplink and downlink-before-CSI-callback constraints; they did not assume completion occurs after the radio observation. Allowing software/hardware clock drift and a 100 µs timing margin left many individual completion-versus-air orderings unresolved. The interval agreement above is the stronger supported result. No pure queue-residence time or hardware TX/ACK timestamp is inferred from the completion callback.
-
-All S3/C6 component checksums verified. C6 had no empty ten-millisecond receive bins, complete target-beacon cadence, no link or target-beacon overflow, and approximately 1.21 ms of callback-minus-hardware variation. Foreign-beacon storage overflowed by 31 records and does not describe complete neighboring activity. S3 free heap was 59,592 bytes at arm and 58,776 bytes at freeze, with a 31,744-byte largest internal-DMA block at both points. The full completion probe's measured callback duration had a 52 µs median, approximately 98 µs 95th percentile, and 151 µs maximum, excluding the final admission-counter release. The export worker retained at least 5,280 bytes of stack headroom. A further 699 sanitizer cases validated the full bounded recognizer and callback, including all 600 actual pilot headers. These figures document instrumentation cost; this is a diagnostic capture rather than a production performance benchmark.
-
-Retain the production task, buffer, and pacing settings. The experiment now identifies the same outgoing packets across software and radio observations and quantifies a variable interval after driver handoff. It does not separate internal Wi-Fi scheduling from waiting for the shared channel, so it does not yet justify a specific firmware optimization for occupancy. The diagnostic firmware remains installed, with CSI active and the completion callback unregistered after capture. Final operational checks showed ready sensing, approximately 100 generated and accepted packets/s, and zero pending-frame drops. Local evidence is under `espectre-s3-txdone/full1/p1-normal`; application SHA-256 is `59f1333a8eb5…`, S3 serial SHA-256 is `188b98f053ee…`, and C6 serial SHA-256 is `22bd031da821…`.
-
-### S3 AP and channel control trial
-
-A subsequent controlled comparison used the current AP's self address (`192.168.1.249`, BSSID `e6:fa:c4:20:19:de`) and an isolated ESP32-D0WD SoftAP (`192.168.77.1`, BSSID `4c:11:ae:b8:6e:b9`). The planned sequence was original AP/channel 10, temporary AP/channel 10, temporary AP/channel 1, temporary AP/channel 10, and original AP/channel 10. Both destinations were AP-local, removing gateway forwarding from this comparison. The temporary AP used WPA2-PSK/CCMP, HT20, 100-TU beacons, one permitted station, and no upstream connection. S3 association logs in both A1 and A2 explicitly report `WPA3-SAE H2E`; AP metadata records CCMP. The AP comparison therefore changed security, peer implementation, and association behavior as well as AP identity.
-
-The S3 retained the same native lightweight firmware, CSI, 100 pps, task placement, buffering, and pacing throughout. Temporary association and destination controls also updated the CSI source filter, which otherwise expects gateway replies. Each condition waited at least 30 seconds after stable association before recording 17 seconds of APP/HAND and two additional seconds of RX/DONE grace. No HTTP workload was deliberately added; preflight showed MQTT unconfigured and no Direct HTTP event clients. The temporary AP was stopped during both original-AP measurements. A passive survey selected channel 1 after observing 0 and 6 valid frames in two five-second samples, versus 2,758 in one channel-10 sample; this measured decoded activity, not CCA or undecodable interference.
-
-The C6 took its first capture after a validated application-level reboot for every condition. Its initial channel-1 recording exhausted the 5,500-record link pool: 6,019 attempts were counted, with heavy downlink retries already consuming space before the scored window. Fifty primary uplinks were unmatched, including 49 after storage exhaustion and one earlier omission. A separately built observer variant increased the link pool to 7,000 while reducing foreign-beacon and sampled-context pools, lowering total fixed storage from 264,368 to 261,312 bytes. The callback implementation, record layouts, and S3 firmware remained unchanged. An additional C2 observation used this variant after B2 and before A2; the original incomplete C observation is retained below. A2 also used the expanded observer. Runtime allocation readback, schema hashes, build artifacts, and flash verification distinguish both observer versions.
-
-All six software traces contain 1,700 unique APP/HAND/DONE links and 1,699 consecutive query pairs. Application cadence was at least 99.94% regular, and driver-handoff cadence was at least 99.94% regular. The table defines regularity as intervals in `[8, 12) ms`; it is not detector occupancy. Completion values use the entire S3 trace even where radio coverage is incomplete. Radio percentages are shown only for complete exact primary packet coverage.
-
-| Condition, acquisition order | Regular completion intervals | Handoff-to-completion p95 | Regular first-observed radio intervals | Exact primary radio coverage |
-| --- | ---: | ---: | ---: | ---: |
-| A1: original AP, channel 10 | 83.28% | 3.643 ms | 83.70% | 1,700/1,700 |
-| B1: temporary AP, channel 10 | 80.93% | 3.659 ms | 81.28% | 1,700/1,700 |
-| C: temporary AP, channel 1 | 98.18% | 2.214 ms | Incomplete | 1,650/1,700 |
-| B2: temporary AP, channel 10 | 74.87% | 4.401 ms | Incomplete | 1,698/1,700 |
-| C2: corrective repeat, channel 1 | 96.00% | 2.373 ms | 97.35% | 1,700/1,700 |
-| A2: original AP, channel 10 | 78.81% | 5.699 ms | Incomplete | 1,699/1,700 |
-
-The channel-1 improvement appeared twice and reversed on the intervening channel-10 return. The complete C2 radio observation confirms that this was not merely a change in completion-notification timing. First observed uplink attempts among exact joins remained predominantly HT20/MCS7; C2's better cadence coexisted with substantially more observed retries than B2, so retry count alone does not explain the difference. However, S3 RSSI and guard-interval/rate behavior changed across associations, and these short, ordered traces are not randomized independent trials. Captured beacons do not include WMM/EDCA parameters, and received-frame bins do not measure medium contention. The result supports sensitivity to the channel and connection context after driver handoff; it does not separate internal Wi-Fi scheduling from access to the shared medium or establish a pure queue-residence time.
-
-Incoming sensing supply remains a separate limitation. Unique eligible first CSI replies were A1 1,700/1,700, B1 1,245/1,700, C 1,249/1,700, B2 1,700/1,700, C2 1,065/1,700, and A2 1,700/1,700. Missing eligible CSI replies are not proof of AP packet loss: the temporary AP's observed downlink included legacy frames, changing HT rates, and retries, while encrypted radio headers cannot assign every non-CSI frame to a missing ICMP reply. Consequently, more regular outgoing traffic in this experiment does not establish an occupancy improvement.
-
-Strict stream layout and checksum validation passed for all acquisitions. Incomplete redundant serial copies were retained as export warnings; intact copies provided the original complete software streams. B2's two missing radio identities, A2's one missing identity, and C's overflow remain explicit radio-quality limitations. C2 had complete primary identities, no primary-pool overflow, no empty receive bins over the primary radio envelope, and 97 microseconds of callback-minus-hardware variation; two approximately 205 ms target-beacon gaps and sampled-context overflow remain recorded limitations. AP health showed no association-counter change within scored windows, and independent audits found no S3 reset, reassociation, or generator restart after arming.
-
-Keep production task, queue, and pacing settings unchanged. The comparison identifies a repeatable outgoing timing difference without changing S3 software, but it does not provide a demonstrated firmware optimization under an uncontrollable AP. Final checks leave the S3 on the original pinned AP with CSI and ready sensing active, the completion callback unregistered, the C6 idle, and the temporary AP stopped. Local evidence is under `espectre-s3-ap-control/run1`, including the chronological comparison, independent audits, and final manifest. S3 application SHA-256 is `97958342aca0…`; temporary AP is `0de62e7aa45e…`; C6 is `35f2fdbd1763…` for A1/B1/C/B2 and `b404b673bd58…` for C2/A2. No production firmware sources were changed by this experiment.
-
-### S3 internal transmit instrumentation
-
-A 2026-09-07 experiment instrumented the S3's ESP-IDF 5.5.5 transmit path in an isolated copy of the preceding native lightweight test firmware. The original AP remained pinned to `e6:fa:c4:20:19:de`, channel 10, with AP-local destination `192.168.1.249`, CSI enabled, and 100 pps. No HTTP workload was added. The frozen application hash is `f73ecb289fe18bc03edfe08d8ab228adf6e549cb89736ac4628d89083947068c`; effective SDK configuration is unchanged from the preceding AP/channel experiment. These private-symbol hooks are specific to the inspected S3 libraries and are not a production or portable driver API.
-
-Linker wrappers recorded `ppTxPkt`, `lmacTxFrame`, and `hal_mac_tx_set_ppdu` entry/return events in a fixed 32 KiB internal-RAM buffer. Recording code, helper functions, and wrapper entry points were verified in IRAM; timestamps and bounded record writes occur without hot-path logging or allocation. The attempted `ppDequeueTxQ` wrapper was not traversed, so the experiment does not measure pure frame-queue residence or OSI event-queue latency. An initial pilot also showed that the handoff and `ppTxPkt` run in different tasks. Its proposed same-task identity association was rejected. The corrected probe instead validates the protected QoS/IPv4 header through the descriptor's buffer pointer, using the pointer construction found in this SDK's `ppProcTxDone`, and records the IPv4 ID at LMAC entry. The existing unique HAND/DONE IDs and DONE sequence/PN-to-C6 match then establish packet identity without a nearest-timestamp association.
-
-The corrected comparison used the same binary with recording enabled, disabled, and enabled again. Every run captured 17 seconds of APP/HAND and two seconds of RX/DONE grace, with 1,700 exact APP/HAND/DONE matches; the raw RX and DONE streams contain 1,900 records because traffic continues during grace. Internal recording covers only the first second of each enabled run. Both internal windows contain 100 uniquely identified ping descriptors and complete exact C6 first-attempt observations, with no duplicate stages, premature descriptor reuse, or internal/primary-radio pool overflow. Each window also contains one rejected additional driver frame. All three redundant internal exports were complete and checksum-valid.
-
-| Internal one-second window | Handoff to LMAC return, p95 | `ppTxPkt` entry to LMAC entry, p95 | LMAC return to TX callback, p95 / maximum | Regular LMAC-return intervals | Regular first-observed radio intervals |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Recording enabled, first run | 0.577 ms | 0.121 ms | 5.453 / 13.389 ms | 97.98% | 70.71% |
-| Recording enabled, repeat | 0.507 ms | 0.114 ms | 3.489 / 9.350 ms | 100.00% | 79.80% |
-
-Regularity again means intervals in `[8, 12) ms`, with 99 consecutive pairs per internal window, rather than sensing occupancy. Handoff and `ppTxPkt` entry intervals were 100% regular in both internal windows. Changes in the post-LMAC completion delay closely follow changes in the independently observed last-radio delay: interval-based correlations are 0.99920 and 0.99947. No arbitrary offset between the S3 and C6 clocks is subtracted. Each internal window has one observed retransmission, and no primary identity starts with an observed retry. The first-attempt cadence itself is already irregular. The first run's isolated 2.666 ms `ppTxPkt`-to-LMAC wait follows a packet whose post-LMAC completion took 13.389 ms; this is consistent with backlog behind a slow preceding transmission, rather than establishing a separate periodic software stall.
-
-With recording disabled, the full trace still has only 76.63% regular completion intervals and 77.58% regular first-radio intervals. The enabled repeat has 77.93% regular completion intervals over its full 17 seconds, versus 69.04% in the first enabled run. Median handoff-call duration is 439/427/440 microseconds in acquisition order. This short, ordered comparison supports persistence of the problem without event recording and shows a roughly 12–13 microsecond median handoff-duration difference; it does not establish statistical equivalence, an exact probe-cost bound, or identical channel conditions. The first enabled full radio trace misses application index 1,478, outside its complete internal window. Foreign-beacon and sampled-context pools overflowed and are not used to infer channel occupancy or CCA.
-
-The useful new boundary is after software prepares and enables the MAC: the inspected `lmacTxFrame` normal path configures EDCA and calls `hal_mac_txq_enable` before returning. Most measured timing variation arises downstream of that boundary and is visible in radio cadence, rather than only in completion notification. LMAC return and PPDU programming are not actual RF-start timestamps. The remaining interval includes hardware/MAC scheduling, access to the medium, transmission/acknowledgment, and completion delivery; these traces do not separate CCA deferral, EDCA backoff, hidden MAC queues, or retries. Application core placement and larger application queues are therefore not supported as remedies for this measured dominant delay. A narrower next experiment needs an actual TX-start or medium-busy/backoff observation tied to the same descriptor, rather than another application pacing or generic SDK comparison.
-
-No occupancy gain or production firmware fix is claimed. Final acquisition checks leave the S3 on the pinned original AP, with ready lightweight sensing, CSI enabled, no reported drops, the completion callback unregistered, and internal recording stopped; the C6 is idle. Local artifacts are under `espectre-s3-driver-trace`, including the frozen `v2` image/manifest, `on2`, `off2`, and `on3` acquisitions, driver-to-radio joins, impact comparison, and validation audit. Production firmware sources were not changed by this experiment.
-
-### S3 MAC queue enable and contention controls
-
-A follow-up prioritized an actionable internal wait mechanism before testing other hypotheses. Static inspection identified `hal_mac_tx_config_edca`, `hal_mac_txq_enable`, `hal_mac_txq_disable`, and `hal_mac_set_txq_invalid`. Isolated wrappers recorded the per-packet LMAC contention state, read back the configuration register, and sampled the queue register immediately before and after each wrapped enable/disable/invalid call. Register addresses and bit meanings came from the inspected SDK functions, including its queue-valid and queue-enabled getters. These were read-only observations: the original functions, contention values, and queue operations were forwarded unchanged. No continuously sampled queue state, actual RF-start timestamp, or validated CCA/NAV busy signal was available. The inspected FTM timestamp routine is conditional on FTM action frames and was not treated as a timestamp source for ordinary ICMP traffic.
-
-One completed diagnostic acquisition used the same pinned AP, channel 10, AP-local destination, CSI, lightweight sensing, and 100 pps. The S3 application SHA-256 is `db2e221f7bfa2afbbd0eba4c44993b9d139231f5995bf863a45dc0c404f29693`; effective SDK configuration remains unchanged. The C6 retained the existing 7,000-record observer firmware. The internal first-second window contains 100 uniquely identified ping frames and 1,412 events, with all three exports complete and checksum-valid and no internal buffer overflow. All 100 ping identities were observed on the C6 from their first non-retry transmission, with no observed retransmission inside this window. The full 17-second capture has 1,700 exact APP/HAND/DONE and primary-radio matches. A preceding acquisition attempt stopped before arming because the observer was disconnected; it produced no measurement. The unrelated C5 was excluded from the experiment.
-
-All 100 ping frames used hardware queue 1, an AIFS field of 2, a current/minimum CW exponent of 3, and a maximum CW exponent of 4. The initially programmed random backoff ranged from 0 to 7 slots, and every configuration register readback matched the programmed AIFS and backoff fields. Both queue-valid and queue-enabled bits were set in every post-enable snapshot. Configuration-readback-to-enable took 4–5 microseconds, and the wrapped enable call took 2–3 microseconds. No wrapped queue-disable or queue-invalid call occurred during the internal window. These results do not show a delayed software enable, an observed software disable/re-enable hold, an inflated initial contention count, or a configuration-write mismatch.
-
-The target delay still occurred: 13 of the 100 packets took more than 2 ms from confirmed queue enable to the completion callback; p95 was 3.056 ms, and the maximum was 3.452 ms. Two of these slow packets had an initial backoff count of zero, including the maximum-delay packet. Thus, the loaded initial random count does not by itself account for the observed waiting. A zero initial count does not remove other required channel-access waits, and a configured count is not an elapsed wall-clock backoff measurement. LMAC-return intervals remained 100% regular, while completion and first-radio intervals were both 89.90% regular over the 99 internal pairs. Full first-radio regularity was 88.82%; differences from earlier acquisitions are not attributed to an optimization, since no transmission policy was changed.
-
-The favorable hypothesis did not yield a concrete fix in the observed controls. A deeper hardware/MAC gate remains possible: point-in-time register snapshots and wrapped software calls do not exclude hardware-driven transitions, unobserved control paths, CCA deferral, or NAV-related waiting. No speculative queue or contention change, additional diagnostic repeat, or A/B/A intervention was run. Further attribution requires a validated observation that separates medium-access waiting from internal hardware scheduling. Local evidence is under `espectre-s3-mac-gate`, with the completed acquisition in `diagnostic2`, the frozen application and manifest, exact driver/radio joins, gate analysis, and audit. Final checks leave S3 sensing ready on the pinned AP, CSI active, the completion callback unregistered, internal recording stopped, and the C6 idle. No production firmware sources were changed.
-
-Offline follow-up inspected the SDK's MAC diagnostics and PHY/RF-test libraries without accessing devices or running another capture. `dbg_lmac_diag_statis_dump` exposes register addresses and generic `diag0`–`diag12` labels, but no verified CCA, NAV, or RF-start bit definitions. `librftest.a:BackOffCountGet` initially suggested a candidate count field in the low 12 bits of the EDCA register bank. Deeper inspection rejected that interpretation: `hal_mac_tx_config_timeout` writes those bits from the lifetime handling in `lmacSetTxFrame`. The [public S2 register definitions](https://github.com/esp-rs/esp-pacs/blob/main/esp32s2/src/wifi/tx_slot_config/config.rs) independently label them `TIMEOUT`; the S3 writer, rather than cross-chip analogy, is the confirming evidence. All 100 existing pre-enable snapshots contain 1023 in this field, including all 13 packets later delayed by more than 2 ms. This is not evidence of a residual or elapsed backoff count.
-
-Ghidra 12.1.3 was downloaded from its official release, SHA-256 verified, and its native decompiler built locally. Analysis used the SDK 5.5.5 libraries and the packaged S3 ROM ELF. Direct relocatable-object import reported unsupported Xtensa relocations, so the useful library decompilation used a separate GNU-linked, offline-only ELF with explicit external-symbol placeholders; it is not a firmware image and was never flashed. Read-only literal folding made register accesses explicit, and relevant pseudocode was checked against the disassembly. The ROM provides a second correction: `rom_set_cca` writes the low byte of `0x6001c01c` with a supplied configuration value or `0xbf`, while `phy_get_cca` reads that byte. This getter is not an instantaneous channel-busy flag. The RF-test variable `cca_block_num` is also unsuitable as busy time: `tx_a_frame` increments it after approximately 500 ms without the test completion condition, without establishing why that transmission stalled.
-
-The deeper analysis did identify a separate observable software TX-block control: `pm_off_channel`, `pm_coex_schm_process`, and `pm_coex_slice_timeout_process` set mask `0x000e0000` at `0x60033ca0`, and `hal_pm_unblock_txq` clears it. Its state during the delayed connected transmissions has not been measured. A bounded read-only trace of these controls would test another internal hold mechanism, with sampling gaps and overflow checked before interpreting a negative result. Separately, `phy_set_cca_cnt` and `phy_get_cca_cnt` expose control/result registers at `0x6001d058`, `0x6001d05c`, and `0x6001d060`. Their timing scale, reset/completion behavior, and response to controlled traffic could be characterized experimentally, but no busy/idle interpretation, NAV attribution, or per-packet causality is established. No device access, CCA-policy change, or new capture was performed during this follow-up. Corrected mappings, evidence hashes, and the unexecuted observation protocol are under `espectre-s3-driver-inspection`, in `cca-backoff-feasibility.json`, `decompiled/`, and `next-observation-plan.json`.
-
-A diagnostic firmware for the TX-block observation was subsequently prepared and built, but not flashed. The isolated application is under `espectre-s3-tx-block/firmware/`, SHA-256 `4ea8431bfa5b65b85823e139183b3637c4275fff3f624bc9ed7fcf3b45068544`, with a frozen manifest and unchanged effective SDK configuration. Its only source change relative to the preceding MAC-gate probe is `outbound_probe.cpp`. It reads `0x60033ca0` before and after queue enable and samples the same register on core 1 at priority 1, targeting 50-microsecond intervals for 1.02 seconds. Masked-state changes, read brackets, and gaps exceeding 100 microseconds share the existing indexed, checksummed trace buffer. The sampler is stopped and joined before export; it performs no MMIO writes. Binary inspection verified the sampler's IRAM placement, inline atomic operations, and register load. The additional task requests a 2,048-byte stack; actual heap margin, stack margin, sample coverage, and timing impact remain unmeasured. This temporary probe is guarded for dual-core S3 and does not alter the portable production implementation.
-
-The accompanying analyzer rejects overflow, conflicting metadata, missing records, and missing queue-boundary snapshots. It labels incompletely covered packet waits as inconclusive, and does not treat an unobserved assertion as exclusion of pulses shorter than 100 microseconds, other hardware gates, CCA, or NAV. Fifteen offline checks passed, including replay of the existing 100 packet identities with synthetic block states, simulated gaps and corruption, timer wrap in block classification, disabled recording, and execution through the existing gate parser and new block analyzer. These checks validate analysis behavior, not new RF evidence or an occupancy improvement. No device was accessed during preparation.
-
-The prepared TX-block firmware was then flashed and verified for an authorized capture on the same pinned BSSID, channel 10, and AP-local destination. Its first-second trace contains 1,833 records without overflow, with three complete checksum-valid exports. Of 100 internally identified ping frames, the first lacks a captured HAND entry at the leading window boundary and is explicitly excluded; all remaining 99 have exact software and C6 radio matches. The sampler completed 17,419 reads, recorded one initial masked state and no masked-state changes, and retained 1,324 bytes of stack margin. It also recorded 211 gaps above 100 microseconds, with a maximum of 4,271 microseconds. Therefore, 13 packet waits are inconclusive. The other 86 waits include 11 delays above 2 ms, ranging from 2,060 to 5,141 microseconds, with no assertion of the inspected block bits throughout their verified coverage. This control does not explain those covered delays at 100-microsecond resolution; shorter pulses and other hardware gates remain outside the inference.
-
-The full 17-second observation retained 1,699 exact application/handoff/completion/radio matches. A subsequent control with internal recording disabled retained 1,700 software matches and 1,699 radio matches, with one explicitly missing radio identity. Handoff intervals were 99.82% and 100% within 8–12 ms, while first-radio intervals were 84.57% and 88.10%, respectively. These sequential runs demonstrate that outgoing irregularity persists with the sampler disabled; their difference is not an isolated estimate of sampler overhead or an occupancy improvement. The internal on-window contains one observed retransmission, so completion time is not uniformly equivalent to first-transmission time. Local acquisitions, strict block classification, boundary exclusions, and a nine-check evidence audit are under `espectre-s3-tx-block/on1`, `off1`, and `block-result.json`. The next observation targets calibration of the separate PHY counters, without changing CCA thresholds or access policy.
-
-The PHY counter calibration subsequently established a usable timing scale. Two repetitions each of requested counts 40,000, 160,000, and 640,000 completed within observed brackets containing 0.5, 2, and 8 ms, respectively. The first result counter advanced at approximately 80 ticks per microsecond and stopped at the requested value; every trial observed a fresh running state followed by completion. These observations establish repeatable restart and completion behavior for the tested counts, without changing CCA thresholds or access policy. The second counter was then checked against a separate radio source: the C6 sent recognizable, non-QoS broadcast test frames using its own transmitter MAC, with zero Duration fields and the pinned BSSID. The S3 independently received 80 frames in each 800-ms loaded window and verified legacy 1 Mbit/s delivery. Switching from 96-byte to 512-byte transmitted frames increased observed airtime by 266.24 ms and increased the second counter by an average 266.47 ms. Three idle controls measured 181.07–193.16 ms in the second counter; subtracting the injected airtime from loaded trials left 179.63–202.74 ms. This validates its response to occupied radio airtime in the tested conditions, rather than an idle-time or software-queue interpretation. The close mean difference is not a claim of 0.09% absolute measurement accuracy under varying background traffic. Two preceding C6 attempts stopped at unsupported pre-start rate-configuration calls, before transmitting test traffic; configuration after Wi-Fi start succeeded, and actual rate was verified independently. Evidence is under `espectre-s3-cca-counter/calibration1` and `espectre-s3-cca-wait/radio-calibration3`.
-
-A separate passive capture then joined counter snapshots at queue enable and completion to 100 exact S3/C6 ping identities. All counter endpoints were complete and inside the running 1.2-second counter window. Fifteen packets waited more than 2 ms after enable, with a median of 2.949 ms and a maximum of 3.845 ms. The calibrated second counter accounted for a median 90.7% of their measured counter interval. Independent C6 records identified a preceding 1 Mbit/s beacon for each slow packet: 14 first transmissions occurred within 93–255 microseconds of the preceding beacon timestamp plus its MAC serialization duration. Mixed-PHY timestamp offsets prevent interpreting that expression as an exact PPDU-end timestamp, but the observed release timing follows both beacon lengths, 408 and 436 bytes. Six BSSIDs contributed 56 beacons in the covered internal radio interval, an estimated 20.18% of airtime including long preambles. Other-beacon storage filled only after this internal window, so the analysis does not extrapolate its partial full-capture pool. Two slow packets had independently observed retransmissions. One additional packet had at least 0.840 ms between its first radio observation and the completion callback under the independently constrained clock mapping. Excluding these three exceptions, the remaining 12 slow packets retained only 0.280 ms median and 0.477 ms maximum after subtracting measured occupied airtime.
-
-These measurements identify medium-access deferral during real radio activity, particularly slow periodic beacons, as the dominant cause of the observed outgoing delays. They do not support a millisecond software queue hold or the inspected PM/coexistence block as the dominant explanation. They also do not claim to decode every CCA/NAV condition or attribute every outlier to one mechanism. The relevant sources are `espectre-s3-cca-wait/on1`, `radio-calibration-result.json`, and `beacon-correlation.json`; the S3 image SHA-256 is `58fca41e4a25980b444acb9c208eba11cb48f4bd00ea6ca3944a94da284b656a`. No occupancy improvement or production fix follows from this diagnosis alone. A beacon-relative pacing mitigation remains an experiment until tested against unchanged-grid controls.
-
-A first mitigation used a 10.24-ms send period, approximately 97.66 pps, with a phase selected from 40 locally observed beacons across the six BSSIDs. The 100-Hz sensing grid remained unchanged. In the bounded A/B/A comparison, first-radio intervals within 8–12 ms changed from 77.44% to 92.28% and back to 77.73%; their p95 changed from 15.14 to 11.51 and back to 15.05 ms. Occupancy did not follow that improvement: full-window telemetry averaged 93.94%, 91.13%, and 85.00%, respectively. The final default-period command did not restore the original absolute send phase, so this comparison demonstrates reversible radio regularity improvement, but does not establish an occupancy benefit. The beacon phase model also depends on timestamp and callback-latency assumptions; its simulated regularity was not an achieved measurement. These results are under `espectre-s3-beacon-pace`, with image SHA-256 `47db173c913b3454934d75bb639eab1c3a8077d45372e2cac0e389e68d4dd134`.
-
-A second A/B/A experiment compared fixed 100, 125, and 100 pps, explicitly restoring the same absolute 10-ms send phase in both controls and retaining the same association and generator instance. The three 12-second windows measured exactly 100, 125, and 100 application sends per second. Eleven complete one-second telemetry samples per condition gave mean occupancy of 84.82%, 91.45%, and 90.27%, with minima of 83%, 89%, and 86%. Uplink gap p95 was 14.00, 11.52, and 14.83 ms; accepted-RX gap p95 was 16.10, 16.33, and 18.24 ms. The 125-pps condition reduced the fraction of accepted-RX intervals exceeding 10 ms from 46.33%/45.00% in the controls to 13.21%, but the differing control occupancies prevent attributing the entire occupancy difference to the extra traffic. All software identities matched; one radio identity was missing in the first control, while the other two had complete radio matches. The cumulative drop counter was constant within each scored telemetry interval, at zero in the first control and two in the later conditions; this does not imply zero drops between trials. Evidence is under `espectre-s3-fixed-margin`, with image SHA-256 `5ed990cae5bf6901a5e58ca9820b10551917a69886269f9e7afb286799ce208e`. This is fixed operator-selected oversupply, with 25% more request/reply traffic, rather than an occupancy-driven rate controller or a production default change.
-
-A third experiment evaluated the operator's proposed 200-pps oversupply and variable pacing while keeping the sensing grid at 100 Hz. One isolated S3 image selected either a fixed 5-ms period or a deterministic shuffled sequence containing eight 9-ms, sixteen 10-ms, and eight 11-ms intervals per 320-ms cycle. This balanced sequence targets 100 pps without cumulative drift; actual wake-up times retain the existing millisecond scheduler quantization. Both modes skip sufficiently late deadlines rather than sending catch-up bursts. The sequence was `100 / 200 / variable / 200 / variable / 100`, with the same association, generator instance, and absolute fixed-control send phase. Each S3 capture lasted eight seconds plus two seconds of completion/RX grace; the C6 capture was shortened to twelve seconds to keep the existing target-packet buffers below capacity at 200 pps. Each condition retained seven complete one-second occupancy observations. CSI remained enabled, and no HTTP load was added.
-
-| Pacing | Actual application pps, first / second trial | Mean occupancy, first / second trial | Minimum occupancy, first / second trial | Accepted-RX gap p95, first / second trial |
-| --- | --- | --- | --- | --- |
-| Fixed 100 pps controls | 100.00 / 100.00 | 88.00% / 91.57% | 83% / 87% | 18.60 / 17.80 ms |
-| Fixed 200 pps | 199.88 / 200.00 | 90.43% / 92.29% | 88% / 90% | 9.38 / 9.43 ms |
-| Balanced 9/10/11-ms intervals | 100.00 / 100.00 | 87.14% / 84.86% | 85% / 82% | 17.69 / 17.98 ms |
-
-The 200-pps trials clearly shortened accepted-RX gap tails, but did not establish a robust occupancy improvement: their pooled mean was 91.36%, compared with 89.79% for the controls, while the two control means differed by 3.57 points. This result does not justify doubling request/reply traffic as the production default. The tested variable sequence had lower occupancy than both fixed controls, so it is not a demonstrated mitigation; other randomization amplitudes and distributions were not tested. These are short S3/AP-local trials, not long-duration performance gates or a paired comparison with C5. All six captures had complete software identity matching and zero S3 trace or C6 target-packet overflow. The second variable trial lacked one of 800 radio identities; all other radio identities matched. One malformed serial export line in the final control was recovered from checksum-valid redundant copies. Auxiliary other-beacon pools remained bounded and are not used to claim complete background traffic coverage. Cumulative drop counters stayed constant within each scored telemetry interval, but rose between some conditions. A 62-check audit verified frozen images and sources, raw hashes, stream checksums, rate and grid invariants, and final device state. Evidence is under `espectre-s3-rate-dither`, including `result.json`, `comparison.json`, and `audit.json`; S3 image SHA-256 is `41bd51f9ef787307211bd86a331a77f110ffb32dc502ce9f7423dbcdcbb88bb2`, and C6 image SHA-256 is `ff6b11e39f8e367fa7fa0629d4a7ce345367eb576e5691310789e762fbe9df4f`. The S3 was left at fixed 100 pps with CSI active and capture stopped; the C6 was left idle. No production source changes were made for these experiments.
-
-The operator separately reported C5 receive occupancy of 93% with ping, 84% with DNS UDP, and 86% with DNS TCP on the same BSSID. These observations motivate a chip/driver/AP-interaction hypothesis, but are not a controlled paired comparison, and receive occupancy is not directly interchangeable with S3 outgoing interval regularity. The C5 remained excluded from all operations.
-
-### C5/C6 short-frame CSI investigation
-
-The centered LLTF ordering was confirmed on 2026-09-07 with ESP-IDF 5.5.5 on a C5 at 2.4 GHz: all eight pre-normalization samples (five ACKs and three legacy data frames) had their only zero I/Q pair at index 26. This differs from the ordering in the Espressif documentation; other chip and driver combinations still require hardware confirmation.
-
-A bounded investigation on 2026-09-08 compared an ESP32-C5 revision 1.0 (`30:ed:a0:e4:62:78`) with an ESP32-C6 revision 0.1 (`7c:2c:67:42:bb:ac`), both using Native, ESP-IDF 5.5.5, internal `wifi_raw` at 100 pps, LLTF20 capture, and BSSID `e6:fa:c4:20:19:de` on channel 10. Their compiled Wi-Fi and PHY settings matched; the relevant target differences were Wi-Fi MAC version 3 versus 2 and CPU frequency 240 versus 160 MHz. Shared RISC-V instruction architecture does not make the CSI hardware or configuration structures identical: C5 exposes `acquire_csi_force_lltf`, `lltf_bit_mode`, and a wider scale field, while C6 does not expose the first two controls. Production C5 LLTF capture uses 8-bit mode and returned 106-byte estimates; C6 returned 128-byte estimates.
-
-Temporary callback-entry instrumentation counted ACKs addressed to each station before ESPectre quality filtering, separated other frame classes and received L-SIG rates, and exported bounded summaries after each six-second acquisition. Thirteen phases requested baseline, additional HT20 acquisition, HE STBC selection 2, scale values 1/2/3, promiscuous reception, raw TX rates 12/24/54 Mbps, the older 6-Mbps TX API, ACK capture disabled, and baseline restoration. Every configuration call returned `ESP_OK`. Across phases that delivered ACK callbacks, C5 had 7,213/7,213 valid estimates and C6 had 0/6,615, with zero reported RX and RX-end errors. The newer TX API changed observed ACK rates to 6, 12, and 24 Mbps; 54-Mbps requests elicited 24-Mbps ACKs. The older API returned success but did not restore the previous radio rate on either chip. Default promiscuous filtering suppressed C6 ACK callbacks, so a later control explicitly enabled DATA, CTRL, and ACK filters; its 15,020 C6 ACK observations were still all invalid.
-
-Read-only inspection of the bundled C6 driver limits the interpretation of the configuration sweep: the `esp_wifi_set_csi_config` path applies acquisition and ACK-filter fields but does not apply `val_scale_cfg`, and `esp_wifi_get_csi_config` returns only part of the configuration. Thus, accepted scale requests are not evidence that hardware scaling changed. No private register writes or validity-bit overrides were used.
-
-A second experiment used C5's own transmitter MAC and the associated AP as the destination, with 100 additional raw frames per length/rate condition at 50 pps. C6 received them through an explicitly filtered promiscuous capture. At 6, 12, and 24 Mbps, all 2,403 marked Data-frame observations of 40–516 bytes were valid, while all 12,890 observed 28-byte Null Data frames were invalid. Null counts include the existing C5 generator, and counts can include retransmissions; they are not unique-packet delivery measurements. These results exclude packet airtime alone as the explanation: a valid 40-byte frame at 24 Mbps occupies less airtime than an invalid 28-byte frame at 6 Mbps.
-
-The next 6-Mbps experiment crossed frame subtype with length. Lengths below include the four-byte FCS:
-
-| Received frame | 28 bytes | 32 bytes | 36 bytes | 40 bytes |
-|---|---:|---:|---:|---:|
-| Data | 0/100 valid | 100/100 valid | 100/100 valid | 100/100 valid |
-| Null Data | 0/7,690 valid | 100/100 valid | 100/100 valid | 100/100 valid |
-
-All 10,011 ACK observations in that final window were 14 bytes and invalid. The longer Null frames contained diagnostic padding; they test the acquisition path and are not proposed as production frames. Lengths 29–31 bytes were not tested, so the measured transition is between 28 and 32 bytes rather than a proven exact cutoff. The result follows received frame length across both subtypes, not just ACK classification. Padding the outgoing request cannot lengthen the AP's standard 14-byte ACK.
-
-A direct C6-to-AP control then tested that last point without using C5 as the diagnostic transmitter. C6 sent Null Data requests to BSSID `e6:fa:c4:20:19:de` with lengths of 24, 28, 32, and 24 bytes passed to `esp_wifi_80211_tx` (28, 32, 36, and 28 bytes including FCS). In four eight-second acquisition windows, it received 802, 803, 801, and 800 ACKs, respectively. Every ACK remained 14 bytes, every CSI estimate was invalid, and reported RX errors were zero. Thus, extending the outgoing Null request to either 32 bytes including FCS or 32 bytes before FCS did not recover valid ACK CSI on this C6.
-
-A further direct C6-to-AP sweep varied the raw request subtype and PHY. At 6 Mbps, it tested Null Data, non-QoS Data of 32/128/512/1,400 bytes before FCS, a directed Probe Request, and a vendor-specific Action frame. It also tested Null Data and 128-byte Data with HT20 MCS0 and MCS7. The 12 transmitting windows, including the returning Null baseline, each ran for five seconds, followed by a 100-ms receive drain. The raw TX callback reported 6,002 successful completions and zero failures; the idle control received no ACK callbacks. All 6,011 observed ACK estimates were invalid, with 14-byte received frames, 128-byte CSI buffers, and zero reported RX errors. Counts include incidental station traffic and possible retries rather than a request-to-ACK mapping. TX completion rates reported MCS0/MCS7 for the HT conditions; ACKs still arrived as legacy OFDM at 6/24 Mbps. One valid 100-byte QoS Data reception during an HT window was not an ACK and does not establish a repeatable response to the raw requests.
-
-The public raw TX API rejected QoS Null and QoS Data preflights with `ESP_ERR_INVALID_ARG`; they were not transmitted repeatedly. All four requested HE configurations returned `ESP_FAIL` and were excluded. The active sensing policy disabled 802.11ax, and the connection record reported `phy_11ax=0` under that policy, so these were not over-the-air HE trials. The later AX-enabled trial below establishes that this field did not demonstrate an absence of HE support in the AP. The sweep did not bypass the driver's frame checks or change association state deliberately. Its sources, images, and audited results are in the `packet-sweep` subdirectory of the local evidence directory.
-
-A follow-up enabled explicit promiscuous MGMT/DATA/CTRL and ACK filters and counted both CSI callbacks and ordinary received management frames. It compared an idle window, two Null baselines, directed Probe Requests with mixed DSSS/OFDM or OFDM-only Supported Rates, and broadcast Probe Requests addressed to the same BSSID. Requests used 6 or 24 Mbps; the seven transmitting windows each completed 500 sends without reported failures. All 2,498 ACK CSI observations were invalid. The AP also sent 2,437 observed Probe Responses, each 503 bytes including FCS, at 1 Mbps DSSS, even for requests declaring only OFDM rates. None delivered a CSI callback. These longer replies therefore did not provide a usable LLTF source on this AP. Requesting an OFDM rate for the outgoing frame did not force the AP's management response into OFDM. An OFDM Probe Response remains an untested alternative response path, not a demonstrated ACK fix.
-
-The first attempt at that follow-up was excluded because association failed before acquisition and the generator sent no frames. The corrected probe waited for actual generator activity and rejected transmitting windows with insufficient sends. The successful repeat and the excluded attempt are retained separately. Across the two valid packet-variant sweeps, all 8,509 ACK CSI observations were invalid. Production source hooks were removed, and the original C6 firmware was rebuilt and restored after testing.
-
-A subsequent ESP-NOW control replaced the AP with C5 as the ACK-generating receiver. Both devices remained associated with the same channel-10 AP, but their automatic AP-facing raw generators were paused during acquisition. C6 used `esp_now_send` with an unencrypted unicast peer at C5's real station MAC, and C5 registered only a receiving application, without ESP-NOW application replies. Payloads carried a phase identifier and sequence number. Every phase sent 500 messages at a nominal 100 pps, waiting for each send callback before continuing; CSI was counted at the C6 callback entry.
-
-| ESP-NOW transmission | Application payload | Unique messages received by C5 | Valid C6 ACK CSI / observed ACKs |
-|---|---:|---:|---:|
-| OFDM 6 Mbps | 4 bytes | 500/500 | 0/503 |
-| HT20 MCS0 | 4 bytes | 500/500 | 0/502 |
-| HT20 MCS7 | 4 bytes | 500/500 | 0/500 |
-| HT20 MCS0 | 128 bytes | 500/500 | 0/500 |
-| OFDM 6 Mbps, returning baseline | 4 bytes | 500/500 | 0/501 |
-
-All 2,500 ESP-NOW sends completed successfully, and C5 received sequences 0–499 in each phase without duplicates. C5 receive metadata confirmed HT format in the HT phases and legacy OFDM in the two 6-Mbps phases. C6 observed 2,506 ACK callbacks during transmitting windows, all with invalid CSI, 14-byte received frames, 128-byte CSI buffers, and zero reported RX errors. ACK rates were 6 Mbps for OFDM 6/MCS0 requests and 24 Mbps for MCS7. Five-second idle controls before and after the sweep observed three and zero ACKs, respectively, all invalid. ACK frames do not identify their transmitter, so the phase counts include incidental station traffic and are not a timestamp-matched request-to-ACK mapping. The synchronized send completions, receiver sequence counts, and idle controls establish the peer test without treating the excess six ACK observations as additional delivered application messages. The failure therefore also occurs with C5 supplying automatic ACKs to real ESP-NOW traffic; it is not specific to ACKs from this AP. Sources, firmware images, and audited results are retained under `espnow-ack` in the local evidence directory. Both production firmwares were restored after acquisition.
-
-A Neighbor Report trial then tested a complete 802.11k management response from the AP. The temporary C6 build enabled `CONFIG_ESP_WIFI_11KV_SUPPORT`, `CONFIG_ESP_WIFI_RRM_SUPPORT`, and station `rm_enabled`, while leaving WNM disabled. The associated BSSID remained `e6:fa:c4:20:19:de`; the supplicant reported Neighbor Report support, and captured AP beacons advertised RRM capability bytes `02 00 01 00 00`. The probe enabled both legacy and HT20 CSI acquisition plus explicit promiscuous MGMT/DATA/CTRL and ACK filters, paused the AP-facing raw generator, and issued ten sequential `esp_rrm_send_neighbor_report_request()` calls with a one-second pause after each completed acquisition. Every request succeeded and delivered one report without a timeout, with dialog tokens 1–10, 91 report bytes, and six neighbor entries. The corresponding ten protected Action responses were 137 bytes including FCS, all transmitted at 1 Mbps DSSS without reported RX errors. None generated an Action CSI callback. The request windows also contained 12 ACK CSI observations, all invalid; the initial five-second idle control contained seven invalid ACK observations and some other protected Action traffic. Thus, this AP supports the layer-2 request/response mechanism, but its observed management response PHY still prevents LLTF/HT-LTF CSI acquisition. An OFDM response remains untested. Sources, firmware, configuration snapshots, and results are retained under `neighbor-report` in the local evidence directory. The three temporary source changes and the RRM SDK configuration were removed, and the original C6 firmware was rebuilt and restored.
-
-A further C6 trial disabled 802.11b rates with the public `esp_wifi_config_11b_rate(WIFI_IF_STA, true)` API, keeping ESP-IDF 5.5.5 and the AP unchanged. The definitive run called `esp_wifi_set_protocol` with the B/G/N bitmap first, then disabled 11b rates immediately before `esp_wifi_start`, as required for the [documented GN mode](https://docs.espressif.com/projects/esp-idf/en/v5.5.1/esp32c6/api-guides/wifi.html#wi-fi-protocol-mode). Both calls returned `ESP_OK`; after association, the protocol bitmap remained `0x07`, and lifecycle logs confirmed that the protocol policy was already active without reapplying its setter. The C6 joined the same channel-10 BSSID. A five-second raw Null control observed 503 ACKs, all 14 bytes with invalid 128-byte CSI estimates and zero reported RX errors. Ten Neighbor Report requests then all succeeded, but their ten 137-byte protected Action responses still arrived at 1 Mbps DSSS and generated no Action CSI callbacks. Two incidental 100-byte QoS Data frames in the idle control did produce valid CSI. Thus, the accepted station-side 11b-rate setting did not recover ACK CSI or change this AP's observed Neighbor Report response PHY. Association Supported Rates were not independently captured, so the test does not establish how the setting changed the over-the-air capabilities advertised by this driver. An earlier initialization-order trial gave the same negative result, but its early API log was missed; the definitive run records API results after association. Sources, firmware, logs, and audited results are retained under `disable-11b` in the local evidence directory. Temporary hooks and RRM configuration were removed after testing.
-
-A rate-configuration timing trial removed the generator's post-association `esp_wifi_config_80211_tx` call and moved configuration earlier on C6. Although the ESP-IDF 5.5.5 public header specifies a call after initialization and before `esp_wifi_start`, calling it in that interval returned `ESP_FAIL` on this device, including after a successful explicit B/G/N protocol setup. The first probes propagated that error into the native startup check and restarted before acquisition; those attempts are excluded from CSI results. The successful trial retained the failed pre-start result for diagnosis, started Wi-Fi, and called the API once from the station-start handler before its first connect request. At that call, `esp_wifi_sta_get_ap_info` returned `ESP_ERR_WIFI_NOT_CONNECT` (12303), and rate configuration returned `ESP_OK`. No rate setter ran after association. Three five-second windows each completed 500 raw Null transmissions without failures, and all 1,500 TX completions reported OFDM 6 Mbps. They produced 504, 500, and 500 ACK CSI observations, respectively: all 1,504 were invalid, with 14-byte frames, 128-byte estimates, and zero reported RX errors. A preceding idle window contained eight invalid ACK observations. Thus, configuring the raw rate before association worked at the observed TX level but did not recover ACK CSI. The pre-start API rejection remains a discrepancy between this C6 driver behavior and the header's documented timing; it does not establish C5 behavior. ESP-IDF, SDK configuration, and the channel-10 AP remained unchanged. Probe sources, failed-start logs, successful acquisition logs, firmware, and audited results are retained under `preconnect-rate` in the local evidence directory. Temporary source changes were removed after acquisition.
-
-An AX-enabled follow-up changed the temporary station protocol policy to B/G/N/AX (`0x47`) before association and enabled legacy, HT20, and HE CSI acquisition. ESP-IDF 5.5.5 and AP configuration remained unchanged. C6 joined the same BSSID and channel with driver-reported `phy: ax`, the connection record reported `phy_11ax=1`, and all 42 beacons observed in the first sweep advertised both HE Capabilities and HE Operation elements. This corrects the earlier inference from `phy_11ax=0` while the station excluded AX: the AP does support HE. The raw rate API now accepted HE20 MCS0 and MCS7. Each sweep tested a five-second idle window, an OFDM Null baseline, HE Null and 128-byte Data requests at both MCS values, and a returning OFDM Null baseline. Every transmitting window completed 500 sends without reported failures. The four HE windows produced 2,002 ACK CSI observations in the first sweep and 2,004 in a repeated sweep, all invalid, with 14-byte frames, 128-byte CSI estimates, legacy OFDM ACK rates of 6/24 Mbps, and zero reported RX errors. Each sweep also contained one incidental valid 100-byte QoS Data CSI reception; neither was an ACK.
-
-For independent over-the-air confirmation, C5 temporarily enabled AX, remained associated with the same AP, paused its own raw generator, and observed only frames from C6 addressed to the AP. During the repeated sweep, it captured 1,018 HE SU Null frames of 28 bytes and 1,021 HE SU Data frames of 132 bytes, including FCS, without reported RX errors. Counts include preflights and retries, rather than unique delivered requests. Its receive metadata confirmed `RX_BB_FORMAT_HE_SU`; the non-DSSS RX rate field is the legacy L-SIG rate, so requested MCS values are taken from the separate C6 TX-completion records. Thus, the C6-to-AP raw frames were transmitted using HE, but the AP's observed ACKs remained legacy OFDM and did not recover valid CSI. The combined HE-window result is 0 valid ACK estimates out of 4,006. This establishes behavior for the tested C6 revision, SDK, and AP, rather than every AX implementation. Sources, images, configuration snapshots, both C6 sweeps, and the C5 observer audit are retained under `ax-sweep` in the local evidence directory. Temporary AX policy and probe hooks were removed after acquisition.
-
-A driver-boundary follow-up retained ESP-IDF 5.5.5 and the same AP, and instrumented a private copy of the C6 `libpp.a`. Symbol aliases preserved the original implementations while probes surrounded `wDev_SnifferRxData` and `wdev_csi_rx_process`; the installed SDK archive was not changed. All 3,005 ACKs addressed to C6 were already marked invalid in the DMA-backed buffer at entry to the sniffer receive function. Neither the CSI bytes nor the validity flag changed on the path to the public callback. The three ten-second windows used immediate observation, a 50-us delay, and a 200-us delay, respectively, with 1,005, 1,000, and 1,000 ACKs. No delayed read changed the bytes or recovered validity. This rules out a correct estimate being rejected only by ESPectre and provides no support for a late-completion workaround within the tested delays.
-
-A separate diagnostic marked each consumed 128-byte CSI region with `0xa5` after the original callback returned. Subsequent invalid ACK observations sometimes retained runs of up to 64 marker bytes, proving that part of the advertised CSI region had not been refreshed. Of 36 intact sampled ACK records in that sweep, 17 retained at least eight consecutive marker bytes. None of 141 sampled valid CSI records retained a marker run of that length. Some serial sample lines in other sweeps were interleaved with runtime logging and were excluded from byte-level analysis. The result establishes incomplete or stale CSI buffer contents, not merely a conservative validity flag; it does not establish a trustworthy prefix that can be admitted by truncating the buffer. Enabling all legacy, HT20, HT40, and HE acquisition flags together also failed: the corresponding ten-second window contained 2,075 invalid ACK observations. With promiscuous capture disabled, a separate window contained 1,002 invalid ACKs.
-
-An initial one-byte Null-frame sweep completed 3,900 C5 sends to the unchanged AP at 6, 24, and 54 Mbps. A follow-up completed another 3,500 sends and filtered the C6 observations explicitly by the C5 transmitter MAC. Every TX API call and rate configuration succeeded. Selected results from that filtered replica are below; lengths include the four-byte FCS, and counts are receive observations, including possible retransmissions, rather than unique application sends.
-
-| Observed OFDM rate | Received Null-frame length | Valid CSI / observations |
-| --- | --- | --- |
-| 6 Mbps | 28–30 bytes | 0 / 304 |
-| 6 Mbps | 31–32 bytes | 202 / 202 |
-| 24 Mbps | 32–33 bytes | 0 / 201 |
-| 24 Mbps | 34–36 bytes | 301 / 301 |
-| 54 Mbps | 41–45 bytes | 0 / 504 |
-| 54 Mbps | 46–47 bytes | 202 / 202 |
-| 54 Mbps | 48 bytes | 78 / 101 |
-| 54 Mbps | 49–64 bytes, plus 132 bytes | 2,128 / 2,128 |
-
-The valid and invalid length ranges depend on rate, and the 48-byte result prevents treating the first valid length as a universal safe threshold. All 3,943 filtered Null observations had zero reported RX errors, and the instrumented callback handoff did not change their CSI bytes or validity. These observations narrow the failure to short-frame CSI production or transfer below the observed driver boundary. They do not distinguish an internal PHY/MAC configuration defect from a silicon limitation or identify a register-level correction. Padding the transmitted request still cannot extend the AP's 14-byte ACK. Probe sources, private archive, firmware snapshots, disassembly, serial logs, and audited results are retained in `driver-probe` under the local evidence directory. The production sources and normal firmware were restored after acquisition.
-
-A subsequent initialization comparison on 2026-09-09 used the same ESP-IDF 5.5.5 binaries and established that C5 uses Wi-Fi MAC version 3, while C6 uses version 2. Their common RISC-V CPU architecture does not imply a shared Wi-Fi implementation. The C5 `ic_csi_set_config` path calls `phy_chan_dump_cfg` and `phy_lltf_mask_en` in addition to setting MAC CSI controls; the C6 path does not call its PHY dump routine. The C6 ROM nevertheless exports `phy_chan_dump_cfg_rom`. Its disassembly identifies writes to bit 2, bit 3, and bits 4–7 of PHY register `0x600a790c`, as well as a whole-register initialization to `0x117`. C5-only LLTF mask and width controls were not assumed to exist on C6.
-
-A standalone application in `test/hardware/esp_idf/csi_ack_dump` removed the ESPectre runtime, detector, HTTP server, and sensing admission logic. Using public Wi-Fi APIs, it reproduced 0 valid CSI records out of 1,003 C6-owned ACK observations across 1,000 successful OFDM 6-Mbps transmissions. The PHY register read `0x51c` both before and after public CSI configuration. A first opt-in sweep varied the ROM-identified fields individually and restored the original value; all 5,003 ACK observations remained invalid. An expanded sweep added a combined bit-2/bit-3 change and direct ROM initialization calls that produced `0x113` and `0x11f`; all 6,506 ACK observations remained invalid. The calls supplied all five argument registers explicitly, with the ROM implementation observed to use a0, a1, and a4. Register readbacks matched each requested setting and returned to `0x51c` afterward.
-
-Together, these standalone runs completed 12,500 transmissions successfully and observed 12,512 ACKs, with no valid estimates, zero reported RX errors, and software and hardware CSI lengths of 128 bytes throughout. They found no correction among the evaluated PHY dump controls. Association failures before acquisition were excluded. The standalone C5 application compiled, but its hardware run lost USB communication during startup and did not produce a scored CSI window; recovery requires manual BOOT/RESET intervention. That run is not a passing C5 control or evidence about C5 CSI validity. C6 was restored to the original Native firmware and verified on the original AP in `wifi_raw` mode. Sources, ROM and driver disassembly, binaries, logs, audited results, and an unposted issue draft are retained under `init-compare` in the local evidence directory.
-
-The demonstrated ACK failure is in the C6 driver/hardware short-frame CSI path before application normalization and admission. These tests do not separate a silicon limitation from a driver workaround opportunity, establish behavior on other C6 revisions or SDK releases, or validate detector accuracy. Espressif has separately acknowledged invalid C6 callback estimates and the need to inspect `rx_channel_estimate_info_vld` in [issue #14271](https://github.com/espressif/esp-idf/issues/14271); that report does not establish a fix for this ACK case. Keep the quality filter, and explicitly select `ping` on this failing C6 configuration. The operator also reported working C3 and S3 devices; those reports are outside this paired investigation.
-
-Local evidence is under `/private/tmp/espectre-c5-c6-raw-investigation`, including probe sources, firmware images, serial logs, configuration snapshots, disassembly, and machine-readable results. All temporary production hooks were removed after acquisition.
-
-### S3/C3 station TX-rate comparison
-
-On 2026-09-13, Native firmware compared automatic station TX-rate selection with fixed OFDM 6 Mbps across `ping`, `dns`, `dns_tcp`, and `wifi_raw` on one ESP32-S3 and one ESP32-C3. Each cell scored 60 seconds after five consecutive ready observations, with a 100-pps CSI target, HTTPD task priority 1, TX A-MPDU disabled, one persistent SSE client, and one health/diagnostics HTTP pair per second without request retries. IP generators retained HT20 capture with ACK dumping off; `wifi_raw` retained LLTF20 with ACK dumping on.
-
-The retained comparisons used the same verified AP before and after every cell, with the other device's sensing disabled. An initial S3 Auto arm used another AP and was excluded; the matched S3 order was fixed 6 Mbps followed by Auto. C3 ran Auto followed by fixed 6 Mbps. Its first fixed-rate arm was also excluded because an S3 reboot could have restarted sensing; the replacement reused the same C3 firmware with S3 disabled and checked during and after acquisition. Sensing enablement is not persistent across reboot, and the last reported TX rate can remain cached after the generator stops.
-
-Values below are Auto → fixed 6 Mbps. HTTP p95 pools the 120 scored health and diagnostics requests per cell.
-
-| Device | Generator | Mean occupancy | HTTP p95 |
-| --- | --- | --- | --- |
-| ESP32-S3 | `ping` | 93.45% → 94.43% | 40.20 → 44.03 ms |
-| ESP32-S3 | `dns` | 75.07% → 96.75% | 39.93 → 43.41 ms |
-| ESP32-S3 | `dns_tcp` | 97.28% → 95.52% | 41.40 → 44.42 ms |
-| ESP32-S3 | `wifi_raw` | 99.80% → 99.83% | 39.03 → 42.14 ms |
-| ESP32-C3 | `ping` | 84.97% → 87.15% | 44.09 → 43.70 ms |
-| ESP32-C3 | `dns` | 88.78% → 87.90% | 42.74 → 42.17 ms |
-| ESP32-C3 | `dns_tcp` | 87.80% → 85.68% | 43.99 → 44.60 ms |
-| ESP32-C3 | `wifi_raw` | 91.68% → 92.03% | 41.67 → 42.38 ms |
-
-All 1,920 scored HTTP requests in the retained comparisons succeeded. Every cell started and ended ready. S3 had no observed `ready=false` event in either policy. C3 Auto PING had four brief false-readiness events, totaling approximately 0.486 seconds by host observation; the other retained C3 cells had none. Maximum HTTP latency at fixed 6 Mbps was 52.92 ms on S3 and 49.49 ms on C3, compared with 299.25 ms in C3 Auto DNS. A separate simultaneous 30-second PING check with both devices at 6 Mbps completed another 120/120 HTTP requests without observed false-readiness events. Both devices were left on the required AP with fixed 6 Mbps, PING enabled, and sensing ready.
-
-Fixed 6 Mbps was functional in these workloads, but occupancy changes were mixed. These are single, sequential samples on one AP, without randomized or repeated matched arms; mean RSSI differed by up to 1.68 dB on S3 and 4.08 dB on C3. The large S3 DNS difference is an observation, not an isolated causal estimate or evidence of a universal gain. These measurements did not change production defaults. Firmware/configuration hashes and successful driver rate logs establish policy selection, not on-air PHY. Fixed selection affects station TX while an internal generator runs, including Direct traffic, and does not select the AP's downlink rate. Raw injection was already 6 Mbps in both arms. This check does not establish long-duration stability, maximum throughput, or behavior with TX A-MPDU enabled.
-
-Local evidence is retained under `data/untracked/wifi_tx_rate_other/20260913`. The matched arms are `s3-auto-same-ap`, `s3-fixed6`, `c3-auto`, and `c3-fixed6-isolated`; excluded arms remain archived. `comparison.json`, `same-ap-artifact-audit.json`, and `campaign-summary.json` record metrics, hash/configuration checks, request accounting, association identities, exclusions, and final firmware state. The simultaneous smoke check is reported separately from the A/B cells.
-
-### C5 station TX-rate comparison
-
-On 2026-09-14, the same 60-second, 100-pps Native protocol compared Auto and fixed OFDM 6 Mbps on ESP32-C5 revision 1.0 with ESP-IDF 5.5.5. Capture remained AUTO, HTTPD priority remained 1, and TX A-MPDU remained disabled. Every cell verified the required 2.4-GHz AP before and after acquisition. Read-only checks after flashing and after sampling verified that the C6 peer remained disabled; cached TX-rate diagnostics were not used as evidence of a stopped generator.
-
-| Generator | Mean occupancy, Auto → 6 Mbps | HTTP p95, Auto → 6 Mbps |
-| --- | --- | --- |
-| `ping` | 89.55% → 89.27% | 35.48 → 36.10 ms |
-| `dns` | 87.72% → 92.58% | 35.82 → 35.42 ms |
-| `dns_tcp` | 88.33% → 90.03% | 34.74 → 35.67 ms |
-| `wifi_raw` | 95.48% → 93.77% | 32.07 → 35.93 ms |
-
-All 960 scored HTTP requests succeeded. Every cell started and ended ready, with no observed false-readiness events. Maximum HTTP latency across both policies was 64.80 ms. Fixed-rate calls succeeded for all four generators, and the audit found no rate-configuration, restoration, send-failure, or fatal serial messages. All 52 archived hashes matched. Mean RSSI was 0.25–3.22 dB stronger in the fixed-rate samples, so the occupancy differences do not isolate the rate alone. Raw injection remained 6 Mbps in both policies. These observations establish operation in the tested workload, without a uniform occupancy gain or 5-GHz validation.
-
-Evidence is retained under `data/untracked/wifi_tx_rate_c5c6/20260914`, including the `c5-auto` and `c5-fixed6` arms, AP and peer checks, firmware/configuration hashes, serial logs, `comparison.json`, and `artifact-audit.json`. These measurements did not change production defaults.
-
-### C6 station TX-rate comparison
-
-On 2026-09-14, ESP32-C6 revision 0.1 with ESP-IDF 5.5.5 completed the same Auto → fixed OFDM 6 Mbps comparison: four 60-second cells per policy, a 100-pps CSI target, HTTPD priority 1, TX A-MPDU disabled, HT20/ACK-off capture for IP generators, and LLTF20/ACK-on capture for `wifi_raw`. Every cell verified AP `E6:FA:C4:20:19:DE` on channel 5 before and after sampling. The user confirmed that only C6 remained powered; boundary mDNS observations found no other advertised ESPectre. This physical isolation differs from the earlier C5 run's online peer checks and does not establish continuous radio silence.
-
-| Generator | Mean occupancy, Auto → 6 Mbps | HTTP p95, Auto → 6 Mbps |
-| --- | --- | --- |
-| `ping` | 87.87% → 87.80% | 41.64 → 42.18 ms |
-| `dns` | 86.48% → 87.02% | 42.41 → 41.67 ms |
-| `dns_tcp` | 81.40% → 82.92% | 40.74 → 43.49 ms |
-| `wifi_raw` | 0.00% → 0.00% | 39.01 → 37.13 ms |
-
-All 960 scored HTTP requests succeeded. The IP cells started and ended ready. Auto DNS TCP had one approximately 23-ms false-readiness interval by host observation; the other IP cells had none. Fixed-rate HTTP p95 remained below 44 ms, and its maximum was 51.55 ms. Fixed-rate driver calls succeeded for every generator, with no recorded rate-configuration, restoration, send-failure, or fatal serial messages. This clean firmware does not expose an instrumented internal ENOMEM counter.
-
-The two raw cells were deliberate negative controls and skipped the normal readiness gate. Both remained `ready=false` for their entire 60-second windows, with zero accepted CSI, zero admitted CSI, and zero occupancy despite approximately 109 CSI callbacks/s and successful HTTP responses. Raw injection remained 6 Mbps in both arms; fixing station TX at 6 Mbps did not resolve the previously documented C6 ACK-estimate failure.
-
-IP occupancy differences were small, and the single sequential pair does not establish an improvement. Mean RSSI changed by approximately −0.12, −0.47, +1.17, and −3.00 dB for PING, DNS, DNS TCP, and raw, respectively. Together with C5, these trials establish operation of the selected station-rate policy in the tested workloads on this AP; they do not establish universal AP compatibility, long-duration stability, a throughput ceiling, or C5 5-GHz behavior. At measurement time, production defaults were classic ESP32 at 6 Mbps and other targets at Auto.
-
-The completed C6 arms are `c6-auto-usb` and `c6-fixed6-usb` under `data/untracked/wifi_tx_rate_c5c6/20260914`. Earlier `c6-auto` and `c6-auto-rom-flash` attempts failed during setup and contain no scored acquisition; the complete Auto image was subsequently restored and hash-verified before measurement. `comparison-c5c6-final.json`, its Markdown table, and `campaign-summary-final.json` cover the four completed C5/C6 arms, all 1,920 successful HTTP requests, and the archived hash checks. The C6 was left on fixed 6 Mbps with PING enabled and ready; C5 was already disconnected by the user.
-
-### External radio and peer sensing validation
-
-Hardware checks confirmed the following combinations without enabling Wi-Fi promiscuous mode:
-
-| Hardware | Traffic source | Result |
-| --- | --- | --- |
-| C3 transmitter to S3 receiver | Direct Null Data and unicast ESP-NOW | Valid CSI acquisition with HT20 and legacy LLTF profiles |
-| C5 mini and standard C5, with roles reversed | Explicit-peer `wifi_raw` and `external` | Valid ACK/LLTF acquisition on the generator and direct Null Data/HT20 acquisition on the external receiver |
-
-With the C5 boards about three meters apart on the same AP, both Lightweight and High Accuracy stayed idle during the confirmed still windows and detected walking throughout the confirmed motion windows, in both directions. Acquisition remained regular, with no CSI hardware errors or sensing queue drops during those windows.
-
-Configuration instructions are in [CSI acquisition](../CSI.md#external-sources). Detailed C5 records and trial exclusions remain under `data/untracked/c5_pair/20261017/`; the confirmed sensing results are summarized in `high_accuracy_3m_retry_comparison.json` and `lightweight_3m_comparison.json`.
-
-### Timing and admission findings
-
-The packet's useful sensing instant is reception by the device, when the PHY estimates CSI from HT-LTF. AP transmit time is not directly available to the device, and callback processing time describes software latency rather than the RF channel sample. A CSI result cannot be deferred arbitrarily and recalculated later without retaining the original RF samples; the callback exposes the estimate already associated with that received packet.
-
-ESP-IDF processing therefore uses `rx_ctrl.timestamp` for temporal slots, gaps, and occupancy. The Wi-Fi timestamp belongs to the MAC clock domain, not the `esp_timer` domain. The runtime records `esp_timer` at callback acceptance, computes callback-to-loop queue age only within that software clock, and translates the elapsed duration into the RX timestamp domain for backlog rejection. Directly comparing the two absolute clocks is invalid and was the reason target guards existed in the earlier implementation.
-
-Packets counted as same-slot excess still contain valid CSI, but they do not add a new temporal position to the fixed sensing grid. Sensing frontends admit the candidate nearest the slot center rather than letting a burst fill a physical-time window. Raw HTTP preserves classified timestamped CSI before temporal admission so research capture does not discard those frames; live detectors and derived sensing views apply the same admission as deployed sensing frontends.
+Packet time also needs a precise meaning. The PHY estimates CSI from the training field when the frame arrives. Later callback or loop handling does not move that observation in time, so the grid must use the Wi-Fi RX timestamp, and software clocks can only measure processing backlog.
 
 ## Decision
 
-On 2026-09-14, the project adopted 6 Mbps as the shared default after the classic ESP32, S3, C3, C5, and C6 trials. This is a common configuration policy, not a claim of universal AP compatibility or improved occupancy on every chip. Fixed-rate S2 hardware validation, other AP configurations, and C5 5-GHz sensing remain outside those trials. The C6 raw ACK CSI failure remains independent of this default. Explicit saved build configurations continue to override the default.
+**Generators.** Internal traffic has explicit modes, with no automatic fallback between them:
 
-Standardize managed CSI traffic as follows:
+- `ping`: stateless ICMP echo. It is the schema default and the default in published Native, Matter, ESPHome, and Micro-ESPectre configurations.
+- `dns`: connectionless UDP/53 queries. Needs a resolver on the gateway.
+- `dns_tcp`: length-prefixed queries over one persistent non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff. Needs TCP/53 on the gateway.
+- `wifi_raw`: non-QoS Null Data with ACK capture. Toward the AP it sends legacy OFDM 6 Mbps and captures LLTF ACKs. Toward an explicit peer it sends MCS0 with two zero padding bytes: HT20 on 2.4 GHz, VHT20 on C5 5 GHz. The peer captures the matching profile in `external` while the sender keeps capturing ACKs. Not available on ESP32-C6, whose ACK CSI is unusable.
+- `external`: no internal generator. The device accepts the canonical UDP markers, unicast ICMP Echo Requests, direct Null Data, or unicast ESP-NOW. The external filter accepts the standard 28-byte Null Data form and, with HT20 or VHT20 metadata only, a 30-byte form with exactly two zero body bytes.
 
-- default `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` to 6 Mbps on every supported target, including builds without Kconfig; retain explicit Auto (`0`), 12, and 24 Mbps overrides, and the existing station-rate compatibility guards;
-- centralize station and raw TX-rate configuration in the shared Wi-Fi rate component; the Wi-Fi lifecycle requests station configuration before connected services start and reevaluates the AP on reconnection or roaming, while the generator requests raw configuration through that component; retain the station rate when sensing stops or traffic selection changes;
-- reuse that station-rate policy in Micro-ESPectre Wi-Fi setup and recovery through a native Wi-Fi binding, independently of the native traffic generator;
-- fail Wi-Fi lifecycle initialization on station-rate configuration errors and `wifi_raw` startup on raw injection rate errors; report driver errors explicitly, and do not mask lifecycle or configuration faults by silently switching station rates to Auto;
-- expose explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff, and `wifi_raw` for Null Data requests and LLTF ACK capture;
-- keep `ping` as the shared schema default and the published Native, Matter, ESPHome, and Micro-ESPectre product configuration default; keep `dns` and `dns_tcp` as explicit operator selections;
-- preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;
-- request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
-- preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
-- apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/ha_traffic_generator_addon/espectre_traffic_generator.py`;
-- limit pacing multicast to the local link and prefer unicast or the joined multicast group over subnet or limited broadcast;
-- in ESP-IDF `external` mode, admit unicast ICMP Echo Requests addressed to the device as well as canonical UDP markers, while keeping the internal generator stopped;
-- keep occupancy diagnostic-only and never make device send rate chase admitted occupancy;
-- place CSI on the detector grid using the device Wi-Fi RX timestamp, with processing time used only for same-domain queue-age measurement; and
-- keep raw HTTP records even when the sensing view classifies additional same-slot records as excess.
+A saved choice is kept as is. If a mode does not work with a given chip, driver, AP, or resolver, the operator picks another one.
 
-Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally requires TCP query support. `wifi_raw` requires valid ACK CSI from the selected chip, driver, and AP combination. If the selected mode is unsuitable, operators must select another explicit mode rather than relying on silent fallback. Micro-ESPectre exposes these modes as deployment settings and currently selects `ping` in its committed `config.py`.
+**Admission.** The detector only admits traffic that matches the configured source: in `external`, the accepted frame types above; with an internal generator, only replies to that generator. Incidental Direct, SSE, and ambient traffic is rejected before temporal admission. In `lltf20`, an 802.11 ACK is admitted only as the answer to a frame the device just injected: a valid, error-free 14-byte frame addressed to the device's MAC and matched to an ACK credit. `wifi_raw` arms the credit right before each Null Data frame, and one ACK within 5 ms consumes it; other modes never arm it, so they reject every ACK. ACKs carry no transmitter address, so the credit matches them by timing, not identity. Other control frames and ACKs in `ht20` or `vht20` are rejected. Every admitted data frame also goes through a retransmission check: a frame with the Retry bit and the same transmitter, sequence number, and length as the last admitted one is dropped and counted as a provenance rejection, unless the original never produced a callback.
 
-## Decision History
+**Pacing.** Internal traffic and the standalone external tool request DSCP 46, without assuming any particular WMM TID or occupancy gain. Generators keep their send phase through normal scheduler jitter, but restart from the actual send time when the next deadline would be less than half a period away, so no generator sends a close catch-up pair. The same rule lives in the shared C++ generator, the Micro-ESPectre native generator, and `tools/ha_traffic_generator_addon/espectre_traffic_generator.py`. Pacing multicast stays on the local link, and unicast or the joined group is preferred over broadcast. Occupancy is diagnostic only: the send rate never chases it.
+
+**Station TX rate.** `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` defaults to Auto (`0`) on every target except classic ESP32, which uses HT20 MCS0 with long GI (`6.5`); legacy OFDM `6` is also available. Raw injection to the AP stays at OFDM 6 Mbps regardless. One shared rate component applies the station rate before connected services start and re-checks it after reconnects and roams; Micro-ESPectre reuses it through a native binding. If the AP cannot use the selected rate, or TX A-MPDU is on, the firmware uses automatic rates. A driver error is not hidden: if the driver rejects the station rate, connected services do not start, and `wifi_raw` fails to start on a raw-rate error.
+
+**Timing.** CSI goes onto the detector grid by its Wi-Fi RX timestamp (`rx_ctrl.timestamp`). Callback-to-loop queue age is measured in `esp_timer` and only that duration is translated into the MAC clock domain; the two absolute clocks are never compared. Raw HTTP keeps every classified frame, including those the sensing view treats as same-slot excess.
+
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2026-08-23 | Use ICMP ping or UDP/53 DNS as interchangeable internal generators | Ping retained; UDP/53 rejected after the C3 capture showed legacy PHY and extreme observed retry share |
-| 2026-08-23 | Mark managed traffic for low latency | Retained as a request; external DSCP 46 changed WMM category but did not materially change retry or timing on the tested AP |
-| 2026-08-23 | Skip only deadlines already fully missed on host pacing | Replaced by the half-period reset rule so late wake-up cannot produce a close packet pair |
-| 2026-08-23 | Compare Wi-Fi RX time directly with the processing wall clock on selected targets | Replaced by measuring queue age in `esp_timer` and translating only that duration into the MAC timestamp domain |
-| 2026-08-23 | Use persistent non-blocking DNS/TCP and one pacing policy across firmware and host tools | Retained as the optional `dns_tcp` path |
-| 2026-08-29 | Admit external ICMP as a separate traffic-mode value | Rejected; `external` already denotes external ownership and now accepts either canonical UDP markers or unicast Echo Requests |
-| 2026-08-29 | Ban DNS/UDP globally after the C3 result | Replaced by explicit `ping`, `dns`, and `dns_tcp` choices after classic ESP32 DNS/UDP remained stable in Direct and monitor-mode tests |
-| 2026-08-30 | Keep Micro-ESPectre ping-only | Replaced by deployment-time `ping`, `dns`, and `dns_tcp` selection through the shared native generator; the committed Micro configuration later selected `dns` |
-| 2026-08-31 | Keep classic ESP32, ESP32-S2, and Micro-ESPectre on `dns` | Replaced; published product configurations now use the shared `ping` default |
-| 2026-09-06 | Move internal S3 ping from Video to Voice | Keep DSCP 46; the bounded A/B/A trial showed only about 0.8 points of RX regularity improvement, and occupancy remained elevated after returning to Video |
-| 2026-09-06 | Switch S3 to DNS/TCP for higher occupancy | Keep explicit protocol selection; occupancy remained elevated on returning to ping, while DNS/TCP had lower CSI supply and mixed interval tails |
-| 2026-09-06 | Replace S3 dynamic32 TX buffers with static32 | Retain dynamic32; the qualified comparison found only a small uplink regularity difference, no occupancy gain, and approximately 54 KiB less free heap |
-| 2026-09-06 | Bypass S3 sensing to regularize the uplink | Retain the sensing path; callback time fell from about 224 to 42 µs without a demonstrated uplink regularity gain, while most observed irregularity arose after the measured driver handoff |
-| 2026-09-06 | Disable S3 CSI to isolate outbound timing | Retain CSI; the qualified baseline improvement persisted after re-enabling CSI, while C6 observation gaps prevented an under-load A/B/A conclusion |
-| 2026-09-06 | Add S3 TX-completion timing to isolate uplink irregularity | Keep production settings; exact packet joins locate the main cadence change after driver handoff and before or at radio transmission, without separating driver/MAC scheduling from shared-channel access |
-| 2026-10-17 | Promote `wifi_raw` to stable on supported chips | Accepted after operational validation; ESP32-C6 remains excluded because its ACK CSI is unusable |
+| 2026-08-23 | Ping and UDP/53 DNS as interchangeable generators | Ping kept; UDP/53 dropped after the C3 capture showed legacy PHY and a very high retry share |
+| 2026-08-23 | Mark managed traffic for low latency | Kept as a request; DSCP 46 changed the WMM category but not retry or timing on the tested AP |
+| 2026-08-23 | Skip only fully missed deadlines in host pacing | Replaced by the half-period reset rule |
+| 2026-08-23 | Compare Wi-Fi RX time directly with the processing clock | Replaced by same-clock queue age translated into the MAC domain |
+| 2026-08-23 | Persistent non-blocking DNS/TCP, one pacing policy for firmware and host | Kept as the optional `dns_tcp` |
+| 2026-08-28 | Admit any valid local IPv4 callback | Rejected: mostly more same-slot excess, plus a stability risk |
+| 2026-08-28 | Lower the generator to 90, then 85 pps, and let incidental traffic fill in | Rejected: 90 pps gave 70.95% occupancy; 85 pps not run |
+| 2026-08-29 | External ICMP as its own traffic mode | Rejected; `external` accepts both UDP markers and Echo Requests |
+| 2026-08-29 | Ban DNS/UDP everywhere after the C3 result | Replaced by explicit `ping`, `dns`, and `dns_tcp`, since classic ESP32 DNS/UDP was stable |
+| 2026-08-30 | Micro-ESPectre ping-only | Replaced by the shared native generator with all three modes |
+| 2026-08-31 | Classic ESP32, S2, and Micro-ESPectre default to `dns` | Replaced; published configurations use `ping` |
+| 2026-09-06 | Admit local 802.11 ACKs in `lltf20` | Accepted for `wifi_raw`; IP gates unchanged |
+| 2026-09-06 | S3 ping from Video to Voice | Kept DSCP 46: about 0.8 points of RX regularity, occupancy did not revert |
+| 2026-09-06 | Switch S3 to DNS/TCP | Kept explicit selection: lower CSI supply, mixed tails, occupancy did not revert |
+| 2026-09-06 | S3 static32 TX buffers | Kept dynamic32: no occupancy gain, about 54 KiB less free heap |
+| 2026-09-06 | Bypass S3 sensing, or disable CSI, to regularize the uplink | Kept the sensing path: most irregularity arises after driver handoff |
+| 2026-09-14 | Fixed OFDM 6 Mbps station rate on every target | Replaced the same day by Auto, with HT20 MCS0 on classic ESP32 |
+| 2026-09-14 | `wifi_raw` on ESP32-C6 | Disabled: ACK CSI is invalid |
+| 2026-10-03 | Only credited ACKs; drop retransmissions of the last admitted frame | Accepted: on an ESP32 at −73 to −77 dBm, ACKs to the CSI stream pushed `wifi_raw` collection above 300 pps, and AP retries in `external` raised fresh records to 217/s for 100 sent packets until the stream dropped 60% of records and stalled |
+| 2026-10-15 | Direct Null Data and unicast ESP-NOW in `external` | Accepted: they are addressed to the device, not incidental |
+| 2026-10-17 | `wifi_raw` stable on supported chips, with an optional explicit peer | Accepted after operational validation |
+| 2026-10-18 | Two zero padding bytes on peer HT20/VHT20 Null Data | Accepted: C6 needs 30-byte frames for valid HT20 CSI |
 
-## Alternatives Considered
+## Evidence
 
-### Make DNS/UDP the universal default
+The measurements below come from single labs, APs, and chips. They explain the decisions above; they are not thresholds to copy to other setups.
 
-Rejected. UDP/53 triggered a target-specific Wi-Fi handling path on the tested C3 that changed QoS, forced predominantly legacy transmission, added RTS/CTS and retries, and disrupted the response cadence. It was stable on the tested classic ESP32, but that result does not make it portable. Explicit selection and target-specific defaults retain both outcomes without pretending one mode is universal.
+### Generator behavior on C3 and classic ESP32
 
-### Make DNS/TCP the universal default
+Five monitor-mode captures on 2026-08-23 (channel 2, one C3 station, one AP, 100 pps target) compared the generators. Retry share here is the share of observed frames with the 802.11 Retry bit, not an AP counter.
 
-Rejected. Ping is stateless, broadly available, and does not require a TCP-capable gateway resolver. DNS/TCP remains valuable as an alternative traffic shape and performed well on the tested gateway, but it has connection lifecycle and compatibility costs.
+| Generator | Direction | Retry share | HT share | QoS | Median gap |
+| --- | --- | ---: | ---: | --- | ---: |
+| ping | C3 → AP | 2.81% | 99.74% | TID 5 / VI | 10.0 ms |
+| DNS/UDP | C3 → AP | 76.49% | 5.32% | TID 7 / VO | 19.9 ms |
+| DNS/TCP | C3 → AP | 4.05% | 99.78% | TID 5 / VI | 9.9 ms |
+| external UDP, DSCP 46 | AP → C3 | 9.73% | 99.93% | TID 6 / VO | 10.0 ms |
+| external UDP, best effort | AP → C3 | 9.29% | 99.93% | TID 3 / BE | 10.0 ms |
 
-### Use only external UDP
+On the C3, DNS/UDP went to legacy 1 or 6 Mbps with TID 7, RTS/CTS, and about 27 times the ping retry share; DNS/TCP brought it back to HT and 10 ms spacing. DSCP 46 moved external downlink to the Voice category but did not change retries or spacing, so QoS marking is a request, not a guarantee. The receive direction stayed almost all HT for every mode, centered near 10 ms. Device logs agreed: about 94% occupancy with ping, 93–99% with DNS/TCP, 96–98% with external UDP.
 
-Rejected. External pacing performed well and is useful for controlled experiments, but it requires another always-on host and correct routing. Micro-ESPectre intentionally has no external UDP listener. Its device-local generator supports `ping`, `dns`, and `dns_tcp` without requiring an ESPectre-specific host service.
+On classic ESP32 (2026-08-29, channel 10), DNS/UDP also went out as legacy 6 Mbps with TID 7, but with a 3.08% retry share, 10 ms spacing, and about 95% occupancy. Legacy PHY and TID 7 are exposure factors, not sufficient causes, so the right generator depends on device, driver, AP, and resolver.
 
-### Adapt send rate from occupancy
+### Incidental traffic on S3
 
-Rejected. Occupancy is capped by the sampler and mixes traffic supply with AP scheduling and slot placement. Earlier bounded C3 and classic ESP32 trials did not outperform fixed cadence. Raw HTTP reports transport backpressure but never changes the external generator rate.
+On 2026-08-28 a test firmware kept all RF, BSSID, channel, frame-format, and destination checks, but turned the UDP marker from a gate into a label, so any valid local IPv4 packet reached the detector. Native Lightweight ran with one SSE client and one new Direct `diagnostics` connection per second, measured over 60 s after settling.
 
-### Admit every received CSI packet
+| Admission | Generator | Callbacks | Admitted | Occupancy | Missing slots | Excess |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Marker only | 100 pps | 117.69 pps | 91.27 pps | 91.35% | 8.71/s | 8.74 pps |
+| Any local IPv4 | 100 pps | 117.58 pps | 91.85 pps | 91.95% | 8.15/s | 25.61 pps |
+| Any local IPv4 | 90 pps | 109.89 pps | 70.73 pps | 70.95% (36–90%) | 29.25/s | 29.33 pps |
 
-Rejected for live sensing. A burst would manufacture a full detector window without covering the corresponding physical time. Valid excess CSI remains available through raw HTTP capture when research needs it.
+Opening the filter added 0.6 occupancy points and 17 pps of excess: incidental packets arrive in bursts, so they mostly land in slots that are already taken. At 90 pps the device fell well below the 80% acceptance bar, so the planned 85 pps step was skipped. Two earlier open-filter runs ended in an intermittent `espectre_native` stack overflow and reboot; a later run did not reproduce it, so that is a risk signal, not a proven cause.
 
-### Timestamp by AP transmit time or processing time
+### S3 uplink timing investigation
 
-Rejected. AP transmit time is not available as the device's authoritative sensing timestamp, while processing time measures software scheduling after the PHY observation. The Wi-Fi RX timestamp best represents when the measured channel existed.
+A series of bounded A/B/A trials on one S3 (2026-09-06 to 2026-09-07, ping at 100 pps, a passive C6 observer) looked for the source of irregular uplink spacing:
+
+- **Voice instead of Video QoS**: about 0.8 points better RX regularity; occupancy stayed up after switching back.
+- **DNS/TCP instead of ping, static instead of dynamic TX buffers**: no repeatable occupancy gain; static32 cost about 54 KiB of free heap.
+- **Minimal CSI callback**: callback time fell from about 224 to 42 µs with no uplink gain. Application-to-driver handoff was regular (p95 about 0.3 ms).
+- **CSI disabled**: the improvement persisted after re-enabling CSI, so it was not caused by CSI.
+- **TX-completion timing**: with exact packet joins, regularity was 99.8% at handoff and about 74% on air. Completion and radio intervals correlated at 0.999, placing the variation after driver handoff.
+- **AP and channel**: moving a temporary AP to a quiet channel raised completion regularity from about 75–81% to 96–98%, twice, and it dropped again on return.
+- **Driver internals**: the MAC queue was enabled promptly with normal contention settings, and the inspected PM/coexistence TX block never asserted during covered delays.
+- **Calibrated PHY airtime counter**: for packets delayed over 2 ms, measured occupied airtime explained a median 90.7% of the wait, mostly 1 Mbps beacons from six nearby BSSIDs.
+
+The dominant cause is medium-access deferral behind real radio activity, especially slow beacons, not a software queue. Three mitigations were tried without changing the 100 Hz grid. Beacon-relative pacing at 10.24 ms improved on-air regularity from 77% to 92% but not occupancy. Fixed 125 pps oversupply shortened gaps but differing controls prevent crediting it with the occupancy rise. Fixed 200 pps and randomized 9/10/11 ms spacing did not robustly improve occupancy. Production pacing, tasks, and buffers stay unchanged.
+
+### C5/C6 short-frame CSI investigation
+
+Starting on 2026-09-07, with ESP-IDF 5.5.5 and the same AP, ESP32-C5 rev 1.0 produced valid ACK CSI and ESP32-C6 rev 0.1 did not: 7,213/7,213 valid against 0/6,615 in the first sweep. C5 LLTF also turned out to be centered (its only zero I/Q pair at index 26), which differs from the Espressif documentation.
+
+Nothing tried on the C6 recovered ACK CSI: scale and acquisition flags, promiscuous filters, raw TX rates up to 54 Mbps, HT and HE requests, other frame subtypes, ESP-NOW toward a C5, 802.11k Neighbor Reports, disabling 11b rates, setting the raw rate before association, and PHY dump register sweeps in a standalone ESP-IDF app that used only public Wi-Fi APIs. Over 25,000 ACKs stayed invalid. A driver-level probe showed the estimates are already invalid at the driver boundary and that part of the CSI buffer is never refreshed, so the problem lies below the public API. Probe responses and Neighbor Reports arrive at 1 Mbps DSSS and give no CSI either. Espressif tracks related C6 reports in [esp-idf#14271](https://github.com/espressif/esp-idf/issues/14271) and [esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062).
+
+The failure follows received frame length, not frame type. Data and Null Data frames below a PHY-dependent length were invalid on the C6, and longer ones were valid. A C5-to-C6 padding sweep on 2026-10-18, with subtype, addressing, and cadence held fixed, found these minimums for 100% valid CSI:
+
+| PHY / capture | Minimum zero padding | Received length with FCS |
+| --- | ---: | ---: |
+| HT20 MCS0 or MCS7, long or short GI / HT20 | 2 bytes | 30 bytes |
+| OFDM 6 Mbps / LLTF | 3 bytes | 31 bytes |
+| OFDM 12 or 24 Mbps / LLTF | 6 bytes | 34 bytes |
+| OFDM 54 Mbps / LLTF | 22 bytes | 50 bytes |
+
+At 54 Mbps validity was mixed between 18 and 21 bytes of padding, so there is no sharp cutoff there. These results do not establish the hardware mechanism or a rule for other chips or rates. Padding the request cannot lengthen the AP's 14-byte ACK, so C6 `wifi_raw` stays disabled; the two-byte HT20 form was adopted for direct peer traffic.
+
+### C5 raw VHT20 driver compatibility
+
+ESP-IDF 5.5.5 rejects raw VHT20 configuration on C5 with `ESP_FAIL` and `invalid phymode`, even on a confirmed 802.11ac association. Both automatic band selection and a fixed 5 GHz build reproduced the failure. Inspection of the linked driver showed that `esp_wifi_config_80211_tx()` reads the interface's 2.4 GHz PHY field when validating the requested PHY; the 5 GHz configuration is stored separately. A temporary probe using the setter called by the public API's successful path transmitted padded VHT20 Null Data and produced valid CSI on the receiving C5, with ACK/LLTF on the sender.
+
+The compatibility path is restricted to C5 with ESP-IDF 5.5.5, an explicit peer on a 5 GHz channel, a public API result of `ESP_FAIL`, and a confirmed VHT20 association. It applies the fixed MCS0, long-GI configuration through the driver's `ic_set_80211_tx_rate_config` symbol. Other errors, PHYs, bands, and SDK versions retain the public API result. This is a dependency on an undocumented driver ABI; remove the workaround when a driver with corrected validation is adopted. The local investigation and firmware images are under `data/untracked/c5_pair/20261018/vht20-5ghz/`.
+
+### Station TX-rate comparison
+
+Between 2026-09-13 and 2026-09-14, Native compared Auto with fixed OFDM 6 Mbps for every generator on S3, C3, C5, and C6 (60 s cells, 100 pps, one SSE client, one HTTP request pair per second). All 3,840 scored HTTP requests succeeded and the fixed rate worked everywhere, but occupancy changes were mixed: S3 `dns` went from 75% to 97%, while the other cells moved by a few points either way, and RSSI also differed between arms by up to 4 dB. C6 `wifi_raw` stayed at zero occupancy at either rate. These single sequential samples do not show a general gain.
+
+### External radio and peer sensing validation
+
+Hardware checks, all without promiscuous mode:
+
+| Hardware | Traffic source | Result |
+| --- | --- | --- |
+| C3 transmitter to S3 receiver | Direct Null Data and unicast ESP-NOW | Valid CSI with HT20 and LLTF profiles |
+| C5 mini and standard C5, 2.4 GHz | Direct Null Data and unicast ESP-NOW | Valid external HT20 with both sources, and ACK/LLTF on the Null Data generator |
+| C5 mini and standard C5, 5 GHz | Direct Null Data, VHT20 MCS0 with two zero padding bytes | Valid external VHT20 and sender ACK/LLTF in both directions; source-off controls admit no samples |
+| C5 transmitter to C6 receiver | Direct Null Data and unicast ESP-NOW | Valid HT20 with ESP-NOW and with Null Data padded by two zero bytes; unpadded Null Data is invalid |
+| C6 transmitter to C5 receiver | Direct Null Data and unicast ESP-NOW | Valid external HT20 on C5 with standard and padded Null Data and ESP-NOW; returning ACKs are invalid on C6 |
+
+With two C5 boards about three meters apart on the same AP, each detector ran 30-second still and walking phases in both directions (4 hits to enter motion, 3 to leave). Both Lightweight and High Accuracy reported motion in 0% of about 117 motion events per still phase and 100% per walking phase, on both boards, with no request errors, hardware errors, or queue drops. ESP-NOW from C6 to C5 did not recover C6 ACK CSI either, whatever the payload.
+
+At 5 GHz on channel 40, the mini and standard C5 supported both roles with the version-bound driver compatibility path above. Radio checks and two-minute High Accuracy comparisons in each direction ran with serial monitors closed, regular acquisition, and no new hardware errors, invalid estimates, or queue drops. The participant confirmed alternating stillness and walking with the boards fixed. Both reported broadly matching idle and motion patterns; the ACK/LLTF side spent more time in motion than the external VHT20 side, including after reversing roles. Without timestamped activity labels, these comparisons do not establish detector accuracy or which input detects real movement more reliably. Disabling the generator stopped accepted input on both devices. Local evidence: `data/untracked/c5_pair/20261018/vht20-5ghz/`.
+
+Both C5 boards also retained valid ACK/LLTF acquisition with `wifi_raw` targeting `auto` on the AP's 2.4 GHz and 5 GHz radios. The configured PHY was OFDM 6 Mbps (802.11g and 802.11a, respectively); raw CSI confirmed legacy LLTF at 20 MHz. A BSSID-only band switch updated the raw destination while retaining `auto`. One-minute checks on each band remained ready without new CSI errors or queue drops, with serial monitors closed. Local evidence: `data/untracked/c5_pair/20261018/auto-ap-2g-5g/`.
+
+With padding in production `wifi_raw`, C5 → C6 and C6 → C5 (from a temporary C6 transmitter) both ran at about 99–101 CSI packets/s with no invalid estimates, hardware errors, or queue drops; source-off windows admitted nothing. C6 Native slowdowns during these runs came from the USB console: the USB Serial/JTAG interrupt mask included Start of Frame, which the driver does not service, causing up to about 430,000 interrupts/s. The console now sets the mask before installing the driver and writes logs and Improv output with zero timeout. After that fix, five minutes of C5 → C6 traffic held about 100 packets/s, and C5 ACK/LLTF and C6 padded HT20 showed matching idle and motion patterns (relative agreement, not labeled accuracy).
+
+Still unverified: external LLTF reception of Null Data and ESP-NOW on C5 and C6. Setup instructions are in [CSI acquisition](../CSI.md#external-sources).
+
+## Alternatives considered
+
+- **DNS/UDP as the universal default.** On the C3 it triggered legacy PHY, RTS/CTS, retries, and broken cadence; on classic ESP32 it was fine. Neither result makes it portable.
+- **DNS/TCP as the universal default.** Ping is stateless and needs no TCP resolver. DNS/TCP stays as an option with its connection costs.
+- **External UDP only.** Works well for controlled tests, but needs another always-on host and correct routing. Micro-ESPectre has no external UDP listener.
+- **Adapt send rate to occupancy.** Occupancy is capped by the sampler and mixes supply with AP scheduling and slot placement; C3 and ESP32 trials did not beat a fixed cadence.
+- **Admit all valid local traffic.** Valid is not the same as useful: on the S3, extra callbacks mostly became excess instead of new slots, and the generator could not drop to 90 pps.
+- **Admit every received packet.** A burst would fill a window without covering its physical time. Raw HTTP still keeps the excess for research.
+- **Timestamp by AP send time or processing time.** The device does not know the AP's send time, and processing time measures software delay after the PHY observation.
 
 ## Consequences
 
-Benefits:
+Users can pick stateless ICMP, DNS over UDP, or DNS over TCP without any extra service, plus `wifi_raw` and `external` where the hardware supports them. Each target can follow its measured behavior without removing options elsewhere. Generators no longer emit catch-up bursts, every production path uses the same physical-time grid, and raw capture loses nothing to admission except counted ring drops. The detector sees one explicit, deterministic source: in `lltf20`, ACKs count only when they answer an injected `wifi_raw` frame, so the device's own Direct or MQTT traffic and AP retransmissions cannot add samples. In `external`, the sender is responsible for how it mixes the accepted frame types.
 
-- users can select among stateless ICMP, connectionless DNS/UDP, and stateful DNS/TCP without installing an external network service;
-- target product defaults can follow measured device behavior without removing alternatives from other targets;
-- generator-side scheduler delay no longer creates avoidable catch-up bursts;
-- ping, DNS/UDP, DNS/TCP, external UDP, and external ICMP have explicit and comparable roles;
-- all production paths use the same physical-time interpretation for motion sensing;
-- DNS modes preserve the AP as the downlink packet source without assuming UDP or TCP is universally healthier; and
-- raw HTTP capture remains lossless with respect to temporal admission decisions, except for explicitly counted bounded-ring drops.
-
-Trade-offs and limits:
-
-- DNS/TCP maintains socket state and reconnect logic and depends on gateway TCP/53 support;
-- DNS/UDP may enter a target-specific legacy-PHY and retry path, as measured on the C3;
-- closely spaced eligible responses may create same-slot excess even when occupancy improves;
-- DSCP-to-WMM mapping is direction-, sender-, AP-, and driver-dependent;
-- external ICMP requires no ESPectre-specific host service, but its Echo Replies add device-originated traffic and host pacing remains outside the firmware;
-- the AP may still queue, aggregate, retry, or burst frames after the generator has paced them;
-- monitor-mode Retry shares are observer measurements, not authoritative device or AP counters;
-- pcap gap statistics use the monitor's observation timestamps, not the device's authoritative `rx_ctrl.timestamp`;
-- encrypted captures cannot prove each frame's L4 protocol without correlating the controlled test mode; and
-- the numeric capture results characterize one C3 and one classic ESP32 on one AP in separate laboratory intervals, so future devices and APs require the same validation rather than copied thresholds.
+The limits: DNS/TCP needs TCP/53 and keeps socket state; DNS/UDP can hit a legacy-PHY retry path on some chips; close responses can still land in the same slot; DSCP-to-WMM mapping depends on direction, sender, AP, and driver; external ICMP adds Echo Replies from the device; and the AP can still queue, retry, or burst frames after the generator paced them. Monitor-mode retry shares and pcap gaps are observer measurements, not device truth. New devices and APs need the same validation rather than copied numbers.
 
 ## Related
 
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
-- [`../TROUBLESHOOTING.md`](../TROUBLESHOOTING.md)
-- [`../SETUP.md`](../SETUP.md)
-- [`../ALGORITHMS.md`](../ALGORITHMS.md)
-- [`../CLI.md`](../CLI.md)
-- [`../API.md`](../API.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
+- [CSI acquisition](../CSI.md), [troubleshooting](../TROUBLESHOOTING.md), [setup](../SETUP.md), [algorithms](../ALGORITHMS.md), [CLI guide](../CLI.md), and [API reference](../API.md)
+- Commits `bab99c24` (pacing), `02e3c531` (explicit generators), `c2837c7b` (external ICMP), `3f027508` (Micro generator), `6f729fc2` (`ping` default), `12075d57` (station rate policy), `d8721300` (C6 `wifi_raw` disabled), `ca2a6a60` (explicit peer), `5d789e9c` (`wifi_raw` ACK capture), `b27f5432` (ACK credit and retry check), `8985ecb7` (Null Data and ESP-NOW in `external`)

@@ -6,90 +6,41 @@
 
 ## Context
 
-`tools/validate_dataset_quality.py` still served two distinct needs well:
+`tools/validate_dataset_quality.py` does two jobs: it keeps contaminated or unusable captures out of training, and it summarizes the admitted corpus for people in `data/auto_generated/DATASET_QUALITY_CHECK.md`.
 
-1. keep contaminated or unusable captures out of ML training
-2. summarize the admitted corpus for human review in `data/auto_generated/DATASET_QUALITY_CHECK.md`
-
-The 2026-07-17 split removed Classic from dataset admission, but the review tables still depended on `ClassicDetector` replay, startup calibration, and threshold-relative language. That kept a residual circularity in the operator surface: a weak or miscalibrated detector could still make one capture look bad even when the shared production features separated it cleanly.
-
-This became visible on low-RSSI pairs. The report could warn on detector activation while the intrinsic idle/motion separation stayed strong, which is evidence about detector limits, not about dataset corruption. The report therefore needed to speak directly about the data instead of about one detector's threshold placement.
-
-The same change also had to preserve one source of truth. Dataset admission belongs in the validator, while detector promotion belongs in `docs/performance/README.md`; splitting the report into a second dataset-quality document would have repeated policy and metrics.
+On 2026-07-17 Classic was taken out of dataset admission, but the review tables still replayed `ClassicDetector`, with its startup calibration and threshold-relative wording. That left a circularity: a weak or badly calibrated detector could make a capture look bad even when the production features separated it cleanly. Low-RSSI pairs showed it: the report warned about detector activation while idle and motion were still well separated. That says something about the detector, not about the data.
 
 ## Decision
 
-Keep one generated dataset-quality report, but make its review metrics detector-agnostic.
+There is still one generated dataset-quality report, but its review metrics no longer depend on any detector.
 
-Dataset admission remains unchanged and may still fail the run:
+Admission is unchanged and can still fail the run: integrity, continuity, signal quality, empty and `static_presence` availability and overlap, ML readiness, and long-recording annotation and coverage.
 
-- integrity, continuity, and signal-quality checks
-- empty and `static_presence` availability / overlap checks
-- ML readiness
-- long-recording annotation and coverage checks
+The review tables are built from the current High Accuracy feature set, which is scale-invariant by construction. Feature directions come from what each feature means, not from a detector replay. Pairs are judged on how well motion separates from the idle half; idle captures are judged against their own baseline in feature space. No threshold-relative detector term appears in the report. Lightweight shows up in promotion and performance reports, not here.
 
-The report-only review tables now derive from the shared scale-invariant feature pipeline already used elsewhere in production and training:
+The column definitions and marks are documented in the report's own legend, which the validator generates.
 
-- the core evidence surface is the current production High Accuracy feature set, all gain-invariant by construction: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`
-- feature directions are fixed from the feature semantics, not inferred from a detector replay
-- pair review compares `static_presence` and `motion` through consensus feature-evidence series
-- idle review scores each capture against its own feature-space baseline
-
-Pair rows replace threshold-relative Classic diagnostics with:
-
-- `Cover`: share of motion windows above the idle half's own p95 evidence
-- `Sep`: rank-based AUC between idle and motion evidence
-- `Tail`: idle-side q95 above the pair's own centered evidence baseline
-- `Score`: an indicative 0-100 ranking from separation, coverage, and idle cleanliness
-
-Idle rows replace self-calibrated Classic baseline terms with:
-
-- `Exc`: excursion share above median + 3 MAD on the feature-evidence axis
-- `Burst`: sustained burst length measured on block-level idle baselines
-- `Tail`: q95 above the capture's own centered evidence baseline
-- `Drift`: half-to-half median evidence drift
-- `Score`: an indicative 0-100 ranking from tail cleanliness and burst length
-
-Threshold-relative detector terms are removed from the generated report entirely. Lightweight remains visible in detector promotion and performance surfaces, but not in dataset-quality review.
-
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2026-07-17 | Separate dataset admission from Classic diagnostics but retain Classic review tables | Removed detector behavior from admission |
-| 2026-07-29 | Make the remaining review metrics detector-agnostic | Accepted as the single dataset-quality policy |
+| 2026-07-17 | Take Classic out of admission, keep Classic review tables | Detector no longer decides admission |
+| 2026-07-29 | Make the review metrics detector-agnostic | Accepted |
+
+## Alternatives considered
+
+- **Keep Classic review and drop only the marked threshold columns.** Even unmarked replay tables keep the reader focused on one detector's calibration.
+- **Add a second, agnostic report next to the old one.** Dataset policy belongs in one generated document, and detector performance already has its own report.
+- **Score from raw RSSI or absolute energy.** Not robust to gain changes or weak links; it would bring back the same comparability problem.
 
 ## Consequences
 
-Benefits:
+The report describes the recordings, not a detector's startup calibration. Weak-link and gain-shifted captures stay comparable, and excluded pairs can be shown as diagnostics without detector bias. Detector problems show up where they belong, in performance and promotion gates.
 
-- the dataset-quality report now describes the recordings themselves instead of one detector's startup calibration
-- weak-link and gain-shifted captures stay comparable because the core metrics come from scale-invariant shared features
-- excluded pairs can stay visible as informational diagnostics without reintroducing detector bias
-- detector-specific problems remain visible where they belong: performance and promotion gates
-
-Trade-offs:
-
-- the report now owns a small feature-evidence layer and its threshold-free scoring rules, which must stay aligned with the shared feature semantics
-- burst and drift review on idle captures require careful interpretation, since they summarize feature-space behavior rather than a detector's binary alarms
-
-## Alternatives Considered
-
-### Keep Classic review but remove only the marked threshold columns
-
-Rejected. Even unmarked replay tables keep the operator anchored on one detector's calibration path and keep detector-specific failure modes in the dataset-quality narrative.
-
-### Create a second agnostic report beside the current one
-
-Rejected. Dataset-quality policy already belongs in one generated document, and performance policy already belongs in `docs/performance/README.md`.
-
-### Score review directly from raw RSSI or absolute-energy features
-
-Rejected. Those quantities are not robust under gain changes or weak links, so they would reintroduce the same comparability problems that motivated the change.
+The report now owns a small feature-evidence layer and its scoring rules, which must stay in line with the shared feature definitions. Burst and drift on idle captures describe feature-space behavior, not alarms, and need to be read that way.
 
 ## Related
 
-- `tools/validate_dataset_quality.py`
-- `data/auto_generated/DATASET_QUALITY_CHECK.md`
-- `docs/ML_DATA_COLLECTION.md`
-- `docs/performance/README.md`
+- `tools/validate_dataset_quality.py` and [dataset quality report](../../data/auto_generated/DATASET_QUALITY_CHECK.md)
+- [ML data collection](../ML_DATA_COLLECTION.md) and the [performance report](../performance/README.md)
+- Commits `a8b0dc4f` (Classic out of admission) and `e3ad4b68` (Classic replay removed from the report)

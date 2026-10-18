@@ -3,60 +3,49 @@
 - Status: Accepted
 - Date: 2026-03-08
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-10-04
+- Updated: 2026-10-05
 
 ## Context
 
-Single aggregate metrics and grouped CV can hide deployment-facing failures. ESPectre needs one promotion policy that covers paired motion evidence, empty rooms, weak links, packet-rate variation, long recordings, generated artifacts, and Python/C++ parity without making every exploratory training run execute the complete release suite.
-
-Static-presence captures are also not false-positive ground truth: a present person can produce real micro-motion. Empty-room recordings are the strict no-motion domain for alarm gates.
+A single aggregate metric, or grouped CV alone, can hide the failures users actually see: false alarms in one room, collapse on a weak link, trouble with a different packet rate. We need one promotion policy for detectors, features, and models, but running the full release suite on every training trial would make exploration far too slow.
 
 ## Decision
 
-Use layered host-side validation for detector, feature, and model promotion:
+Promotion goes through layered host-side gates:
 
-1. Use grouped CV and selection-role replays to compare candidates without opening the sealed holdout.
-2. Require per-recording paired and quiet safety gates before promotion; do not rely on chip averages alone.
-3. Treat empty-room recordings as the strict no-motion ground truth. High Accuracy requires zero effective alarms on short recordings and permits at most two per catalog-marked long recording, independently in normal and occupancy-70% replay. Keep the raw FP ceiling and report every alarm. Lightweight may raise at most one effective alarm per empty-room recording, which covers a single four-hit debounce burst after the occupancy floor moved to seven tenths; two or more alarms on one short empty file remain a defect. Static-presence captures may use an explicit bounded alarm budget.
-4. Keep real low-RSSI recordings visible under their documented stress policy rather than hiding them in aggregate metrics.
-5. Validate packet-rate behavior, long recordings, generated artifacts, and Python/C++ parity on the selected candidate and for published performance.
-6. Keep experiment commands non-destructive by default and require an explicit artifact-promotion step.
+1. Compare candidates with grouped CV and selection replays. The holdout stays sealed.
+2. Gate every recording on its own, paired and quiet alike. Chip averages are not enough.
+3. Empty rooms are the only strict no-motion truth. High Accuracy must raise zero effective alarms on short empty recordings and at most two on catalog-marked long ones, both in normal replay and at 70% occupancy. The raw FP ceiling still applies and every alarm is reported. Lightweight may raise one effective alarm per empty recording (a single four-hit debounce burst); two on one short file is a defect. Static-presence captures are not no-motion truth, because a person sitting quietly still makes small movements, so they get a small explicit alarm budget.
+4. Real low-RSSI recordings stay visible under their own stress policy instead of disappearing into averages.
+5. The selected candidate, and any published performance claim, must also pass packet-rate, long-recording, generated-artifact, and Python/C++ parity checks.
+6. Experiment commands never overwrite artifacts. Promotion is an explicit step.
 
-Trainer ranking may use the narrow selection gates for iteration speed. Passing trainer selection does not replace the broader parity, performance, and generated-artifact gates required for production.
+Trainer ranking can use the narrower selection gates to iterate quickly, but passing them does not make a candidate production-ready.
 
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2026-03-08 | Align detector promotion around host-side real-data gates | Accepted |
-| 2026-07-17 | Run long-recording gates inside every training trial | Moved to final promotion and published-performance validation |
-| 2026-07-25 | Treat static-presence baselines as strict false-positive truth | Replaced with empty-room zero-alarm gates and an explicit static-presence budget |
-| 2026-08-16 | Lightweight empty-room zero-alarm sequential gate | Replaced with a one-alarm per-recording budget after occupancy 70% admitted a four-eval burst that feature and coefficient changes could not remove without closing the resource gap to High Accuracy |
-| 2026-10-04 | High Accuracy long empty-room zero-alarm gate | User accepted at most two effective alarms per long recording to retain the expanded-corpus recall gains without increasing persistence; short empty replays still require zero alarms, and raw FP limits remain unchanged |
+| 2026-03-08 | Promote detectors on host-side real-data gates | Accepted |
+| 2026-07-17 | Long-recording gates inside every training trial | Moved to final promotion and published performance |
+| 2026-07-23 | Static-presence captures as strict FP truth | Replaced by empty-room zero-alarm gates plus a static-presence budget |
+| 2026-08-16 | Zero alarms for Lightweight on empty rooms | Relaxed to one per recording: at 70% occupancy a four-eval burst remained that no feature or coefficient change removed without losing Lightweight's resource advantage over High Accuracy |
+| 2026-10-05 | Zero alarms for High Accuracy on long empty recordings | Relaxed to two per long recording to keep the recall gained on the larger corpus; short files still need zero, raw FP limits unchanged |
 
-## Alternatives Considered
+## Alternatives considered
 
-### Promote from grouped CV or one benchmark family
-
-Rejected. Aggregate wins can hide per-recording false positives, weak-link collapse, or runtime filtering failures.
-
-### Run the complete release suite for every seed
-
-Rejected. It makes exploration unnecessarily slow; the complete suite belongs at finalist promotion and release validation.
-
-### Let each runtime define its own gate
-
-Rejected. Detector behavior is a shared Python/C++ contract.
+- **Promote on grouped CV or one benchmark family.** Aggregate wins hide per-recording false positives, weak-link collapse, and runtime filtering bugs.
+- **Run the full suite for every seed.** Too slow. It belongs to finalist promotion and releases.
+- **Let each runtime define its own gates.** Detector behavior is a shared Python/C++ contract.
 
 ## Consequences
 
-- Candidate search stays practical while production promotion remains evidence-based.
-- Empty-room, weak-link, timing, long-recording, and parity failures remain independently visible.
-- A passing exploratory result cannot be described as production-ready until the broader gates run.
+Candidate search stays fast, and production promotion still rests on evidence. Empty-room, weak-link, timing, long-recording, and parity failures each stay visible on their own. An exploratory result cannot be called production-ready until the full gates have run.
 
 ## Related
 
 - [`2026-06-30-separate-ml-training-data-from-promotion-replays.md`](2026-06-30-separate-ml-training-data-from-promotion-replays.md)
-- [`2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md`](2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md)
+- [`2026-07-08-define-the-lightweight-detector.md`](2026-07-08-define-the-lightweight-detector.md)
 - [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
-- versioned changelog snapshot: `2.6.0:CHANGELOG.md`
+- `2.6.0:CHANGELOG.md`
+- Commits `a8b0dc4f` (long gates out of trials), `d6546146` (static-presence budget), `aee0b969` (Lightweight budget), `1ebbfb0a` (High Accuracy long-recording budget)

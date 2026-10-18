@@ -6,66 +6,42 @@
 
 ## Context
 
-Parsing a CSI payload does not prove that it is valid detector input. Firmware and host tooling previously inferred too much from byte length, while band selection was initially forced to 2.4 GHz even on dual-band targets. The production contract must define PHY admission, layout normalization, and selected Wi-Fi band independently.
+A CSI payload that parses is not necessarily valid detector input. Firmware and host tools used to guess too much from the byte length, and the band was forced to 2.4 GHz even on dual-band chips. PHY admission, layout normalization, and band choice need to be defined separately.
 
 ## Decision
 
-Adopt one explicit classifier-first sensing contract:
+Every packet, or dataset row, is classified before it is normalized. Only the `lltf20`, `ht20`, and `vht20` capture profiles are accepted, and only with a known layout that maps onto the internal 64-subcarrier grid. That includes exact 64-subcarrier payloads and the explicitly supported short or doubled estimates. Anything unsupported or ambiguous is dropped with a reason counter.
 
-- production sensing accepts only the named `lltf20`, `ht20`, and `vht20` capture profiles and a recognized layout that maps to the internal 64-subcarrier grid;
-- classify every packet or dataset row before normalization;
-- normalize only named 20 MHz layouts, including exact 64-subcarrier payloads and explicitly supported short or doubled estimates;
-- drop unsupported or ambiguous formats with reason telemetry;
-- require host training and validation to fail explicitly when filtering removes all valid sensing data;
-- preserve historical captures without PHY metadata only when their stored layout itself proves the supported 20 MHz contract; and
-- let the frontend or SDK integrator select `2g`, `5g`, or `auto`, while enforcing 20 MHz bandwidth, HT on 2.4 GHz, VHT on 5 GHz, and no HE capture.
+The runtime admits a packet in this order: check structure, check PHY, LTF, and width metadata, recognize the layout, normalize the named 20 MHz variant, then route it to sensing or to an explicit drop.
 
-The validated detector corpus remains 2.4 GHz. The 5 GHz and automatic band modes are available on supported dual-band targets, but their availability does not constitute detector-performance validation on a 5 GHz corpus. HE20, HT40, VHT40, and wider layouts require their own explicit promotion.
+On the host, training and validation fail loudly if filtering leaves no valid data. Old captures without PHY metadata are kept only when their layout alone proves they are 20 MHz.
 
-The runtime admission order is:
+The frontend or SDK integrator picks the band: `2g`, `5g`, or `auto`. Bandwidth is always 20 MHz, with HT on 2.4 GHz, VHT on 5 GHz, and no HE capture.
 
-1. validate structure;
-2. validate PHY, LTF, and width metadata;
-3. recognize the payload layout;
-4. normalize a named 20 MHz variant;
-5. route to sensing or an explicit drop path.
+The detector is validated on a 2.4 GHz corpus only. The 5 GHz and `auto` modes work on dual-band chips, but that is not a performance claim. HE20, HT40, VHT40, and wider layouts each need their own promotion.
 
-## Decision History
+## Decision history
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
-| 2026-07-23 | Make HT20 admission classifier-first | Accepted |
-| 2026-08-05 | Force 2.4 GHz on every target | Replaced with explicit integrator-selected band mode while keeping HT20 on all selected bands |
-| 2026-09-01 | Keep an 802.11n ceiling on 5 GHz | Replaced with VHT20 capture on VHT-capable 5 GHz targets while retaining the canonical 64-subcarrier detector view |
+| 2026-07-23 | Classifier-first HT20 admission | Accepted |
+| 2026-08-06 | 2.4 GHz forced on every target | Replaced by an integrator-selected band, HT20 on every band |
+| 2026-09-01 | 802.11n ceiling on 5 GHz | Replaced by VHT20 capture on VHT-capable 5 GHz targets, same 64-subcarrier detector view |
 
-## Alternatives Considered
+## Alternatives considered
 
-### Keep length-first normalization
-
-Rejected. Structural compatibility is weaker than sensing compatibility and can silently reinterpret unsupported inputs.
-
-### Accept every parseable PHY or width
-
-Rejected. The repository lacks validated mappings, corpora, and parity gates for those sensing contracts.
-
-### Force 2.4 GHz on dual-band devices
-
-Rejected. It unnecessarily removes integrator choice. The validation status is documented separately from the supported radio configuration surface.
-
-### Use automatic band selection everywhere
-
-Rejected. Fixed-band deployments need deterministic policy, and integrators must be able to choose the intended band explicitly.
+- **Normalize by length.** Structural fit is weaker than sensing fit and can silently misread unsupported input.
+- **Accept every parseable PHY or width.** We have no validated mappings, corpora, or parity gates for them.
+- **Force 2.4 GHz on dual-band devices.** Takes away the integrator's choice; validation status is documented separately.
+- **Use `auto` everywhere.** Fixed-band deployments need a predictable policy and an explicit choice.
 
 ## Consequences
 
-- Runtime and host tooling share one sensing admission boundary.
-- Unsupported PHYs fail loudly instead of contaminating detectors or training data.
-- The canonical 64-subcarrier detector view remains stable while the runtime selects LLTF20, HT20, or VHT20 capture from the chip and associated band.
-- New PHY support requires layout mapping, representative data, detector validation, and Python/C++ parity.
+Runtime and host tools share one admission boundary, and unsupported PHYs fail loudly instead of polluting detectors or training data. The 64-subcarrier detector view stays stable while the runtime picks LLTF20, HT20, or VHT20 from the chip and the band. Any new PHY needs a layout mapping, representative data, detector validation, and Python/C++ parity.
 
 ## Related
 
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
-- [`../ALGORITHMS.md`](../ALGORITHMS.md)
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
+- [Algorithms](../ALGORITHMS.md) and [architecture](../ARCHITECTURE.md)
+- Commits `380bdf0c` (classifier-first admission), `7f02deec` (band selection), `9ae2fdf2` (automatic capture profiles)
