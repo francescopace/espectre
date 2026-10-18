@@ -31,7 +31,8 @@ typedef enum {
 // WiFi interface
 typedef enum { WIFI_IF_STA = 0, WIFI_IF_AP, WIFI_IF_MAX } wifi_interface_t;
 
-typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3, WIFI_PHY_MODE_HT20 = 4 } wifi_phy_mode_t;
+typedef enum { WIFI_PHY_MODE_11G = 2, WIFI_PHY_MODE_11A = 3, WIFI_PHY_MODE_HT20 = 4,
+               WIFI_PHY_MODE_VHT20 = 7 } wifi_phy_mode_t;
 typedef enum {
   WIFI_PHY_RATE_24M = 0x09,
   WIFI_PHY_RATE_12M = 0x0A,
@@ -385,12 +386,15 @@ typedef struct {
   esp_err_t raw_tx_result;
   esp_err_t raw_rate_result;
   int raw_rate_call_count;
+  int raw_rate_compat_call_count;
+  esp_err_t negotiated_phymode_result;
+  wifi_phy_mode_t negotiated_phymode;
   bool raw_rate_legacy;
   wifi_interface_t raw_rate_interface;
   wifi_tx_rate_config_t raw_rate_config;
   int raw_tx_call_count;
   wifi_interface_t raw_tx_interface;
-  uint8_t raw_tx_frame[24];
+  uint8_t raw_tx_frame[256];
   int raw_tx_length;
   bool raw_tx_sys_seq;
   void (*raw_tx_hook)(void);
@@ -754,6 +758,19 @@ static inline esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap_info) {
   return g_esp_wifi_mock.get_ap_info_result;
 }
 
+static inline esp_err_t esp_wifi_sta_get_negotiated_phymode(wifi_phy_mode_t *phymode) {
+  if (g_esp_wifi_mock.negotiated_phymode_result == ESP_OK) {
+    *phymode = g_esp_wifi_mock.negotiated_phymode;
+  }
+  return g_esp_wifi_mock.negotiated_phymode_result;
+}
+
+extern "C" inline void ic_set_80211_tx_rate_config(uint8_t ifx, const wifi_tx_rate_config_t *config) {
+  g_esp_wifi_mock.raw_rate_compat_call_count++;
+  g_esp_wifi_mock.raw_rate_interface = static_cast<wifi_interface_t>(ifx);
+  g_esp_wifi_mock.raw_rate_config = *config;
+}
+
 static inline esp_err_t esp_wifi_config_80211_tx_rate(wifi_interface_t ifx, wifi_phy_rate_t rate) {
   g_esp_wifi_mock.raw_rate_call_count++;
   g_esp_wifi_mock.raw_rate_interface = ifx;
@@ -776,8 +793,9 @@ static inline esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buff
   g_esp_wifi_mock.raw_tx_interface = ifx;
   g_esp_wifi_mock.raw_tx_length = len;
   g_esp_wifi_mock.raw_tx_sys_seq = en_sys_seq;
-  if (buffer != nullptr && len == sizeof(g_esp_wifi_mock.raw_tx_frame)) {
-    memcpy(g_esp_wifi_mock.raw_tx_frame, buffer, sizeof(g_esp_wifi_mock.raw_tx_frame));
+  if (buffer != nullptr && len > 0 && static_cast<size_t>(len) <= sizeof(g_esp_wifi_mock.raw_tx_frame)) {
+    memset(g_esp_wifi_mock.raw_tx_frame, 0, sizeof(g_esp_wifi_mock.raw_tx_frame));
+    memcpy(g_esp_wifi_mock.raw_tx_frame, buffer, static_cast<size_t>(len));
   }
   if (g_esp_wifi_mock.raw_tx_hook != nullptr) g_esp_wifi_mock.raw_tx_hook();
   return g_esp_wifi_mock.raw_tx_result;

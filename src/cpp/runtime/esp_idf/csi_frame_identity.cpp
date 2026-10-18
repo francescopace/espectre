@@ -9,6 +9,8 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "csi_frame_identity.h"
+#include "csi_phy_filter.h"
+#include "null_data_frame.h"
 
 #include <algorithm>
 #include <cstring>
@@ -58,8 +60,15 @@ bool matches_external_radio(const wifi_csi_info_t *info, const CsiFrameFilterCon
       std::memcmp(info->mac, header + 10U, 6U) != 0 ||
       std::memcmp(header + 10U, config.local_mac_addr, 6U) == 0) return false;
 
-  if (header[0] == kNullDataFrameControl) {  // Non-QoS Null Data has no body.
-    return info->rx_ctrl.sig_len == kMacHeaderBytes + kFcsBytes;
+  if (header[0] == kNullDataFrameControl) {
+    if (info->rx_ctrl.sig_len == kMacHeaderBytes + kFcsBytes) return true;
+    // Accept only the two zero padding bytes used by direct HT20/VHT20 generators.
+    // Bound reads by both the MPDU and the driver-provided body length.
+    return info->rx_ctrl.sig_len == TRAFFIC_NULL_DATA_PEER_FRAME_SIZE + kFcsBytes &&
+           (csi_info_is_ht20_sensing(info) || csi_info_is_vht20_sensing(info)) &&
+           info->payload != nullptr &&
+           info->payload_len >= TRAFFIC_NULL_DATA_PEER_FRAME_SIZE - kMacHeaderBytes &&
+           info->payload[0] == 0U && info->payload[1] == 0U;
   }
   if (header[0] != kActionFrameControl || info->payload == nullptr) return false;
   // ESP-NOW is a vendor-specific action, followed by one or more vendor
@@ -68,8 +77,8 @@ bool matches_external_radio(const wifi_csi_info_t *info, const CsiFrameFilterCon
   const uint8_t *body = info->payload;
   // On an ESP32-S3 receiver with ESP-IDF 5.5.5, payload points past the MAC
   // header while payload_len still reports the whole MPDU. Never parse that
-  // stale tail. Other chips are unvalidated; a payload that starts at the
-  // MAC header fails the category check below.
+  // stale tail. A payload that starts at the MAC header fails the category
+  // check below.
   const size_t length = info->rx_ctrl.sig_len - kMacHeaderBytes - kFcsBytes;
   if (length < kEspNowMinBodyBytes || length > kEspNowMaxBodyBytes ||
       info->payload_len < length || body[0] != 127U ||

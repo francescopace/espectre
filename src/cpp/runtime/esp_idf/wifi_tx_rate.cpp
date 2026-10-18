@@ -6,11 +6,20 @@
  */
 #include "wifi_tx_rate.h"
 #include "network_traffic.h"
+#include "esp_idf_version.h"
 
 #include "core/espectre_log.h"
 
 #if !CONFIG_ESP_WIFI_AMPDU_TX_ENABLED
 #include "esp_private/wifi.h"
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32C5 && ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5)
+// ESP-IDF 5.5.5 validates raw VHT against the interface's 2.4 GHz PHY field,
+// even on a 5 GHz link. Its successful public path delegates to this setter,
+// which copies one wifi_tx_rate_config_t. Keep the ABI workaround version-bound.
+extern "C" void ic_set_80211_tx_rate_config(uint8_t ifx, const wifi_tx_rate_config_t *config);
+static_assert(sizeof(wifi_tx_rate_config_t) == 12U, "Unexpected ESP-IDF 5.5.5 raw TX ABI");
 #endif
 
 namespace espectre {
@@ -22,8 +31,22 @@ esp_err_t apply_raw_tx_rate(const wifi_ap_record_t &ap, bool direct_peer) {
   wifi_tx_rate_config_t rate_config{};
   rate_config.phymode = direct_peer ? WIFI_PHY_MODE_HT20 :
       (ap.primary > 14U ? WIFI_PHY_MODE_11A : WIFI_PHY_MODE_11G);
+#if CONFIG_IDF_TARGET_ESP32C5
+  if (direct_peer && ap.primary > 14U) rate_config.phymode = WIFI_PHY_MODE_VHT20;
+#endif
   rate_config.rate = rate;
   const esp_err_t err = esp_wifi_config_80211_tx(WIFI_IF_STA, &rate_config);
+#if CONFIG_IDF_TARGET_ESP32C5 && ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5)
+  if (err == ESP_FAIL && direct_peer && ap.primary > 14U) {
+    wifi_phy_mode_t negotiated{};
+    if (esp_wifi_sta_get_negotiated_phymode(&negotiated) == ESP_OK &&
+        negotiated == WIFI_PHY_MODE_VHT20) {
+      ic_set_80211_tx_rate_config(WIFI_IF_STA, &rate_config);
+      ESPECTRE_LOGW("WiFiRate", "Applied ESP-IDF 5.5.5 raw VHT20 compatibility workaround");
+      return ESP_OK;
+    }
+  }
+#endif
 #else
   (void)ap;
   // ESP-IDF 5.5.5 accepts the newer API but leaves raw TX at 1 Mbps on ESP32/S2/S3/C3.

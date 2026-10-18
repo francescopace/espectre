@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "csi_frame_identity.h"
+#include "null_data_frame.h"
 #include "lwip/inet.h"
 
 using namespace espectre;
@@ -481,6 +482,74 @@ void test_external_radio_requires_direct_local_unicast_and_valid_header(void) {
   }
 }
 
+void check_external_padded_null(CsiCaptureProfile profile) {
+  const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+  for (size_t length : {TRAFFIC_NULL_DATA_FRAME_SIZE + 1U,
+                        TRAFFIC_NULL_DATA_PEER_FRAME_SIZE,
+                        TRAFFIC_NULL_DATA_PEER_FRAME_SIZE + 1U}) {
+    auto frame = radio_frame();
+    frame.resize(length, 0U);
+    for (bool matching_phy : {false, true}) {
+      auto info = radio_info(frame);
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+      info.rx_ctrl.cur_bb_format = matching_phy ? (profile == CsiCaptureProfile::VHT20 ? RX_BB_FORMAT_VHT : RX_BB_FORMAT_HT) : RX_BB_FORMAT_11G;
+#else
+      info.rx_ctrl.sig_mode = matching_phy ? 1U : 0U;
+#endif
+      TEST_ASSERT_EQUAL(matching_phy && length == TRAFFIC_NULL_DATA_PEER_FRAME_SIZE,
+                        matches_once(&info, config, profile));
+    }
+  }
+  auto frame = radio_frame();
+  frame.resize(TRAFFIC_NULL_DATA_PEER_FRAME_SIZE, 0U);
+  auto valid = radio_info(frame);
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  valid.rx_ctrl.cur_bb_format = profile == CsiCaptureProfile::VHT20 ? RX_BB_FORMAT_VHT : RX_BB_FORMAT_HT;
+#else
+  valid.rx_ctrl.sig_mode = 1U;
+#endif
+  for (auto mode : {TrafficGeneratorMode::PING, TrafficGeneratorMode::DNS,
+                    TrafficGeneratorMode::DNS_TCP, TrafficGeneratorMode::WIFI_RAW}) {
+    TEST_ASSERT_FALSE(matches_once(&valid, filter(mode), profile));
+  }
+  for (size_t i = TRAFFIC_NULL_DATA_FRAME_SIZE; i < frame.size(); ++i) {
+    frame[i] = 1U;
+    TEST_ASSERT_FALSE(matches_once(&valid, config, profile));
+    frame[i] = 0U;
+  }
+  auto info = valid;
+  info.payload_len = 1U;
+  TEST_ASSERT_FALSE(matches_once(&info, config, profile));
+  info = valid;
+  info.payload = nullptr;
+  TEST_ASSERT_FALSE(matches_once(&info, config, profile));
+  info = valid;
+  info.payload = frame.data();  // A driver exposing the MAC header must fail closed.
+  TEST_ASSERT_FALSE(matches_once(&info, config, profile));
+  info = valid;
+  info.payload_len = frame.size();  // Some drivers include the MAC header in this length.
+  TEST_ASSERT_TRUE(matches_once(&info, config, profile));
+  info = valid;
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  info.rx_ctrl.second = 1U;
+#else
+  info.rx_ctrl.cwb = 1U;
+#endif
+  TEST_ASSERT_FALSE(matches_once(&info, config, profile));
+  info = valid;
+  info.dmac[0] ^= 2U;
+  TEST_ASSERT_FALSE(matches_once(&info, config, profile));
+  frame[1] = 1U;
+  TEST_ASSERT_FALSE(matches_once(&valid, config, profile));
+}
+
+void test_external_padded_null_requires_ht20_or_vht20_and_exact_zero_padding(void) {
+  check_external_padded_null(CsiCaptureProfile::HT20);
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  check_external_padded_null(CsiCaptureProfile::VHT20);
+#endif
+}
+
 void test_external_espnow_rejects_malformed_or_truncated_vendor_actions(void) {
   const auto config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
   const auto original = radio_frame(true);
@@ -670,6 +739,7 @@ int main() {
   RUN_TEST(test_external_accepts_unicast_ping_requests);
   RUN_TEST(test_external_accepts_direct_null_and_espnow_without_ip_identity);
   RUN_TEST(test_external_radio_requires_direct_local_unicast_and_valid_header);
+  RUN_TEST(test_external_padded_null_requires_ht20_or_vht20_and_exact_zero_padding);
   RUN_TEST(test_external_espnow_rejects_malformed_or_truncated_vendor_actions);
   RUN_TEST(test_external_espnow_v2_accepts_multiple_complete_elements);
   RUN_TEST(test_external_espnow_bounds_driver_payload_length_by_mpdu_length);

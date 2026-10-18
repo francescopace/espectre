@@ -77,8 +77,9 @@ config ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC
     default "auto"
     help
         auto follows the currently associated AP, including after a BSSID pin
-        change. A unicast MAC sends direct HT20 MCS0 Null Data to that peer on
-        the same channel. Local sensing keeps LLTF. Ignored outside wifi_raw.
+        change. A unicast MAC sends direct MCS0 Null Data on the same channel:
+        HT20 on 2.4 GHz, VHT20 on C5 5 GHz. Local sensing keeps LLTF.
+        Ignored outside wifi_raw.
 
 choice ESPECTRE_CSI_CAPTURE_PROFILE
     prompt "CSI capture profile"

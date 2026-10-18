@@ -8,6 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include "esp_idf_version.h"
 #include <poll.h>
 #include <cstdint>
 #include <cstring>
@@ -16,6 +17,7 @@
 #include "esp_wifi.h"
 #include "csi_frame_identity.h"
 #include "traffic_generator_service.h"
+#include "wifi_tx_rate.h"
 #include "sdkconfig.h"
 #include "esphome/core/log.h"
 #include "esp_private/wifi.h"
@@ -863,6 +865,41 @@ void test_traffic_generator_rejects_missing_gateway_or_rate_and_resets_pause(voi
     }
 }
 
+void test_raw_vht20_compatibility_preserves_unrelated_driver_errors(void) {
+#if CONFIG_IDF_TARGET_ESP32C5
+  wifi_ap_record_t ap{};
+  ap.primary = 40;
+  g_esp_wifi_mock.negotiated_phymode = WIFI_PHY_MODE_VHT20;
+  TEST_ASSERT_EQUAL(ESP_OK, apply_raw_tx_rate(ap, true));
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.raw_rate_compat_call_count);
+  g_esp_wifi_mock.raw_rate_result = ESP_FAIL;
+#if ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5)
+  TEST_ASSERT_EQUAL(ESP_OK, apply_raw_tx_rate(ap, true));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.raw_rate_compat_call_count);
+  TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_mock.raw_rate_interface);
+  TEST_ASSERT_EQUAL(WIFI_PHY_MODE_VHT20, g_esp_wifi_mock.raw_rate_config.phymode);
+  TEST_ASSERT_EQUAL(WIFI_PHY_RATE_MCS0_LGI, g_esp_wifi_mock.raw_rate_config.rate);
+#else
+  TEST_ASSERT_EQUAL(ESP_FAIL, apply_raw_tx_rate(ap, true));
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.raw_rate_compat_call_count);
+#endif
+  const int calls = g_esp_wifi_mock.raw_rate_compat_call_count;
+  TEST_ASSERT_EQUAL(ESP_FAIL, apply_raw_tx_rate(ap, false));
+  ap.primary = 2;
+  TEST_ASSERT_EQUAL(ESP_FAIL, apply_raw_tx_rate(ap, true));
+  ap.primary = 40;
+  g_esp_wifi_mock.negotiated_phymode = WIFI_PHY_MODE_HT20;
+  TEST_ASSERT_EQUAL(ESP_FAIL, apply_raw_tx_rate(ap, true));
+  g_esp_wifi_mock.negotiated_phymode = WIFI_PHY_MODE_VHT20;
+  g_esp_wifi_mock.negotiated_phymode_result = ESP_FAIL;
+  TEST_ASSERT_EQUAL(ESP_FAIL, apply_raw_tx_rate(ap, true));
+  g_esp_wifi_mock.negotiated_phymode_result = ESP_OK;
+  g_esp_wifi_mock.raw_rate_result = ESP_ERR_INVALID_ARG;
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, apply_raw_tx_rate(ap, true));
+  TEST_ASSERT_EQUAL(calls, g_esp_wifi_mock.raw_rate_compat_call_count);
+#endif
+}
+
 void test_raw_peer_destination_and_return_to_auto(void) {
   TrafficGeneratorService generator;
   active_generator = &generator;
@@ -873,26 +910,46 @@ void test_raw_peer_destination_and_return_to_auto(void) {
                          "01:11:22:33:44:55", "10:b4:1d:e8:ec:0", "10:b4:1d:e8:ec:00x"}) {
     TEST_ASSERT_FALSE(generator.set_target_mac(bad));
   }
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  for (int attempt = 0; attempt < 5; ++attempt) {
     // Peer addressing is independent of association. Returning to auto uses the latest AP.
     g_esp_wifi_mock.current_ap_info.bssid[5] += 1;
-    TEST_ASSERT_TRUE(generator.set_target_mac(attempt < 2 ? "10:B4:1D:E8:EC:00" : "auto"));
+#if CONFIG_IDF_TARGET_ESP32C5
+    g_esp_wifi_mock.current_ap_info.primary = (attempt == 1 || attempt == 3) ? 36 : 2;
+#endif
+    TEST_ASSERT_TRUE(generator.set_target_mac(attempt < 3 ? "10:B4:1D:E8:EC:00" : "auto"));
     generator.init(100, TrafficGeneratorMode::WIFI_RAW);
     g_esp_wifi_mock.raw_tx_call_count = 0;
     TEST_ASSERT_TRUE(generator.start(0));
     const auto *frame = g_esp_wifi_mock.raw_tx_frame;
+    TEST_ASSERT_EQUAL(attempt < 3 ? TRAFFIC_NULL_DATA_PEER_FRAME_SIZE : TRAFFIC_NULL_DATA_FRAME_SIZE,
+                      g_esp_wifi_mock.raw_tx_length);
+    if (attempt < 3) {
+      TEST_ASSERT_EQUAL(0U, frame[TRAFFIC_NULL_DATA_FRAME_SIZE]);
+      TEST_ASSERT_EQUAL(0U, frame[TRAFFIC_NULL_DATA_FRAME_SIZE + 1U]);
+    }
     TEST_ASSERT_EQUAL(0x48, frame[0]);
-    TEST_ASSERT_EQUAL(attempt < 2 ? 0 : 1, frame[1]);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 2 ? peer : g_esp_wifi_mock.current_ap_info.bssid, frame + 4, 6);
+    TEST_ASSERT_EQUAL(attempt < 3 ? 0 : 1, frame[1]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 3 ? peer : g_esp_wifi_mock.current_ap_info.bssid, frame + 4, 6);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(g_esp_wifi_mock.mac, frame + 10, 6);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 2 ? wildcard : g_esp_wifi_mock.current_ap_info.bssid, frame + 16, 6);
-    TEST_ASSERT_EQUAL(attempt < 2 ? WIFI_PHY_RATE_MCS0_LGI : WIFI_PHY_RATE_6M, g_esp_wifi_mock.raw_rate_config.rate);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(attempt < 3 ? wildcard : g_esp_wifi_mock.current_ap_info.bssid, frame + 16, 6);
+    TEST_ASSERT_EQUAL(attempt < 3 ? WIFI_PHY_RATE_MCS0_LGI : WIFI_PHY_RATE_6M, g_esp_wifi_mock.raw_rate_config.rate);
 #if CONFIG_IDF_TARGET_ESP32C5
-    if (attempt < 2) TEST_ASSERT_EQUAL(WIFI_PHY_MODE_HT20, g_esp_wifi_mock.raw_rate_config.phymode);
+    const bool is_5g = g_esp_wifi_mock.current_ap_info.primary > 14U;
+    TEST_ASSERT_EQUAL(attempt < 3 ? (is_5g ? WIFI_PHY_MODE_VHT20 : WIFI_PHY_MODE_HT20)
+                                  : (is_5g ? WIFI_PHY_MODE_11A : WIFI_PHY_MODE_11G),
+                      g_esp_wifi_mock.raw_rate_config.phymode);
 #endif
     TEST_ASSERT_FALSE(g_esp_wifi_mock.promiscuous);
   }
-  uint8_t frame[24]{};
+  uint8_t frame[TRAFFIC_NULL_DATA_PEER_FRAME_SIZE];
+  std::memset(frame, 0xA5, sizeof(frame));
+  TEST_ASSERT_EQUAL(0, build_null_data_frame(peer, g_esp_wifi_mock.mac, frame,
+                                            TRAFFIC_NULL_DATA_PEER_FRAME_SIZE - 1U, true));
+  TEST_ASSERT_EQUAL(0xA5, frame[0]);
+  TEST_ASSERT_EQUAL(TRAFFIC_NULL_DATA_PEER_FRAME_SIZE,
+                    build_null_data_frame(peer, g_esp_wifi_mock.mac, frame, sizeof(frame), true));
+  TEST_ASSERT_EQUAL(0U, frame[TRAFFIC_NULL_DATA_FRAME_SIZE]);
+  TEST_ASSERT_EQUAL(0U, frame[TRAFFIC_NULL_DATA_FRAME_SIZE + 1U]);
   TEST_ASSERT_EQUAL(0, build_null_data_frame(peer, peer, frame, sizeof(frame), true));
   std::memcpy(g_esp_wifi_mock.mac, peer, sizeof(peer));
   TEST_ASSERT_TRUE(traffic_target_mac_is_station("10:B4:1D:E8:EC:00"));
@@ -936,6 +993,7 @@ void test_raw_destination_waits_for_the_old_worker_before_retargeting(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_raw_peer_destination_and_return_to_auto);
+    RUN_TEST(test_raw_vht20_compatibility_preserves_unrelated_driver_errors);
     RUN_TEST(test_raw_destination_waits_for_the_old_worker_before_retargeting);
     RUN_TEST(test_dns_udp_generator_sends_one_paced_query_per_wait);
     RUN_TEST(test_ping_generator_counts_rejected_sends_as_errors);

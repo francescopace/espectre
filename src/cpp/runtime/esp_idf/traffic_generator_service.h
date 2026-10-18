@@ -43,6 +43,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "runtime/csi_traffic_service.h"
+#include "null_data_frame.h"
 
 namespace espectre {
 
@@ -100,11 +101,6 @@ inline bool should_report_traffic_send_delay(int64_t now_us, int64_t &last_repor
 
 constexpr size_t TRAFFIC_DNS_QUERY_PAYLOAD_SIZE = 17U;
 constexpr size_t TRAFFIC_DNS_TCP_FRAME_SIZE = TRAFFIC_DNS_QUERY_PAYLOAD_SIZE + 2U;
-constexpr size_t TRAFFIC_NULL_DATA_FRAME_SIZE = 24U;
-
-size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
-                             uint8_t *buffer, size_t buffer_len, bool direct_peer = false);
-
 /** Whether an explicit raw destination is this station's MAC; false for `auto` or before Wi-Fi starts. */
 bool traffic_target_mac_is_station(const std::string &target);
 
@@ -213,7 +209,8 @@ class TrafficGeneratorService final : public ICsiTrafficGenerator {
   std::string target_mac_{"auto"};
   std::string staged_target_mac_{"auto"};
   uint16_t icmp_identifier_{0U};
-  uint8_t null_data_frame_[TRAFFIC_NULL_DATA_FRAME_SIZE]{};
+  uint8_t null_data_frame_[TRAFFIC_NULL_DATA_PEER_FRAME_SIZE]{};
+  size_t null_data_frame_length_{0U};
   std::atomic<uint32_t> current_rate_pps_{0U};
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};

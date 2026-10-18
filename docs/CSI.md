@@ -21,7 +21,7 @@ The runtime never switches source on its own. Low occupancy is reported as a dia
 
 `ping`, `dns`, and `dns_tcp` send to `traffic_generator_target_ip`, or to the Wi-Fi gateway when it is empty. The address is refreshed after every reconnect. See [traffic destination](SDK.md#traffic-destination) for valid values.
 
-`wifi_raw` measures CSI on the ACKs answering its Null Data frames. With `traffic_generator_target_mac: auto` (default), it sends to the currently associated AP at 6 Mbps and refreshes that destination after every reconnect, roam, or BSSID pin change. With an explicit unicast MAC, it sends directly to that peer at HT20 MCS0 with long GI, clears ToDS/FromDS, and uses a wildcard BSSID. This lets another ESPectre in `external`/HT20 receive the frames while the transmitter keeps sensing ACKs in LLTF. Both devices must use the same channel. An explicit destination does not follow the AP. No generator role or promiscuous mode is needed.
+`wifi_raw` measures CSI on the ACKs answering its Null Data frames. With `traffic_generator_target_mac: auto` (default), it sends to the currently associated AP at 6 Mbps and refreshes that destination after every reconnect, roam, or BSSID pin change. With an explicit unicast MAC, it sends directly to that peer at MCS0 with long GI (HT20 on 2.4 GHz, VHT20 on C5 5 GHz), clears ToDS/FromDS, and uses a wildcard BSSID. This lets another ESPectre in `external` receive the matching HT20 or VHT20 frames while the transmitter keeps sensing ACKs in LLTF. Both devices must use the same channel. An explicit destination does not follow the AP. No generator role or promiscuous mode is needed.
 
 If the driver rejects the selected rate, `wifi_raw` does not start. It ignores the IP destination. Set the MAC through the SDK or Monitor → Advanced sensing settings; see [traffic destination](SDK.md#traffic-destination) and the [compatibility limits](#compatibility-limits).
 
@@ -41,9 +41,11 @@ If the access point does not support the selected rate, or TX A-MPDU is enabled,
 
 In `external` mode the internal generator stops, and another host sends the packets and sets the pace. The ESP-IDF frontends accept UDP markers, by unicast or on the configured multicast group, unicast ICMP Echo Requests, direct non-QoS Null Data frames, and unencrypted unicast ESP-NOW frames addressed to the device. An empty multicast group disables the multicast join. See [external CSI traffic](API.md#external-csi-traffic) for frame validation and addressing.
 
-An ESP32 transmitter can send Null Data or ESP-NOW directly to the receiver's station MAC on the same channel. These frames supply CSI on reception; they do not use the ACK capture path of internal `wifi_raw`. The default `auto` policy selects `ht20` on a 2.4 GHz link in `external` mode. Both sources work at HT20 MCS0 with this profile. Legacy OFDM at 6 Mbps instead requires a receiver built with the `lltf` capture policy. ESP-NOW's default 1 Mbps rate does not supply the required OFDM training field. The capture policy does not change automatically with the sender.
+An ESP32 transmitter can send Null Data or ESP-NOW directly to the receiver's station MAC on the same channel. These frames supply CSI on reception; they do not use the ACK capture path of internal `wifi_raw`. The default `auto` policy selects `ht20` on a 2.4 GHz link in `external` mode. Configure either source at HT20 MCS0 to match this profile. On a C5 at 5 GHz, `auto` selects `vht20`; configure direct Null Data at VHT20 MCS0 instead. Legacy OFDM at 6 Mbps instead requires a receiver built with the `lltf` capture policy. ESP-NOW's default 1 Mbps rate does not supply the required OFDM training field. The capture policy does not change automatically with the sender.
 
-For direct Null Data at MCS0, configure the transmitter bandwidth explicitly with `esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20)`, and use `FF:FF:FF:FF:FF:FF` as the BSSID in address 3. Keep address 1 equal to the receiver's station MAC, address 2 equal to the transmitter's station MAC, and `ToDS = FromDS = 0`. The destination remains unicast. ESP-NOW uses the same [connectionless MAC addressing](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_now.html#frame-format), and its per-peer PHY configuration selects HT20 independently of the interface's default bandwidth. Set the raw rate with `esp_wifi_config_80211_tx_rate()` before starting Wi-Fi, as specified by [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_wifi.html).
+Direct HT20 and VHT20 Null Data senders must append two zero bytes after the 24-byte MAC header: pass 26 bytes to the TX API, for 30 bytes including FCS. The built-in peer generator adds this padding automatically. Frames without padding remain accepted by the filter, but produce invalid CSI on ESP32-C6 revision 0.1 with ESP-IDF 5.5.5. Unicast ESP-NOW at HT20 MCS0 is another supported source. See the [radio validation results](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation) for receiver coverage and limitations.
+
+For direct Null Data at MCS0, configure the transmitter bandwidth explicitly with `esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20)`, and use `FF:FF:FF:FF:FF:FF` as the BSSID in address 3. Keep address 1 equal to the receiver's station MAC, address 2 equal to the transmitter's station MAC, and `ToDS = FromDS = 0`. The destination remains unicast. ESP-NOW uses the same [connectionless MAC addressing](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c3/api-reference/network/esp_now.html#frame-format), and its per-peer PHY configuration selects HT20 independently of the interface's default bandwidth. On C5, select both the PHY mode and rate with `esp_wifi_config_80211_tx()`; use `esp_wifi_config_80211_tx_rate()` on classic ESP32, S2, S3, and C3. Follow the initialization requirements in the [ESP-IDF Wi-Fi API](https://docs.espressif.com/projects/esp-idf/en/v5.5.5/esp32c5/api-reference/network/esp_wifi.html).
 
 For hardware validation, see the [external radio and peer sensing checks](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation).
 
@@ -61,10 +63,12 @@ An explicit `traffic_generator_target_mac` lets two ESPectre devices form a dire
 |------------------|-------------------------|-----------------------------|
 | `traffic_generator_mode` | `wifi_raw` | `external` |
 | `traffic_generator_target_mac` | B's Wi-Fi station MAC | Ignored in `external` mode |
-| Build-time capture policy | `auto` or `lltf` | `auto` or `ht-vht`, on 2.4 GHz |
-| Measured input | B's ACKs, in LLTF | A's direct HT20 MCS0 Null Data frames |
+| Build-time capture policy | `auto` or `lltf` | `auto` or `ht-vht` |
+| Measured input | B's ACKs, in LLTF | A's direct MCS0 Null Data frames: HT20 on 2.4 GHz, VHT20 on 5 GHz |
 
-Keep both devices connected to Wi-Fi on the same 2.4 GHz channel and use the same `csi_target_pps`. A supplies the traffic cadence; B's configured rate sets its detector timing. Connecting both to the same AP is the simplest arrangement. On a mesh, pin both to the same BSSID to prevent independent roaming onto different channels. The explicit peer MAC stays fixed after an AP change; it does not make the peer follow a channel change. ESP32-C6 cannot be A because `wifi_raw` is unsupported; see [compatibility limits](#compatibility-limits). No separate generator firmware or device role is needed.
+Keep both devices connected to Wi-Fi on the same channel (2.4 GHz, or 5 GHz with two C5 boards) and use the same `csi_target_pps`. A supplies the traffic cadence; B's configured rate sets its detector timing. Connecting both to the same AP is the simplest arrangement. On a mesh, pin both to the same BSSID to prevent independent roaming onto different channels. The explicit peer MAC stays fixed after an AP change; it does not make the peer follow a channel change. No separate generator firmware or device role is needed. Update both peer firmwares together: older receivers that only accept 28-byte Null Data reject the padded 30-byte form.
+
+For a C5/C6 pair, use C5 as A and C6 as B. C6 measures the incoming padded HT20 Null Data frames, and C5 measures the ACKs returned by C6. C6 cannot be A because its ACK CSI acquisition is unsupported; see [compatibility limits](#compatibility-limits).
 
 Each device runs its own detector and publishes its own motion state. There is no fused pair state or spatial boundary. An oval around the endpoints is only a placement sketch: reflected paths can make movement outside it visible, and movement inside it can still be missed. Stop other external traffic sources feeding B while evaluating the direct link, and test both desired and unwanted detection areas. The [two-device placement guide](https://espectre.dev/guides/placement/#placement-pair) covers the Monitor setup and room test; [traffic destination](SDK.md#traffic-destination) covers configuration interfaces and validation.
 
@@ -87,7 +91,7 @@ The estimates below compare all traffic sources under one explicit radio model. 
 - **Framing:** IPv4 headers are `20 B`, UDP headers are `8 B`, and established TCP headers are `20 B`, without options. Unicast IP packets add `54 B`: a `26 B` QoS MAC header, `8 B` LLC/SNAP, `8 B` CCMP header, `8 B` CCMP MIC, and `4 B` FCS. True multicast uses a `24 B` non-QoS MAC header, so its overhead is `52 B`. There is no aggregation, fragmentation, RTS/CTS, CTS-to-self, or retransmission.
 - **DNS:** the query is `17 B`. Each response is assumed to contain `R = 100 B` of DNS data, before UDP headers or the TCP length prefix. This is an illustrative response size, not a measured average or a fixed resolver behavior. DNS over TCP adds a `2 B` length prefix to each message. Each query and response occupies one TCP segment on an already established connection.
 - **Acknowledgments:** each unicast data or Null Data frame gets one `14 B` Wi-Fi ACK after `10 µs` SIFS. True multicast gets no Wi-Fi ACK or application reply. TCP acknowledgments are separate from Wi-Fi ACKs: the TCP range allows zero to two additional standalone TCP ACK segments per query/response cycle, depending on piggybacking and delayed ACKs. Connection setup, teardown, and recovery are excluded.
-- **External traffic:** UDP uses the current [four-byte marker](API.md#external-csi-traffic). The ICMP example uses an `8 B` Echo header with no extra payload, matching the internal ping size; a host ping tool may send a larger payload. The multicast row assumes one AP transmission reaches all devices at the stated HT rate, without conversion to unicast. Direct Null Data is a `28 B` frame without payload. Unencrypted ESP-NOW with `P` data bytes in one element is `43 + P B`: a `24 B` MAC header, an `8 B` action header, a `7 B` element header, the data, and a `4 B` FCS. The example uses `P = 1`.
+- **External traffic:** UDP uses the current [four-byte marker](API.md#external-csi-traffic). The ICMP example uses an `8 B` Echo header with no extra payload, matching the internal ping size; a host ping tool may send a larger payload. The multicast row assumes one AP transmission reaches all devices at the stated HT rate, without conversion to unicast. Direct Null Data is `28 B` at legacy OFDM, or `30 B` with the two zero padding bytes used for HT20 and VHT20. The model covers HT20 at 2.4 GHz. Unencrypted ESP-NOW with `P` data bytes in one element is `43 + P B`: a `24 B` MAC header, an `8 B` action header, a `7 B` element header, the data, and a `4 B` FCS. The example uses `P = 1`.
 
 #### Comparison at 100 cycles per second
 
@@ -102,10 +106,10 @@ Frame lengths below include the MAC header, encryption overhead where applicable
 | External UDP unicast | `86 B` per device | `214 µs` | `2.14%` | `21.40%` |
 | External UDP true multicast | One shared `84 B` frame | `150 µs` | `1.50%` | `1.50%` |
 | External ICMP unicast, no extra payload | `82 + 82 B` | `420 µs` | `4.20%` | `42.00%` |
-| External direct Null Data, OFDM 6 Mbps or HT20 MCS0 | `28 B` | `130–142 µs` | `1.30–1.42%` | `13.00–14.20%` |
+| External direct Null Data, OFDM 6 Mbps or HT20 MCS0 | `28 B` or `30 B` | `130–146 µs` | `1.30–1.46%` | `13.00–14.60%` |
 | External ESP-NOW, `P = 1`, OFDM 6 Mbps or HT20 MCS0 | `44 B` | `150–162 µs` | `1.50–1.62%` | `15.00–16.20%` |
 
-A projection at or above `100%` cannot fit on the channel even before contention and other traffic. The TCP range describes the specified segment and ACK patterns, not a worst-case upper bound. Larger DNS responses, TCP options, split responses, and reconnects add traffic. `wifi_raw` has no IP, LLC/SNAP, or CCMP payload: its `24 B` Null Data header plus `4 B` FCS gets only a Wi-Fi ACK. Its smaller exchange does not remove the [chip and capture restrictions](#compatibility-limits).
+A projection at or above `100%` cannot fit on the channel even before contention and other traffic. The TCP range describes the specified segment and ACK patterns, not a worst-case upper bound. Larger DNS responses, TCP options, split responses, and reconnects add traffic. `wifi_raw` has no IP, LLC/SNAP, or CCMP payload: its `24 B` Null Data header, two zero bytes for an HT20 or VHT20 peer, and `4 B` FCS get only a Wi-Fi ACK. AP-directed frames have no padding. Its smaller exchange does not remove the [chip and capture restrictions](#compatibility-limits).
 
 #### Reproducing the estimates
 
@@ -123,7 +127,7 @@ dns_tcp             = U(113) + U(96 + R) + k × U(94), k = 0..2
 wifi_raw            = T_OFDM(28) + 10 + T_ACK
 external UDP unicast = U(86)
 external multicast  = T_HT(84)
-direct Null Data    = T(28) + 10 + T_ACK
+direct Null Data    = T_OFDM(28) + 10 + T_ACK, or T_HT(30) + 10 + T_ACK
 ESP-NOW             = T(43 + P) + 10 + T_ACK
 T                   = T_OFDM at 6 Mbps, or T_HT at MCS0
 
@@ -165,7 +169,7 @@ A capture profile decides which part of the Wi-Fi frame is measured. Set it at b
 - A profile change clears pending samples and detector history. Wi-Fi stays connected.
 - Changing the traffic mode restarts Lightweight calibration. High Accuracy keeps its threshold.
 
-The band is set separately to `2g`, `5g`, or `auto`. `auto`, the default, uses the bands the radio has, so it means 2.4 GHz on single-band chips. `5g` needs a dual-band chip such as ESP32-C5. Published ESP32-C5 firmware uses `auto`. Bandwidth is always 20 MHz. Only 2.4 GHz is validated; 5 GHz detection quality has not been measured yet. The reasons for this design are in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
+The band is set separately to `2g`, `5g`, or `auto`. `auto`, the default, uses the bands the radio has, so it means 2.4 GHz on single-band chips. `5g` needs a dual-band chip such as ESP32-C5. Published ESP32-C5 firmware uses `auto`. Bandwidth is always 20 MHz. Direct C5 peer acquisition is also checked at 5 GHz; detector accuracy is validated by the 2.4 GHz dataset. See the [radio validation results](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation) for hardware coverage. The reasons for this design are in [2026-07-23-adopt-classifier-first-ht20-sensing-contract.md](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
 ## Capture quality
 
@@ -202,10 +206,10 @@ Raw collection keeps the normalized data and hardware flags without those fills.
 
 ## Compatibility limits
 
-`wifi_raw` is stable on supported chips. It is not available on ESP32-C6 in any frontend. A saved `wifi_raw` selection on C6 is ignored. Use `ping`, `dns`, or `dns_tcp` instead.
+`wifi_raw` is stable on supported chips. It is not available on ESP32-C6 in any frontend. A saved `wifi_raw` selection on C6 is ignored. Use `ping`, `dns`, or `dns_tcp` for internal traffic, or `external` with a compatible sender.
 
-On ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, ACK CSI estimates were invalid ([esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062)). The restriction applies to all C6 revisions until a working setup is validated. The hardware trials are in the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
+On ESP32-C6 revision 0.1 with ESP-IDF 5.5.5, received ACKs produced invalid CSI after both Null Data and unicast ESP-NOW transmissions ([esp-idf#19062](https://github.com/espressif/esp-idf/issues/19062)). Padding the outgoing Null Data frame or increasing the ESP-NOW payload does not fix this: the returning ACK remains 14 bytes. The `wifi_raw` restriction applies to all C6 revisions until a working setup is validated. The hardware trials are in the [C5/C6 investigation](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#c5c6-short-frame-csi-investigation).
 
-For direct Null Data and ESP-NOW in `external` mode, match the transmitter's PHY rate to the receiver's capture profile, and [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input) to confirm that CSI samples are accepted.
+ESP32-C6 can receive valid CSI from unicast ESP-NOW and padded direct Null Data in `external`/HT20 mode. These measurements use the incoming frame itself. For either source, match the transmitter's PHY rate to the receiver's capture profile, and [check the sensing input](TROUBLESHOOTING.md#check-the-sensing-input) to confirm that CSI samples are accepted.
 
 Detection results are in the [performance report](performance/README.md).

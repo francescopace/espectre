@@ -95,7 +95,7 @@ target_compile_definitions(test_traffic_generator_ampdu PRIVATE
 )
 
 # Explicit choices override the shared default; C5 exercises the modern raw API.
-foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed)
+foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed c5_next_idf)
     add_espectre_test(test_traffic_generator_${variant}
         "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
         LIBRARIES espectre_runtime_testlib
@@ -119,6 +119,11 @@ target_compile_definitions(test_traffic_generator_c5_auto PRIVATE
 target_compile_definitions(test_traffic_generator_c5_fixed PRIVATE
     CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1
     CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"6\"
+)
+
+target_compile_definitions(test_traffic_generator_c5_next_idf PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1 ESP_IDF_VERSION=0x050506
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 
 add_espectre_test(test_runtime_helpers
@@ -301,6 +306,17 @@ add_espectre_test(test_csi_pipeline
 add_espectre_test(test_csi_frame_identity
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_frame_identity.cpp"
     LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_csi_frame_identity_c5
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_csi_frame_identity.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+target_sources(test_csi_frame_identity_c5 PRIVATE
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
+)
+target_compile_definitions(test_csi_frame_identity_c5 PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1 CONFIG_SOC_WIFI_HE_SUPPORT=1
 )
 
 add_espectre_test(test_csi_traffic_service

@@ -29,7 +29,7 @@ Matter already provides pairing, occupancy updates, and Direct controls. Control
 ### External radio sources
 
 - [x] Support direct Null Data and ESP-NOW reception in `external` mode; see [external sources](CSI.md#external-sources) and the [hardware validation summary](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation)
-- [ ] Complete receiver validation on ESP32, ESP32-S2, ESP32-C3, ESP32-C5, and ESP32-C6 across both sources and HT20/LLTF profiles, documenting limits for each combination
+- [x] Validate both sources with HT20 and LLTF on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6, and complete external LLTF receiver validation on ESP32-C5
 
 ### Standalone traffic generator
 

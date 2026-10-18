@@ -165,7 +165,7 @@ class IcmpTrafficProtocol final : public TrafficProtocol {
 
 class WifiRawTrafficProtocol final : public TrafficProtocol {
  public:
-  explicit WifiRawTrafficProtocol(const uint8_t *frame) : frame_(frame) {}
+  WifiRawTrafficProtocol(const uint8_t *frame, size_t length) : frame_(frame), length_(length) {}
 
   const char *name() const override { return RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME; }
   bool uses_socket() const override { return false; }
@@ -179,8 +179,8 @@ class WifiRawTrafficProtocol final : public TrafficProtocol {
     // Arm before the send: the ACK callback can run before esp_wifi_80211_tx() returns.
     CsiAckCredit &ack_credit = csi_station_ack_credit();
     ack_credit.arm(static_cast<uint32_t>(esp_timer_get_time()));
-    const esp_err_t err = esp_wifi_80211_tx(WIFI_IF_STA, frame_, TRAFFIC_NULL_DATA_FRAME_SIZE, true);
-    if (err == ESP_OK) return TRAFFIC_NULL_DATA_FRAME_SIZE;
+    const esp_err_t err = esp_wifi_80211_tx(WIFI_IF_STA, frame_, length_, true);
+    if (err == ESP_OK) return length_;
     ack_credit.clear();
     // Preserve the shared pacing and memory-pressure backoff policy.
     errno = err == ESP_ERR_NO_MEM ? ENOMEM : EIO;
@@ -189,6 +189,7 @@ class WifiRawTrafficProtocol final : public TrafficProtocol {
 
  private:
   const uint8_t *frame_;
+  size_t length_;
 };
 
 TrafficProtocol &select_traffic_protocol(TrafficGeneratorMode mode,
@@ -368,10 +369,11 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
 
 size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
                              uint8_t *buffer, size_t buffer_len, bool direct_peer) {
+  const size_t length = direct_peer ? TRAFFIC_NULL_DATA_PEER_FRAME_SIZE : TRAFFIC_NULL_DATA_FRAME_SIZE;
   if (bssid == nullptr || station_mac == nullptr || buffer == nullptr ||
-      buffer_len < TRAFFIC_NULL_DATA_FRAME_SIZE || is_zero_mac_address(bssid) ||
+      buffer_len < length || is_zero_mac_address(bssid) ||
       is_zero_mac_address(station_mac) || std::memcmp(bssid, station_mac, 6U) == 0 || ((bssid[0] | station_mac[0]) & 0x01U) != 0U) return 0U;
-  std::memset(buffer, 0, TRAFFIC_NULL_DATA_FRAME_SIZE);
+  std::memset(buffer, 0, length);
   buffer[0] = 0x48U;  // Non-QoS Null Data, protocol version zero.
   buffer[1] = direct_peer ? 0x00U : 0x01U;  // AP traffic uses ToDS; peer traffic stays direct.
   std::memcpy(buffer + 4U, bssid, 6U);
@@ -379,7 +381,7 @@ size_t build_null_data_frame(const uint8_t *bssid, const uint8_t *station_mac,
   if (direct_peer) std::memset(buffer + 16U, 0xFF, 6U);
   else std::memcpy(buffer + 16U, bssid, 6U);
   // ESP-IDF supplies the sequence number and FCS.
-  return TRAFFIC_NULL_DATA_FRAME_SIZE;
+  return length;
 }
 
 bool traffic_target_mac_is_station(const std::string &target) {
@@ -478,8 +480,9 @@ bool TrafficGeneratorService::launch_(uint32_t target_addr) {
       ESPECTRE_LOGE(TAG, "Raw destination %s is invalid or this device's own MAC", target_mac_.c_str());
       return false;
     }
-    if (build_null_data_frame(direct_peer ? peer_mac : ap.bssid, station_mac,
-                              null_data_frame_, sizeof(null_data_frame_), direct_peer) == 0U) {
+    null_data_frame_length_ = build_null_data_frame(direct_peer ? peer_mac : ap.bssid, station_mac,
+                                                    null_data_frame_, sizeof(null_data_frame_), direct_peer);
+    if (null_data_frame_length_ == 0U) {
       ESPECTRE_LOGE(TAG, "Cannot build raw Null Data for the associated AP");
       return false;
     }
@@ -487,13 +490,13 @@ bool TrafficGeneratorService::launch_(uint32_t target_addr) {
     const uint8_t *destination = null_data_frame_ + 4U;
     ESPECTRE_LOGI(TAG, "Raw destination %02x:%02x:%02x:%02x:%02x:%02x (%s)",
                   destination[0], destination[1], destination[2], destination[3],
-                  destination[4], destination[5], direct_peer ? "direct HT20 MCS0" : "AP OFDM");
+                  destination[4], destination[5], direct_peer ? (ap.primary > 14U ? "direct VHT20 MCS0" : "direct HT20 MCS0") : "AP OFDM");
   }
 
   DnsTcpTrafficProtocol dns_tcp_protocol;
   DnsUdpTrafficProtocol dns_udp_protocol;
   IcmpTrafficProtocol icmp_protocol(icmp_identifier_);
-  WifiRawTrafficProtocol wifi_raw_protocol(null_data_frame_);
+  WifiRawTrafficProtocol wifi_raw_protocol(null_data_frame_, null_data_frame_length_);
   const TrafficProtocol &protocol =
       select_traffic_protocol(mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol, wifi_raw_protocol);
   if (protocol.uses_socket()) {
@@ -660,7 +663,7 @@ void TrafficGeneratorService::traffic_task_(void *arg) {
   DnsTcpTrafficProtocol dns_tcp_protocol;
   DnsUdpTrafficProtocol dns_udp_protocol;
   IcmpTrafficProtocol icmp_protocol(generator->icmp_identifier_);
-  WifiRawTrafficProtocol wifi_raw_protocol(generator->null_data_frame_);
+  WifiRawTrafficProtocol wifi_raw_protocol(generator->null_data_frame_, generator->null_data_frame_length_);
   TrafficProtocol *protocol =
       &select_traffic_protocol(generator->mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol, wifi_raw_protocol);
   sockaddr_in destination{};
