@@ -549,9 +549,12 @@ void test_improv_serial_flushes_partial_writes_without_blocking(void) {
   TEST_ASSERT_EQUAL(ESP_OK, wifi_provisioning.setup_station(make_defaults()));
 
   std::vector<uint8_t> output;
+  bool output_busy = true;
+  unsigned read_calls = 0U;
   ImprovSerialService service(
-      [](uint8_t *, size_t) { return 0; },
-      [&output](const uint8_t *data, size_t length) {
+      [&read_calls](uint8_t *, size_t) { ++read_calls; return 0; },
+      [&output, &output_busy](const uint8_t *data, size_t length) {
+        if (output_busy) return 0;
         const size_t written = std::min<size_t>(3U, length);
         output.insert(output.end(), data, data + written);
         return static_cast<int>(written);
@@ -559,7 +562,10 @@ void test_improv_serial_flushes_partial_writes_without_blocking(void) {
   TEST_ASSERT_TRUE(service.setup(
       make_improv_wifi_config(&wifi_provisioning, &manager, "esp32s2")));
 
-  TEST_ASSERT_TRUE(output.size() < 20U);
+  for (int iteration = 0; iteration < 10; ++iteration) service.loop();
+  TEST_ASSERT_EQUAL(10U, read_calls);
+  TEST_ASSERT_TRUE(output.empty());
+  output_busy = false;
   for (int iteration = 0; iteration < 8; ++iteration) {
     service.loop();
   }

@@ -40,6 +40,8 @@ mvmt:0.012000 thr:0.500000 | IDLE | gen:100.0 tx:100.0 rx:100.0 cb:120.0 accepte
 
 Missing values appear as `--`. Field definitions are in [API diagnostics](API.md#diagnostics).
 
+On Native boards that use the USB Serial/JTAG console, logs are best effort: when the USB buffer is full, whole log lines are dropped instead of waiting for a closed or slow serial monitor. Very long log lines may be truncated. Keep the monitor open while collecting a trace. Improv responses are retained and retried separately.
+
 ## Low occupancy
 
 1. If traffic or accepted packets are missing, see [No CSI or insufficient input](#no-csi-or-insufficient-input).

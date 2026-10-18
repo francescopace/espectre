@@ -9,6 +9,7 @@
  */
 #include "espectre_sdk.h"
 #include "improv_serial_service.h"
+#include "primary_console.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -24,6 +25,7 @@
 #if defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 #include <driver/usb_serial_jtag.h>
 #include <driver/usb_serial_jtag_vfs.h>
+#include <hal/usb_serial_jtag_ll.h>
 #endif
 
 
@@ -57,6 +59,12 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
   if (!read_callback_ || !write_callback_) {
     if (!usb_serial_jtag_is_driver_installed()) {
       usb_serial_jtag_driver_config_t driver_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+      driver_config.tx_buffer_size = PRIMARY_CONSOLE_TX_BUFFER_SIZE;
+      // Take ownership of the interrupt mask before installing the driver.
+      // A retained SOF enable bit continuously interrupts the C6 because the
+      // IDF driver handles only RX and TX. Preserve pending status: the driver
+      // needs it to receive buffered input and start its first transmission.
+      usb_serial_jtag_ll_disable_intr_mask(USB_SERIAL_JTAG_LL_INTR_MASK);
       const esp_err_t result = usb_serial_jtag_driver_install(&driver_config);
       if (result != ESP_OK) {
         ESPECTRE_LOGE(TAG, "Failed to install the primary USB Serial/JTAG driver: %s", esp_err_to_name(result));
@@ -70,6 +78,8 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     // would expand a checksum byte equal to LF into CRLF, corrupting the frame.
     usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
+    // Improv owns this console, so logs must not wait for a closed monitor.
+    use_nonblocking_usb_log_output();
   }
 #endif
 
@@ -84,6 +94,15 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     };
   }
   if (!write_callback_) {
+#if defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    static_assert(sizeof(transmit_buffer_) <= PRIMARY_CONSOLE_TX_BUFFER_SIZE,
+                  "USB TX must fit the pending Improv response");
+    // Unlike the VFS write path, a zero driver timeout cannot wait for the
+    // host. Keep unsent binary responses in our buffer for a later loop.
+    write_callback_ = [](const uint8_t *data, size_t length) {
+      return usb_serial_jtag_write_bytes(data, length, 0);
+    };
+#else
     const int flags = fcntl(STDOUT_FILENO, F_GETFL, 0);
     if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) {
       ESPECTRE_LOGE(TAG, "Failed to make the primary console output non-blocking: errno=%d", errno);
@@ -92,6 +111,7 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     write_callback_ = [](const uint8_t *data, size_t length) {
       return static_cast<int>(write(STDOUT_FILENO, data, length));
     };
+#endif
   }
 
   config_ = std::move(config);
