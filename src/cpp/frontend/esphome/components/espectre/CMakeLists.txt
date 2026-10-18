@@ -25,6 +25,9 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     target_sources(${COMPONENT_LIB} PRIVATE ${ESPECTRE_FRONTEND_COMMON_SOURCES})
     target_include_directories(${COMPONENT_LIB} PUBLIC "${ESPECTRE_FRONTEND_ROOT}")
     idf_component_optional_requires(PRIVATE esp_tinyusb espressif__esp_tinyusb)
+    # The primary console uses the USB Serial/JTAG driver API; Native and
+    # Matter get it through `driver`, which ESPHome excludes from its builds.
+    idf_component_optional_requires(PRIVATE esp_driver_usb_serial_jtag)
 
     if(CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE)
         target_link_options(
