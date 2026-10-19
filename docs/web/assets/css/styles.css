@@ -82,6 +82,31 @@ h1[tabindex="-1"]:focus { outline: none; }
 [hidden] { display: none !important; }
 html[data-frame-guard] { visibility: hidden; }
 html[data-spa-booting] .js-page[data-page="home"] { display: none; }
+.spa-loading { display: none; }
+html[data-spa-booting] .spa-loading {
+  display: grid;
+  place-items: center;
+  position: fixed;
+  inset: var(--header-height) 0 0;
+  color: var(--dim);
+}
+html[data-spa-booting] .site-footer { visibility: hidden; }
+/* A fixed bar marks a pending route without shifting the page that stays visible. */
+html:is([data-route-pending], [data-spa-booting]) { cursor: progress; }
+html:is([data-route-pending], [data-spa-booting]) body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: 3px;
+  background: var(--accent);
+  transform-origin: left;
+  pointer-events: none;
+  opacity: 0;
+  animation: espRoutePending 1.2s ease-in-out .15s infinite;
+}
 
 h1, h2, h3 { font-family: var(--font-display); }
 .mono { font-family: var(--font-mono); }
@@ -115,6 +140,11 @@ h1, h2, h3 { font-family: var(--font-display); }
   50% { opacity: .45; transform: scale(.78); }
 }
 @keyframes espSpin { to { transform: rotate(360deg); } }
+@keyframes espRoutePending {
+  0% { opacity: 1; transform: scaleX(0); }
+  70% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; transform: scaleX(1); }
+}
 @keyframes espFieldErrorBlink {
   from { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent); }
   to { border-color: var(--border); box-shadow: none; }
@@ -3079,7 +3109,20 @@ body.modal-open { overflow: hidden; }
 .roadmap-principles span:not(:last-child)::after { content: '·'; margin-left: 22px; color: color-mix(in srgb, var(--media-text) 32%, transparent); }
 .roadmap-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 8px; }
 .roadmap-heading .page-title { margin: 0; }
-.roadmap-published-version { margin-left: auto; }
+.roadmap-published-version {
+  margin-left: auto;
+  width: 26ch;
+  max-width: 100%;
+  box-sizing: border-box;
+  justify-content: center;
+}
+.roadmap-published-version .dot { flex: none; }
+.roadmap-published-version [data-published-release-tag] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .roadmap-status { width: fit-content; }
 .roadmap-status .dot { background: var(--accent); }
 .roadmap-release-horizons { display: grid; gap: 28px; margin-bottom: 100px; }
@@ -3914,6 +3957,10 @@ body.modal-open { overflow: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html:is([data-route-pending], [data-spa-booting]) body::after {
+    opacity: 1;
+    animation: none;
+  }
   .page-toc,
   .page-toc summary::after,
   .page-toc a::before { transition: none; }

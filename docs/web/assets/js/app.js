@@ -237,10 +237,32 @@
         setRoute(target);
     }
 
-    function applyRoute({ focus = true } = {}) {
+    let routeRenderSequence = 0;
+
+    function visibleRoutePage() {
+        if (document.documentElement.hasAttribute('data-spa-booting')) return null;
+        return $$('.js-page').find((page) => !page.hidden) || null;
+    }
+
+    function setRoutePending(previousPage) {
+        $$('.js-page').forEach((page) => { page.inert = page === previousPage; });
+        document.documentElement.toggleAttribute('data-route-pending', Boolean(previousPage));
+    }
+
+    async function applyRoute({ focus = true } = {}) {
+        const renderSequence = ++routeRenderSequence;
         const routeAtStart = route;
         const anchorAtStart = pendingRouteAnchor;
         pendingRouteAnchor = '';
+        // Keep the current page visible until the destination has its final layout.
+        // A short loading placeholder would move the footer again after the fetch.
+        // At boot a fixed loading status keeps the footer and placeholder out of view.
+        const previousPage = visibleRoutePage();
+        // The previous page has already been left, so it stays visible but inert.
+        setRoutePending(previousPage);
+        const contentReady = await loadStaticContent(routeAtStart);
+        if (renderSequence !== routeRenderSequence || route !== routeAtStart) return;
+        setRoutePending(null);
         $$('.js-page').forEach((page) => {
             const current = page.dataset.page === route;
             page.hidden = !current;
@@ -258,14 +280,16 @@
         });
         syncRouteMetadata(route);
         window.scrollTo(0, 0);
-        if (route !== 'tool-theremin' && typeof window.thereminStop === 'function') {
-            window.thereminStop();
-        }
-        const contentPromise = $(`[data-page="${routeAtStart}"] .js-static-content`)
-            ? prepareRouteContent(routeAtStart)
-            : Promise.resolve(true);
+        const contentPromise = !contentReady ? Promise.resolve(false)
+            : $(`[data-page="${routeAtStart}"] .js-static-content`)
+                ? prepareRouteContent(routeAtStart)
+                : Promise.resolve(true);
         contentPromise.then((ready) => {
-            if (!ready || route !== routeAtStart) return;
+            if (renderSequence !== routeRenderSequence || route !== routeAtStart) return;
+            if (!ready) {
+                if (focus) focusRouteContent(routeAtStart);
+                return;
+            }
             renderBrowserSupport();
             renderDirectBrowserGuidance();
             renderConnection();
@@ -346,6 +370,9 @@
             window.reportGameAbandon('route_change');
         }
         if (target === 'tool-game' && previousRoute !== 'tool-game') resetGameThreshold();
+        if (target !== 'tool-theremin' && typeof window.thereminStop === 'function') {
+            window.thereminStop();
+        }
         route = target;
         dropdownOpen = false;
         applyRoute({ focus });

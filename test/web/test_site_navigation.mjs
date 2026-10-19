@@ -215,7 +215,10 @@ describe('website navigation contracts', () => {
             assert.equal(badges[0].hidden, expectedTag === null);
             assert.equal(badges[1].hidden, false);
             for (const label of labels) {
-                if (expectedTag) assert.ok(label.textContent.startsWith(expectedTag));
+                if (expectedTag) {
+                    assert.ok(label.textContent.startsWith(expectedTag));
+                    assert.equal(label.title, label.textContent);
+                }
                 else assert.equal(label.textContent, '');
             }
             runInNewContext('initPublishedReleaseTags();', context);
@@ -518,6 +521,160 @@ describe('website navigation contracts', () => {
         assert.deepEqual(standaloneReload, []);
     });
 
+});
+
+describe('asynchronous route rendering', () => {
+    function harness({ booting = false, deferPreparation = false } = {}) {
+        const source = read('docs/web/assets/js/app.js');
+        const pending = [];
+        const preparing = [];
+        const pages = ['home', 'guides', 'sdk'].map((name) => ({
+            dataset: { page: name }, hidden: name !== 'home', inert: false,
+            removeAttribute(name) { delete this[name]; },
+        }));
+        const rootAttributes = new Set(booting ? ['data-spa-booting'] : []);
+        const views = [];
+        const focused = [];
+        const browserRenders = [];
+        let preparations = 0;
+        const context = {
+            route: 'guides', pendingRouteAnchor: '',
+            loadStaticContent: () => new Promise((resolve) => pending.push(resolve)),
+            $: () => ({}), $$: (selector) => selector === '.js-page' ? pages : [],
+            document: {
+                documentElement: {
+                    hasAttribute: (name) => rootAttributes.has(name),
+                    removeAttribute: (name) => rootAttributes.delete(name),
+                    toggleAttribute: (name, force) => {
+                        if (force) rootAttributes.add(name);
+                        else rootAttributes.delete(name);
+                    },
+                },
+            },
+            routeRegistry: { groupOf: () => '' },
+            window: { scrollTo() {}, trackRouteView: (route) => views.push(route) },
+            syncRouteMetadata() {},
+            prepareRouteContent: (route) => {
+                preparations++;
+                if (!deferPreparation) return Promise.resolve(true);
+                return new Promise((resolve) => preparing.push(resolve));
+            },
+            renderBrowserSupport: () => browserRenders.push(context.route),
+            renderDirectBrowserGuidance() {},
+            renderConnection() {}, consumeDirectHandoff() {},
+            focusRouteContent: (route) => focused.push(route), focusRouteAnchor: () => false,
+        };
+        const render = runInNewContext(source.slice(source.indexOf('    let routeRenderSequence'),
+            source.indexOf('    function clearApiReferenceLocation')) + '\napplyRoute;', context);
+        return {
+            context, render, pending, preparing, pages, rootAttributes, views, focused, browserRenders,
+            preparations: () => preparations,
+        };
+    }
+
+    it('keeps the current page visible until the destination is populated', async () => {
+        const h = harness();
+        const rendering = h.render();
+        assert.deepEqual(h.pages.map((page) => page.hidden), [false, true, true]);
+        assert.deepEqual(h.pages.map((page) => page.inert), [true, false, false]);
+        assert.ok(h.rootAttributes.has('data-route-pending'));
+        assert.deepEqual(h.views, []);
+        h.pending.shift()(true);
+        await rendering;
+        assert.deepEqual(h.pages.map((page) => page.hidden), [true, false, true]);
+        assert.deepEqual(h.pages.map((page) => page.inert), [false, false, false]);
+        assert.equal(h.rootAttributes.has('data-route-pending'), false);
+        assert.equal(h.pages[1].id, 'main-content');
+        assert.deepEqual(h.views, ['guides']);
+        assert.deepEqual(h.focused, ['guides']);
+    });
+
+    it('ignores stale completions even when navigation returns to the same destination', async () => {
+        const h = harness();
+        const first = h.render();
+        h.context.route = 'sdk';
+        const second = h.render();
+        h.context.route = 'guides';
+        const latest = h.render();
+        h.pending[0](true);
+        h.pending[1](true);
+        await Promise.all([first, second]);
+        assert.deepEqual(h.pages.map((page) => page.hidden), [false, true, true]);
+        assert.deepEqual(h.views, []);
+        h.pending[2](true);
+        await latest;
+        assert.deepEqual(h.views, ['guides']);
+        assert.deepEqual(h.focused, ['guides']);
+    });
+
+    it('reveals a failed destination without retrying or initializing its tool', async () => {
+        const h = harness();
+        const rendering = h.render();
+        h.pending.shift()(false);
+        await rendering;
+        assert.equal(h.pages[1].hidden, false);
+        assert.equal(h.preparations(), 0);
+        assert.deepEqual(h.focused, ['guides']);
+    });
+
+    it('keeps the boot loading state until the destination is populated', async () => {
+        const h = harness({ booting: true });
+        const rendering = h.render({ focus: false });
+        assert.equal(h.rootAttributes.has('data-spa-booting'), true);
+        assert.equal(h.pages[1].hidden, true);
+        assert.equal(h.rootAttributes.has('data-route-pending'), false);
+        assert.deepEqual(h.views, []);
+        h.pending.shift()(true);
+        await rendering;
+        assert.deepEqual(h.pages.map((page) => page.hidden), [true, false, true]);
+        assert.equal(h.rootAttributes.has('data-spa-booting'), false);
+        assert.equal(h.preparations(), 1);
+        assert.deepEqual(h.browserRenders, ['guides']);
+        assert.deepEqual(h.focused, []);
+        assert.deepEqual(h.views, ['guides']);
+    });
+
+    it('retains the boot loading state until the latest destination succeeds or fails', async () => {
+        const h = harness({ booting: true });
+        const first = h.render({ focus: false });
+        h.context.route = 'sdk';
+        const latest = h.render();
+        h.pending.shift()(true);
+        await first;
+        assert.equal(h.rootAttributes.has('data-spa-booting'), true);
+        assert.equal(h.pages[1].hidden, true);
+        assert.deepEqual(h.views, []);
+        h.pending.shift()(false);
+        await latest;
+        assert.equal(h.rootAttributes.has('data-spa-booting'), false);
+        assert.equal(h.pages[2].hidden, false);
+        assert.equal(h.preparations(), 0);
+        assert.deepEqual(h.focused, ['sdk']);
+        assert.deepEqual(h.views, ['sdk']);
+    });
+
+    it('ignores a preparation that finishes after navigation returns to its destination', async () => {
+        const h = harness({ deferPreparation: true });
+        const first = h.render();
+        h.pending.shift()(true);
+        await first;
+        h.context.route = 'sdk';
+        const second = h.render();
+        h.context.route = 'guides';
+        const latest = h.render();
+        h.preparing.shift()(true);
+        await Promise.resolve();
+        assert.deepEqual(h.browserRenders, []);
+        assert.deepEqual(h.focused, []);
+        h.pending.shift()(true);
+        h.pending.shift()(true);
+        await Promise.all([second, latest]);
+        h.preparing.shift()(true);
+        await Promise.resolve();
+        assert.deepEqual(h.browserRenders, ['guides']);
+        assert.deepEqual(h.focused, ['guides']);
+        assert.deepEqual(h.views, ['guides', 'guides']);
+    });
 });
 
 describe('consented campaign navigation', () => {

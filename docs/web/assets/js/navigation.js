@@ -271,6 +271,7 @@
             label.dataset.publishedReleaseTagInitialized = 'true';
             publishedReleaseTag().then((tag) => {
                 label.textContent = `${tag} available`;
+                label.title = label.textContent;
                 const badge = label.closest('.release-badge');
                 if (badge) badge.hidden = false;
             }).catch(() => {
