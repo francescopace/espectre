@@ -311,10 +311,10 @@ void test_lltf20_profile_inherits_supported_ht20_payload_layouts(void) {
     info.rx_ctrl.cwb = 0U;
 
     struct LayoutCase {
-      uint16_t raw_len;
-      CsiLayoutId layout_id;
-      NormalizedCSIPayloadTag normalization_tag;
-      bool requires_normalization;
+      uint16_t raw_len{0U};
+      CsiLayoutId layout_id{};
+      NormalizedCSIPayloadTag normalization_tag{};
+      bool requires_normalization{false};
     };
     const LayoutCase cases[] = {
         {HT20_CSI_LEN, CsiLayoutId::HT20_64,
@@ -455,8 +455,8 @@ void test_csi_capture_service_normalizes_ht_layouts_under_lltf20(void) {
     info.rx_ctrl.channel = 6U;
 
     struct NormalizationCase {
-      uint16_t raw_len;
-      NormalizedCSIPayloadTag normalization_tag;
+      uint16_t raw_len{0U};
+      NormalizedCSIPayloadTag normalization_tag{};
     };
     const NormalizationCase cases[] = {
         {HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE},

@@ -483,7 +483,7 @@ class StartupThresholdCalibrator {
     consecutive_post_quiet_chunks_ = 0;
   }
 
-  bool levels_are_stable_(const float* values, uint8_t count) const {
+  static bool levels_are_stable_(const float* values, uint8_t count) {
     if (count == 0) {
       return false;
     }

@@ -480,7 +480,7 @@ void HttpsOtaService::set_error_status_(const std::string &message,
   update_status_(status);
 }
 
-bool HttpsOtaService::fetch_manifest_(const std::string &url, ManifestBuffer *body, std::string *error) const {
+bool HttpsOtaService::fetch_manifest_(const std::string &url, ManifestBuffer *body, std::string *error) {
   if (body == nullptr) {
     return false;
   }

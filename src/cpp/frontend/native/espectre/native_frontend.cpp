@@ -406,6 +406,6 @@ void NativeFrontend::resume_after_ota_error_() {
   direct_frontend_->refresh();
 }
 
-uint32_t NativeFrontend::now_ms_() const { return monotonic_now_ms(); }
+uint32_t NativeFrontend::now_ms_() { return monotonic_now_ms(); }
 
 }  // namespace espectre

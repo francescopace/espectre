@@ -90,7 +90,7 @@ class HttpsOtaService : public IOtaService {
                          const std::string &image_url,
                          const std::string &channel);
   static esp_err_t manifest_http_event_(esp_http_client_event_t *event);
-  bool fetch_manifest_(const std::string &url, ManifestBuffer *body, std::string *error) const;
+  static bool fetch_manifest_(const std::string &url, ManifestBuffer *body, std::string *error);
   bool parse_manifest_(const ManifestBuffer &body, const std::string &channel,
                        ManifestInfo *manifest, std::string *error) const;
 

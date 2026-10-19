@@ -44,8 +44,8 @@ enum class WiFiProtocolPolicyPath : uint8_t {
 };
 
 struct WiFiProtocolPolicyResult {
-  esp_err_t err;
-  WiFiProtocolPolicyPath path;
+  esp_err_t err{ESP_OK};
+  WiFiProtocolPolicyPath path{WiFiProtocolPolicyPath::PINNED};
 };
 
 // The sensing contract uses one 20 MHz, 64-bin geometry across bands. The

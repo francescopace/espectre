@@ -491,9 +491,7 @@ void test_detector_window_covers_the_configured_duration(void) {
   TEST_ASSERT_TRUE(static_cast<uint32_t>(timing.window_packets - 1U) * kIntervalUs < kDurationUs);
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+int run_suite(int argc, char** argv) {
   espectre::test::dataset_cli::Options options;
   if (!espectre::test::dataset_cli::parse(argc, argv, "packet_rate", options)) {
     return 2;
@@ -518,4 +516,16 @@ int main(int argc, char** argv) {
   RUN_TEST(test_detector_window_covers_the_configured_duration);
   RUN_TEST(test_packet_rate_adaptation_regression);
   return UNITY_END();
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  // Dataset loading reports a missing or malformed capture by throwing.
+  try {
+    return run_suite(argc, argv);
+  } catch (const std::exception& error) {
+    std::fprintf(stderr, "%s\n", error.what());
+    return 1;
+  }
 }

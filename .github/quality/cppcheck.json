@@ -83,7 +83,8 @@
       "messages": [
         "Condition '!is_vht20' is always true",
         "Condition 'is_vht20' is always false",
-        "Return value 'csi_rx_is_vht20_sensing(info->rx_ctrl)' is always false"
+        "Return value 'csi_rx_is_vht20_sensing(info->rx_ctrl)' is always false",
+        "Return value 'csi_info_is_vht20_sensing(info)' is always false"
       ],
       "reason": "VHT support intentionally becomes false on targets without CONFIG_SOC_WIFI_HE_SUPPORT."
     },
@@ -159,6 +160,49 @@
         "Checking if unsigned expression '0U' is less than zero."
       ],
       "reason": "The feed lambda increments unready_loops by reference, so the bounds check reads the counted value, not the reset."
+    },
+    {
+      "rule": "functionStatic",
+      "file": "src/cpp/runtime/esp_idf/runtime_frontend_controller.h",
+      "messages": [
+        "The member function 'espectre::RuntimeFrontendController::subcarriers' can be static.",
+        "The member function 'espectre::RuntimeFrontendController::clear_persisted_overrides' can be static."
+      ],
+      "reason": "Public SDK instance API; making it static would freeze the SDK surface for a stateless implementation detail."
+    },
+    {
+      "rule": "functionStatic",
+      "file": "src/cpp/runtime/frontend_command_engine.h",
+      "messages": [
+        "The member function 'espectre::FrontendCommandEngine::execute' can be static."
+      ],
+      "reason": "Public SDK instance API; making it static would freeze the SDK surface for a stateless implementation detail."
+    },
+    {
+      "rule": "functionStatic",
+      "file": "src/cpp/runtime/periodic_sensing_status_logger.h",
+      "messages": [
+        "The member function 'espectre::PeriodicSensingStatusLogger::log_status' can be static."
+      ],
+      "reason": "Public SDK instance API; making it static would freeze the SDK surface for a stateless implementation detail."
+    },
+    {
+      "rule": "constParameterReference",
+      "file": "src/cpp/runtime/pending_event.h",
+      "messages": [
+        "Parameter 'out' can be declared as reference to const"
+      ],
+      "reason": "take() writes each output through the load_ fold expression; the parameter pack hides the assignment from Cppcheck."
+    },
+    {
+      "rule": "redundantAssignment",
+      "file": "test/cpp/suites/runtime/test_csi_frame_identity.cpp",
+      "messages": [
+        "Variable 'frame[i]' is reassigned a value before the old one has been used.",
+        "Variable 'frame[38U]' is reassigned a value before the old one has been used.",
+        "Variable 'frame[46U]' is reassigned a value before the old one has been used."
+      ],
+      "reason": "radio_info() points the CSI info header and payload at frame, so matches_once() reads each byte between the assignments."
     }
   ]
 }

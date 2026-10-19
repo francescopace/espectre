@@ -140,7 +140,7 @@ float LightweightDetector::calculate_turb_iqr_over_mean_aggr_() const {
 }
 
 float LightweightDetector::calculate_logit_(float turb_autocorr,
-                                        float turb_iqr_over_mean_aggr) const {
+                                        float turb_iqr_over_mean_aggr) {
   const float normalized_autocorr =
       (turb_autocorr - LIGHTWEIGHT_AUTOCORR_CENTER) / LIGHTWEIGHT_AUTOCORR_SCALE;
   const float normalized_iqr =

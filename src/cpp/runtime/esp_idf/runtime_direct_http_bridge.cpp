@@ -188,7 +188,7 @@ bool RuntimeDirectHttpBridge::publish_changes(FrontendCommandChange changes) {
   bool published = true;
   const uint8_t flags = static_cast<uint8_t>(changes);
   if ((flags & static_cast<uint8_t>(FrontendCommandChange::HEALTH)) != 0U) {
-    published = publish_event("health", health_payload_()) && published;
+    published = publish_event("health", health_payload_());
   }
   if ((flags & static_cast<uint8_t>(FrontendCommandChange::DEVICE)) != 0U) {
     refresh_peer_candidate_();

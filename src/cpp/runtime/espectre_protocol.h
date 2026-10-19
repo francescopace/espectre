@@ -158,18 +158,18 @@ using EspectreCommandValidator = bool (*)(const std::vector<JsonObjectField> &fi
 /** One canonical HTTP/resource mapping used by routing and capability output. */
 struct EspectreApiRoute {
   /** HTTP method, such as `GET` or `PATCH`. */
-  const char *http_method;
+  const char *http_method{nullptr};
   /** Absolute path, such as `/espectre/v1/sensing`. */
-  const char *path;
+  const char *path{nullptr};
   /** Resource or operation name in the `capabilities` catalog. */
-  const char *name;
+  const char *name{nullptr};
   /** Canonical command name; empty for streams. */
-  const char *command;
+  const char *command{nullptr};
   /** Capability that must be advertised for the route to exist. */
-  EspectreDirectMethod capability;
-  EspectreApiRouteKind kind;
+  EspectreDirectMethod capability{};
+  EspectreApiRouteKind kind{};
   /** Whether the operation completes after the response. */
-  bool asynchronous;
+  bool asynchronous{false};
   /** Parameter validator; `nullptr` for streams. */
   EspectreCommandValidator validate{nullptr};
 };
@@ -187,14 +187,14 @@ struct EspectreApiEventDescriptor {
 /** One frontend-owned route, shared by capability output and both transports. */
 struct EspectreExtensionRoute {
   /** HTTP method, such as `POST`. */
-  const char *http_method;
+  const char *http_method{nullptr};
   /** Absolute path under `/espectre/v1`. */
-  const char *path;
+  const char *path{nullptr};
   /** Resource or operation name in the `capabilities` catalog. */
-  const char *name;
+  const char *name{nullptr};
   /** Command name; must not collide with an SDK command. */
-  const char *command;
-  EspectreApiRouteKind kind;
+  const char *command{nullptr};
+  EspectreApiRouteKind kind{};
   /** Whether the operation completes after the response. */
   bool asynchronous{false};
   /** Whether the frontend command binding permits invocation over MQTT. */

@@ -175,7 +175,7 @@ class LightweightDetector : public BaseDetector {
  private:
   float calculate_turb_autocorr_() const;
   float calculate_turb_iqr_over_mean_aggr_() const;
-  float calculate_logit_(float turb_autocorr, float turb_iqr_over_mean_aggr) const;
+  static float calculate_logit_(float turb_autocorr, float turb_iqr_over_mean_aggr);
   void add_aggregated_turbulence_(float turbulence);
   static float sigmoid_(float value);
   static float quantile_(const float* values, uint8_t count, float quantile);

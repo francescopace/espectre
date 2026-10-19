@@ -100,7 +100,7 @@ class NativeFrontend : public IRuntimeListener {
   void publish_ota_status_(const EspectreOtaStatus &status);
   void prepare_for_ota_();
   void resume_after_ota_error_();
-  uint32_t now_ms_() const;
+  static uint32_t now_ms_();
 
   IOtaService *ota_service_{nullptr};
   ProvisioningCommandCallback provisioning_command_callback_{};

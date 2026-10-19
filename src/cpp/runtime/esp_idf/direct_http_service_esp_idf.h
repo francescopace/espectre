@@ -153,7 +153,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool enqueue_completed_response_(PendingRequest request,
                                    std::string response,
                                    ResponseSentCallback response_sent_callback = {});
-  void release_request_(PendingRequest request);
+  static void release_request_(PendingRequest request);
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
   bool service_raw_stream_();

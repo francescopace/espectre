@@ -46,8 +46,8 @@ class MockOtaService : public IOtaService {
   void set_status_callback(StatusCallback callback) override;
   void set_prepare_for_update_callback(PrepareForUpdateCallback callback) override;
 
-  void emit_status(const EspectreOtaStatus &status);
-  void emit_prepare();
+  static void emit_status(const EspectreOtaStatus &status);
+  static void emit_prepare();
 };
 
 }  // namespace ota_service_mock

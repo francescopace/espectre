@@ -83,11 +83,11 @@ struct PerformanceResult {
 
 struct DatasetResults {
     std::string dataset_name;
-    const char* chip_name;
-    bool synthetic;
-    bool report_reserved;
-    PerformanceResult classic;
-    PerformanceResult ml;
+    const char* chip_name{nullptr};
+    bool synthetic{false};
+    bool report_reserved{false};
+    PerformanceResult classic{};
+    PerformanceResult ml{};
 };
 
 static std::vector<DatasetResults> g_results;

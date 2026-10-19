@@ -195,7 +195,7 @@ class TrafficGeneratorService final : public ICsiTrafficGenerator {
   bool complete_stop_();
   void apply_init_();
   void reset_runtime_state_();
-  void wait_for_stop_(TickType_t ticks);
+  static void wait_for_stop_(TickType_t ticks);
 
   // Owner-task state: only the owner creates and deletes the worker.
   TaskHandle_t task_handle_{nullptr};

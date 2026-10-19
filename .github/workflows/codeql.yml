@@ -140,14 +140,15 @@ jobs:
           mkdir -p .cache/reports/quality
           rm -f .cache/reports/quality/cppcheck.sarif .cache/reports/quality/cppcheck.raw.sarif
           # Scan tracked first-party translation units and their included headers.
-          # SDK-dependent paths are checked without a firmware build configuration.
+          # SDK-dependent paths are checked without a firmware build configuration;
+          # the host mock supplies the ESP-IDF version macros used in #if guards.
           git ls-files 'src/cpp/*.c' 'src/cpp/*.cpp' \
             'test/cpp/*.c' 'test/cpp/*.cpp' \
             ':!:src/cpp/**/third_party/**' ':!:test/cpp/support/cnpy.cpp' \
             > .cache/reports/quality/cppcheck-files.txt
           cppcheck --enable=warning,style,performance,portability \
             --std=c++17 --platform=unix32 --check-level=normal --inline-suppr \
-            -Isrc/cpp \
+            -Isrc/cpp --include=test/cpp/mocks/esp_idf/esp_idf_version.h \
             --file-list=.cache/reports/quality/cppcheck-files.txt \
             --output-format=sarif --output-file=.cache/reports/quality/cppcheck.raw.sarif
           python .github/scripts/normalize_cppcheck_sarif.py \

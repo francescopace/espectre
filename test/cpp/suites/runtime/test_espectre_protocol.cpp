@@ -1556,7 +1556,7 @@ void test_raw_target_validation_is_shared_by_direct_and_mqtt(void) {
     TEST_ASSERT_EQUAL(valid, parse_espectre_command("{\"command_id\":\"raw\",\"command\":\"update_sensing\"," + field + "}", &mqtt, &error));
     if (valid) {
       TEST_ASSERT_TRUE(direct.has_traffic_generator_target_mac && mqtt.has_traffic_generator_target_mac);
-      const char *canonical = valid && std::string(target) != "auto" ? "10:b4:1d:e8:ec:00" : target;
+      const char *canonical = std::string(target) != "auto" ? "10:b4:1d:e8:ec:00" : target;
       TEST_ASSERT_EQUAL_STRING(canonical, direct.traffic_generator_target_mac.c_str());
       TEST_ASSERT_EQUAL_STRING(canonical, mqtt.traffic_generator_target_mac.c_str());
     }
