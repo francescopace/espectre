@@ -73,6 +73,77 @@ def test_project_firmware_preserves_and_refreshes_stale_pinned_sources(
     assert "variable prototype" in backup_path.read_text(encoding="utf-8")
 
 
+def _commit_fixture(repository: Path, message: str) -> str:
+    subprocess.run(["git", "-C", str(repository), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=ESPectre Tests",
+            "-c",
+            "user.email=tests@espectre.local",
+            "commit",
+            "-qm",
+            message,
+        ],
+        check=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_pinned_checkout_update_backs_up_edits_per_repository_and_revision(
+    tmp_path: Path,
+) -> None:
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    subprocess.run(["git", "init", "-q", str(upstream)], check=True)
+    source_path = upstream / "module.c"
+    source_path.write_text("old pin\n", encoding="utf-8")
+    old_commit = _commit_fixture(upstream, "old pin")
+    source_path.write_text("new pin\n", encoding="utf-8")
+    new_commit = _commit_fixture(upstream, "new pin")
+
+    workspace = tmp_path / "micro-esp32"
+    stale_backup = workspace / f"micropython-before-{micro_firmware.MICROPYTHON_PATCH_REVISION}.patch"
+    workspace.mkdir()
+    stale_backup.write_text("earlier backup\n", encoding="utf-8")
+    checkouts = {}
+    for name in ("micropython", "micropython-lib"):
+        checkout = workspace / name
+        micro_firmware._checkout_pinned_repository(upstream.as_uri(), old_commit, checkout)
+        (checkout / "module.c").write_text(f"{name} local edit\n", encoding="utf-8")
+        checkouts[name] = checkout
+
+    for name, checkout in checkouts.items():
+        micro_firmware._checkout_pinned_repository(upstream.as_uri(), new_commit, checkout)
+
+        assert (checkout / "module.c").read_text(encoding="utf-8") == "new pin\n"
+        backup_path = workspace / f"{name}-before-{old_commit[:12]}.patch"
+        assert f"{name} local edit" in backup_path.read_text(encoding="utf-8")
+    assert stale_backup.read_text(encoding="utf-8") == "earlier backup\n"
+
+    (checkouts["micropython"] / ".espectre-patch-revision").write_text("stamp\n", encoding="utf-8")
+    (checkouts["micropython"] / "stray.c").write_text("unknown\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unexpected files"):
+        micro_firmware._checkout_pinned_repository(
+            upstream.as_uri(), old_commit, checkouts["micropython"]
+        )
+    head = subprocess.run(
+        ["git", "-C", str(checkouts["micropython"]), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head == new_commit
+
+
 def _make_args(**overrides) -> argparse.Namespace:
     args = {
         "port": None,

@@ -32,7 +32,7 @@ from .idf_container import IDF_VERSION, container_sdk_root, run_toolchain_contai
 
 
 MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
-MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
+MICROPYTHON_COMMIT = "0fd6c573ea815774668bbb16b8e197c8822368b2"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
 MICROPYTHON_PATCH_REVISION = "sdk-boundary-v3"
@@ -66,7 +66,7 @@ PROJECT_FIRMWARE_NAMES = {
 
 
 def _checkout_pinned_repository(url: str, commit: str, destination: Path) -> None:
-    """Create or validate a cached checkout at one exact revision."""
+    """Create or update a cached checkout at one exact revision."""
     if destination.is_dir():
         current = subprocess.run(
             ["git", "-C", str(destination), "rev-parse", "HEAD"],
@@ -76,9 +76,50 @@ def _checkout_pinned_repository(url: str, commit: str, destination: Path) -> Non
         ).stdout.strip()
         if current == commit:
             return
-        raise RuntimeError(
-            f"Cached checkout has unexpected revision: {destination} ({current})"
+
+        stamp_path = destination / ".espectre-patch-revision"
+        status = subprocess.run(
+            ["git", "-C", str(destination), "status", "--porcelain", "--untracked-files=all"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        unexpected = [
+            line
+            for line in status
+            if line.startswith("??")
+            and not line.endswith(".espectre-patch-revision")
+        ]
+        if unexpected:
+            raise RuntimeError(
+                f"Cached checkout contains unexpected files: {destination}"
+            )
+
+        source_diff = subprocess.run(
+            ["git", "-C", str(destination), "diff", "--binary", "HEAD", "--", "."],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        if source_diff:
+            backup_path = destination.parent / f"{destination.name}-before-{current[:12]}.patch"
+            if not backup_path.exists():
+                backup_path.write_text(source_diff, encoding="utf-8")
+
+        subprocess.run(
+            ["git", "-C", str(destination), "restore", "--worktree", "--source=HEAD", "--", "."],
+            check=True,
         )
+        stamp_path.unlink(missing_ok=True)
+        subprocess.run(
+            ["git", "-C", str(destination), "fetch", "--depth", "1", "origin", commit],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(destination), "checkout", "--detach", commit],
+            check=True,
+        )
+        return
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(

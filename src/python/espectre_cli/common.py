@@ -38,7 +38,7 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
     if path not in sys.path:
         sys.path.insert(0, path)
 
-MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
+MICROPYTHON_FIRMWARE_BUILD = "20260824-v1.29.0"
 CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
 MICRO_CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
 CHIP_LABELS = {
