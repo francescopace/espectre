@@ -7,6 +7,10 @@
 - Keep host-only feature candidates under `tools/`, and evaluate them through the owning tool's evaluation-only workflow; use `--no-export` with `train_ml_model.py`. Do not add runtime extractors until a promotion decision justifies Python and `C++` parity.
 - Regenerate `src/cpp/core/ml_weights.h` through training and export instead of editing it manually. Follow [AGENTS.md](../docs/AGENTS.md#generated-material) for performance and dataset-quality reports.
 - Preserve the canonical CSI format and feature registry. Do not introduce tool-local aliases or duplicate production constants.
+- Load stored CSI through `tools/lib/csi_io.py`, which normalizes the subcarrier layout that differs between chips. Do not reimplement layout detection in analysis scripts: a hand-written copy can silently invert the layout and produce a convincing but false result.
+- Keep candidate features scale-invariant. AGC stays on and the per-packet CSI scaling is not recorded, so absolute amplitude is not comparable across packets.
+- Judge a detector, feature, or band per capture and read the worst pair before the mean. Pooled and per-chip aggregates have hidden a failing capture behind good ones.
+- Keep the marked metrics in `validate_dataset_quality.py` independent of the calibrated threshold; a verdict that moves with the threshold judges the detector, not the recording.
 
 ## Validation
 

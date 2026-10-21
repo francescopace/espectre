@@ -68,7 +68,6 @@ To build and flash from this repository, start with the [setup guide](docs/SETUP
 |---|---|---|
 | **Install and operate** | Device setup, CLI workflows, and troubleshooting | [Setup guide](docs/SETUP.md), [CLI reference](docs/CLI.md), [Troubleshooting guide](docs/TROUBLESHOOTING.md) |
 | **Understand and integrate** | Runtime architecture, CSI acquisition, API, discovery, algorithms, and the C++ SDK | [Architecture overview](docs/ARCHITECTURE.md), [CSI guide](docs/CSI.md), [API reference](docs/API.md), [Discovery reference](docs/DISCOVERY.md), [Algorithms reference](docs/ALGORITHMS.md), [SDK guide](docs/SDK.md) |
-| **Collect and train** | CSI collection, model training, feature history, performance, and literature | [Data collection guide](docs/ML_DATA_COLLECTION.md), [ML training guide](docs/ML_TRAINING.md), [Feature ledger](docs/FEATURES.md), [Performance report](docs/performance/README.md), [Literature review](docs/LITERATURE.md) |
 | **Research and direction** | Roadmap, architecture decisions, and release history | [Roadmap](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [Changelog](docs/CHANGELOG.md) |
 | **Frontend reference** | Guides for each firmware: ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
 | **Contributing** | Contributions, release procedures, and project discussions | [Contributing guide](CONTRIBUTING.md), [Release guide](docs/RELEASING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
@@ -79,11 +78,11 @@ ESPectre publishes the research assets and validation evidence behind its detect
 
 | Asset | What it gives you | Start here |
 |---|---|---|
-| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [Data/](data/) |
+| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [Data collection guide](docs/ML_DATA_COLLECTION.md), [Data/](data/) |
 | **Model weights** | Trained weights in [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), plus the training, export, and validation workflow | [ML training guide](docs/ML_TRAINING.md) |
-| **Feature ledger** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [Feature ledger](docs/FEATURES.md) |
-| **Algorithms and reports** | Detector behavior, the generated [performance report](docs/performance/README.md), and [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) | [Algorithms reference](docs/ALGORITHMS.md) |
-| **Literature and direction** | External research, [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) | [Literature review](docs/LITERATURE.md) |
+| **Feature analysis** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [Feature analysis](docs/FEATURES.md) |
+| **Reports** | Generated detector metrics and dataset quality checks | [Performance report](docs/performance/README.md), [Dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) |
+| **Literature** | External Wi-Fi sensing research and what transfers to ESPectre | [Literature review](docs/LITERATURE.md) |
 
 ## Security, privacy, and transparency
 

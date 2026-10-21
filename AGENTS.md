@@ -10,7 +10,7 @@
 ## Context Discipline
 
 - On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
-- As working defaults, treat files over 500 lines or 40 KB as large, and keep reads and command output around 120–160 lines or 20 KB; adjust when the task requires more context. Avoid unbounded dumps and repeated reads of settled material.
+- Read large files (over about 500 lines or 40 KB) in targeted ranges located by search, and keep command output bounded. Avoid unbounded dumps and repeated reads of settled material.
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
 - For broad reviews, group files by subsystem and finish one group before loading the next. Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
 - Prefer concise test output, such as `-q --tb=short` for pytest. Redirect verbose build, test, benchmark, and hardware output to a temporary log. Report the exit status and summary on success; on failure, inspect a bounded diagnostic tail and expand or rerun only where needed.
@@ -25,7 +25,7 @@
 
 ## Production Boundaries
 
-- Never enable Wi-Fi promiscuous mode, including in tests and diagnostics.
+- Never enable Wi-Fi promiscuous mode, including in tests and diagnostics. Capturing CSI only while associated is a public privacy commitment, stated in `docs/CSI.md` and on the website security page.
 - Preserve **one message model, multiple transports**: MQTT, Direct HTTP, and future transports carry the same canonical JSON contract and application version; transport framing and delivery policy stay outside that model.
 - Treat `docs/API.md`, `docs/DISCOVERY.md`, and the canonical protocol registry or schema as the owners of messages, operations, discovery metadata, and version semantics. Do not create transport-specific envelopes, aliases, or constants.
 - Require cross-transport parity for serialized messages, validation, and capability schemas; engine-level semantic parity alone is insufficient.
@@ -38,6 +38,7 @@
 
 - Run the narrowest relevant checks first, followed only by parity, integration, generated-artifact, or frontend gates required by the changed surface.
 - Once the relevant and required checks pass, broaden or repeat them only for new changes, failures, or unresolved concerns.
+- Do not build firmware, or flash, erase, provision, or reset physical devices, unless the user asks. Validate through host-side tests otherwise.
 - Never skip, disable, or weaken tests to make them pass. Ask before changing a supported behavior expectation unless the user has already authorized that behavior change.
 - Update the owning documentation when public behavior, configuration, protocol, or operator workflow changes.
 - Do not mutate GitHub state, including commenting, closing, merging, labeling, pushing, or changing releases, unless the user explicitly requests it.
@@ -49,15 +50,16 @@
 .venv/bin/pytest test/python -q --tb=short         # full Python baseline
 ./test/cpp/run_all_tests.sh                        # full host-side C++ suite
 ./test/cpp/run_all_tests.sh -R <test_name>         # one C++ test target
+.venv/bin/ruff check src/python tools test/python .github/scripts  # Python quality
 ```
 
-Subtree rules list the narrower gates, such as SDK surface, parity, and generated-report checks.
+CI also reports Cppcheck findings for `src/cpp/` and `test/cpp/`, and ESLint findings for the website JavaScript; the `cpp` and `javascript` jobs in `.github/workflows/codeql.yml` hold the exact commands. Run the matching check when you change those files. Subtree rules list the narrower gates, such as SDK surface, parity, and generated-report checks.
 
 ## Environment, Contributions, And Dependencies
 
 - Prefer the repository `./espectre` wrapper for local workflows. Use the repository virtual environment for direct Python commands when available; the wrapper uses `.venv` automatically.
 - ESP-IDF frontend builds require the ESP-IDF environment that provides `idf.py`.
-- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`. Do not add `Co-Authored-By` or other AI attribution trailers.
+- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`. Do not add `Co-Authored-By` or other AI attribution trailers. Include roadmap and changelog updates in the commit that does the work, not in a separate commit.
 - Use `develop` as the default PR target; `main` is release-only. Do not bypass branch protection, push directly to `main`, force-push protected branches, or merge with failing required checks.
 - Keep pull requests free of merge commits, update their branches by rebasing, and integrate them with Rebase and merge. Do not use merge commits or squash merges.
 - Use `--force-with-lease` only on a pull request source branch when a user-authorized rebase or amendment requires rewriting published commits.

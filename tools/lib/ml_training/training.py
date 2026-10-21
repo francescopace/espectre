@@ -2276,6 +2276,26 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     mp_path = REFERENCE_SRC_DIR / 'ml_weights.py'
     cpp_path = CPP_DIR / 'ml_weights.h'
     test_data_path = GENERATED_DATA_DIR / 'ml_test_data.npz'
+    from tools.lib.dataset_metadata import dataset_info_revision, generated_input_revision
+    from tools.lib.ml_training import implementation_paths
+
+    training_metadata = {
+        'dataset_revision': dataset_info_revision(),
+        'training_implementation_revision': generated_input_revision(implementation_paths()),
+        'roles': ['train'],
+        'seed': seed,
+        'fp_weight': fp_weight,
+        'batch_size': batch_size,
+        'scaler': scaler_mode,
+        'hidden_layers': list(hidden_layers),
+        'augmentation': list(augment_components),
+        'packet_augmentation_seeds': list(FIXED_PACKET_AUGMENTATION_SEEDS) if packet_augmentation else [],
+        'timing_quality_policy': timing_quality_policy,
+        'timing_warn_weight': timing_warn_weight,
+        'environment_filter': sorted(environment_filter) if environment_filter else None,
+        'excluded_chips': sorted(excluded_chips) if excluded_chips else [],
+        'positive_chip_boost': positive_chip_boost,
+    }
     with tempfile.TemporaryDirectory(prefix='espectre_model_export_') as staging:
         staging_dir = Path(staging)
         staged_mp_path = staging_dir / mp_path.name
@@ -2286,12 +2306,14 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             seed=seed,
             feature_names=actual_feature_names,
             scaler_mode=scaler_mode,
+            training_metadata=training_metadata,
         )
         cpp_size = export_cpp_weights(
             model, scaler, staged_cpp_path,
             seed=seed,
             feature_names=actual_feature_names,
             scaler_mode=scaler_mode,
+            training_metadata=training_metadata,
         )
         with suppress_stderr():
             n_test = export_test_data(

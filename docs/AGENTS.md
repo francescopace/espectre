@@ -7,6 +7,7 @@
 - Use sentence-case titles and rare, purposeful emoji. Established entry points may retain branding.
 - Write internal link text as the reader-facing topic, such as `[performance report](performance/README.md)` or `[ESPHome guide](../src/cpp/frontend/esphome/README.md)`, not a bare filename. A filename is acceptable for ADRs and files the reader must open or edit.
 - Prefer short sentences and plain words. Keep maintainer notes, experiment data, and migration history out of user guides; link to the owner instead.
+- In reader-facing docs, avoid spec jargon such as "owns", "owner", "canonical", "authoritative", and "surface"; say what a file contains or what a step does. Lead with the answer or decision, cover the common case instead of every edge case, and do not restate a point that another section or document already makes.
 - Keep one source of truth per topic. Secondary documents should summarize and link to the owner instead of repeating mutable formulas, metrics, commands, or corpus data.
 - Keep frontend-specific setup and firmware workflows in the local frontend README files; link to `API.md` and `DISCOVERY.md` for shared contracts.
 - Make public compatibility, controller-support, privacy, and security claims only from repository evidence. Use a validation matrix when coverage is incomplete.
@@ -24,8 +25,8 @@
 ## Durable Records
 
 - Keep `ROADMAP.md` at the outcome, gate, and sequencing level. Put experiment and collection details in their owning documents.
-- Use ADRs for durable architectural or project-level decisions, including important rejected directions. Keep one decision per ADR, preserve its rationale, and update `Status`, `Supersedes`, and `Superseded by` consistently.
-- Treat `FEATURES.md` as the feature experiment ledger. Record every seriously evaluated production, research, historical, planned, or rejected feature before removal or moving on.
+- Use ADRs for durable architectural or project-level decisions, including important rejected directions. Keep one decision per ADR, preserve its rationale, and update `Status`, `Supersedes`, and `Superseded by` consistently. Follow the template and writing rules in the [ADR guide](adr/README.md).
+- Treat `FEATURES.md` as the feature analysis: for each seriously evaluated feature, give its meaning, evidence, limits, and verdict. Group by feature family, not by date. Fitting recipes and split policy go in `ML_TRAINING.md`; current results go in the performance report.
 - For measured features, retain the definition, physical interpretation, scale invariance, implementation scope, corpus, split, seed, primary and worst-group metrics, redundancy evidence, verdict, and reason. Mark unavailable evidence instead of reconstructing it.
 - Treat `LITERATURE.md` as the external research ledger. Record the source URL, release date, hardware and signal assumptions, methods, results, and ESPectre transfer limits; exclude internal ESPectre research.
 - Keep the active unreleased changelog focused on the final cumulative release state. Put superseded experiments in `FEATURES.md` or ADRs, and update only the latest active section unless correcting an explicitly requested fact.

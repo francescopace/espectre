@@ -18,6 +18,159 @@ import pytest
 
 from tools import generate_performance_report
 from tools.lib import performance_report, performance_report_inputs
+from tools.lib import performance_report_audit as audit
+
+
+def test_operational_grid_counts_stale_predictions_as_unavailable():
+    result = audit.score_timeline(
+        np.arange(0, 2_000_001, 250_000),
+        [1, 2, 3, 4], [True] * 4, [True] * 4,
+    )
+    assert result["ticks"] == 8
+    # The last prediction covers one more tick, then exceeds the tolerance.
+    assert result["available"] == 5
+    assert result["raw_positive"] == 5
+    # Production holds a confirmed event when later evaluations are unavailable.
+    assert result["effective_positive"] == 5
+    assert result["alarms"] == 1
+    assert result["first_detection_s"] == 1.0
+
+
+def test_operational_grid_does_not_report_cadence_jitter_as_missing():
+    times = np.arange(0, 60_000_001, 10_000)
+    indices = np.arange(0, len(times), 26)[1:]
+    result = audit.score_timeline(
+        times, indices, [False] * len(indices), [True] * len(indices),
+    )
+    # Only the tick before the first 260 ms evaluation is unavailable.
+    assert result["available"] == result["ticks"] - 1
+
+
+def test_operational_grid_counts_a_real_evaluation_gap_as_unavailable():
+    times = np.arange(0, 10_000_001, 250_000)
+    indices = [i for i in range(1, len(times)) if not 12 <= i < 20]
+    result = audit.score_timeline(
+        times, indices, [False] * len(indices), [True] * len(indices),
+    )
+    # Of eight skipped evaluations, the first tick is still within tolerance.
+    assert result["ticks"] - result["available"] == 7
+
+
+def test_operational_grid_never_uses_a_prediction_before_its_timestamp():
+    result = audit.score_timeline(
+        np.array([0, 260_000, 510_000, 760_000, 1_010_000, 1_250_000]),
+        [1, 2, 3, 4], [True] * 4, [True] * 4,
+    )
+    assert result["ticks"] == 5
+    assert result["available"] == 4
+    assert result["raw_positive"] == 4
+    assert result["effective_positive"] == 1
+    assert result["first_detection_s"] == 1.01
+
+
+def test_operational_hit_policy_advances_per_evaluation_not_per_tick():
+    # Four evaluations inside two ticks still confirm MOTION, as in firmware.
+    result = audit.score_timeline(
+        np.array([0, 100_000, 200_000, 300_000, 400_000, 500_000]),
+        [1, 2, 3, 4], [True] * 4, [True] * 4,
+    )
+    assert result["alarms"] == 1
+    assert result["first_detection_s"] == 0.4
+
+
+def test_operational_interruptions_exclude_a_trailing_idle_run():
+    times = np.arange(0, 6_000_001, 250_000)
+    states = [True] * 6 + [False] * 4 + [True] * 6 + [False] * 8
+    result = audit.score_timeline(
+        times, list(range(1, 25)), states, [True] * 24,
+    )
+    # MOTION ends at 2.25 s and resumes at 3.5 s; the final IDLE run never resumes.
+    assert result["interruptions"] == 1
+    assert result["max_interruption_s"] == 1.25
+
+
+def test_operational_stationary_scoring_excludes_calibration_prefix():
+    result = audit.score_timeline(
+        np.arange(0, 2_000_001, 250_000),
+        list(range(1, 9)), [True] * 4 + [False] * 4, [True] * 8,
+        cutoff_us=1_000_000,
+    )
+    assert result["ticks"] == 4
+    assert result["raw_positive"] == 0
+    assert result["alarms"] == 0
+    assert result["seconds"] == 1.0
+
+
+def test_operational_summary_retains_a_recording_with_no_available_motion():
+    idle = audit.score_timeline(np.array([0, 1_000_000]), [], [], [])
+    motion = audit.score_timeline(np.array([0, 1_000_000]), [], [], [])
+    summary = audit.summarize([{"static": idle, "motion": motion}])
+    assert summary["operational_recall"] == 0.0
+    assert summary["conditional_recall"] is None
+    assert summary["motion_coverage"] == 0.0
+    assert summary["never_detected"] == 1
+
+
+def test_operational_clock_retains_gaps_and_unwraps_uint32():
+    times = audit.packet_times([
+        {"device_ticks_us": 2**32 - 10}, {"device_ticks_us": 10},
+        {"device_ticks_us": 1_000_010},
+    ], 10_000)
+    np.testing.assert_array_equal(times, [0, 20, 1_000_020])
+    with pytest.raises(ValueError, match="monotonic"):
+        audit.packet_times([{"device_ticks_us": 20}, {"device_ticks_us": 10}], 10_000)
+
+
+def test_calibration_boundary_identifies_only_the_consumed_prefix():
+    count = 80
+    rows = {
+        "X": np.zeros((count, 2)), "ready": np.ones(count, dtype=bool),
+        "packet_weight": np.full(count, 25), "reset_index": np.zeros(count),
+        "packet_index": np.arange(count) * 25,
+    }
+    timing = performance_report.derive_detector_timing(10_000)
+    result = performance_report._calibrate_classic_replay_rows_with_boundary(rows, timing)
+    assert result is not None
+    threshold, row = result
+    assert 0 < row < count - 1
+    assert threshold == performance_report._calibrate_classic_replay_rows(rows, timing)
+    rows["ready"][:] = False
+    assert performance_report._calibrate_classic_replay_rows_with_boundary(rows, timing) is None
+
+
+def test_unready_rows_cannot_be_combined_with_row_striding():
+    rows = {
+        "X": np.zeros((2, 2)), "ready": np.zeros(2, dtype=bool),
+        "eligible": np.ones(2, dtype=bool), "reset_index": np.zeros(2),
+    }
+    detector = performance_report.build_lightweight_detector(
+        threshold=1.0, timing=performance_report.derive_detector_timing(10_000),
+    )
+    with pytest.raises(ValueError, match="striding"):
+        performance_report._score_classic_replay_phase_rows(
+            rows, detector, row_stride=2, include_unready=True,
+        )
+    assert performance_report._score_classic_replay_phase_rows(
+        rows, detector, include_unready=True,
+    ) == [False, False]
+
+
+def test_source_commit_is_optional_outside_a_git_checkout(monkeypatch):
+    def missing_git(*_args, **_kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(generate_performance_report.subprocess, "check_output", missing_git)
+    assert generate_performance_report._source_commit() is None
+
+
+def test_external_catalog_does_not_inherit_first_party_holdout_exposure(monkeypatch, tmp_path):
+    monkeypatch.setattr(performance_report, "get_available_paired_datasets", lambda **_: [])
+    monkeypatch.setattr(performance_report, "get_available_long_test_dataset_specs", lambda: [])
+    monkeypatch.setattr(performance_report, "_load_dataset_info", lambda: {"files": {}})
+    monkeypatch.setattr(performance_report, "DATA_DIR", tmp_path)
+    assert audit.collect_audit()["exposed_holdout"] is False
+    monkeypatch.setattr(performance_report, "DATA_DIR", audit.repo_root() / "data")
+    assert audit.collect_audit()["exposed_holdout"] is True
 
 
 def _stub_report_main_dependencies(monkeypatch, report_data=None):
@@ -294,8 +447,8 @@ def test_render_includes_synthetic_holdout_and_external_parity_note():
     )
 
     assert "Evaluation view: `HT20/HT-LTF`" in markdown
-    assert "## Reconstructed or Synthetic Holdout" in markdown
-    assert "C++/Python replay parity was not run" in markdown
+    assert "## Reconstructed or synthetic holdout" in markdown
+    assert "C++/Python parity: not run." in markdown
 
 
 def test_resource_benchmark_executes_cached_binary_each_time(monkeypatch, tmp_path):

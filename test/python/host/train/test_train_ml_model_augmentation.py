@@ -5,6 +5,7 @@ import sys
 import types
 
 import numpy as np
+import json
 import pytest
 
 from tools.lib.ml_training import (
@@ -19,6 +20,19 @@ from tools.lib.ml_training import (
 import tools.train_ml_model as training_cli
 from tools.lib.adjacent_aggregation import aggregation_groups, make_aggregating_fill
 from tools.lib.candidate_features import candidate_values
+
+
+@pytest.mark.parametrize("exporter", [export.export_micropython, export.export_cpp_weights])
+def test_export_embeds_the_same_fitting_provenance_in_both_artifacts(tmp_path, exporter):
+    model = types.SimpleNamespace(get_weights=lambda: [np.ones((1, 1)), np.zeros(1)])
+    # The base CI installs no ML extras, so an affine stub stands in for sklearn.
+    scaler = types.SimpleNamespace(mean_=np.array([0.5]), scale_=np.array([0.5]))
+    metadata = {"dataset_revision": "frozen-catalog", "roles": ["train"], "seed": 17}
+    destination = tmp_path / ("weights.py" if exporter == export.export_micropython else "weights.h")
+    exporter(model, scaler, destination, seed=17,
+             feature_names=[feature_cache.EXPORTED_FEATURE_NAMES[0]], training_metadata=metadata)
+    line = next(line for line in destination.read_text().splitlines() if "Training provenance:" in line)
+    assert json.loads(line.split("Training provenance: ", 1)[1]) == metadata
 
 
 def _synthetic_packets(count=200, *, source="sample.npz", interval_us=10_000):
@@ -261,6 +275,12 @@ def test_promoted_trajectory_feature_uses_only_production_tracker():
 
 
 def test_non_default_trajectory_bin_cannot_export(monkeypatch, capsys):
+    # main() selects the experimental bin globally; restore it for later tests.
+    monkeypatch.setattr(
+        feature_cache,
+        "ACTIVE_TRAJECTORY_BIN_US",
+        feature_cache.ACTIVE_TRAJECTORY_BIN_US,
+    )
     monkeypatch.setattr(
         sys,
         "argv",

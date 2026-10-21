@@ -96,13 +96,13 @@ python tools/train_ml_model.py --augment --seed SEED --evaluate-selection
 python tools/train_ml_model.py --augment --seed SEED
 ```
 
-The guide explains each step and the advanced modes (seed search, cross-room and cross-chip checks, gain stress, ablations, feature importance). Record results in the [feature ledger](../docs/FEATURES.md).
+The guide explains each step and the advanced modes (seed search, cross-room and cross-chip checks, gain stress, ablations, feature importance). Record results in the [feature analysis](../docs/FEATURES.md).
 
 The `clipped_standard` scaler works only for CV with `--no-export`; export needs `standard`, `robust`, or `session_balanced_robust`, because the device model has no clipping bounds.
 
 ## Generated performance report
 
-`generate_performance_report.py` writes `docs/performance/README.md`. It replays Lightweight and High Accuracy on the `selection + holdout` recordings (not `train`), measures C++ resource use, and runs the C++/Python parity checks. It also includes a robustness check that applies the training augmentation to the same recordings. Results are cached, so a second run is fast.
+`generate_performance_report.py` writes `docs/performance/README.md`. It replays Lightweight and High Accuracy on the `selection + holdout` recordings (not `train`), measures C++ resource use, and runs the C++/Python parity checks. It also replays the same recordings with the training augmentation, and adds an operational replay that weights time, counts gaps in evaluation, and lists quiet recordings one by one. Results are cached, so a second run is fast.
 
 Replay uses the capture's recorded `csi_target_pps` for temporal admission, including long quiet recordings. Legacy captures without that metadata use the measured packet rate.
 
@@ -199,7 +199,7 @@ The candidate tools answer different questions:
 | How much does a metric move across training seeds? | `analyze_seed_dispersion.py` |
 | Does a selected ML candidate survive the reserved selection roles? | `compare_reserved_selection.py` |
 
-These tools never change production files. Record their conclusions in the [feature ledger](../docs/FEATURES.md), formulas in the [algorithms reference](../docs/ALGORITHMS.md), and use an ADR only for a lasting project decision.
+These tools never change production files. Record their conclusions in the [feature analysis](../docs/FEATURES.md), formulas in the [algorithms reference](../docs/ALGORITHMS.md), and use an ADR only for a lasting project decision.
 
 Candidate replay follows the dataset roles: a recording without a role is excluded, and `--include-train-empty` never uses it for training.
 
@@ -246,6 +246,6 @@ python tools/prune_npz_cache.py --artifact ml_replay_rows
 - [data collection guide](../docs/ML_DATA_COLLECTION.md): collection labels, metadata, and dataset roles
 - [ML training guide](../docs/ML_TRAINING.md): training, model selection, promotion, and export
 - [algorithms reference](../docs/ALGORITHMS.md): production detector behavior
-- [feature ledger](../docs/FEATURES.md): feature evidence and verdicts
+- [feature analysis](../docs/FEATURES.md): feature evidence and verdicts
 - [Performance report](../docs/performance/README.md): generated detector metrics
 - [CLI reference](../docs/CLI.md): supported repository entry points for collection and device workflows

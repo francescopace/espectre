@@ -2,7 +2,7 @@
 
 This guide explains how to train, test, and promote the High Accuracy model. It is for ML contributors and assumes you know supervised classification. Collect the data first with the [data collection guide](ML_DATA_COLLECTION.md).
 
-For all options, run `python tools/train_ml_model.py --help`. Feature evidence is in the [feature ledger](FEATURES.md), current results in the [performance report](performance/README.md).
+For all options, run `python tools/train_ml_model.py --help`. Feature evidence is in the [feature analysis](FEATURES.md), current results in the [performance report](performance/README.md).
 
 Terms:
 
@@ -43,7 +43,9 @@ The trainer accepts only HT20 data (`phy_mode=ht`, `ltf_type=ht-ltf`, `channel_w
 - Long quiet recordings (`long_recording: true`) are never trained on. With role `selection` or `holdout`, the quiet gate replays them in full and can block promotion.
 - A single production run tests its model on `selection` and `holdout` before export. A seed search tests every candidate on `selection`, picks one winner, and opens `holdout` only for it.
 - The paired gates replay every chip in `C3`, `C5`, `C6`, `ESP32`, and `S3`. If a chip has no `selection` pair, `--evaluate-selection` and the seed search report it as not covered. If a chip has neither a `selection` nor a `holdout` pair, the production run and `--evaluate-gates` replay its newest `train` pair instead. That replay is an in-sample sanity check, not a generalization result.
-- **Keep the holdout sealed.** Looking at holdout results while you keep changing the model turns it into selection data.
+- **Keep the holdout sealed.** Looking at holdout results while you change the model turns it into development data. The current holdout has already been inspected, so it is a regression set, not a blind test. A claim about unseen rooms needs a room left out of all fitting and selection.
+
+The [performance report](performance/README.md) lists selection and holdout separately. Its operational tables are diagnostics and do not change the promotion gates.
 
 The split policy and its rationale are recorded in [2026-06-30-separate-ml-training-data-from-promotion-replays.md](adr/2026-06-30-separate-ml-training-data-from-promotion-replays.md).
 
@@ -111,7 +113,7 @@ The trainer:
 
 Early stopping and learning-rate decay watch a random 10% row split. Neighboring windows overlap almost entirely, so this split checks convergence, not transfer to new sessions; grouped CV and the replay gates measure transfer.
 
-Feature definitions and evidence are in the [feature ledger](FEATURES.md); detector behavior is in the [algorithms reference](ALGORITHMS.md). Changing a production feature, its subcarriers, preprocessing, or arithmetic means updating Python and C++ together, then retraining and checking parity.
+Feature definitions and evidence are in the [feature analysis](FEATURES.md); detector behavior is in the [algorithms reference](ALGORITHMS.md). Changing a production feature, its subcarriers, preprocessing, or arithmetic means updating Python and C++ together, then retraining and checking parity.
 
 ### Timing-quality policies
 
@@ -154,7 +156,7 @@ python tools/train_ml_model.py --augment base,drift --no-export
 python tools/train_ml_model.py --augment base,drift,burst-loss --no-export
 ```
 
-Historical augmentation comparisons and their measured outcomes belong in ADRs and the [feature ledger](FEATURES.md), not in this guide.
+Historical augmentation comparisons and their measured outcomes belong in ADRs and the [feature analysis](FEATURES.md), not in this guide.
 
 ## Model selection and promotion
 
@@ -177,7 +179,7 @@ Passing these limits is required but not enough: the candidate must not get noti
 
 `--force-promote --seed SEED` exports even when gates fail (the failures are still printed). Use it only for a deliberate reset, and record why.
 
-Mutable performance numbers belong in the [performance report](performance/README.md). Durable feature and model decisions belong in the [feature ledger](FEATURES.md) and the relevant ADR.
+Mutable performance numbers belong in the [performance report](performance/README.md). Durable feature and model decisions belong in the [feature analysis](FEATURES.md) and the relevant ADR.
 
 ## Research and diagnostic workflows
 
@@ -207,7 +209,7 @@ python tools/train_ml_model.py --augment --seed SEED --no-export --cv-repeats 3
 - `--scaler standard` drops the `log1p` compression and z-scores the raw inputs.
 - `--cv-repeats R` averages out-of-fold probabilities over `R` grouped fold assignments. It lowers the variance of a comparison at `R` times the cost; compare candidates only at the same `R`.
 
-Candidate features live in `tools/lib/candidate_features.py` and can be selected with `--features`. They cannot be exported until they have matching Python and C++ implementations and a feature ID. Evidence for retired candidates stays in the [feature ledger](FEATURES.md); their code is removed.
+Candidate features live in `tools/lib/candidate_features.py` and can be selected with `--features`. They cannot be exported until they have matching Python and C++ implementations and a feature ID. Evidence for retired candidates stays in the [feature analysis](FEATURES.md); their code is removed.
 
 Trajectory-bin experiments use the same host streaming path and keep the production `80 ms` default unless explicitly overridden:
 
@@ -243,7 +245,7 @@ A successful promotion updates:
 - `src/cpp/core/ml_weights.h`; and
 - `data/auto_generated/ml_test_data.npz`.
 
-The weight files store the seed, time, feature order, scaler and log scales, topology, and weights, but not the dataset revision or the selection settings. Record those (dataset revision, roles, timing policy, augmentation, and fitting parameters) in the production section of the [feature ledger](FEATURES.md). `ml_test_data.npz` is a regression test for inference, not a quality score.
+Each export stores the seed, time, feature order, scaler and log scales, topology, and weights. It also stores a `Training provenance` JSON line with the dataset revision, a fingerprint of the training code, and the fit settings. The current weights predate that line, so their training data and settings are unknown; do not rebuild them from today's catalog. `ml_test_data.npz` checks inference, not quality.
 
 Never edit these files by hand: export them with the trainer so Python, C++, and test data stay in sync.
 
@@ -284,12 +286,12 @@ When the corpus, roles, or dataset-quality logic changes, also regenerate and ve
 .venv/bin/pytest test/python/host/dataset/test_dataset_quality_validation.py -v
 ```
 
-A promotion is complete only when the reports are current, every Python and C++ gate passes, and the [feature ledger](FEATURES.md) records the dataset revision and training settings of the promoted run.
+A promotion is complete when the reports are current, every Python and C++ gate passes, both weight files carry their training provenance, and the [feature analysis](FEATURES.md) covers any changed feature.
 
 ## Related documentation
 
 - [data collection guide](ML_DATA_COLLECTION.md): collection and labeling workflow
-- [feature ledger](FEATURES.md): production feature set, research ledger, and retained evidence
+- [feature analysis](FEATURES.md): production feature set, candidates, and retained evidence
 - [High-Accuracy implementation: HighAccuracyDetector](ALGORITHMS.md#high-accuracy-implementation-highaccuracydetector): runtime detector behavior
 - [Performance report](performance/README.md): generated current performance
 - [Tools guide](../tools/README.md): complete tool reference and cache operations

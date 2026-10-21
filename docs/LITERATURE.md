@@ -4,7 +4,7 @@ This index summarizes published Wi-Fi sensing research and what each source mean
 
 It covers the external papers in the local `.papers` collection and the online sources reviewed up to 2026-08-21. ESPectre's own research is not included; the earlier NBVI work is recorded in the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Links point to the publisher, DOI, or arXiv, so the PDFs are not needed. Release dates are the first public version, not the date we read it.
 
-A published result does not prove that an idea works on ESPectre data: tasks, labels, hardware, packet rates, rooms, and splits all differ. ESPectre's own measurements and verdicts are in the [feature ledger](FEATURES.md).
+A published result does not prove that an idea works on ESPectre data: tasks, labels, hardware, packet rates, rooms, and splits all differ. ESPectre's own measurements and verdicts are in the [feature analysis](FEATURES.md).
 
 Abbreviations: HT20 is a 20 MHz Wi-Fi channel; CIR is the channel impulse response.
 
@@ -404,7 +404,7 @@ When adding a source:
 4. retain only results needed to judge the claim;
 5. state the radio hardware, bandwidth, antenna, and cadence assumptions when they affect transfer;
 6. classify the ESPectre action and scale-invariance implications; and
-7. move actual ESPectre measurements and candidate verdicts to the [feature ledger](FEATURES.md), rather than duplicating them here.
+7. move actual ESPectre measurements and candidate verdicts to the [feature analysis](FEATURES.md), rather than duplicating them here.
 
 ADRs can link a source heading here. When a paper is essential to a decision, the ADR also keeps its own conclusion and a direct link to the source.
 

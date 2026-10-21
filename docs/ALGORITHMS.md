@@ -2,7 +2,7 @@
 
 This reference describes the detectors and signal processing in the current release. It is written for detector and firmware contributors; operators should start with the [troubleshooting guide](TROUBLESHOOTING.md).
 
-Feature experiments are in the [feature ledger](FEATURES.md), design decisions in the [ADR index](adr/README.md), and measured results in the [performance report](performance/README.md).
+Feature experiments are in the [feature analysis](FEATURES.md), design decisions in the [ADR index](adr/README.md), and measured results in the [performance report](performance/README.md).
 
 Terms used below:
 
@@ -207,7 +207,7 @@ t_i = std(A_i) / mean(A_i)
 
 After Hampel filtering, Lightweight calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
 
-Lightweight does not allocate or update an L1-delta tracker. The tracker remains conditional on the exported feature IDs in ML, where `l1_delta_lag_ratio` consumes it. Current runtime-state ownership and measured feature costs are recorded in the [feature ledger](FEATURES.md).
+Lightweight does not allocate or update an L1-delta tracker. The tracker remains conditional on the exported feature IDs in ML, where `l1_delta_lag_ratio` consumes it. Current runtime-state ownership and measured feature costs are recorded in the [feature analysis](FEATURES.md).
 
 ### Aggregated turbulence IQR
 
@@ -251,7 +251,7 @@ The settled-level rule cannot create a high threshold. It only ever lowers one a
 
 ### Known limits
 
-Lightweight is less robust than High Accuracy in quiet rooms and in rooms it was not trained on. Per-chip results are in the [performance report](performance/README.md). No additional feature pair or triplet is approved for Lightweight on the current corpus; see the [feature ledger](FEATURES.md).
+Lightweight is less robust than High Accuracy in quiet rooms and in rooms it was not trained on. Per-chip results are in the [performance report](performance/README.md). No additional feature pair or triplet is approved for Lightweight on the current corpus; see the [feature analysis](FEATURES.md).
 
 ### Settled-level threshold recovery
 
@@ -315,7 +315,7 @@ The production model consumes these eight scale-invariant inputs, in export orde
 7. `chan_shape_excess_path`
 8. `chan_shape_subband_kendall_lag_excess`
 
-Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in the [feature ledger](FEATURES.md).
+Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in the [feature analysis](FEATURES.md).
 
 The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Consecutive identical CSI payloads contribute no additional profiles, but their timestamps still advance the window and expire old trajectory features. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [current production ML set](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
 

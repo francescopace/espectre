@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [3.1.0] - work in progress
 
+- The performance report lists selection and holdout separately, adds time-based coverage, raw and filtered recall, and per-recording quiet alarm rates, and hashes the model files. New model exports record their training data and settings.
+
 - Wi-Fi raw traffic is stable on supported chips. ESP32-C6 remains unsupported; see [compatibility limits](CSI.md#compatibility-limits).
 
 - Monitor Demo mode now applies the motion-on and motion-off reading counts to state transitions and chart highlighting, and retains these settings while navigating between tools.

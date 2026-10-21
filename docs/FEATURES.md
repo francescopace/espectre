@@ -1,12 +1,14 @@
-# Detector feature ledger
+# Detector feature analysis
 
-This ledger records every feature ESPectre has seriously evaluated: what ships today, what is still being researched, and what was rejected or retired, with the evidence behind each decision.
+This document describes the features ESPectre uses or has seriously tested: what each one measures, how it behaves under gain changes, what it costs, how much it helped, and where it fails. Failed attempts stay here so new experiments can start from them.
 
 Related documents: design decisions are in the [ADRs](adr/README.md), current detector behavior in the [algorithms reference](ALGORITHMS.md), current metrics in the [performance report](performance/README.md), data collection in the [data collection guide](ML_DATA_COLLECTION.md), and experiment commands in the [ML training guide](ML_TRAINING.md) and the [tools guide](../tools/README.md).
 
-## How to read this ledger
+<a id="how-to-read-this-ledger"></a>
 
-This is a decision record, not an experiment log, and not an introduction to the detector. To see what ships, read the two production sections. Use the backlog and historical tables when you evaluate a new candidate or need to reproduce an old result.
+## How to read this analysis
+
+Production sections describe the current inputs. Other entries compare a formulation with a stated baseline; their numbers hold for that corpus and recipe, not for the current model. Training recipes are in the [ML training guide](ML_TRAINING.md) and current results in the [performance report](performance/README.md).
 
 Terms:
 
@@ -45,13 +47,13 @@ Candidates live in `tools/lib/candidate_features.py`. Use `--no-export` for CV-o
 
 High Accuracy uses eight features and no phase. Only `turb_iqr_over_mean_aggr` averages each tone with its neighbors (`W=5`); the other seven use the normal amplitudes. Lightweight uses the same aggregated feature through its own ring.
 
-The promoted artifact was refitted on 2026-10-04 from dataset revision `sha256:4c2c13c76854346c740c5c3872d0e57549539cf240ca27c1da6896684f08ffdb`, using only `train`, timing-quality policy `keep`, no environment or chip filter, `log1p_standard` normalization, per-epoch mini-batch reshuffling, and false-positive weight `1.75`. Before z-scoring, `log1p_standard` replaces aggregated IQR, L1 lag ratio, coherent innovation, excess path, and Kendall lag-excess with `log1p(x / s)`, where `s` is the training standard deviation exported in `ML_FEATURE_LOG_SCALE`; the other three inputs stay linear. Its topology is `8 -> 24 -> 12 -> 1`, with 529 parameters and model seed `496429295`. Training used batch size `1024` on CPU, the `base,drift,burst-loss` recipe, a `base` packet-rate scale of `0.7-1.0` with a 70 pps floor, and a deterministic constant-size row mix from packet seeds `20260807` and `20260808`. The 25 training pairs and five short empty files form 30 lineage groups, with 675,819 clean rows and 554,449 augmented rows. Hampel and the `4 / 3` event policy are unchanged. The user accepted at most two effective alarms per long quiet recording; short quiet recordings still require zero. The production run passed all 22 reserved pairs in both normal and occupancy-70% modes, with two quiet alarms in normal mode and zero under thinning, and exported without `--force-promote`. See [Expanded-corpus C5 role swap](#expanded-corpus-c5-role-swap) for the matched comparison and [High Accuracy fit recipe](#high-accuracy-fit-recipe) for the original normalization experiment.
+`tools/lib/ml_weights.py` and `src/cpp/core/ml_weights.h` define the feature order and normalization. The current model is `8 -> 24 -> 12 -> 1`, seed `1199541507`, trained `2026-10-05 22:50:44`, with `log1p_standard`: selected non-negative inputs become `log1p(x / s)` before z-scoring, and the scales ship in the weight files. Its training data and settings were not recorded and cannot be recovered from today's catalog. New exports record them; see [exported artifacts](ML_TRAINING.md#exported-artifacts).
 
-Current detector results are in the generated [performance report](performance/README.md). See [2026-08-11-promote-channel-shape-trajectory-ml-features.md](adr/2026-08-11-promote-channel-shape-trajectory-ml-features.md) for the production decision and full-band lineage, and [2026-06-30-separate-ml-training-data-from-promotion-replays.md](adr/2026-06-30-separate-ml-training-data-from-promotion-replays.md) for the augmentation-view and promotion-data policy. The exported weight files hold the arrays, feature order, scaler, topology, seed, and training time; this section records the corpus and fitting settings needed to reproduce them.
+The table below comes from earlier controlled analyses. Importance and correlation hold for that model and corpus; they were not recomputed for the current export. The trajectory rationale is in [the feature-promotion ADR](adr/2026-08-11-promote-channel-shape-trajectory-ml-features.md).
 
 | Feature | Physical quantity and definition | Invariance | Retained feature evidence | Status |
 | --- | --- | --- | --- | --- |
-| `turb_iqr_over_mean_aggr` | Robust relative spread `(Q75(x) - Q25(x)) / abs(mean(x))`, where `x` is turbulence from a dedicated `W=5` adjacent-magnitude average | Ratio | Occupancy-70% train label correlation `+0.8113`; grouped OOF mean absolute SHAP `0.150846` (`30.1%`) on the exported 8F seed. It remains the largest single contributor after Kendall joined the set | Production |
+| `turb_iqr_over_mean_aggr` | Robust relative spread `(Q75(x) - Q25(x)) / abs(mean(x))`, where `x` is turbulence from a dedicated `W=5` adjacent-magnitude average | Ratio | Occupancy-70% train label correlation `+0.8113`; grouped OOF mean absolute SHAP `0.150846` (`30.1%`) in the retained 8F analysis. It remains the largest single contributor after Kendall joined the set | Production |
 | `turb_autocorr` | Lag-1 autocorrelation `C(1) / C(0)` of the normal turbulence series | Correlation | Occupancy-70% train label correlation `+0.8710`; SHAP `0.101748` (`20.3%`). It is still the strongest label correlation and stays tightly coupled with ZCR (`\|r\|=0.926`) | Production |
 | `turb_zcr` | Crossing rate of the turbulence series around its window median | Crossing rate | Occupancy-70% train label correlation `-0.8403`; SHAP `0.043283` (`8.6%`). Linear reconstruction from the other seven inputs reaches `R2=0.8691` | Production |
 | `l1_delta_lag_ratio` | Mean lag-10 normalized-profile displacement divided by mean adjacent displacement | Ratio | Occupancy-70% train label correlation `+0.7927`; SHAP `0.088121` (`17.6%`). Reconstruction `R2=0.7942`, closest to autocorrelation | Production |
@@ -72,7 +74,7 @@ The runtimes compute only the features the current models use. Lightweight keeps
 
 ## Feature decisions and research backlog
 
-This register groups production settings, open research, deferred ideas, and recent closed decisions by feature family. **Research**, **Planned**, and **Deferred** entries are open; **Production** entries describe what ships; **Rejected** and **Historical** entries are closed and kept for reference. The table is an index; each entry's formulation, evidence, and full decision follow below it.
+This inventory groups formulations, related runtime settings, and ablations by physical family. **Research**, **Planned**, and **Deferred** entries are open; **Production** entries ship; **Rejected** and **Historical** entries are closed. Each row links to its full entry.
 
 | Feature, formulation, or campaign | Status | Decision |
 | --- | --- | --- |
@@ -82,27 +84,27 @@ This register groups production settings, open research, deferred ideas, and rec
 | [`chan_shape_coherent_innovation_contrast`](#chan_shape_coherent_innovation_contrast) | Rejected | Rejected: no cross-domain gain despite strong within-session ranking. |
 | [`chan_shape_coherent_displacement_ratio`](#chan_shape_coherent_displacement_ratio) | Rejected | Nearly absent during the new C5 misses, while active on the S3 quiet disturbance. |
 | [`chan_shape_intraband_innovation_energy`](#chan_shape_intraband_innovation_energy) | Rejected | Small C5 recovery does not offset the grouped FP regression and added occupancy quiet alarms. |
-| [Trajectory bin: `80 ms` production setting](#trajectory-bin-80-ms-production-setting) | Production | Keep `80 ms`; the only quiet-safe challenger has worse paired tails and costs more memory. |
-| [Lightweight production turbulence pair](#lightweight-production-turbulence-pair) | Production | Promoted `turb_autocorr + turb_iqr_over_mean_aggr` for a better quiet tail at small cost. |
-| [Occupancy-70% `base` rate-scale floor](#occupancy-70-base-rate-scale-floor) | Production | Promoted at seed `656446646`. |
-| [Occupancy-70% promotion gate](#occupancy-70-promotion-gate) | Production | Occupancy-70% thinned replays now block promotion. |
-| [Occupancy-70% Lightweight pair rescreen](#occupancy-70-lightweight-pair-rescreen) | Production | Retain `turb_autocorr + turb_iqr_over_mean_aggr`. |
-| [Current-pair Classic excess-path triplet](#current-pair-classic-excess-path-triplet) | Rejected | Rejected: too permissive on an unseen stationary session. |
-| [Current-pair Classic rank-gap triplet](#current-pair-classic-rank-gap-triplet) | Research | Retain only as evidence that guarded ordinal channel-shape turnover is the best third physical axis found in this campaign. |
-| [Current-pair Classic cross-subcarrier-ratio triplet](#current-pair-classic-cross-subcarrier-ratio-triplet) | Rejected | Rejected: less robust than rank turnover and fails the primary clean screen. |
-| [ML eight-subband rank-gap addition and substitution](#ml-eight-subband-rank-gap-addition-and-substitution) | Rejected | Rejected: the finalist does not generalize consistently across external corpora. |
-| [ML guarded Kendall lag-excess addition and substitution](#ml-guarded-kendall-lag-excess-addition-and-substitution) | Historical | Substitution rejected; the eight-input addition was later promoted. |
-| [Classic lag-ratio triplet](#classic-lag-ratio-triplet) | Research | Requires new sealed recordings and an exact shared packet-level comparison path. |
-| [Classic excess-path triplet](#classic-excess-path-triplet) | Research | Strongest three-feature research candidate; needs new independent evidence. |
-| [Classic offset-4/12 coherence curve](#classic-offset-412-coherence-curve) | Historical | Retired when aggregated turbulence IQR was promoted; kept host-only for reproduction. |
-| [Economic `chan_shape_spread` approximations](#economic-chan_shape_spread-approximations) | Research | The initial screen retained DS2 and slow EMA as host-only fallbacks and advanced subband to the common ten-seed comparison. |
-| [Economic shape-spread ten-seed follow-up](#economic-shape-spread-ten-seed-follow-up) | Production | Promoted at seed `1584727888`; low seed pass rate and unseen-bedroom FP remain risks. |
-| [Subband importance and compactness follow-up](#subband-importance-and-compactness-follow-up) | Research | Retain all seven subband-model inputs. |
-| [Expanded-corpus capacity and feature removals](#expanded-corpus-capacity-and-feature-removals) | Rejected | Retain the eight inputs and `24-12` topology; larger networks and three targeted removals do not resolve the C5 and quiet failures. |
+| [Temporal resolution of the trajectory tracker](#trajectory-bin-80-ms-production-setting) | Production | Keep `80 ms`; the only quiet-safe challenger has worse paired tails and costs more memory. |
+| [Complementarity of turbulence autocorrelation and aggregated IQR](#lightweight-production-turbulence-pair) | Production | Promoted `turb_autocorr + turb_iqr_over_mean_aggr` for a better quiet tail at small cost. |
+| [Augmentation at the minimum valid occupancy](#occupancy-70-base-rate-scale-floor) | Production | In production; the training guide has the active recipe. |
+| [Occupancy as a validation boundary](#occupancy-70-promotion-gate) | Production | Occupancy-70% thinned replays now block promotion. |
+| [Lightweight feature selection under sparse sampling](#occupancy-70-lightweight-pair-rescreen) | Production | Retain `turb_autocorr + turb_iqr_over_mean_aggr`. |
+| [Excess path with the production Lightweight pair](#current-pair-classic-excess-path-triplet) | Rejected | Too permissive on an unseen stationary session. |
+| [Ordinal turnover with the production Lightweight pair](#current-pair-classic-rank-gap-triplet) | Research | Kept as evidence: guarded ordinal channel-shape turnover was the best third axis found. |
+| [Cross-subcarrier ratios with the production Lightweight pair](#current-pair-classic-cross-subcarrier-ratio-triplet) | Rejected | Less robust than rank turnover and fails the primary clean screen. |
+| [Ordinal rank turnover in the MLP](#ml-eight-subband-rank-gap-addition-and-substitution) | Rejected | The finalist does not generalize consistently across external corpora. |
+| [Guarded Kendall lag-excess in the MLP](#ml-guarded-kendall-lag-excess-addition-and-substitution) | Historical | Substitution rejected; the eight-input addition was later promoted. |
+| [Lag ratio with historical Lightweight pairs](#classic-lag-ratio-triplet) | Research | Requires new sealed recordings and an exact shared packet-level comparison path. |
+| [Excess path with historical Lightweight pairs](#classic-excess-path-triplet) | Research | Strongest three-feature research candidate; needs new independent evidence. |
+| [Historical offset coherence curve](#classic-offset-412-coherence-curve) | Historical | Retired when aggregated turbulence IQR was promoted; kept host-only for reproduction. |
+| [Memory and accuracy trade-offs of channel-shape spread](#economic-chan_shape_spread-approximations) | Research | DS2 and slow EMA stay as host-only fallbacks; subband moved on to the ten-seed comparison. |
+| [Robustness of compact channel-shape spread](#economic-shape-spread-ten-seed-follow-up) | Production | Subband reduces memory; seed sensitivity and unseen-bedroom FP remain limitations. |
+| [Contribution and redundancy of subband inputs](#subband-importance-and-compactness-follow-up) | Research | Retain all seven subband-model inputs. |
+| [Feature ablations and model capacity](#expanded-corpus-capacity-and-feature-removals) | Rejected | Retain the eight inputs and `24-12` topology; larger networks and three targeted removals do not resolve the C5 and quiet failures. |
 | [Expanded-corpus Hampel and event persistence](#expanded-corpus-hampel-and-event-persistence) | Research | Retain Hampel; `4 / 4` improves C5 state continuity but leaves alarms, and stronger confirmation exceeds the responsiveness limit. |
-| [Expanded-corpus C5 role swap](#expanded-corpus-c5-role-swap) | Production | Promoted seed `496429295`, FP weight `1.75`, with the user-approved two-alarm long-recording budget; recall improves, while quiet FP and holdout F1 retain the documented tradeoff. |
-| [Six-feature subband ten-seed follow-up](#six-feature-subband-ten-seed-follow-up) | Rejected | Rejected: seed selection does not remove quiet alarms or transfer regression. |
-| [High Accuracy fit recipe](#high-accuracy-fit-recipe) | Production | Promoted `log1p` input compression with per-epoch reshuffling; rejected lineage early stopping, seed ensembles, and input clamps. |
+| [Corpus dependence](#expanded-corpus-c5-role-swap) | Limitation | Split changes measure coverage changes, not feature improvements. |
+| [Joint removal of spread and excess path](#six-feature-subband-ten-seed-follow-up) | Rejected | Seed selection does not remove quiet alarms or transfer regression. |
+| [Effect of input compression on feature distributions](#high-accuracy-fit-recipe) | Production | Promoted `log1p` input compression with per-epoch reshuffling; rejected lineage early stopping, seed ensembles, and input clamps. |
 | [`gesture_random_kernel_ppv`](#gesture_random_kernel_ppv) | Planned | Keep host-only under `tools/` with `--no-export` after the high-rate path is stable. |
 | [Trusted profile-scale correction](#trusted-profile-scale-correction) | Deferred | Revisit only if a supported SDK and protocol expose the measured value consistently across chips. |
 | [Narrowband micro-motion energy](#narrowband-micro-motion-energy) | Deferred | Collect same-link, same-session paired evidence with longer windows before implementation. |
@@ -164,13 +166,15 @@ This register groups production settings, open research, deferred ideas, and rec
 
 **Formulation:** Host-only fine channel geometry that retains all 56 live HT20 magnitudes, divided by the packet L2 norm, instead of reducing each seven-tone subband to a single energy value. Component-wise medians form `80 ms` bins, with each median profile renormalized to unit L2 norm. Within each of eight contiguous seven-tone subbands, an orthonormal seven-point DCT separates the band mean from internal structure. On three contiguous bins, compute the constant-velocity residual `q[t] - 2*q[t-1] + q[t-2]`; sum squared residuals in internal modes `1-2` across bands, subtract half the energy in modes `3-6`, clamp at zero, and take the median over complete paths in the one-second window. This seeks coherent within-band movement lost by coarse energy aggregation, while discounting equal-per-mode noise. It is invariant to positive per-packet gain, suppresses exact duplicate payloads, and leaves missing bins absent
 
-**Evidence:** The corpus, split, seed `984322884`, scaling, and augmentation match [Expanded-corpus capacity and feature removals](#expanded-corpus-capacity-and-feature-removals). On 23,477 clean training replay ticks, single-feature label correlation was `+0.1092`, AUC `0.7861`, maximum absolute production correlation `0.2287`, and reconstruction from all eight production inputs `R2=0.0755`. C5 hobby-room pair AUC was `0.8787`, with nonzero evidence on 21 of 23 baseline misses. The fitted nine-input `24-12` model nevertheless reduced blocked OOF F1 `98.881% -> 98.468%`; worst-lineage recall improved `77.01% -> 80.46%` on the new ESP32 pair, but maximum lineage FP rose `0.62% -> 6.41%` on a C3 bedroom pair. C5 selection recall improved only `93.39% -> 93.68%` normally and `91.53% -> 92.37%` at 70% occupancy, recovering one and two evaluations, respectively. Paired maximum FP rose `0.29% -> 0.57%` normally and `1.73% -> 2.12%` at 70%; both paired gates still passed only `6/7`. Quiet alarms were `2 / 2` normally / at 70%, versus baseline `2 / 0`, with maximum quiet FP `0.77% / 0.87%`. On the already opened excluded vacation-home captures, the same-seed eight-input baseline / candidate recall was `99.43% / 97.99%` for the normal pair and `27.67% / 33.43%` for the low-RSSI pair. Candidate static and empty FP were zero on both triplets; these diagnostic recordings were not fitted or used as a new sealed test
+**Evidence:** The corpus, split, seed `984322884`, scaling, and augmentation match [Feature ablations and model capacity](#expanded-corpus-capacity-and-feature-removals). On 23,477 clean training replay ticks, single-feature label correlation was `+0.1092`, AUC `0.7861`, maximum absolute production correlation `0.2287`, and reconstruction from all eight production inputs `R2=0.0755`. C5 hobby-room pair AUC was `0.8787`, with nonzero evidence on 21 of 23 baseline misses. The fitted nine-input `24-12` model nevertheless reduced blocked OOF F1 `98.881% -> 98.468%`; worst-lineage recall improved `77.01% -> 80.46%` on the new ESP32 pair, but maximum lineage FP rose `0.62% -> 6.41%` on a C3 bedroom pair. C5 selection recall improved only `93.39% -> 93.68%` normally and `91.53% -> 92.37%` at 70% occupancy, recovering one and two evaluations, respectively. Paired maximum FP rose `0.29% -> 0.57%` normally and `1.73% -> 2.12%` at 70%; both paired gates still passed only `6/7`. Quiet alarms were `2 / 2` normally / at 70%, versus baseline `2 / 0`, with maximum quiet FP `0.77% / 0.87%`. On the already opened excluded vacation-home captures, the same-seed eight-input baseline / candidate recall was `99.43% / 97.99%` for the normal pair and `27.67% / 33.43%` for the low-RSSI pair. Candidate static and empty FP were zero on both triplets; these diagnostic recordings were not fitted or used as a new sealed test
 
 The first candidate occupancy gate was invalid because host column-cache identity omitted the occupancy transform and reused normal rows. The cache identity now includes that transform, invalidating the ambiguous old keys. A regression test reproduces the collision and verifies separate cold and warm caches against uncached thinned rows. The reported occupancy results above use the original fitted model's saved predictions only after all nine input columns and temporal row indices matched the corrected canonical extraction exactly on every one of the 18 thinned selection streams. Normal gate predictions also reproduced all 18 selection streams. Initial clean and augmented host extraction took `3m 17.6s` and `6m 17.4s`; these are workstation measurements, not device costs
 
 **Decision:** Reject the tested formulation for promotion. It retains complementary signal, including some of the vacation-home weak-motion signal, but does not recover enough C5 movement and substantially worsens the grouped FP tail and quiet robustness. Keep the extractor host-only; no runtime implementation, weight export, role changes, threshold changes, or holdout evaluation followed
 
-### Trajectory bin: `80 ms` production setting
+<a id="trajectory-bin-80-ms-production-setting"></a>
+
+### Temporal resolution of the trajectory tracker
 
 **Status:** Production
 
@@ -180,7 +184,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Keep `80 ms`. The only quiet-safe challenger buys a small average-CV improvement at the cost of worse paired tails and approximately `54%` more trajectory-bin capacity; the coarser `100 ms` resource candidate fails quiet safety and weak-link recall
 
-### Lightweight production turbulence pair
+<a id="lightweight-production-turbulence-pair"></a>
+
+### Complementarity of turbulence autocorrelation and aggregated IQR
 
 **Status:** Production
 
@@ -190,7 +196,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Promoted `turb_autocorr + turb_iqr_over_mean_aggr`: its additional `480 B` and approximately `16 us/s` of host CPU buy a materially better quiet tail while Classic remains far simpler than ML. Retain the normal-IQR extractor in host research as the ultra-low-resource fallback, and reject the ZCR pair on its calibration frontier
 
-### Occupancy-70% `base` rate-scale floor
+<a id="occupancy-70-base-rate-scale-floor"></a>
+
+### Augmentation at the minimum valid occupancy
 
 **Status:** Production
 
@@ -198,9 +206,11 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Evidence:** The 2026-08-17 export reused seed `656446646` with occupancy-70% `base`. Blocked OOF F1 `99.1%`, worst-session recall / FP `92.4%` / `0.6%`, paired `14/14` with worst recall `96.26%` (S3 selection `20260725_124905`), maximum FP `0.56%` (S3 holdout `20260728_125456`), and zero alarms. Quiet maximum FP `0.13%` with zero alarms. Occupancy-70% paired `14/14` with worst recall `94.87%` and maximum FP `0.71%`; occupancy quiet `0.19%` with zero alarms. Gain stress stayed invariant from `0.5x` to `2x`. Versus the previous `0.8-1.0` / 80 pps artifact at the same seed: OOF F1 `99.0%`, worst-session `93.7%` / `2.5%`, paired worst recall `97.13%`, maximum FP `0.29%`, quiet `0.31%`, and one occupancy-70% selection quiet alarm
 
-**Decision:** Promoted at seed `656446646`. Occupancy-70% thinned reserved replays are now a promotion blocker; this recipe closes the exported quiet alarm while keeping the production burst-loss overlay
+**Decision:** In production; the training guide has the active recipe. Occupancy-70% thinned replays now block promotion, and this recipe closes the exported quiet alarm while keeping the production burst-loss overlay
 
-### Occupancy-70% promotion gate
+<a id="occupancy-70-promotion-gate"></a>
+
+### Occupancy as a validation boundary
 
 **Status:** Production
 
@@ -210,7 +220,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Ranking evidence for the occupancy-70% `base` recipe. Production export kept seed `656446646` after that candidate passed occupancy quiet
 
-### Occupancy-70% Lightweight pair rescreen
+<a id="occupancy-70-lightweight-pair-rescreen"></a>
+
+### Lightweight feature selection under sparse sampling
 
 **Status:** Production
 
@@ -220,7 +232,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Retain `turb_autocorr + turb_iqr_over_mean_aggr`. The 8F importance ranking and the occupancy-70% sequential screen agree: ZCR is redundant, lag ratio is not cheap enough for its recall collapse, and trajectory or Kendall inputs would import High Accuracy state. The sequential S3 empty alarm is not a feature-pair failure
 
-### Current-pair Classic excess-path triplet
+<a id="current-pair-classic-excess-path-triplet"></a>
+
+### Excess path with the production Lightweight pair
 
 **Status:** Rejected
 
@@ -230,7 +244,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Rejected. The independent motion gains support frequency-selective channel-shape dynamics as a useful physical axis, but this scalar and current q95-shift calibration are too permissive on an unseen stationary session. Do not tune on the opened external holdouts; evaluate a predeclared rank-turnover or guarded cross-subcarrier formulation on newly sealed evidence
 
-### Current-pair Classic rank-gap triplet
+<a id="current-pair-classic-rank-gap-triplet"></a>
+
+### Ordinal turnover with the production Lightweight pair
 
 **Status:** Research
 
@@ -240,7 +256,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Retain only as evidence that guarded ordinal channel-shape turnover is the best third physical axis found in this campaign. Do not port exact Spearman ranking; predeclare and benchmark a lower-cost ordinal or subband proxy, and require genuinely new external evidence before promotion
 
-### Current-pair Classic cross-subcarrier-ratio triplet
+<a id="current-pair-classic-cross-subcarrier-ratio-triplet"></a>
+
+### Cross-subcarrier ratios with the production Lightweight pair
 
 **Status:** Rejected
 
@@ -250,7 +268,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Rejected. Fixed-bin ratios support the same frequency-selective physical domain, but this lag-gap statistic is less robust than rank turnover and fails the primary clean screen
 
-### ML eight-subband rank-gap addition and substitution
+<a id="ml-eight-subband-rank-gap-addition-and-substitution"></a>
+
+### Ordinal rank turnover in the MLP
 
 **Status:** Rejected
 
@@ -260,7 +280,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Rejected. The S3 alarm is not reliable rejection evidence, and ordinal subband turnover remains complementary and useful for chip transfer, but the fixed finalist does not generalize consistently: CSI Sense Zero buys only a small recall/F1 gain while worsening stationary tails, and WISDOM regresses both recall and stationary FP. Do not port or tune this exact `80/240 ms` statistic on the opened corpora; revisit only with a different predeclared formulation and new sealed evidence
 
-### ML guarded Kendall lag-excess addition and substitution
+<a id="ml-guarded-kendall-lag-excess-addition-and-substitution"></a>
+
+### Guarded Kendall lag-excess in the MLP
 
 **Status:** Historical
 
@@ -270,7 +292,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Reject the tested seven-input substitution at `fp_weight=1.75`: the cross-domain recall gain is consistent, but no seed clears primary FP robustness, and both independent stationary domains regress. The eight-input addition was later promoted after fixed temporal admission and a fresh 8F seed search; see the production table and [2026-08-11-promote-channel-shape-trajectory-ml-features.md](adr/2026-08-11-promote-channel-shape-trajectory-ml-features.md). This row retains the earlier host-only campaign
 
-### Classic lag-ratio triplet
+<a id="classic-lag-ratio-triplet"></a>
+
+### Lag ratio with historical Lightweight pairs
 
 **Status:** Research
 
@@ -280,7 +304,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Requires new sealed recordings and an exact shared packet-level comparison path
 
-### Classic excess-path triplet
+<a id="classic-excess-path-triplet"></a>
+
+### Excess path with historical Lightweight pairs
 
 **Status:** Research
 
@@ -290,7 +316,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Keep as the strongest three-feature research candidate; require new independent evidence or a different calibration family instead of further scalar tuning on this corpus
 
-### Classic offset-4/12 coherence curve
+<a id="classic-offset-412-coherence-curve"></a>
+
+### Historical offset coherence curve
 
 **Status:** Historical
 
@@ -300,7 +328,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Retired from production when aggregated turbulence IQR was promoted; retained host-only for historical reproduction
 
-### Economic `chan_shape_spread` approximations
+<a id="economic-chan_shape_spread-approximations"></a>
+
+### Memory and accuracy trade-offs of channel-shape spread
 
 **Status:** Research
 
@@ -310,7 +340,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** The initial screen retained DS2 and slow EMA as host-only fallbacks and advanced subband to the common ten-seed comparison. Subband was later selected for an exact DCT-backed runtime export; DS2 and slow EMA remain rollback candidates if hardware or independent-room validation rejects it
 
-### Economic shape-spread ten-seed follow-up
+<a id="economic-shape-spread-ten-seed-follow-up"></a>
+
+### Robustness of compact channel-shape spread
 
 **Status:** Production
 
@@ -320,7 +352,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Promoted to production at seed `1584727888` after exact host, MicroPython, and C++ DCT-mode parity, a fresh run that passed every deployment gate without an override, and host resource benchmarks. Its `4/10` seed pass rate and unseen-bedroom FP remain follow-up risks for independent-room validation; DS2 and slow EMA remain host-only CPU-plus-RAM and RAM-minimum rollback candidates
 
-### Subband importance and compactness follow-up
+<a id="subband-importance-and-compactness-follow-up"></a>
+
+### Contribution and redundancy of subband inputs
 
 **Status:** Research
 
@@ -330,7 +364,9 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 **Decision:** Retain all seven subband-model inputs. Global SHAP alone understates the tail value of both subband spread and excess path; no feature removal survives CV, selection, quiet, and environment-transfer evidence together
 
-### Expanded-corpus capacity and feature removals
+<a id="expanded-corpus-capacity-and-feature-removals"></a>
+
+### Feature ablations and model capacity
 
 **Status:** Rejected
 
@@ -352,7 +388,9 @@ The worst-lineage recall remained the new ESP32 hobby-room training pair in ever
 
 **Decision:** Retain all eight features and the `24-12` topology. Low global SHAP and high correlation do not establish harmful redundancy; none of these removals improves the full comparison. The width experiment provides no evidence that increasing capacity alone solves the current failures, without ruling out every possible architecture or fitting recipe. Continue research on independent C5 training coverage and complementary motion evidence instead of launching a wider seed search over these rejected variants
 
-### Completed-corpus subband-spread removal
+<a id="completed-corpus-subband-spread-removal"></a>
+
+### Contribution of subband spread
 
 **Status:** Rejected
 
@@ -362,26 +400,15 @@ The worst-lineage recall remained the new ESP32 hobby-room training pair in ever
 
 **Decision:** Retain subband spread. Its removal again reduces quiet alarms by sacrificing motion sensitivity and grouped generalization. The exported model and dataset roles remain unchanged. Reproducible local evidence is in `.tmp/ml_performance_campaign_20261006/without_spread_seed1199541507/` and the matching `full_fp175_seed119/` control.
 
-### Expanded-corpus Hampel and event persistence
+<a id="expanded-corpus-hampel-and-event-persistence"></a>
+
+### Interaction with Hampel and event persistence
 
 **Status:** Research
 
 **Formulation:** Two separate host-only diagnostics with frozen model weights. First, replay the current eight inputs with Hampel disabled or with its threshold changed from `5` to `3` or `7`, retaining the seven-sample window and disabled low-pass. Hampel acts on the normal and aggregated turbulence streams and both L1 lag streams; the channel-shape features retain their existing path. Second, keep the production features and probability threshold `0.5`, and compare runtime motion-on hit counts `4`, `6`, and `8` with motion-off counts `3` and `5`. The evaluation cadence remains `250 ms`, and unavailable evaluations hold the previous state. Neither experiment changes the feature definitions or their gain invariance
 
 **Evidence:** The frozen catalog SHA-256 was `a5c8673f120e2bf8988dae5b8ebffa4ec0930ddbda18580a30fe623fc7ee5920`. Training used 55 files, 30 lineage groups, 675,748 clean rows, and 548,658 train-only augmented rows. Reconstructing seed `772689826` with the production `24-12` topology, `log1p_standard`, FP weight `1.75`, and the standard augmentation recipe exactly reproduced all four selection gates of the completed ten-seed search. Blocked OOF F1 was `98.463%`, worst-lineage recall was `77.01%`, and worst-lineage FP was `5.52%`. The reconstruction and diagnostics did not open holdout or export runtime artifacts
-
-The Hampel screen covered five selection files in normal and occupancy-70% modes: the challenging C5 hobby-room pair, the C3 motion recording of the similar route, and the old and new S3 living-room empty recordings. All 40 replays were extracted without caching changed-filter rows. The production-filter rows exactly matched the canonical cache, and packet indices matched across variants. These are fixed-weight counterfactuals, not models retrained with different filters; changed-filter CV, redundancy, and device-cost evidence are unavailable
-
-| Replay Hampel | C5 raw recall, normal / 70% | Old S3 quiet alarms, normal / 70% | C3 raw recall, normal / 70% |
-| --- | --- | --- | --- |
-| Production: window `7`, threshold `5` | `93.97% / 92.80%` | `2 / 1` | `97.99% / 99.12%` |
-| Disabled | `93.39% / 92.37%` | `2 / 0` | `96.55% / 97.37%` |
-| Stronger: threshold `3` | `93.10% / 92.37%` | `2 / 2` | `97.99% / 99.12%` |
-| Weaker: threshold `7` | `93.68% / 92.37%` | `2 / 0` | `97.41% / 98.68%` |
-
-Every Hampel variant retained zero FP on the C5 stationary file and zero alarms on the new S3 empty file. None recovered the C5 misses or removed the two normal-mode alarms on the old S3 empty file. This does not rule out a consistently retrained filter variant, but provides no evidence that simply disabling or retuning Hampel solves the observed failures
-
-The event-policy screen covered all ten selection pairs and five selection empty files, in both modes. A follow-up added `4 / 4` after the product requirement capped both hit counts at four to preserve responsiveness. Effective recall below is the fraction of scored motion evaluations whose debounced state is MOTION, including initial acquisition; it is not raw model recall or a duration-weighted score. Raw predictions remain unchanged for every policy
 
 | Motion-on / motion-off hits | C5 effective recall, normal / 70% | All quiet alarms, normal / 70% | All stationary alarms, normal / 70% |
 | --- | --- | --- | --- |
@@ -395,125 +422,19 @@ The event-policy screen covered all ten selection pairs and five selection empty
 
 At `4 / 3`, the normal C5 replay has three post-acquisition interruptions lasting `1.526`, `1.011`, and `1.269 s`; the old S3 empty replay produces two effective alarms. At `6 / 5`, only one normal C5 interruption remains (`1.536 s`), but the occupancy-70% C5 replay still has a `6.453 s` interruption, including intervals without a ready evaluation. The maximum initial acquisition time from the first valid motion tick increases from `1.303` to `1.817 s` in normal selection and from `2.051` to `3.581 s` under thinning. These continuous-motion recordings do not establish true onset latency, sensitivity to brief movement, or motion-off latency
 
-**Decision:** Keep production Hampel, model weights, dataset roles, and promotion gates unchanged. The product requirement rules out policies above `4 / 4`, including the promising alarm suppression at `6 / 5`. At `4 / 4`, effective C5 recall improves, but every alarm remains and the occupancy-70% interruption still lasts `6.194 s`; neither raw recall nor the promotion outcome improves. Investigate C5 training coverage and pair-role alternatives within that responsiveness constraint. Any future event-policy change needs brief movements and labeled motion/idle transitions before validating a frozen choice on holdout. Zero alarms on these recordings would not establish a field false-alarm rate. Retain the challenging recordings unless independent capture or label evidence justifies exclusion; a lower model score alone does not
+**Interpretation:** Hampel and hit persistence trade false alarms against missed brief motion and slower acquisition. The tested settings do not show that retuning Hampel fixes the feature blind spots. Keep production Hampel and the `4 / 3` policy until labeled transitions and brief movements are available.
 
-### Expanded-corpus C5 role swap
+<a id="expanded-corpus-c5-role-swap"></a>
 
-**Status:** Production
+### Corpus dependence of feature conclusions
 
-**Formulation:** In a separate catalog copy, move both files of the October 4 C5 hobby-room pair recorded at `12:17 / 12:21` from `selection` to `train`, and move both files of the `15:51 / 15:55` pair from `train` to `selection`. Retain the July 16 hobby-room pair in `train`. Both October pairs use the same device and 180-second stationary / 90-second motion durations. Keep seed `772689826`, all eight features, the production `24-12` topology, scaling, augmentation, Hampel, and `4 / 3` event policy fixed. This changes training coverage without deleting difficult examples
+**Interpretation:** A feature comparison needs a fixed corpus, split, recipe, and baseline. Moving a hard lineage from selection to training changes both what the model learns and what selection measures, so a better score after the move says more about coverage than about any feature.
 
-**Evidence:** Starting from catalog SHA-256 `a5c8673f120e2bf8988dae5b8ebffa4ec0930ddbda18580a30fe623fc7ee5920`, the isolated fit used 55 files, 30 lineage groups, 675,819 clean rows, and 554,449 augmented rows. Blocked OOF F1 changed from `98.463%` to `98.585%`, and worst-lineage recall from `77.01%` to `86.21%`; worst-lineage FP remained `5.52%`. These CV values describe different fitting corpora and potentially different fold assignments. The newly admitted difficult C5 lineage still reached only `91.86%` grouped OOF recall, with zero FP. No feature definitions changed, so no new redundancy or device-cost analysis was required
+**Limit:** The holdout has been inspected during development, and the known weak-link vacation-home failures sit outside the reserved corpus. A role swap or seed search cannot turn this into an independent test. Claims about new rooms need fresh measurements of a frozen model; the [training guide](ML_TRAINING.md#dataset-roles) owns the split policy.
 
-Both paired gates passed `10 / 10` instead of `9 / 10`. The afternoon C5 pair, excluded from the experimental fit, reached `98.56% / 98.92%` raw recall in normal / occupancy-70% replay, with zero stationary FP and alarms. It replaces a different selection pair, so this is not a before/after result on the same C5 test recording. On the nine unchanged selection pairs, the old C5 bedroom occupancy recall fell from `97.05%` to `95.20%`, and old S3 bedroom stationary FP rose from `0.57% / 2.50%` to `1.00% / 2.69%`, although that S3 occupancy alarm disappeared. The unchanged quiet set retained two normal alarms, while occupancy alarms increased from one to two on the old S3 living-room empty recording. Official roles and runtime artifacts were verified unchanged; holdout was not opened
+<a id="six-feature-subband-ten-seed-follow-up"></a>
 
-The subsequent ten-seed search used the adopted catalog SHA-256 `8aeadb198f5d46bda7e9453cf5583045168959e29053e24572617e5d4188928b` and rejected every candidate. At the user's request, seed `496429295` was frozen before a diagnostic comparison on current selection and holdout: it had the fewest total selection quiet alarms (`2 / 0`) and no paired non-regression gate failures. This was a diagnostic choice, not a search winner; seed `373813792` had the highest OOF F1 but more alarms. Reconstructing `496429295` exactly reproduced its `98.684%` OOF F1 and all four selection gate rows. The reference was the actual exported seed `656446646`, trained on October 3, without refitting it
-
-Both models used identical current recordings and scored evaluation counts: ten selection pairs and five empty files, plus twelve holdout pairs and two empty files, in normal and occupancy-70% modes. Features, probability threshold `0.5`, Hampel, and the production `4 / 3` event policy were unchanged. In the following table, each cell shows exported model -> candidate; paired F1 pools the paired TP, FP, and FN counts and excludes separate empty replays
-
-| Replay split | Minimum paired recall | Paired F1 | Maximum stationary FP | Quiet alarms |
-| --- | --- | --- | --- | --- |
-| Selection, normal | `95.11% -> 97.41%` | `99.25% -> 99.54%` | `0.14% -> 0.71%` | `0 -> 2` |
-| Selection, occupancy-70% | `92.54% -> 97.05%` | `98.79% -> 99.35%` | `0.19% -> 1.54%` | `0 -> 0` |
-| Holdout, normal | `98.57% -> 99.14%` | `99.88% -> 99.75%` | `0.14% -> 1.14%` | `0 -> 0` |
-| Holdout, occupancy-70% | `97.43% -> 98.16%` | `99.79% -> 99.77%` | `0.35% -> 0.43%` | `0 -> 0` |
-
-No paired recording lost recall in either mode. The largest gain was the C3 hobby-room selection pair under thinning (`92.54% -> 98.25%`); the candidate passed all ten selection pairs in both modes, versus ten normal and nine thinned pairs for the export. Both models passed all twelve holdout pairs in both modes, with zero stationary alarms throughout. False-positive evaluation counts on normal holdout stationary files increased from `1` to `15` out of `8,107`, principally ESP32 hobby room (`0 -> 8`) and S3 bedroom (`1 -> 7`), which explains the lower holdout F1 despite higher recall. The two candidate quiet alarms were confined to the old S3 living-room selection empty file (`17 / 2,339` positive evaluations, `0.73%` FP); the new S3 empty remained alarm-free. Both holdout empty files remained alarm-free in both modes. Catalog and runtime weight hashes were verified unchanged after the comparison
-
-The user then requested the same frozen models on all eight current `exclude` files, without refitting or changing roles. Reloaded candidate arrays exactly reproduced the preceding four selection gates. The six vacation-home C3 files yielded matched scored counts, with the following raw motion recall; each cell again shows exported model -> candidate
-
-| Excluded C3 pair | Normal recall | Occupancy-70% recall |
-| --- | --- | --- |
-| August 10, normal link | `99.14% -> 99.43%` | `99.31% -> 99.31%` |
-| August 11, low RSSI | `18.73% -> 31.41%` | `17.35% -> 23.47%` |
-
-Both models retained zero stationary FP and alarms on both C3 pairs. The August 10 empty file had one positive evaluation out of 465 (`0.22%`) and zero alarms for each model in normal mode; the other empty and both thinned empty replays had zero positives and alarms. The weak-link pair recovered 44 of 282 baseline motion misses in normal mode, and 12 of 162 under thinning, while remaining far below the recall target
-
-The July 4 C6 hobby-room pair was attempted in both modes but produced no scored evaluations for either model. Bursty arrivals occupied only `44.88% / 45.38%` of the static / motion temporal slots; the maximum valid samples in a full window were `50 / 98` and `48 / 96`, below the unchanged minimums of `69` and `68`. Uncached replay confirmed zero evaluations. These engine-returned zero metrics are unavailable measurements, not zero recall or evidence of zero FP. Independently, the catalog documented motion contamination of the C6 static label. During the comparison, no capture was removed, relabeled, or resampled to force a score, and catalog and runtime weight hashes remained unchanged. After the diagnostic, the user requested deletion of this excluded C6 pair: both source files and catalog entries were removed, leaving six excluded C3 files. The recorded comparison refers to the preceding catalog revision; train, selection, and holdout membership are unchanged
-
-A controlled follow-up increased `fp_weight` from the actual default `1.75` to `2.0` at the same seed `496429295`, after the excluded C6 deletion (catalog SHA-256 `4c2c13c76854346c740c5c3872d0e57549539cf240ca27c1da6896684f08ffdb`). All admitted entries and metadata were identical to the preceding comparison. The fit retained all eight features, topology, scaler, augmentation, threshold, Hampel, and `4 / 3` event policy, using the same 675,819 clean rows, 554,449 augmented rows, and 30 lineage groups. Both frozen reference models exactly reproduced their previous selection results. Only CV and selection were evaluated for this new variant; holdout and excluded recordings were not reopened
-
-Blocked OOF F1 was effectively unchanged (`98.683569% -> 98.682927%`): one fewer FP (`15 -> 14`) was offset by one additional miss (`39 -> 40`). Worst-lineage recall and FP remained `85.06%` and `4.91%`, respectively; the robust CV comparison found neither a material improvement nor a regression. Selection results below compare the same seed at weight `1.75 -> 2.0`
-
-| Selection metric | FP weight `1.75 -> 2.0` |
-| --- | --- |
-| Normal minimum paired recall | `97.41% -> 97.99%` |
-| Normal / occupancy-70% paired F1 | `99.54% / 99.35% -> 99.58% / 99.18%` |
-| Normal / occupancy-70% stationary FP counts | `5 / 8 -> 4 / 11` |
-| Normal / occupancy-70% quiet alarms | `2 / 0 -> 2 / 0` |
-| C5 bedroom occupancy-70% recall | `97.05% -> 96.31%` |
-| C6 hobby-room occupancy-70% recall | `98.73% -> 97.88%` |
-| S3 bedroom occupancy-70% stationary FP | `1.54% -> 2.12%` |
-
-Both absolute paired gates still passed ten pairs, but the C6 occupancy recall lost two hits out of 236, exceeding the one-event non-regression margin relative to the `1.75` candidate. The old S3 living-room empty retained exactly 17 normal positives and two alarms; its occupancy positives fell from 12 to 11 with zero alarms. Increasing the training penalty did not reduce FP on every recording, and failed to fix the promotion blocker at this seed. The catalog and both runtime weight artifacts were verified unchanged after the experiment
-
-A further fixed-weight screen compared `4 / 3` against `4 / 4` for the exported model and both `496429295` variants on all 25 selection files in normal and occupancy-70% modes. Canonical raw predictions, scored counts, and `4 / 3` idle-event metrics exactly reproduced the preceding comparison. The following recall is the pooled fraction of valid scored motion ticks whose filtered state is MOTION, including initial acquisition; it is distinct from raw classifier recall and is not duration-weighted. Each recall cell shows `4 / 3 -> 4 / 4`; alarm counts were unchanged between policies
-
-| Frozen model | Normal effective recall | Occupancy-70% effective recall | Quiet alarms, normal / 70% |
-| --- | --- | --- | --- |
-| Exported `656446646` | `98.25% -> 98.54%` | `97.40% -> 97.93%` | `0 / 0` |
-| `496429295`, FP weight `1.75` | `98.68% -> 98.82%` | `98.50% -> 98.50%` | `2 / 0` |
-| `496429295`, FP weight `2.0` | `98.71% -> 98.85%` | `98.25% -> 98.25%` | `2 / 0` |
-
-All stationary files retained zero effective alarms. For both candidate variants, the two normal S3 empty alarms remained at the same start times but lengthened from `0.769 / 1.536 s` to `1.028 / 1.790 s`; false-MOTION evaluations increased from nine to eleven. The normal C5 hobby-room interruption shortened from `1.279 s` to `1.019 s`, while neither candidate changed any effective-motion count under thinning. The exported model benefited more: its C3 hobby-room occupancy effective recall rose from `90.79%` to `94.74%`, and its C5 bedroom occupancy interruption disappeared. The first activation was identical under both policies on every replay because only the off-hit requirement changed. The experiment left production defaults, weights, and catalog unchanged, and did not open holdout. Continuous-motion and idle captures cannot establish true motion-off latency or sensitivity to brief movements
-
-The subsequent historical split audit identified commit `9f242ecb` as containing byte-identical exported weights, with the same original recipe catalog SHA-256 `1e6557968eb395ebf4ba61ff906ab304f8958417a11a96682ad5a93fd813da74` recorded in the fit-recipe campaign. All 43 original training files and the problematic S3 empty file still matched their historical Git blob identities. Training grew from 21 pairs and one empty file to 25 pairs and five empty files, with 39 training files shared. Among files present in both catalogs, only the following three pairs changed roles; both members of each pair moved together
-
-| Existing pair | Export-era role | Current role |
-| --- | --- | --- |
-| S3 bedroom, July 11, normal link | `train` | `selection` |
-| S3 bedroom, July 25, low RSSI | `selection` | `train` |
-| C6 bedroom, July 24, `12:59 / 13:05` | `train` | `selection` |
-
-The problematic July 13 S3 living-room empty and the July 15 hobby-room empty remained `selection` in both catalogs; the July 12 bedroom empty remained `train`. Four other original S3 pairs remained in training, and all original S3 holdout roles were retained. The expanded training set additionally admitted one C5 pair, one replacement C6 pair, three ESP32 pairs, and four short empty files (two S3, one C5, and one ESP32). Feature definitions, architecture, probability threshold, and production event filtering were unchanged; the fitted normalizer and network weights differed. This is one shared model, so added examples from other chips can affect S3 predictions
-
-Matched replay scores explain why zero alarms did not mean zero classification errors in the export. On the unchanged S3 empty, the export produced seven positive evaluations but no run longer than two; `496429295` produced 17 positives, including runs of four and five that activated the same four-hit confirmation. At the first activation, the candidate scores at `246.235 / 246.490 / 246.744 / 247.003 s` were `0.5006 / 0.9007 / 0.9677 / 0.9908`, versus `0.0010 / 0.0811 / 0.5854 / 0.9571` for the export. The difference is in classifier predictions on identical input rows, not a different debounce setting
-
-Two controlled selection-only fits tested the role and seed explanations. First, a separate catalog restored only the July 11 and July 25 S3 pairs to their export-era roles, retaining all other current entries, seed `496429295`, FP weight `1.75`, augmentation, and `4 / 3`. Nine unchanged selection pairs and all five empty recordings had matched scored counts. The S3 quiet alarms remained at two in normal mode and increased from zero to one under thinning; positive counts rose from `17 / 12` to `18 / 14`. CV F1 changed from `98.684%` to `98.759%` on the altered training corpus. The changed paired selection target prevents interpreting its zero stationary FP as a matched improvement. Second, refitting the current official corpus with the original seed `656446646` exactly reproduced the seed-search baseline CV F1 `98.706%`, but produced two S3 quiet alarms in each mode, with `18 / 15` positives. The following counts refer to the identical July 13 S3 empty
-
-| Model and training split | Quiet positives, normal / 70% | Quiet alarms, normal / 70% |
-| --- | --- | --- |
-| Exported `656446646`, original corpus | `7 / 3` | `0 / 0` |
-| `496429295`, current corpus | `17 / 12` | `2 / 0` |
-| `496429295`, current corpus with historical S3 roles | `18 / 14` | `2 / 1` |
-| `656446646`, current corpus | `18 / 15` | `2 / 2` |
-
-The seed change is therefore not required for the expanded corpus to produce the failure, and restoring the old S3 roles alone does not recover the export's behavior. Earlier same-seed role screens also recorded one normal S3 quiet alarm both before and after the S3 swap, so that swap did not introduce the first observed failure. These experiments do not yet attribute the effect to a particular added pair or chip; a controlled ablation of the added training groups would be needed before making that claim. Neither fit changed official roles or runtime artifacts, and neither opened holdout or excluded recordings
-
-At the user's request, a subsequent fit retained the current official dataset and lowered only `fp_weight` to `1.5`, with seed `496429295`, augmentation, and the unchanged `4 / 3` policy. It used the same clean and augmented rows, lineage groups, and scored selection evaluations as the `1.75` and `2.0` trials. Frozen exported and `1.75` reference models exactly reproduced their preceding selection results. Blocked OOF F1 barely changed (`98.683569% -> 98.684851%`): two recovered motion evaluations (`FN 39 -> 37`) accompanied two additional FP (`15 -> 17`). The robust CV comparison passed and identified a worst-chip recall improvement of `0.58` percentage points on ESP32; worst-lineage recall and FP remained `85.06%` and `4.91%`
-
-| Matched selection metric | FP weight `1.75` | FP weight `1.5` | FP weight `2.0` |
-| --- | --- | --- | --- |
-| Normal minimum paired recall | `97.41%` | `98.28%` | `97.99%` |
-| Occupancy-70% minimum paired recall, C5 bedroom | `97.05%` | `97.79%` | `96.31%` |
-| Normal / occupancy-70% motion misses | `27 / 24` | `21 / 18` | `25 / 29` |
-| Normal / occupancy-70% stationary FP counts | `5 / 8` | `6 / 18` | `4 / 11` |
-| S3 bedroom occupancy-70% stationary FP | `1.54%` | `3.46%` | `2.12%` |
-| Normal / occupancy-70% quiet alarms | `2 / 0` | `2 / 2` | `2 / 0` |
-
-Weight `1.5` recovered six motion evaluations in each selection mode without lowering recall on any pair, but increased S3 bedroom occupancy FP from `8 / 520` to `18 / 520`, failing non-regression against `1.75`. Both absolute paired gates still passed ten pairs with no stationary alarms. On the old S3 living-room empty, normal positives rose from `17 / 2,339` to `19 / 2,339`, retaining two alarms; occupancy positives rose from `12 / 1,618` to `15 / 1,618`, introducing two alarms. Other empty recordings had unchanged results. Both quiet gates therefore failed. This variant was evaluated on CV and selection only; holdout and excluded recordings were not reopened. Catalog and runtime weight hashes remained unchanged
-
-**Initial decision under the zero-alarm policy:** Retain the adopted split: the `12:17 / 12:21` pair is `train`, and the `15:51 / 15:55` pair is `selection`, with both pairs intact and the July hobby-room pair still in `train`. Do not promote `496429295`: recall improves on the matched selection, holdout, and scorable excluded pairs, but its increased reserved-set FP and two selection quiet alarms prevent a net safety improvement. Reject the tested `fp_weight=2.0` variant: it retains those alarms and worsens thinned selection relative to `1.75`, without a material CV improvement. Reject `fp_weight=1.5` at this seed: its recall gains come with more stationary FP and two additional occupancy quiet alarms. Retain `1.75` among the three tested weights. The `4 / 4` policy improves continuity on these recordings but does not remove either candidate's quiet alarms; retain `4 / 3` in production pending a separate decision and labeled transition evidence. Do not revert the S3 role swap or choose the original seed as an alarm fix: both controlled fits retained the failure. Retain the current dataset at the user's request, keeping the problematic empty outside fitting. The excluded weak-link C3 result improves without additional FP but remains a substantial detection gap; the excluded C6 comparison is unavailable under the production temporal contract. Keep this campaign separate from the preceding split. The current holdout comparison is now recorded; further tuning against it must not be described as a new sealed test. Keep the responsiveness ceiling at `4 / 4`; no runtime filter or model artifact was changed
-
-**Promotion decision, October 4:** The user accepted at most two effective alarms per catalog-marked long empty recording, independently for normal and occupancy-70% replay, while retaining the current dataset, FP weight `1.75`, and `4 / 3` event policy. Short empty recordings retain the zero-alarm requirement, and raw FP ceilings and paired non-regression rules are unchanged. The standard `--augment --seed 496429295 --fp-weight 1.75` run passed all 22 paired replays in both modes and all seven reserved empty replays under the revised policy, then exported Python weights, C++ weights, and 2,048 inference regression samples without `--force-promote`. Exported arrays matched the frozen finalist within serialization precision. The catalog remained byte-identical to revision `4c2c13c76854346c740c5c3872d0e57549539cf240ca27c1da6896684f08ffdb`
-
-Both the preceding `656446646` artifact and the new export were evaluated through the performance-report generator on the same current catalog, with C++/Python parity enabled. The following aggregate comparison pools all 22 paired recordings, including low-RSSI stress pairs, and excludes separate empty recordings; counts reproduce the matched frozen-model comparison
-
-| Matched paired metric | Previous export | Promoted export |
-| --- | --- | --- |
-| Normal recall / F1 | `99.22% / 99.59%` | `99.57% / 99.65%` |
-| Normal motion misses / stationary positives | `60 / 2` | `33 / 20` |
-| Occupancy-70% recall / F1 | `98.76% / 99.34%` | `99.45% / 99.58%` |
-| Occupancy-70% motion misses / stationary positives | `68 / 4` | `30 / 16` |
-| Long quiet effective alarms, normal | `0` | `2` |
-
-The generated report's normal-link mean recall and F1 improve on every chip. Across its 14 normal-link pairs, mean F1 rises from `99.49%` to `99.69%`. Weak-link ESP32 and S3 F1 decline as stationary FP rises, and the reserved augmentation diagnostic trades higher recall (`99.1% -> 99.6%`) for higher FP (`0.3% -> 0.7%`) and lower F1 (`99.3% -> 99.0%`). The promotion therefore accepts a sensitivity/false-positive tradeoff rather than claiming improvement in every condition. Lightweight replay metrics are identical. High Accuracy retains the same 5,060-byte persistent memory and zero transient heap in the host resource benchmark
-
-Validation passed: 60 trainer tests, 119 Python performance/inference tests, 42 dataset-quality tests, the C++ High Accuracy and empty-room suites, both report parity runs, and dataset-quality regeneration. Thirteen Python cases and two C++ empty-room cases lacked eligible datasets and were skipped. The additional C++ packet-rate suite initially aborted before replay because no paired capture had an average rate of at least 500 pps; Python skipped the same missing coverage. This was an unavailable measurement rather than evidence of a model regression. Production-cadence and occupancy-70% replays passed. No firmware was flashed
-
-The user subsequently restored the excluded C3 bedroom pair from July 25, recorded at `20:07 / 20:11`, to recover that high-rate regression coverage. Both NPZ files were restored byte-for-byte from commit `9f242ecb`, with their original reciprocal pair references, nominal rate `500 pps`, and measured averages `500.25 / 501.002 pps`. Both retain role `exclude`; no fitting or reserved-evaluation membership changed, and the promoted weights and inference regression artifact remain unchanged. Catalog revision `00a5d2015fb249c19bfdb42345d753d166bf8def4e371864f848262d2ce11a34` includes the restoration. The C++ aggregate and C3 packet-rate cases now pass, as does the Python C3 test across `120 / 100 / 80 pps`; five chip cases in each language remain skipped because they have no high-rate source pair. Dataset quality and the regenerated report's C++/Python parity pass, with every reserved detector metric exactly unchanged from the preceding promoted-model report
-
-### Six-feature subband ten-seed follow-up
+### Joint removal of spread and excess path
 
 **Status:** Rejected
 
@@ -523,13 +444,15 @@ The user subsequently restored the excluded C3 bedroom pair from July 25, record
 
 **Decision:** Rejected. Seed selection improves the six-feature model over its initial seed on selection and holdout recall, but does not remove its systematic quiet alarms or environment-transfer regression. Retain `chan_shape_excess_path` in the subband candidate
 
-### High Accuracy fit recipe
+<a id="high-accuracy-fit-recipe"></a>
+
+### Effect of input compression on feature distributions
 
 **Status:** Production
 
 **Formulation:** Changes to how the production Subband 8F model is fitted, each measured against the exported recipe. `log1p_standard` replaces each non-negative input whose training skewness exceeds 1 with `log1p(x / std(x))` before z-scoring; on the current train matrix it selects aggregated IQR, L1 lag ratio, coherent innovation, excess path, and Kendall lag-excess. The transform is monotone and scale-free on inputs that are already gain-invariant, and the runtimes apply it from the exported `ML_FEATURE_LOG_SCALE`. The other variants were per-epoch reshuffling of mini-batches, early stopping on one held-out lineage per chip with at least three lineages instead of a random 10% row split, a three-member seed ensemble exported as one block-diagonal MLP, and a standardized input clamp at the `0.1%` / `99.9%` (and `0.01%` / `99.99%`) quantiles of the clean fitting rows, folded into an extra ReLU layer
 
-**Evidence:** Train and selection roles of dataset revision `sha256:1e6557968eb395ebf4ba61ff906ab304f8958417a11a96682ad5a93fd813da74`, `--augment`, `fp_weight=1.75`, the `24-12` MLP, seeds `656446646`, `1001`, `2002`, `3003`, and `4004`, and selection gates only; values are medians over the seeds. The exported recipe reached blocked OOF F1 `98.8%`, worst-session recall / FP `86.6%` / `3.7%`, worst-five FP `1.2%`, worst-chip FP `1.0%`, selection paired worst recall `97.70%` with maximum FP `0.14%`, quiet maximum FP `0.13%`, occupancy-70% paired worst recall `94.46%`, and zero alarms. Reshuffling alone was neutral (`98.9%`, `85.4%` / `4.3%`, `97.70%`, `0.13%`, `94.10%`). Adding `log1p` reached OOF F1 `99.0%` and worst-session recall / FP `89.0%` / `1.7%`, improving recall by `2.5-6.1` points and halving worst-session FP on every seed, with worst-five FP `0.6%`, worst-chip FP `0.5%`, paired worst recall `98.28%` at `0.14%` maximum FP, quiet maximum FP `0.21%`, occupancy-70% worst recall `93.73%`, and zero alarms; on the diagnostic `exclude` vacation-home pairs (three seeds) recall was `99.1%` / `19.0%` versus `98.8%` / `18.2%`. Lineage early stopping ended near epoch 4 instead of about 50: worst-session recall rose to `87.8-90.9%`, but quiet maximum FP rose to about `0.5%` with one alarm on most seeds, paired worst recall fell to about `95%`, and the `exclude` blind-spot recall fell to `13%`. The ensemble left the gates unchanged (paired worst recall `97.41%`), did not improve CV (worst-session recall `85.4%`), and only narrowed the seed spread. The clamp raised paired maximum FP to `0.29%` and lowered occupancy-70% worst recall to `93.0%` (`92.6%` at `0.01%`), so extreme motion-side values carry evidence on thinned streams. A `log1p` production run at seed `656446646` then passed `14/15` holdout pairs and every quiet replay with zero alarms (quiet maximum FP `0.30%`); the failing pair is the ESP32 pair recorded on 2026-10-02 at about `-76 dBm`, where the exported model also reaches only `33.05%` recall versus `34.48%`, and Lightweight `32.18%`. That pair was moved to `exclude`: no global or per-session threshold recovers it (High Accuracy reaches `55.5%` recall at threshold `0.1` while raising other reserved idle FP to `1.72%`). The final production run then passed all `14` paired, quiet, and occupancy-70% replays with zero alarms, OOF F1 `99.2%`, and worst-five session recall / FP `95.4%` / `0.5%`
+**Evidence:** Train and selection roles of dataset revision `sha256:1e6557968eb395ebf4ba61ff906ab304f8958417a11a96682ad5a93fd813da74`, `--augment`, `fp_weight=1.75`, the `24-12` MLP, seeds `656446646`, `1001`, `2002`, `3003`, and `4004`, and selection gates only; values are medians over the seeds. The exported recipe reached blocked OOF F1 `98.8%`, worst-session recall / FP `86.6%` / `3.7%`, worst-five FP `1.2%`, worst-chip FP `1.0%`, selection paired worst recall `97.70%` with maximum FP `0.14%`, quiet maximum FP `0.13%`, occupancy-70% paired worst recall `94.46%`, and zero alarms. Reshuffling alone was neutral (`98.9%`, `85.4%` / `4.3%`, `97.70%`, `0.13%`, `94.10%`). Adding `log1p` reached OOF F1 `99.0%` and worst-session recall / FP `89.0%` / `1.7%`, improving recall by `2.5-6.1` points and halving worst-session FP on every seed, with worst-five FP `0.6%`, worst-chip FP `0.5%`, paired worst recall `98.28%` at `0.14%` maximum FP, quiet maximum FP `0.21%`, occupancy-70% worst recall `93.73%`, and zero alarms; on the diagnostic `exclude` vacation-home pairs (three seeds) recall was `99.1%` / `19.0%` versus `98.8%` / `18.2%`. Lineage early stopping ended near epoch 4 instead of about 50: worst-session recall rose to `87.8-90.9%`, but quiet maximum FP rose to about `0.5%` with one alarm on most seeds, paired worst recall fell to about `95%`, and the `exclude` blind-spot recall fell to `13%`. The ensemble left the gates unchanged (paired worst recall `97.41%`), did not improve CV (worst-session recall `85.4%`), and only narrowed the seed spread. The clamp raised paired maximum FP to `0.29%` and lowered occupancy-70% worst recall to `93.0%` (`92.6%` at `0.01%`), so extreme motion-side values carry evidence on thinned streams. A historical low-RSSI ESP32 holdout pair reached only `33.05%` recall with the baseline and `34.48%` with the candidate; that pair was later excluded. This is a domain limitation, not evidence that normalization restored generalization.
 
 **Decision:** Promoted `log1p` input compression with per-epoch reshuffling at seed `656446646`. Keep early stopping on the random row split: overlapping windows make it a convergence check, and the replay gates favor converged models. Reject lineage early stopping, seed ensembles, and the input clamp in the tested forms; their code is not retained
 
@@ -624,7 +547,11 @@ The standalone AUC, recall, FP, and F1 values above come from an older corpus wi
 
 **Evidence and verdict:** Rejected in the tested formulations: shape-spread removal is seed- and quiet-tail-fragile, the coherence replacement fails holdout per-recording non-regression, worsens unseen-environment FP, and neither a larger global FP penalty nor a deployable threshold removes the failure without degrading recall. Retain the host-only extractor for a future independently collected S3 low-RSSI training domain rather than porting it into the ML runtime
 
-### Trajectory feature promotion evidence (2026-08-11)
+<a id="trajectory-feature-promotion-evidence-2026-08-11"></a>
+
+### Trajectory feature ablation evidence
+
+**Scope:** Older ablations of coherent innovation and excess path, using the pre-subband definitions; they do not describe the current model. Corpus, seeds, and rationale are in [the trajectory-feature ADR](adr/2026-08-11-promote-channel-shape-trajectory-ml-features.md).
 
 This host-only screen used seed `1161881508`, the current `24-12` MLP, `fp_weight=1.75`, standard scaling, feature jitter, and the promoted `base,drift,burst-loss` packet augmentation mixed from seeds `20260807` and `20260808`. Training and grouped CV used only `train`; the six-file `selection` role was evaluated separately, and the excluded C3 vacation-home empty/static/motion recordings remained an external challenge. The reserved holdout was not used for feature or seed selection. After the candidate and production seed had already been selected, an `--evaluate-gates` CLI default accidentally opened the first C3 holdout pair; that result was discarded, the run was interrupted, and the authoritative deployment gate was rerun with `deployment_roles=('selection',)` and legacy fallback disabled. Raw replay-tick probabilities were classified at `0.5` unless a threshold is named. The exported Aggregated-IQR-7 baseline reproduced the challenge exactly at `87.93%` motion recall, `0%` static FP, and `1.08%` empty FP, with `42/348` motion ticks below threshold. For this campaign, environment, router, and weak-link transfer are the primary production-generalization axes because the supported commercial chip families are already represented in the corpus. Leave-one-chip-out remains a conservative diagnostic for hardware dependence, but it is not a promotion veto when supported-chip deployment gates pass.
 
@@ -644,25 +571,19 @@ On the clean train matrix, innovation and excess path had Pearson correlation `r
 | Baseline + `waveform_length_over_mean` | OOF F1 `98.784%`, FP `0.414%`, worst-session recall `92.135%`, and worst-session FP `6.857%` | Vacation recall `89.943%`, `11/42` misses recovered, and `4/306` hits lost | Not advanced | Rejected; it made the classifier broadly more permissive |
 | Baseline + `turb_peak_over_mad` | OOF F1 `99.159%`, recall `98.544%`, and FP `0.092%` | Vacation recall `87.644%`, no baseline misses recovered, and one hit lost | Not advanced | Rejected; no blind-spot information survived the MLP fit |
 
-For the joint removal, the two standard seeds that passed robust CV retained external gains but did not eliminate the hardware-transfer concern. Seed `20260519` produced selection recall `96.970%`, selection worst-session recall `95.349%`, vacation recall `92.241%`, and zero vacation static/empty FP; seed `20260520` produced `95.833%`, `93.258%`, `93.391%`, and zero FP, respectively. Repeating cross-chip validation with seed `20260519` still yielded F1 `98.917%` versus baseline `99.133%`, recall `98.437%` versus `98.652%`, FP `0.253%` versus `0.161%`, and C3-unseen recall `95.928%` versus `97.285%`. The external-domain advantage is therefore real, while the C3-exclusion gap is retained as a known secondary cost under the supported-chip policy.
+**Interpretation:** The trajectory features recover some weak-link blind spots, but gains within a known setup can come with more false positives in unseen rooms. Raising the threshold costs motion sensitivity and leaves the room dependence. Judge them on independent rooms and quiet tails, not on grouped fitting metrics alone.
 
-The authoritative selection-only in-memory deployment gate favored retaining production seed `1161881508`. The joint removal passed all three paired replays with zero FP and zero alarms: C3 recall was `100%`, low-RSSI C5 recall was `94.84%` (`18` misses), and low-RSSI S3 recall was `95.98%` (`14` misses). The exported baseline scored `100%`, `92.55%` (`26` misses), and `98.28%` (`6` misses), respectively. Both models therefore had `32` total misses, but the candidate raised worst low-RSSI recall by `2.29` percentage points. All seven candidate quiet replays passed with zero alarms; raw false positives improved from `12` to `10`, and maximum per-replay FP improved from `0.385%` to `0.342%`. Seed `20260519` was less balanced at `94.56%` / `94.83%` low-RSSI recall and `37` misses, while seed `20260520` fell to `91.98%` / `95.40%` and `44` misses. Artificial gain scaling from `0.5x` to `2.0x` was unchanged by construction because all seven inputs are gain-invariant; the real low-RSSI paired recordings, not that informational scalar-gain check, provide the relevant weak-link evidence.
+<a id="production-training-refresh-and-seed-search-2026-08-11"></a>
 
-The initial promotable training run, before admitting the vacation-home recordings to training, used the same selected seed and augmentation recipe. It reached blocked grouped-CV F1 `99.1%`, recall `98.5%`, precision `99.7%`, and FP `0.1%`. The reserved export gate passed all `14/14` paired replays with `94.84%` worst recall, `0.14%` maximum FP, and no alarms; all nine quiet replays passed with `0.34%` maximum raw FP and no alarms. The immediately preceding export measured `92.55%` worst paired recall and `0.29%` maximum paired FP on the same gate.
+## Sensitivity of feature importance to fitting coverage
 
-Raising the global threshold was not a remedy. At `0.6`, the baseline C5 empty replay changed only from `44/117` to `43/117` positives while selection worst-session recall fell from `91.011%` to `89.888%`; the innovation-only model still produced `82/117` positives, vacation recall fell from `94.540%` to `93.103%`, and selection worst-session recall fell to `88.764%`. On the balanced replacement, `0.6` reduced C6-unseen FP only from `12` to `10` (`1.149%` to `0.958%`, still above the baseline `0.383%`) while selection recall fell from `98.106%` to `97.348%`, selection worst-session recall fell from `95.506%` to `93.258%`, and vacation recall fell from `93.391%` to `91.667%`. The next useful evidence is a second independently collected blind-spot motion domain with matched static and empty recordings, plus real high-RSSI coverage; another threshold or single-session fit is not justified.
+Trajectory-7 shows why fitting coverage is not feature value. At dataset revision `b52b823fe696b9fb1fa2497fbf6cbbb7a9f77ebbe8bb3ad8a92d4f902a30bfd7`, seed `1161881508` reached `100%` vacation-home recall once that lineage was in training, but `80.0%` with the lineage held out. Seed `500247916` reached `81.1%` grouped recall on it. The in-sample result says nothing about other sessions or rooms.
 
-## Production training refresh and seed search (2026-08-11)
+Grouped OOF SHAP on 400 balanced held-out samples at seed `500247916` gave `38.8%` to aggregated IQR, `21.9%` to turbulence autocorrelation, and `18.5%` to L1 lag ratio; the two trajectory inputs had `9.8%` together. A low rank alone does not justify removing a feature; controlled ablations and worst-room results do.
 
-The matched vacation-home empty, static-presence, and motion recordings were admitted to `train` under the new `vacation_home` environment, producing dataset revision `sha256:b52b823fe696b9fb1fa2497fbf6cbbb7a9f77ebbe8bb3ad8a92d4f902a30bfd7`. Retraining seed `1161881508` with the unchanged production augmentation reached blocked OOF F1 `98.42%`; grouped exclusion of the only vacation-home lineage yielded `80.0%` motion recall, while the full fit reached `100%` recall and precision with `0%` static and empty FP on that now in-sample session. The full deployment gate still passed with `92.84%` worst paired recall, `0%` maximum FP, and no alarms, but the result did not establish transfer to a second vacation-home session.
+<a id="production-baseline-lineage"></a>
 
-A ten-trial seed search retained the same corpus, roles, topology, scaler, false-positive weight, and augmentation. The robust ranking selected seed `500247916`: blocked OOF F1 rose from `98.42%` to `98.50%`, vacation-home grouped OOF recall rose from `80.0%` to `81.1%`, and the worst-session FP fell from `6.0%` to `5.1%`. On selection replays, worst recall moved from `92.84%` to `92.55%` and total motion misses from `42` to `44`, with `0%` FP and no alarms; the final reserved holdout improved from `7` to `6` misses, retained `0%` FP and no alarms, and reached `99.43%` worst recall. Seed `1613517614` offered the strongest CV tail (`87.8%` worst-session recall, `2.6%` worst-session FP, and `98.73%` OOF F1), but it was not selected because it increased selection misses to `53` and reduced low-RSSI S3 selection recall to `92.53%`.
-
-The performance run generated for that selected seed retained `100%` recall and `0%` FP on every normal-link reserved chip bucket. Weak-link C5 remained at `96.3%` mean and `93.1%` minimum recall with `0%` FP; the long-quiet maximum raw FP was `0.30%` on C6 and `0.34%` on S3, with no effective alarms. Those were acceptable bounded trade-offs, but the independent vacation-home holdout requested by the feature-promotion campaign remained the decisive evidence for blind-spot transfer.
-
-On that refreshed train matrix, grouped OOF SHAP used 400 balanced held-out samples with seed `500247916` and the production augmentation of the time. The top three inputs remained aggregated IQR (`38.8%`), turbulence autocorrelation (`21.9%`), and L1 lag ratio (`18.5%`). Relative to seed `1161881508`, importance moved mainly from autocorrelation (`24.4% -> 21.9%`) and coherent innovation (`8.1% -> 6.8%`) to L1 lag ratio (`15.0% -> 18.5%`); the former full-band shape spread (`3.7% -> 3.9%`) and excess path (`2.9% -> 3.0%`) were stable. The two trajectory inputs contributed `9.8%` together, so global SHAP did not justify removing either without grouped ablation and environment-tail gates.
-
-## Production baseline lineage
+## Historical feature families
 
 | Family | Features | Retained campaign evidence | Why superseded |
 | --- | --- | --- | --- |
@@ -698,7 +619,9 @@ On that refreshed train matrix, grouped OOF SHAP used 400 balanced held-out samp
 
 Published research is summarized in the [literature review](LITERATURE.md). A paper can motivate a new feature, but only ESPectre data can validate it.
 
-## Updating this ledger
+<a id="updating-this-ledger"></a>
+
+## Maintaining this analysis
 
 For each seriously evaluated feature or formulation:
 
@@ -709,4 +632,4 @@ For each seriously evaluated feature or formulation:
 5. keep routine sweeps, intermediate seeds, superseded grids, per-file output, and transient commands out of permanent documentation; and
 6. update current behavior, mutable metrics, data-collection priorities, and operator workflow only in their owning documents.
 
-An experiment without a lasting decision needs only its entry. When one entry cannot hold the evidence for a production decision, add a promotion-evidence section organized around that decision, not by date. When an ADR exists, summarize and link it instead of copying it. The code defines the formulas; this ledger records status and evidence.
+An experiment with no lasting decision needs only its entry. If a production decision needs more evidence than one entry holds, add a section for that decision, not for a date. Link ADRs instead of copying them. Formulas live in the code; this document keeps status and evidence.

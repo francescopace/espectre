@@ -84,7 +84,7 @@ The Python generator already runs independently; its web UI currently requires t
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
 
-**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature ledger](FEATURES.md) and postpone this release.
+**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature analysis](FEATURES.md) and postpone this release.
 
 ## v3.5.0 - Gesture and micro-motion research
 
@@ -96,7 +96,7 @@ The Python generator already runs independently; its web UI currently requires t
 - Evaluate breathing-related micro-motion only after stationary presence is measurable and paired recordings support longer analysis windows
 - Keep candidates in host-side research until their evidence justifies production runtime work and C++/Python parity
 
-**Exit criteria**: each candidate has a measured decision (promote, reject, or defer) in the [feature ledger](FEATURES.md). `3.5.0` ships a feature only if at least one candidate passes its sensing, resource, privacy, and parity gates.
+**Exit criteria**: each candidate has a measured decision (promote, reject, or defer) in the [feature analysis](FEATURES.md). `3.5.0` ships a feature only if at least one candidate passes its sensing, resource, privacy, and parity gates.
 
 ## v4.0.0 - Local cooperative sensing
 
@@ -180,7 +180,7 @@ Hardware acceleration is a separate track that starts only with evidence, and do
 
 ## Research pipeline
 
-Research runs in steps. A first small study on today's HT20 capture decides whether presence research is worth pursuing. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the real presence gate. Stopping or postponing is a valid outcome. Experiments are recorded in the [feature ledger](FEATURES.md), published research in the [literature review](LITERATURE.md).
+Research runs in steps. A first small study on today's HT20 capture decides whether presence research is worth pursuing. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the real presence gate. Stopping or postponing is a valid outcome. Experiments are recorded in the [feature analysis](FEATURES.md), published research in the [literature review](LITERATURE.md).
 
 | Order | Track | Product question | Promotion gate |
 | --- | --- | --- | --- |
@@ -205,7 +205,7 @@ Each step can end in promotion, rejection, or postponement. Candidates are proto
 
 This file covers goals, release gates, and order. Details live elsewhere:
 
-- [feature ledger](FEATURES.md) for feature experiments and promotion decisions
+- [feature analysis](FEATURES.md) for feature experiments and promotion decisions
 - [literature review](LITERATURE.md) for external research
 - [data collection guide](ML_DATA_COLLECTION.md) and the [ML training guide](ML_TRAINING.md) for corpus and training workflows
 - [performance report](performance/README.md) for current results

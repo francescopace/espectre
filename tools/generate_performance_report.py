@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import subprocess
 import time
 from typing import Any, Mapping, Optional
 from datetime import datetime
@@ -122,6 +123,7 @@ def _replay_input_paths() -> tuple[Path, ...]:
     }
     paths.update(_report_dataset_paths())
     paths.add(_dataset_info_path())
+    paths.add(REPO_ROOT / "tools" / "lib" / "performance_report_audit.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "performance_report.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "dataset_metadata.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "npz_cache.py")
@@ -174,6 +176,19 @@ def _save_cached_report_data(report_data: Mapping[str, Any]) -> None:
         parameters=parameters,
         payload=expensive,
     )
+
+
+def _source_commit() -> Optional[str]:
+    """Return the checked-out commit, or None outside a usable Git checkout."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip() or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def _format_duration(seconds: float) -> str:
@@ -315,6 +330,7 @@ def main() -> int:
         verify_cpp_report_parity(report_data, progress=progress)
     progress("collecting execution metadata")
     execution_info = {
+        "source_commit": _source_commit(),
         "last_update": datetime.now().astimezone().date().isoformat(),
         "source": _report_source_path(),
         "evaluation_view": performance_report.report_evaluation_view(),

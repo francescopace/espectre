@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import time
+import json
 from collections.abc import Mapping as MappingABC
 from collections import defaultdict
 from functools import lru_cache
@@ -68,7 +69,7 @@ from tools.lib.temporal_replay import (
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
-PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 5
+PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 6
 REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
 DIAGNOSTIC_ALL_PHY = False
 
@@ -1216,6 +1217,15 @@ def _calibrate_classic_replay_rows(
     timing: Mapping[str, int],
 ) -> Optional[float]:
     """Reproduce Lightweight startup calibration from cached evaluation rows."""
+    calibrated = _calibrate_classic_replay_rows_with_boundary(rows, timing)
+    return None if calibrated is None else calibrated[0]
+
+
+def _calibrate_classic_replay_rows_with_boundary(
+    rows: Mapping[str, Any],
+    timing: Mapping[str, int],
+) -> Optional[tuple[float, int]]:
+    """Return the calibrated threshold and the position of the last consumed row."""
     from tools.lib.lightweight_detector import LightweightDetector
     from threshold import (
         StartupThresholdCalibrator,
@@ -1244,9 +1254,9 @@ def _calibrate_classic_replay_rows(
     weights = np.asarray(rows.get("packet_weight", np.empty(0)), dtype=np.int32)
     resets = np.asarray(rows.get("reset_index", np.empty(0)), dtype=np.int32)
 
-    for values, row_ready, packet_weight, reset_index in zip(
+    for row_index, (values, row_ready, packet_weight, reset_index) in enumerate(zip(
         X, ready, weights, resets, strict=True
-    ):
+    )):
         current_reset = int(reset_index)
         if last_reset is not None and current_reset != last_reset:
             calibrator = StartupThresholdCalibrator(
@@ -1273,7 +1283,7 @@ def _calibrate_classic_replay_rows(
         return None
     calibrator.calculate_threshold()
     detector.set_adaptive_threshold(0.0)
-    return float(detector.get_threshold())
+    return float(detector.get_threshold()), row_index
 
 
 def _score_classic_replay_phase_rows(
@@ -1282,9 +1292,12 @@ def _score_classic_replay_phase_rows(
     *,
     row_stride: Optional[int] = None,
     row_offset: int = 0,
+    include_unready: bool = False,
 ) -> list[bool]:
     """Advance Lightweight decision state over one cached replay phase."""
     stride, offset = _normalize_replay_row_selection(row_stride, row_offset)
+    if include_unready and stride is not None:
+        raise ValueError("unready rows cannot be combined with row striding")
     states: list[bool] = []
     eligible_position = 0
     X = np.asarray(rows.get("X", np.empty((0, 2))), dtype=np.float64)
@@ -1302,6 +1315,8 @@ def _score_classic_replay_phase_rows(
         if not row_ready:
             detector._current_probability = 0.0
             detector._state = MotionState.IDLE
+            if include_unready:
+                states.append(False)
             continue
         detector._current_turb_autocorr = float(values[0])
         detector._current_turb_iqr_over_mean_aggr = float(values[1])
@@ -1316,7 +1331,7 @@ def _score_classic_replay_phase_rows(
             if detector._current_probability > detector._threshold
             else MotionState.IDLE
         )
-        if row_eligible:
+        if row_eligible or include_unready:
             if stride is None or eligible_position % stride == offset:
                 states.append(detector._state == MotionState.MOTION)
             eligible_position += 1
@@ -2507,12 +2522,15 @@ def compute_performance_report_data(
         f"summary aggregation complete in {_format_progress_duration(time.perf_counter() - summary_started)}",
     )
     _emit_progress(progress, "render data ready")
+    from .performance_report_audit import collect_audit
+
     return {
         "paired": paired_summaries["paired"],
         "paired_normal": normal_summary,
         "paired_stress_real": stress_summary,
         "paired_synthetic": paired_summaries["paired_synthetic"],
         "long_quiet": long_summary,
+        "evaluation_audit": collect_audit(progress=progress),
     }
 
 
@@ -2521,36 +2539,14 @@ def render_performance_report_markdown(
     execution_info: Optional[ExecutionInfo] = None,
 ) -> str:
     """Render the published performance markdown from computed metrics."""
+    from .performance_report_audit import model_provenance, render_audit
+
     lines = [
         "<!-- Generated file. Do not edit manually. -->",
         "",
-        "# Motion Detection Performance",
+        "# Motion detection performance",
         "",
     ]
-
-    if execution_info is not None:
-        lines.extend([
-            f"Last update: {execution_info['last_update']}",
-            f"Source: `{execution_info['source']}`",
-            f"Evaluation view: `{execution_info.get('evaluation_view', 'HT20/HT-LTF')}`",
-            f"Dataset revision: `sha256:{execution_info['dataset_revision']}`",
-        ])
-        if execution_info.get('input_revision'):
-            lines.append(
-                f"Input revision: `sha256:{execution_info['input_revision']}`"
-            )
-        lines.extend([
-            f"Generated by: `{execution_info['generated_by']}`",
-            f"Run started: `{execution_info['run_started']}`",
-            f"Run duration: `{execution_info['run_duration']}`",
-            (
-                "Inputs: "
-                f"`{execution_info['real_paired_dataset_count']}` real paired datasets, "
-                f"`{execution_info['synthetic_paired_dataset_count']}` synthetic paired datasets, "
-                f"`{execution_info['long_quiet_dataset_count']}` long quiet datasets"
-            ),
-            "",
-        ])
 
     parity_checked = (
         True
@@ -2562,41 +2558,68 @@ def render_performance_report_markdown(
         if execution_info is None
         else str(execution_info.get("algorithms_link", "../ALGORITHMS.md"))
     )
-    parity_note = (
-        "`tools/generate_performance_report.py` also verifies that the host-side "
-        "C++ and Python implementations produce matching results when they replay "
-        "the same recordings."
-        if parity_checked
-        else "C++/Python replay parity was not run for this external diagnostic report."
-    )
+    if execution_info is not None:
+        lines.extend([
+            f"Last update: {execution_info['last_update']}",
+            f"Source: `{execution_info['source']}`",
+            f"Evaluation view: `{execution_info.get('evaluation_view', 'HT20/HT-LTF')}`",
+            f"Dataset revision: `sha256:{execution_info['dataset_revision']}`",
+        ])
+        if execution_info.get('input_revision'):
+            lines.append(
+                f"Input revision: `sha256:{execution_info['input_revision']}`"
+            )
+        if execution_info.get("source_commit"):
+            lines.append(f"Source commit: `{execution_info['source_commit']}`")
+        lines.extend([
+            f"Generated by: `{execution_info['generated_by']}`",
+            f"Run started: `{execution_info['run_started']}`",
+            f"Run duration: `{execution_info['run_duration']}`",
+            (
+                "Inputs: "
+                f"`{execution_info['real_paired_dataset_count']}` real paired datasets, "
+                f"`{execution_info['synthetic_paired_dataset_count']}` synthetic paired datasets, "
+                f"`{execution_info['long_quiet_dataset_count']}` long quiet datasets"
+            ),
+        ])
     lines.extend([
-        "This report shows how ESPectre's motion detectors perform on recorded data.",
-        "",
-        parity_note,
-        "",
+        "Corpus: `selection + holdout`; no `train` recordings.",
         (
-            "- **Lightweight Detection**: Uses feature-fusion coefficients fitted offline on "
-            "training recordings and calibrates its threshold for each recording without "
-            "refitting those coefficients."
-        ),
-        (
-            "- **High-Accuracy Detection**: Uses the ML neural implementation trained on "
-            "recordings marked as motion or no motion. Published replay results use only "
-            "recordings outside its training corpus."
+            "C++/Python parity: passed on the conditional tables."
+            if parity_checked
+            else "C++/Python parity: not run."
         ),
         "",
-        f"See [ALGORITHMS.md]({algorithms_link}) for the full detector design.",
+        f"Detector design is in the [algorithms reference]({algorithms_link}).",
         "",
         "---",
         "",
-        "## Current Host Resource Benchmark",
+    ])
+    provenance = model_provenance()
+    training = (
+        "`" + json.dumps(provenance["training"], sort_keys=True) + "`"
+        if provenance["training"] else
+        "not embedded"
+    )
+    lines.extend([
+        "## High Accuracy model",
+        "",
+        f"- Seed: `{provenance['seed']}`",
+        f"- Trained: `{provenance['trained']}`",
+        f"- Normalization: `{provenance['normalization']}`",
+        f"- Training provenance: {training}",
+    ])
+    for path, digest in provenance["artifacts"].items():
+        lines.append(f"- `{path}`: `sha256:{digest}`")
+    lines.extend(["", "---", ""])
+    if report_data.get("evaluation_audit"):
+        lines.extend(render_audit(report_data["evaluation_audit"]))
+    lines.extend([
+        "## Host resource benchmark",
         "",
         (
-            "The generator compiles the current production C++ sources once per source "
-            "revision and executes the benchmark on every report run. Timings and CPU "
-            "estimates therefore describe the report host, not an ESP device. Persistent "
-            "memory is the detector object's `sizeof` plus live heap allocations after "
-            "construction; allocator metadata is not included."
+            "Measured on the report host, not on an ESP device. Persistent memory is "
+            "the detector's `sizeof` plus heap allocated at construction."
         ),
         "",
     ])
@@ -2635,19 +2658,18 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Required Performance",
+        "## Required performance",
         "",
-        "| Metric | Target | ",
-        "|-------|--------|",
+        "| Metric | Target |",
+        "| --- | --- |",
         "| Recall | >95% |",
-        "| FP Rate | <5% |",
+        "| FP rate | <5% |",
         "",
-        "Recall is the percentage of motion correctly detected. FP Rate is the percentage "
-        "of no-motion readings incorrectly reported as motion.",
+        "Recall is the share of motion detected. FP rate is the share of no-motion readings reported as motion.",
         "",
         "---",
         "",
-        "## Tests Included",
+        "## Tests included",
         "",
         "- C++ `test_motion_detection`",
         "- C++ `test_long_recordings`",
@@ -2656,15 +2678,12 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Normal Wi-Fi Signal",
-        "",
-        "Effective Alarms counts how many times the detector incorrectly switches to "
-        "MOTION when no motion is present. It uses the same filtering as the firmware.",
+        "## Normal Wi-Fi signal",
         "",
         (
-            "These recordings contain periods without motion followed by periods with "
-            "motion, captured with a normal Wi-Fi signal. Both detectors are reported "
-            "only on the combined `selection + holdout` corpus."
+            "Ready evaluations only, averaged per recording. Lightweight idle scoring "
+            "includes its calibration prefix. Effective alarms are IDLE to MOTION "
+            "switches after the firmware hit filter."
         ),
         "",
         "### Lightweight Detection",
@@ -2682,12 +2701,12 @@ def render_performance_report_markdown(
     paired_divider = "|--------|" + "|".join("----------" for _ in CHIP_ORDER) + "|"
     paired_row_specs = (
         ("recall", "Recall", lambda value: f"{value:.1f}%"),
-        ("min_recall", "Min Recall", lambda value: f"{value:.1f}%"),
+        ("min_recall", "Min recall", lambda value: f"{value:.1f}%"),
         ("precision", "Precision", lambda value: f"{value:.1f}%"),
-        ("fp_rate", "FP Rate", lambda value: f"{value:.1f}%"),
-        ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.1f}%"),
-        ("f1", "F1-Score", lambda value: f"{value:.1f}%"),
-        ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
+        ("fp_rate", "FP rate", lambda value: f"{value:.1f}%"),
+        ("max_fp_rate", "Max FP rate", lambda value: f"{value:.1f}%"),
+        ("f1", "F1", lambda value: f"{value:.1f}%"),
+        ("effective_alarms", "Effective alarms", lambda value: f"{int(value)}"),
     )
 
     def _append_paired_table(section, algorithm):
@@ -2718,13 +2737,9 @@ def render_performance_report_markdown(
             "",
             "---",
             "",
-            "## Reconstructed or Synthetic Holdout",
+            "## Reconstructed or synthetic holdout",
             "",
-            (
-                "These results are diagnostic because at least one signal view was "
-                "reconstructed or otherwise marked synthetic. They are not production "
-                "training or PHY-validation evidence."
-            ),
+            "At least one signal view is reconstructed or synthetic. Diagnostic only.",
             "",
             "### Lightweight Detection",
             "",
@@ -2741,50 +2756,41 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Reserved Augmentation Diagnostic",
+        "## Augmentation stress",
         "",
     ])
     augmentation = report_data.get("augmentation")
     if augmentation:
         lines.extend([
             (
-                "Lightweight and High Accuracy are evaluated on the same reserved `selection + holdout` "
-                "pairs after deterministic "
-                f"`{augmentation.get('recipe', 'unknown')}` packet augmentation. "
-                "As in production ML training, the fixed views "
-                f"`{', '.join(str(seed) for seed in augmentation.get('seeds', []))}` "
-                "contribute alternating row positions. These combined reserved results are "
-                "diagnostic, not an uncontaminated promotion gate."
+                f"Same pairs after deterministic `{augmentation.get('recipe', 'unknown')}` "
+                "packet augmentation, alternating the training views "
+                f"`{', '.join(str(seed) for seed in augmentation.get('seeds', []))}`. "
+                "Diagnostic only, not a promotion gate."
             ),
             "",
-            "| Detection profile | Corpus | Recall | FP Rate | F1 |",
-            "| --- | --- | ---: | ---: | ---: |",
+            "| Detection profile | Pairs | Recall | FP rate | F1 |",
+            "| --- | ---: | ---: | ---: | ---: |",
         ])
         for row in augmentation.get("rows", []):
             detector_name = str(row["detector"]).lower()
             detector = "High Accuracy" if detector_name == "ml" else "Lightweight"
             lines.append(
-                f"| {detector} | Reserved, mixed two-seed augmentation "
-                f"({int(augmentation.get('pair_count', 0))} pairs) | "
+                f"| {detector} | {int(augmentation.get('pair_count', 0))} | "
                 f"{float(row['recall']):.1f}% | "
                 f"{float(row['fp_rate']):.1f}% | {float(row['f1']):.1f}% |"
             )
     else:
-        lines.append(
-            "Cached augmentation diagnostic unavailable; report generation will not "
-            "start a training run to create it."
-        )
+        lines.append("Not cached. The report does not train to create it.")
     lines.extend([
         "",
         "---",
         "",
-        "## Weak Wi-Fi Signal",
+        "## Weak Wi-Fi signal",
         "",
         (
-            "These reserved `selection + holdout` recordings show detector behavior "
-            "when the Wi-Fi signal is weak. The High Accuracy requirements for this test are recall "
-            f">{STRESS_TARGET_RECALL:.0f}% and FP <{STRESS_TARGET_FP_RATE:.0f}%; "
-            "Lightweight results are included for information only."
+            f"High Accuracy target: recall >{STRESS_TARGET_RECALL:.0f}%, "
+            f"FP <{STRESS_TARGET_FP_RATE:.0f}%. Lightweight has no target here."
         ),
         "",
         "### Lightweight Detection",
@@ -2803,12 +2809,9 @@ def render_performance_report_markdown(
         "",
         "---",
         "",
-        "## Long Quiet Reserved Recordings",
+        "## Long quiet recordings",
         "",
-        (
-            "These `selection + holdout` recordings contain no motion. They show how "
-            "often each detector reports motion during quiet periods."
-        ),
+        "Recordings without motion, aggregated by chip.",
         "",
         "### Lightweight Detection",
         "",
@@ -2816,9 +2819,9 @@ def render_performance_report_markdown(
 
     long_quiet = report_data["long_quiet"]
     long_row_specs = (
-        ("avg_fp_rate", "Avg FP Rate", lambda value: f"{value:.2f}%"),
-        ("max_fp_rate", "Max FP Rate", lambda value: f"{value:.2f}%"),
-        ("effective_alarms", "Effective Alarms", lambda value: f"{int(value)}"),
+        ("avg_fp_rate", "Mean FP rate", lambda value: f"{value:.2f}%"),
+        ("max_fp_rate", "Max FP rate", lambda value: f"{value:.2f}%"),
+        ("effective_alarms", "Effective alarms", lambda value: f"{int(value)}"),
     )
 
     def _append_long_quiet_table(algorithm):
