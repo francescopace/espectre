@@ -1254,7 +1254,7 @@ def _calibrate_classic_replay_rows_with_boundary(
     weights = np.asarray(rows.get("packet_weight", np.empty(0)), dtype=np.int32)
     resets = np.asarray(rows.get("reset_index", np.empty(0)), dtype=np.int32)
 
-    for row_index, (values, row_ready, packet_weight, reset_index) in enumerate(zip(
+    for _row_index, (values, row_ready, packet_weight, reset_index) in enumerate(zip(
         X, ready, weights, resets, strict=True
     )):
         current_reset = int(reset_index)
@@ -1283,7 +1283,7 @@ def _calibrate_classic_replay_rows_with_boundary(
         return None
     calibrator.calculate_threshold()
     detector.set_adaptive_threshold(0.0)
-    return float(detector.get_threshold()), row_index
+    return float(detector.get_threshold()), _row_index
 
 
 def _score_classic_replay_phase_rows(
