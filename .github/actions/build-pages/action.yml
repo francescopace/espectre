@@ -30,7 +30,16 @@ runs:
 
     - name: Install documentation renderer dependencies
       shell: bash
-      run: python3 -m pip install Markdown==3.10.2 Jinja2==3.1.6 Pygments==2.20.0
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+        import subprocess, sys
+        requirements = [line.split('#', 1)[0].strip()
+                        for line in Path('requirements.txt').read_text().splitlines()
+                        if line.lower().startswith(('markdown==', 'jinja2==', 'pygments=='))]
+        assert len(requirements) == 3
+        subprocess.run([sys.executable, '-m', 'pip', 'install', *requirements], check=True)
+        PY
 
     - name: Build static pages
       shell: bash

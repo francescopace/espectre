@@ -14,7 +14,7 @@ RUN apt-get update \
         libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --break-system-packages --no-cache-dir gcovr==8.6
+RUN python3 -m pip install --break-system-packages --no-cache-dir gcovr==8.7
 
 ENV CC=gcc-13 \
     CXX=g++-13 \
