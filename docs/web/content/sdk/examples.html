@@ -7,7 +7,7 @@
   <p class="article-lead">Create a complete ESP-IDF project from the registry, set up Wi-Fi, and see motion events on your board. Then reuse its code in your own firmware.</p>
 
   <h2 id="registry-example" data-toc-label="Registry example">Create, build, and flash</h2>
-  <p>Activate ESP-IDF 5.5.5. Pick a version, including release candidates, from the <a href="https://components.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">production registry</a> and replace <code>VERSION_FROM_REGISTRY</code> below. For a branch snapshot, or an older prerelease, use the <a href="https://components-staging.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">staging registry</a> and change the URL to <code>https://components-staging.espressif.com</code>.</p>
+  <p>Activate ESP-IDF 5.5.6. Pick a version, including release candidates, from the <a href="https://components.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">production registry</a> and replace <code>VERSION_FROM_REGISTRY</code> below. For a branch snapshot, or an older prerelease, use the <a href="https://components-staging.espressif.com/components/francescopace/espectre" target="_blank" rel="noopener">staging registry</a> and change the URL to <code>https://components-staging.espressif.com</code>.</p>
   <pre class="code"><code>ESPECTRE_VERSION="VERSION_FROM_REGISTRY"
 ESPECTRE_REGISTRY_URL="https://components.espressif.com"
 idf.py create-project-from-example --registry-url "$ESPECTRE_REGISTRY_URL" "francescopace/espectre=$ESPECTRE_VERSION:wifi_motion_detection"

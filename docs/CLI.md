@@ -42,7 +42,7 @@ About Docker:
 - If Docker is installed but stopped, the CLI asks you to start it.
 - Docker only compiles. Flashing always uses the serial port on your computer.
 
-Use `--backend local` or `--backend docker` to force one option, and `./espectre doctor` to check the local ESP-IDF setup. If you have neither, install Docker, build any ESPHome configuration once (which installs a toolchain), or install ESP-IDF `5.5.5` following the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) guide.
+Use `--backend local` or `--backend docker` to force one option, and `./espectre doctor` to check the local ESP-IDF setup. If you have neither, install Docker, build any ESPHome configuration once (which installs a toolchain), or install ESP-IDF `5.5.6` following the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) guide.
 
 ESPHome commands always use ESPHome's own ESP-IDF toolchain, never PlatformIO.
 

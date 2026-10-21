@@ -35,7 +35,7 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "sdk-boundary-v1"
+MICROPYTHON_PATCH_REVISION = "sdk-boundary-v3"
 PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
@@ -1244,6 +1244,35 @@ def _configure_project_wifi_channel_pin(micropython_dir: Path) -> None:
     source_path.write_text(source, encoding="utf-8")
 
 
+def _configure_project_wifi_auth_max(micropython_dir: Path) -> None:
+    """Match MicroPython's Wi-Fi auth enum guard to ESP-IDF 5.5.6.
+
+    ESP-IDF 5.5.6 and 6.0.3 append the scan-only WIFI_AUTH_UNKNOWN value, which
+    6.0.0 through 6.0.2 lack. Only the guard changes: the value is not exposed
+    as a Python constant.
+    """
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
+    source = source_path.read_text(encoding="utf-8")
+    original = """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
+_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+"""
+    replacement = """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 3) || \\
+    (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 6) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0))
+_Static_assert(WIFI_AUTH_MAX == 18, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
+_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+"""
+    if replacement in source:
+        return
+    if original not in source:
+        raise RuntimeError(
+            f"MicroPython Wi-Fi auth enum anchor is missing: {source_path}"
+        )
+    source_path.write_text(source.replace(original, replacement, 1), encoding="utf-8")
+
+
 def _write_manifest(manifest_path: Path) -> None:
     """Freeze only the ESP32 boot and filesystem helpers, never the application."""
     manifest_path.write_text(
@@ -1439,6 +1468,7 @@ def _build_project_firmware_locked(
     _configure_project_csi_quality(micropython_dir)
     _configure_project_gc_heap_reserve(micropython_dir)
     _configure_project_wifi_channel_pin(micropython_dir)
+    _configure_project_wifi_auth_max(micropython_dir)
     _configure_project_s2_usb_serial(micropython_dir)
     if chip == "c5":
         _configure_project_wifi_band_mode(micropython_dir)

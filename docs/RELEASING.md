@@ -68,7 +68,7 @@ The registry component includes an `API.md` generated from the packaged public h
 
 The verifier checks the local archive and inventory byte for byte before contacting a registry. For registry downloads and installed components, it compares every value in the root `idf_component.yml` after parsing YAML: Component Manager can reorder keys or change line wrapping when packaging an upload. Scalar types, list order, and all manifest fields must match the verified local archive. All other files retain exact SHA-256 checks, including the example manifests; added or missing files fail verification.
 
-To check an extracted artifact with ESP-IDF 5.5.5 in the current shell:
+To check an extracted artifact with ESP-IDF 5.5.6 in the current shell:
 
 ```sh
 python .github/scripts/verify_sdk_component.py prepare \
@@ -79,19 +79,19 @@ python .github/scripts/verify_sdk_component.py build \
   --destination /tmp/espectre-sdk-check --target esp32c3
 ```
 
-Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.5 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. Native and ESPHome firmware builds on S2 cover the frontend-owned TinyUSB console.
+Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.6 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. Native and ESPHome firmware builds on S2 cover the frontend-owned TinyUSB console.
 
 The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and pins it to `1.12.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. Run the Direct compile and link checks before changing that pin.
 
 ### ESP-IDF compatibility checks
 
-The [SDK compatibility table](SDK.md#esp-idf-compatibility-validation) comes from Docker builds of the example with the `espressif/idf` images, covering the application and bootloader. ESP-IDF 5.5.0–5.5.2 were checked against the official headers only; no full firmware build was run.
+The [SDK compatibility table](SDK.md#esp-idf-compatibility-validation) comes from Docker builds of the example with the `espressif/idf` images, covering the application and bootloader. The 2026-10-21 run built the registry package with every optional service group on all six targets, for each image tag in the table; the `v6.1` tag is ESP-IDF's name for the 6.1 release. ESP-IDF 5.5.0–5.5.2 were checked against the official headers only; no full firmware build was run.
 
-The build lockfiles and CMake component lists confirm bundled MQTT on 5.5.3, 5.5.4, and 5.5.5, and `espressif/mqtt` `1.0.0` on 6.x. The linked applications contain the expected SHA-256 backend: mbedTLS before IDF 6 and PSA Crypto from IDF 6 onward. The compatibility change preserves device identity input bytes, digest byte order, and identifier formatting. It also uses the `WIFI_BW20` and `WIFI_BW40` enum names shared by these versions; the sensing bandwidth remains 20 MHz.
+The build lockfiles confirm bundled MQTT on 5.5.x and `espressif/mqtt` `1.0.0` on 6.x, with `espressif/mdns` `1.12.0` everywhere. On 5.5.3, Component Manager warns that `ESPECTRE_SDK_ENABLE_DIRECT` is not found in any Kconfig file, but it still resolves mDNS and the build links. With every service on, ESP-IDF 6.x leaves 3–5% of the 1.5 MB app partition free on C5 and C6, against 11–15% on 5.5.6. The linked applications contain the expected SHA-256 backend: mbedTLS before IDF 6 and PSA Crypto from IDF 6 onward. The compatibility change preserves device identity input bytes, digest byte order, and identifier formatting. It also uses the `WIFI_BW20` and `WIFI_BW40` enum names shared by these versions; the sensing bandwidth remains 20 MHz.
 
 Host tests exercise both identity branches with real OpenSSL-backed SHA-256 adapters, three known vectors, a deterministic MAC, cached results, crypto initialization and hashing failures, and invalid digest lengths. For MAC `7c:2c:67:42:bb:ac`, both branches produce `3cf79180d3a0aca4`. These automated tests do not execute ESP-IDF's hardware crypto drivers.
 
-No hardware validation was performed for this matrix. Before publishing, compare the same device's ID before and after upgrading from 5.5.3 and 5.5.5 to each 6.x version, and verify boot, Wi-Fi reconnection, CSI acquisition and sensing readiness, MQTT, and Direct on the representative targets. Include the minimum supported 5.5.3, both supported bands on C5, and the supported traffic modes on C6. S2 and S3 were not compiled in this matrix. Full ESPHome, Native, and Matter firmware builds and a clean registry installation remain separate integration gates.
+No hardware validation was performed for this matrix. Before publishing, compare the same device's ID before and after upgrading from 5.5.3 and 5.5.5 to each 6.x version, and verify boot, Wi-Fi reconnection, CSI acquisition and sensing readiness, MQTT, and Direct on the representative targets. Include the minimum supported 5.5.3, both supported bands on C5, and the supported traffic modes on C6. Full ESPHome, Native, and Matter firmware builds and a clean registry installation remain separate integration gates.
 
 ### Registry setup
 
@@ -116,7 +116,7 @@ CD derives the channel, release tag, registry, and environment from the validate
 
 Branch protection should require preparation, the initial test jobs, firmware builds, dependency audits, SDK packaging, and SDK component build checks. Downstream checks alone are insufficient because they can be skipped after an upstream failure. Snapshot and release dispatch require every terminal audit and SDK verification prerequisite to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
 
-Registry packaging and Native and Matter container builds share the Component Manager version pinned in `requirements.txt`, which is compatible with ESP-IDF 5.5.5. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
+Registry packaging and Native and Matter container builds share the Component Manager version pinned in `requirements.txt`, which is compatible with ESP-IDF 5.5.6. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
 
 | Event | Publication |
 |-------|-------------|

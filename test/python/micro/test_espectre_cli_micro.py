@@ -1173,6 +1173,31 @@ def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
     assert "args[ARG_channel].u_int > 14" not in source
 
 
+def test_project_firmware_matches_wifi_auth_guard_to_idf_release(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "network_wlan.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
+_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_wifi_auth_max(tmp_path)
+    micro_firmware._configure_project_wifi_auth_max(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert source.count("WIFI_AUTH_MAX == 18") == 1
+    assert source.count("WIFI_AUTH_MAX == 17") == 1
+    assert "ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)" in source
+    assert "ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 3)" in source
+
+    source_path.write_text("_Static_assert(WIFI_AUTH_MAX == 16);\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="auth enum anchor"):
+        micro_firmware._configure_project_wifi_auth_max(tmp_path)
+
+
 def test_project_boards_cover_micro_chip_registry_and_only_esp32_override() -> None:
     boards_dir = micro.PYTHON_SRC_DIR / "firmware" / "boards"
 

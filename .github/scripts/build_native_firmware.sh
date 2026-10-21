@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${NATIVE_BUILD_DIR:-build-container-${NATIVE_TARGET}}"
-DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2}"
+DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:v5.5.6@sha256:bf72fe7a15c22849a9a94147301165a545fb8905d97c176cf748e3e4614cac84}"
 OUTPUT_DIR="$(dirname "${NATIVE_OUTPUT}")"
 NATIVE_OUTPUT_IN_WORK="/work/${NATIVE_OUTPUT#"${REPO_ROOT}"/}"
 NATIVE_OTA_OUTPUT_IN_WORK=""

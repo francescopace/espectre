@@ -873,7 +873,7 @@ void test_raw_vht20_compatibility_preserves_unrelated_driver_errors(void) {
   TEST_ASSERT_EQUAL(ESP_OK, apply_raw_tx_rate(ap, true));
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.raw_rate_compat_call_count);
   g_esp_wifi_mock.raw_rate_result = ESP_FAIL;
-#if ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5)
+#if ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 5) || ESP_IDF_VERSION == ESP_IDF_VERSION_VAL(5, 5, 6)
   TEST_ASSERT_EQUAL(ESP_OK, apply_raw_tx_rate(ap, true));
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.raw_rate_compat_call_count);
   TEST_ASSERT_EQUAL(WIFI_IF_STA, g_esp_wifi_mock.raw_rate_interface);

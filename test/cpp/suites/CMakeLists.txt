@@ -95,7 +95,7 @@ target_compile_definitions(test_traffic_generator_ampdu PRIVATE
 )
 
 # Explicit choices override the shared default; C5 exercises the modern raw API.
-foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed c5_next_idf)
+foreach(variant IN ITEMS auto s2_auto c5_auto c5_fixed c5_prev_idf c5_next_idf)
     add_espectre_test(test_traffic_generator_${variant}
         "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_traffic_generator.cpp"
         LIBRARIES espectre_runtime_testlib
@@ -121,8 +121,13 @@ target_compile_definitions(test_traffic_generator_c5_fixed PRIVATE
     CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"6\"
 )
 
+target_compile_definitions(test_traffic_generator_c5_prev_idf PRIVATE
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1 ESP_IDF_VERSION=0x050505
+    CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
+)
+
 target_compile_definitions(test_traffic_generator_c5_next_idf PRIVATE
-    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1 ESP_IDF_VERSION=0x050506
+    CONFIG_IDF_TARGET_ESP32=0 CONFIG_IDF_TARGET_ESP32C5=1 ESP_IDF_VERSION=0x050507
     CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS=\"0\"
 )
 

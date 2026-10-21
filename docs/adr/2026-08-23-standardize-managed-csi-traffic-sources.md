@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-23
-- Updated: 2026-10-18
+- Updated: 2026-10-21
 
 ## Context
 
@@ -60,6 +60,7 @@ A saved choice is kept as is. If a mode does not work with a given chip, driver,
 | 2026-10-15 | Direct Null Data and unicast ESP-NOW in `external` | Accepted: they are addressed to the device, not incidental |
 | 2026-10-17 | `wifi_raw` stable on supported chips, with an optional explicit peer | Accepted after operational validation |
 | 2026-10-18 | Two zero padding bytes on peer HT20/VHT20 Null Data | Accepted: C6 needs 30-byte frames for valid HT20 CSI |
+| 2026-10-21 | Extend the C5 raw VHT20 driver workaround to ESP-IDF 5.5.6 | Accepted: 5.5.6 still rejects the public configuration |
 
 ## Evidence
 
@@ -129,7 +130,9 @@ At 54 Mbps validity was mixed between 18 and 21 bytes of padding, so there is no
 
 ESP-IDF 5.5.5 rejects raw VHT20 configuration on C5 with `ESP_FAIL` and `invalid phymode`, even on a confirmed 802.11ac association. Both automatic band selection and a fixed 5 GHz build reproduced the failure. Inspection of the linked driver showed that `esp_wifi_config_80211_tx()` reads the interface's 2.4 GHz PHY field when validating the requested PHY; the 5 GHz configuration is stored separately. A temporary probe using the setter called by the public API's successful path transmitted padded VHT20 Null Data and produced valid CSI on the receiving C5, with ACK/LLTF on the sender.
 
-The compatibility path is restricted to C5 with ESP-IDF 5.5.5, an explicit peer on a 5 GHz channel, a public API result of `ESP_FAIL`, and a confirmed VHT20 association. It applies the fixed MCS0, long-GI configuration through the driver's `ic_set_80211_tx_rate_config` symbol. Other errors, PHYs, bands, and SDK versions retain the public API result. This is a dependency on an undocumented driver ABI; remove the workaround when a driver with corrected validation is adopted. The local investigation and firmware images are under `data/untracked/c5_pair/20261018/vht20-5ghz/`.
+ESP-IDF 5.5.6 still has the bug. On 2026-10-21 a C5 rev 1.0 on a 5 GHz channel 44 association ran Native builds that differed only in this workaround. With an explicit peer and the workaround disabled, the generator did not start (0 pps). With the workaround enabled, it sent about 100 pps; the `auto` destination also sent about 100 pps. The peer MAC was a placeholder, so this check confirms raw transmission only; the CSI validation above was done on 5.5.5.
+
+The compatibility path is restricted to C5 with ESP-IDF 5.5.5 or 5.5.6, an explicit peer on a 5 GHz channel, a public API result of `ESP_FAIL`, and a confirmed VHT20 association. It applies the fixed MCS0, long-GI configuration through the driver's `ic_set_80211_tx_rate_config` symbol. Other errors, PHYs, bands, and SDK versions retain the public API result. This is a dependency on an undocumented driver ABI; remove the workaround when a driver with corrected validation is adopted.
 
 ### Station TX-rate comparison
 
@@ -149,9 +152,9 @@ Hardware checks, all without promiscuous mode:
 
 With two C5 boards about three meters apart on the same AP, each detector ran 30-second still and walking phases in both directions (4 hits to enter motion, 3 to leave). Both Lightweight and High Accuracy reported motion in 0% of about 117 motion events per still phase and 100% per walking phase, on both boards, with no request errors, hardware errors, or queue drops. ESP-NOW from C6 to C5 did not recover C6 ACK CSI either, whatever the payload.
 
-At 5 GHz on channel 40, the mini and standard C5 supported both roles with the version-bound driver compatibility path above. Radio checks and two-minute High Accuracy comparisons in each direction ran with serial monitors closed, regular acquisition, and no new hardware errors, invalid estimates, or queue drops. The participant confirmed alternating stillness and walking with the boards fixed. Both reported broadly matching idle and motion patterns; the ACK/LLTF side spent more time in motion than the external VHT20 side, including after reversing roles. Without timestamped activity labels, these comparisons do not establish detector accuracy or which input detects real movement more reliably. Disabling the generator stopped accepted input on both devices. Local evidence: `data/untracked/c5_pair/20261018/vht20-5ghz/`.
+At 5 GHz on channel 40, the mini and standard C5 supported both roles with the version-bound driver compatibility path above. Radio checks and two-minute High Accuracy comparisons in each direction ran with serial monitors closed, regular acquisition, and no new hardware errors, invalid estimates, or queue drops. The participant confirmed alternating stillness and walking with the boards fixed. Both reported broadly matching idle and motion patterns; the ACK/LLTF side spent more time in motion than the external VHT20 side, including after reversing roles. Without timestamped activity labels, these comparisons do not establish detector accuracy or which input detects real movement more reliably. Disabling the generator stopped accepted input on both devices.
 
-Both C5 boards also retained valid ACK/LLTF acquisition with `wifi_raw` targeting `auto` on the AP's 2.4 GHz and 5 GHz radios. The configured PHY was OFDM 6 Mbps (802.11g and 802.11a, respectively); raw CSI confirmed legacy LLTF at 20 MHz. A BSSID-only band switch updated the raw destination while retaining `auto`. One-minute checks on each band remained ready without new CSI errors or queue drops, with serial monitors closed. Local evidence: `data/untracked/c5_pair/20261018/auto-ap-2g-5g/`.
+Both C5 boards also retained valid ACK/LLTF acquisition with `wifi_raw` targeting `auto` on the AP's 2.4 GHz and 5 GHz radios. The configured PHY was OFDM 6 Mbps (802.11g and 802.11a, respectively); raw CSI confirmed legacy LLTF at 20 MHz. A BSSID-only band switch updated the raw destination while retaining `auto`. One-minute checks on each band remained ready without new CSI errors or queue drops, with serial monitors closed.
 
 With padding in production `wifi_raw`, C5 → C6 and C6 → C5 (from a temporary C6 transmitter) both ran at about 99–101 CSI packets/s with no invalid estimates, hardware errors, or queue drops; source-off windows admitted nothing. C6 Native slowdowns during these runs came from the USB console: the USB Serial/JTAG interrupt mask included Start of Frame, which the driver does not service, causing up to about 430,000 interrupts/s. The console now sets the mask before installing the driver and writes logs and Improv output with zero timeout. After that fix, five minutes of C5 → C6 traffic held about 100 packets/s, and C5 ACK/LLTF and C6 padded HT20 showed matching idle and motion patterns (relative agreement, not labeled accuracy).
 

@@ -25,7 +25,7 @@ static inline size_t esp_get_free_heap_size(void) {
 // Mock minimum free heap size
 static inline size_t esp_get_minimum_free_heap_size(void) { return 180000; }
 
-static inline const char *esp_get_idf_version(void) { return "5.5.5-test"; }
+static inline const char *esp_get_idf_version(void) { return "5.5.6-test"; }
 
 static inline void esp_restart(void) {}
 
