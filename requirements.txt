@@ -5,7 +5,7 @@ esphome==2026.10.0
 aioesphomeapi==46.12.0  # required by ESPHome 2026.10.0
 esptool==5.4.0          # required by ESPHome 2026.10.0
 # ESPHome 2026.10.0 pins; firmware and release catalog signatures
-cryptography==50.0.2; platform_system != "Darwin" or platform_machine != "x86_64"
+cryptography==50.0.0; platform_system != "Darwin" or platform_machine != "x86_64"
 cryptography==48.0.1; platform_system == "Darwin" and platform_machine == "x86_64"
 mpremote==1.29.0        # CLI wrapper coverage in Python tests
 mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro deploy
