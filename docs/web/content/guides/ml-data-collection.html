@@ -45,13 +45,13 @@ python -m pip install -r requirements.txt</code></pre>
   <p>The collector waits for the detector to be ready and below threshold before saving. Lightweight needs to finish calibration; High Accuracy needs a full feature window. Leave the readiness check enabled for normal collection.</p>
   <p>Aim for 30–60 seconds per recording and at least 10 recordings per label if you can. Keep each <code>static_presence</code> and <code>motion</code> pair in comparable conditions: the same room, device placement, and radio setup. Vary the person’s position and distance across pairs.</p>
   <div class="note">With <code>--duration</code>, pressing <kbd>Ctrl+C</kbd> discards an unfinished recording. In a labelled capture without <code>--duration</code>, it saves the packets received so far.</div>
-  <p>Collection switches the device to external traffic mode and leaves it there afterwards. When finished, use <a href="/tools/device-settings/">Device settings</a> to restore your previous traffic mode if the sensor normally generates its own traffic.</p>
+  <p>Collection switches the device to external traffic mode and leaves it there afterwards. When finished, open <a href="/tools/monitor/">Live motion</a>, expand <em>Advanced sensing settings</em>, and set <em>Wi-Fi traffic source</em> back to your previous choice if the sensor normally generates its own traffic.</p>
 
   <h2 id="collection-validate">Describe and check the recordings</h2>
   <p>The collector creates entries in <code>data/dataset_info.json</code> with the technical metadata. Add an <code>environment</code> name for the room and start with <code>dataset_role</code> set to <code>exclude</code> while you review the data. Use the same room name across its recordings, and describe anything unusual in <code>description</code>.</p>
   <pre class="code"><code>./espectre collect --info
 python tools/validate_dataset_quality.py</code></pre>
-  <p>The first command lists the recordings. The validator checks capture quality, creates the pair fields, and writes <code>data/auto_generated/DATASET_QUALITY_CHECK.md</code>. Fix every FAIL before submitting data or training. Do not add pair fields manually; the validator owns them.</p>
+  <p>The first command lists the recordings. The validator checks capture quality, creates the pair fields, and writes <code>data/auto_generated/DATASET_QUALITY_CHECK.md</code>. Fix every FAIL before submitting data or training. Do not add pair fields manually; the validator writes them.</p>
   <p>Dataset roles decide which recordings are used for training, model selection, or the final test. Validation does not assign those roles. See the <a href="https://github.com/francescopace/espectre/blob/develop/docs/ML_DATA_COLLECTION.md#reference">dataset reference on GitHub</a> for the catalog schema and quality criteria.</p>
 
   <h2 id="collection-contribute">Contribute a dataset</h2>

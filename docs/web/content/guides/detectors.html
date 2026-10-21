@@ -3,73 +3,32 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article guide-article" data-page-toc data-page-path="guides">
-    <span class="guide-tag">DETECTION PROFILES · 5 MIN READ</span>
+    <span class="guide-tag">DETECTION · 3 MIN READ</span>
     <h1>Choose your detection profile</h1>
-    <p class="article-lead">ESPectre has two motion detectors: Lightweight Detection and High-Accuracy Detection. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small pretrained model that detects more reliably, even in rooms it was not tuned for.</p>
+    <p class="article-lead">ESPectre has two motion detectors. Both read the same Wi-Fi CSI and report the same motion state. Lightweight is the default and uses less CPU and memory. High Accuracy uses a small neural network and gives fewer false alarms and missed detections in our tests.</p>
     <figure>
       <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
-      <figcaption>One CSI stream, two detectors. Native, ESPHome, and Matter can switch between them while running.</figcaption>
+      <figcaption>One CSI stream, two detectors. You can switch between them while the device runs.</figcaption>
     </figure>
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#detectors-two">Two detectors</a><a href="#detectors-choose">Choose a profile</a><a href="#detectors-difference">Compare profiles</a><a href="#detectors-controls">Select a profile</a><a href="#detectors-traffic">Traffic source</a><a href="#detectors-evidence">Evidence</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#detectors-choose">Compare profiles</a><a href="#detectors-controls">Select a profile</a><a href="#detectors-traffic">Traffic source</a><a href="#detectors-evidence">Measured results</a></nav>
     </details>
 
-    <h2 id="detectors-two">Two built-in detectors</h2>
-    <div class="mini-cards profile-choice-cards">
-      <article>
-        <span class="guide-tag">DEFAULT</span>
-        <h3>Lightweight Detection</h3>
-        <p>Leaves more CPU and memory for the rest of the firmware. It adapts its threshold to the room during a short calibration at startup, while the room is quiet.</p>
-        <p><code>lightweight</code></p>
-      </article>
-      <article>
-        <span class="guide-tag">DETECTION QUALITY</span>
-        <h3>High-Accuracy Detection</h3>
-        <p>Uses more signal features and a small neural network. It is more accurate in our tests, including in rooms it has never seen, and needs no calibration.</p>
-        <p><code>high_accuracy</code></p>
-      </article>
-    </div>
-
-    <h2 id="detectors-choose">Choose in thirty seconds</h2>
-    <ul class="checklist">
-      <li><strong>Choose Lightweight</strong> when the chip is small or also runs a display, Matter, updates, or other services.</li>
-      <li><strong>Choose High Accuracy</strong> when fewer false alarms and better detection matter most.</li>
-      <li><strong>If unsure, keep Lightweight</strong>, then try High Accuracy in the same spot and compare.</li>
-    </ul>
-
-    <h2 id="detectors-difference">What changes</h2>
-    <div class="profile-comparison">
-      <article class="profile-comparison-row">
-        <h3>Runtime cost</h3>
-        <div><strong>Lightweight</strong><p>Less CPU and memory.</p></div>
-        <div><strong>High Accuracy</strong><p>More CPU and memory for the extra features and the neural network.</p></div>
-      </article>
-      <article class="profile-comparison-row">
-        <h3>Detection quality</h3>
-        <div><strong>Lightweight</strong><p>Good baseline; lower accuracy, and less consistent from room to room.</p></div>
-        <div><strong>High Accuracy</strong><p>Higher accuracy, and more consistent from room to room in our tests.</p></div>
-      </article>
-      <article class="profile-comparison-row">
-        <h3>Startup</h3>
-        <div><strong>Lightweight</strong><p>Calibrates from about ten seconds of clean data. A burst in that window can extend it, up to about thirty seconds.</p></div>
-        <div><strong>High Accuracy</strong><p>No calibration; it starts as soon as it has collected enough CSI.</p></div>
-      </article>
-      <article class="profile-comparison-row">
-        <h3>Training required from you</h3>
-        <div><strong>Lightweight</strong><p>None.</p></div>
-        <div><strong>High Accuracy</strong><p>None; the model is included in the firmware.</p></div>
-      </article>
-      <article class="profile-comparison-row">
-        <h3>Best fit</h3>
-        <div><strong>Lightweight</strong><p>Small chips, or products that need resources for other features.</p></div>
-        <div><strong>High Accuracy</strong><p>Products where detection quality comes first and there is room for the extra cost.</p></div>
-      </article>
-    </div>
-
-    <div class="note"><strong>At startup:</strong> keep the room still while Lightweight calibrates. A brief movement extends that calibration, up to about thirty seconds. After moving the sensor, restart it so Lightweight calibrates in its new position. High Accuracy needs no calibration, but it still needs a few seconds of CSI before it starts.</div>
-    <p class="article-footnote"><strong>These are detector choices, not power modes.</strong> We measure each detector's CPU and memory use, but make no claim about the device's total power use.</p>
+    <h2 id="detectors-choose">How the two profiles differ</h2>
+    <div class="table-wrap"><table>
+      <caption class="sr-only">Comparison of the Lightweight and High Accuracy detection profiles</caption>
+      <thead><tr><th scope="col"></th><th scope="col">Lightweight</th><th scope="col">High Accuracy</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">How it decides</th><td>Combines two signal features with fixed weights, then compares the result with a threshold learned in your room.</td><td>Feeds eight signal features to a small neural network built into the firmware. It starts from a default threshold instead of learning one.</td></tr>
+        <tr><th scope="row">Startup</th><td>Calibrates on about ten seconds of quiet data. Movement in that window extends it, up to about thirty seconds.</td><td>No calibration. It starts once it has a full window of CSI, a few seconds after boot.</td></tr>
+        <tr><th scope="row">Cost</th><td>Less CPU and memory.</td><td>More CPU and memory for the extra features and the network.</td></tr>
+        <tr><th scope="row">Choose it when</th><td>The chip is small or also runs a display, Matter, or other services.</td><td>Fewer false alarms and missed movement matter more than CPU.</td></tr>
+      </tbody>
+    </table></div>
+    <p>If unsure, start with Lightweight, then try High Accuracy in the same spot with the same traffic source, and keep the one that works better in your room. Neither profile needs training from you, and neither is a power-saving mode: power use has not been measured.</p>
+    <div class="note">Keep the room still while Lightweight calibrates. After moving the sensor, restart it so Lightweight calibrates in the new position.</div>
 
     <h2 id="detectors-controls">How to select it</h2>
     <p>Pick your firmware type. You can change the profile while the device runs, and the choice is saved. On Matter, this setting is available over Direct HTTP, not through the standard Matter controls.</p>
@@ -107,17 +66,16 @@ config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code>
     <div class="table-wrap"><table>
       <thead><tr><th scope="col">Traffic source</th><th scope="col">When to use it</th></tr></thead>
       <tbody>
-        <tr><th scope="row">Ping</th><td>The default. Sends ping requests and measures CSI from the replies. Keep it when CSI arrives regularly.</td></tr>
+        <tr><th scope="row">Ping (ICMP)</th><td>The default. Sends ping requests and measures CSI from the replies. Keep it when CSI arrives regularly.</td></tr>
         <tr><th scope="row">DNS (UDP) / DNS (TCP)</th><td>Alternatives when the router blocks or limits ping. The destination must answer DNS queries over the selected protocol.</td></tr>
         <tr><th scope="row">Wi-Fi raw</th><td>Sends Wi-Fi frames directly and measures CSI from their acknowledgments. Unavailable on ESP32-C6.</td></tr>
-        <tr><th scope="row">External</th><td>Receives traffic from another device, such as the <a href="/guides/home-assistant/#ha-traffic-generator">Home Assistant traffic generator app</a>. The external sender must stay running for sensing to continue.</td></tr>
+        <tr><th scope="row">External device</th><td>Receives traffic from another device, such as the <a href="/guides/home-assistant/#ha-traffic-generator">Home Assistant traffic generator app</a>. The external sender must stay running for sensing to continue.</td></tr>
       </tbody>
     </table></div>
     <p>In <a href="/tools/monitor/">Live motion</a>, open <em>Advanced sensing settings</em> and choose <em>Wi-Fi traffic source</em>. The device saves your choice and never switches sources on its own. Changing the source restarts Lightweight calibration.</p>
     <p>Check <em>CSI occupancy</em> in Diagnostics: it shows how much of the detector window contains usable measurements. A high packet count alone does not guarantee regular CSI, and High Accuracy also needs enough input before it can detect motion. For missing or irregular input, follow the <a href="/guides/troubleshooting/#trouble-calibration">traffic troubleshooting steps</a>.</p>
-    <div class="note">When comparing detection profiles, keep the sensor position and traffic source the same so you can judge the effect of the profile change.</div>
 
-    <h2 id="detectors-evidence">Evidence and deeper reference</h2>
-    <p>The <a href="/sdk/detectors/">SDK detector reference</a> explains how each detector works, step by step, and shows the measured performance of both.</p>
+    <h2 id="detectors-evidence">Measured results</h2>
+    <p>The <a href="/sdk/detectors/#sdk-detectors-performance">SDK detector reference</a> lists recall, false-positive rate, detection time, and CPU load for both profiles on the same recordings, and explains how each detector works step by step.</p>
 
   </article>
