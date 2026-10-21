@@ -32,7 +32,7 @@ MCSS_TEMPLATES = REPO_ROOT / ".github" / "mcss" / "templates"
 API_OUTPUT_DIR = REPO_ROOT / "docs" / "web" / "artifacts" / "sdk" / "api"
 MCSS_REPOSITORY = "https://github.com/mosra/m.css.git"
 MCSS_COMMIT = "0a460a7a9973a41db48f735e7b49e4da9a876325"
-REQUIRED_DOXYGEN_VERSION = "1.17.0"
+REQUIRED_DOXYGEN_VERSION = "1.18.0"
 DOXYGEN_VERSION_RE = re.compile(r"^(\d+\.\d+\.\d+)")
 HTML_LINK_RE = re.compile(r'href="(?P<href>[^"]+)"')
 MCSS_CONTENTS_NAV_RE = re.compile(

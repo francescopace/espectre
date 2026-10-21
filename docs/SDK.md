@@ -344,7 +344,7 @@ To vendor the sources without Component Manager, download the `.tar.gz` or `.zip
 
 Bundles place the SDK under `src/cpp/`; registry packages place it at the root and add the example. Both are built with your application and contain no precompiled libraries.
 
-Registry packages also include a generated `API.md` with the full C++ reference for that version. Bundles include the header comments, `src/cpp/sdk_integration.dox`, and a stamped `src/cpp/Doxyfile`: run `doxygen src/cpp/Doxyfile` with Doxygen 1.17.0 from the bundle root to generate the reference XML in `output/xml/`.
+Registry packages also include a generated `API.md` with the full C++ reference for that version. Bundles include the header comments, `src/cpp/sdk_integration.dox`, and a stamped `src/cpp/Doxyfile`: run `doxygen src/cpp/Doxyfile` with Doxygen 1.18.0 from the bundle root to generate the reference XML in `output/xml/`.
 
 ## Licensing
 

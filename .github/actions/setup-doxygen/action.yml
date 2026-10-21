@@ -8,7 +8,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        version="1.17.0"
+        version="1.18.0"
         archive="doxygen-${version}.linux.bin.tar.gz"
         url="https://github.com/doxygen/doxygen/releases/download/Release_${version//./_}/${archive}"
         tmp="$(mktemp -d)"

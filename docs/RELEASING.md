@@ -51,7 +51,7 @@ Hardware Secure Boot, flash encryption, and hardware anti-rollback require a sep
 
 ### Package and validate
 
-Install the packaging dependencies from `requirements.txt` and Doxygen 1.17.0, and use an empty component output directory. Build the GitHub/web bundles and registry artifact from the same source revision:
+Install the packaging dependencies from `requirements.txt` and Doxygen 1.18.0, and use an empty component output directory. Build the GitHub/web bundles and registry artifact from the same source revision:
 
 ```sh
 python .github/scripts/build_sdk_package.py \

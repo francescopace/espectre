@@ -35,7 +35,7 @@ After changing the published surface, run:
 python3 .github/scripts/generate_sdk_api.py
 ```
 
-`generate_sdk_api.py` requires Doxygen 1.17.0, the same version CI installs.
+`generate_sdk_api.py` requires Doxygen 1.18.0, the same version CI installs.
 
 ## Detection And Calibration Parity
 
