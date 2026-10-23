@@ -2,6 +2,14 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """Pure-Python fixed-grid temporal CSI admission for host workflows."""
 
+from micro_espectre.serial_sequence import (
+    ORDER_BACKWARD,
+    ORDER_DUPLICATE,
+    ORDER_FIRST,
+    ORDER_RESYNC,
+    WrappingTimestampOrder,
+)
+
 MICROSECONDS_PER_SECOND = 1_000_000
 UINT32_MODULUS = 1 << 32
 UINT32_HALF_RANGE = 1 << 31
@@ -64,13 +72,14 @@ class TemporalCsiSampler:
         self.minimum_sample_spacing_us = minimum_sample_spacing_us(
             self.target_pps
         )
+        self._timestamp_order = WrappingTimestampOrder(self.window_size_us)
         self._slot_ids = [-1] * self.window_slots
         self.reset()
 
     def reset(self):
         """Clear temporal history and diagnostic counters."""
         self._clear_window()
-        self._last_timestamp = None
+        self._timestamp_order.reset()
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
@@ -96,7 +105,7 @@ class TemporalCsiSampler:
     def clear_history(self):
         """Start a new temporal epoch while preserving lifetime counters."""
         self._clear_window()
-        self._last_timestamp = None
+        self._timestamp_order.reset()
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
@@ -312,8 +321,8 @@ class TemporalCsiSampler:
                 self.stale_packets += 1
                 return False
 
-        if self._last_timestamp is None:
-            self._last_timestamp = timestamp
+        order = self._timestamp_order.observe(timestamp)
+        if order == ORDER_FIRST:
             self._elapsed_us = 0
             slot = self._slot_for_elapsed(0)
             self._active_slot = slot
@@ -321,15 +330,16 @@ class TemporalCsiSampler:
             self._select_candidate(slot, 0)
             return False
 
-        delta = self._forward_delta(timestamp, self._last_timestamp)
-        if delta == 0:
+        if order == ORDER_DUPLICATE:
             return False
-        if delta >= UINT32_HALF_RANGE:
+        if order == ORDER_BACKWARD:
             self.out_of_order_packets += 1
             return False
 
-        self._last_timestamp = timestamp
-        if delta >= self.window_size_us:
+        # A resync follows a silence long enough to read as a step back on the
+        # wrapping clock; like any gap of at least one window, it starts a new epoch.
+        delta = self._timestamp_order.delta
+        if order == ORDER_RESYNC or delta >= self.window_size_us:
             emitted = self._commit_candidate()
             self._clear_window()
             self._elapsed_us = 0

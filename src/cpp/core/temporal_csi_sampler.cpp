@@ -72,6 +72,7 @@ bool TemporalCsiSampler::configure(uint32_t target_pps,
   window_size_us_ = static_cast<uint32_t>(window_us);
   window_slots_ = slots;
   minimum_valid_slots_ = temporal_minimum_valid_slots(slots);
+  timestamp_order_.set_resync_span(window_size_us_);
   minimum_sample_spacing_us_ = temporal_minimum_sample_spacing_us(target_pps);
   slot_occupied_ = std::move(slot_occupied);
   reset();
@@ -96,8 +97,7 @@ void TemporalCsiSampler::reset() {
 
 void TemporalCsiSampler::clear_history() {
   clear_window_();
-  has_last_timestamp_ = false;
-  last_timestamp_ = 0U;
+  timestamp_order_.reset();
   elapsed_us_ = 0U;
   has_last_admitted_slot_ = false;
   last_admitted_slot_ = 0U;
@@ -293,9 +293,8 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
     }
   }
 
-  if (!has_last_timestamp_) {
-    has_last_timestamp_ = true;
-    last_timestamp_ = timestamp_us;
+  const WrappingTimestampOrderResult order = timestamp_order_.observe(timestamp_us);
+  if (order == WrappingTimestampOrderResult::FIRST) {
     elapsed_us_ = 0U;
     has_active_slot_ = true;
     active_slot_ = 0U;
@@ -305,17 +304,18 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
     return false;
   }
 
-  const uint32_t delta = timestamp_us - last_timestamp_;
-  if (delta == 0U) {
+  if (order == WrappingTimestampOrderResult::DUPLICATE) {
     return false;
   }
-  if (delta >= kHalfTimestampRange) {
+  if (order == WrappingTimestampOrderResult::BACKWARD) {
     ++out_of_order_packets_;
     return false;
   }
 
-  last_timestamp_ = timestamp_us;
-  if (delta >= window_size_us_) {
+  // A resync follows a silence long enough to read as a step back on the
+  // wrapping clock; like any gap of at least one window, it starts a new epoch.
+  const uint32_t delta = timestamp_order_.delta();
+  if (order == WrappingTimestampOrderResult::RESYNC || delta >= window_size_us_) {
     const bool emitted = commit_candidate_();
     clear_window_();
     elapsed_us_ = 0U;

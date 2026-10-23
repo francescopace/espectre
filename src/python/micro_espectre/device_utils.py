@@ -9,9 +9,17 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 try:
-    from src.serial_sequence import SerialSequenceTracker
+    from src.serial_sequence import (
+        ORDER_BACKWARD,
+        ORDER_DUPLICATE,
+        WrappingTimestampOrder,
+    )
 except ImportError:
-    from serial_sequence import SerialSequenceTracker
+    from serial_sequence import (
+        ORDER_BACKWARD,
+        ORDER_DUPLICATE,
+        WrappingTimestampOrder,
+    )
 
 HT20_CSI_LEN = 128
 HT20_CSI_LEN_DOUBLE = 256
@@ -100,11 +108,16 @@ class CsiPayloadNormalizationState:
         self.bin_layout = LAYOUT_BINS_UNKNOWN
 
 
+# The RX timestamp counts microseconds; one second of advancing late
+# timestamps resyncs it after a silence longer than half its range.
+RX_TIMESTAMP_RESYNC_SPAN_US = 1_000_000
+
+
 class CsiFrameTimestampFilter:
     """Reject duplicate or stale CSI frames using the Wi-Fi RX timestamp."""
 
     def __init__(self):
-        self._tracker = SerialSequenceTracker()
+        self._order = WrappingTimestampOrder(RX_TIMESTAMP_RESYNC_SPAN_US)
 
     def accept(self, frame):
         if frame is None or len(frame) <= 4:
@@ -113,12 +126,13 @@ class CsiFrameTimestampFilter:
         if timestamp is None or timestamp == 0:
             return True
         try:
-            return self._tracker.observe(timestamp) >= 0
+            result = self._order.observe(timestamp)
         except (TypeError, ValueError):
             return True
+        return result != ORDER_DUPLICATE and result != ORDER_BACKWARD
 
     def reset(self):
-        self._tracker.reset()
+        self._order.reset()
 
 
 def csi_read_frame(wlan, reuse_frame=None):

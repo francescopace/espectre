@@ -514,6 +514,19 @@ void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
 
     TEST_ASSERT_EQUAL(4U, captured.callback_count);
     TEST_ASSERT_EQUAL(0U, service.filtered_packets());
+
+    // After a silence longer than half the 32-bit clock, steady frames read
+    // as backward; the filter rejects them for one second, then resyncs.
+    const uint32_t after_silence = 50U + 0x80000000U + 1000U;
+    for (uint32_t frame = 0U; frame <= 100U; ++frame) {
+        info.rx_ctrl.timestamp = after_silence + frame * 10000U;
+        service.process_packet(&info);
+    }
+    TEST_ASSERT_EQUAL(100U, service.filtered_packets());
+    TEST_ASSERT_EQUAL(5U, captured.callback_count);
+    info.rx_ctrl.timestamp = after_silence + 101U * 10000U;
+    service.process_packet(&info);
+    TEST_ASSERT_EQUAL(6U, captured.callback_count);
 }
 
 void test_csi_capture_service_defers_channel_change_and_resets_session_baseline(void) {

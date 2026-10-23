@@ -410,6 +410,22 @@ class TestCsiFrameTimestampFilter:
         timestamp_filter.reset()
         assert timestamp_filter.accept(self._frame(1))
 
+    def test_resyncs_after_a_silence_longer_than_half_the_clock(self):
+        # Mirrors the capture-level SerialSequenceTracker in C++.
+        timestamp_filter = CsiFrameTimestampFilter()
+        assert timestamp_filter.accept(self._frame(1_000))
+        # A 40-minute silence reads as a step back on the 32-bit clock.
+        restart = 1_000 + 2_400_000_000
+        accepted = []
+        for frame in range(150):
+            timestamp = restart + frame * 10_000
+            accepted.append(timestamp_filter.accept(self._frame(timestamp)))
+            # Repeated frames are dropped without delaying the resync.
+            if frame % 40 == 39:
+                assert not timestamp_filter.accept(self._frame(timestamp))
+        assert accepted[:100] == [False] * 100
+        assert accepted[100:] == [True] * 50
+
 
 # ============================================================================
 # Signed Integer Conversion Tests

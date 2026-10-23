@@ -104,6 +104,36 @@ class TestTemporalCsiSampler:
         assert self.replay(sampler, (0, 17_000, 20_500, 24_500)) == [0, 20_500]
         assert sampler.excess_packets == 2
 
+    def test_recovers_after_a_wrap_length_silence(self):
+        # Mirrors test_temporal_csi_sampler_recovers_after_a_wrap_length_silence in C++.
+        sampler = TemporalCsiSampler(100, 1000)
+        for frame in range(100):
+            sampler.admit(frame * 10_000)
+        accepted_before = sampler.accepted_packets
+        # A 40-minute silence is longer than half the 32-bit clock.
+        restart = 99 * 10_000 + 2_400_000_000
+        gap_reset = False
+        for frame in range(300):
+            sampler.admit((restart + frame * 10_000) % 2**32)
+            gap_reset = gap_reset or sampler.gap_reset_required
+            # Repeated frames neither count as late nor delay the resync.
+            if frame % 40 == 39:
+                sampler.admit((restart + frame * 10_000) % 2**32)
+        assert sampler.flush()
+        assert sampler.out_of_order_packets == 100
+        assert gap_reset
+        assert sampler.accepted_packets == accepted_before + 1 + 200
+        assert sampler.is_ready
+
+        # A single late frame inside a steady stream is still rejected without a new epoch.
+        steady = TemporalCsiSampler(100, 1000)
+        for timestamp in (0, 10_000, 20_000, 15_000, 30_000):
+            steady.admit(timestamp)
+            assert not steady.gap_reset_required
+        assert steady.flush()
+        assert steady.out_of_order_packets == 1
+        assert steady.accepted_packets == 4
+
     def test_preserves_missing_slots_and_uses_temporal_occupancy(self):
         sampler = TemporalCsiSampler(10, 1000)
 

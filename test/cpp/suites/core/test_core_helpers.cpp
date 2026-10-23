@@ -347,6 +347,66 @@ void test_temporal_csi_sampler_fills_free_neighbour_slots(void) {
     TEST_ASSERT_EQUAL(2U, spaced.excess_packets());
 }
 
+void test_wrapping_timestamp_order_resyncs_only_after_an_advancing_run(void) {
+    WrappingTimestampOrder order(1000U);
+    TEST_ASSERT_TRUE(order.observe(100U) == WrappingTimestampOrderResult::FIRST);
+    TEST_ASSERT_TRUE(order.observe(150U) == WrappingTimestampOrderResult::FORWARD);
+    TEST_ASSERT_EQUAL(50U, order.delta());
+    TEST_ASSERT_TRUE(order.observe(150U) == WrappingTimestampOrderResult::DUPLICATE);
+    // An isolated late value is rejected, and the next forward value ends the run.
+    TEST_ASSERT_TRUE(order.observe(120U) == WrappingTimestampOrderResult::BACKWARD);
+    TEST_ASSERT_TRUE(order.observe(160U) == WrappingTimestampOrderResult::FORWARD);
+    TEST_ASSERT_EQUAL(160U, order.last());
+
+    // Values half a range ahead read as backward until they advance for the span.
+    const uint32_t far = 160U + WRAPPING_TIMESTAMP_HALF_RANGE + 10U;
+    TEST_ASSERT_TRUE(order.observe(far) == WrappingTimestampOrderResult::BACKWARD);
+    TEST_ASSERT_TRUE(order.observe(far + 500U) == WrappingTimestampOrderResult::BACKWARD);
+    // A run that stops advancing restarts from the new value.
+    TEST_ASSERT_TRUE(order.observe(far + 400U) == WrappingTimestampOrderResult::BACKWARD);
+    TEST_ASSERT_TRUE(order.observe(far + 1300U) == WrappingTimestampOrderResult::BACKWARD);
+    // A repeated value inside the run is a duplicate and keeps the run's origin.
+    TEST_ASSERT_TRUE(order.observe(far + 1300U) == WrappingTimestampOrderResult::DUPLICATE);
+    TEST_ASSERT_TRUE(order.observe(far + 1400U) == WrappingTimestampOrderResult::RESYNC);
+    TEST_ASSERT_EQUAL(far + 1400U, order.last());
+    TEST_ASSERT_TRUE(order.observe(far + 1410U) == WrappingTimestampOrderResult::FORWARD);
+
+    order.reset();
+    TEST_ASSERT_FALSE(order.has_last());
+    TEST_ASSERT_TRUE(order.observe(7U) == WrappingTimestampOrderResult::FIRST);
+}
+
+void test_temporal_csi_sampler_recovers_after_a_wrap_length_silence(void) {
+    // Mirrors the Python silence trace in test_runtime_policy.py.
+    TemporalCsiSampler sampler(100U, 1000U);
+    for (uint32_t frame = 0U; frame < 100U; ++frame) sampler.admit(frame * 10000U);
+    const uint64_t accepted_before = sampler.accepted_packets();
+    // A 40-minute silence is longer than half the 32-bit clock.
+    const uint32_t restart = 99U * 10000U + 2400000000U;
+    bool gap_reset = false;
+    for (uint32_t frame = 0U; frame < 300U; ++frame) {
+        sampler.admit(restart + frame * 10000U);
+        gap_reset = gap_reset || sampler.gap_reset_required();
+        // Repeated frames neither count as late nor delay the resync.
+        if (frame % 40U == 39U) sampler.admit(restart + frame * 10000U);
+    }
+    TEST_ASSERT_TRUE(sampler.flush());
+    TEST_ASSERT_EQUAL(100U, sampler.out_of_order_packets());
+    TEST_ASSERT_TRUE(gap_reset);
+    TEST_ASSERT_EQUAL(accepted_before + 1U + 200U, sampler.accepted_packets());
+    TEST_ASSERT_TRUE(sampler.is_ready());
+
+    // A single late frame inside a steady stream is still rejected without a new epoch.
+    TemporalCsiSampler steady(100U, 1000U);
+    for (uint32_t timestamp : {0U, 10000U, 20000U, 15000U, 30000U}) {
+        steady.admit(timestamp);
+        TEST_ASSERT_FALSE(steady.gap_reset_required());
+    }
+    TEST_ASSERT_TRUE(steady.flush());
+    TEST_ASSERT_EQUAL(1U, steady.out_of_order_packets());
+    TEST_ASSERT_EQUAL(4U, steady.accepted_packets());
+}
+
 void test_temporal_csi_sampler_handles_wrap_and_window_gap(void) {
     TemporalCsiSampler sampler(100U, 1000U);
     TEST_ASSERT_FALSE(sampler.admit(UINT32_MAX - 4999U));
@@ -806,6 +866,8 @@ void test_high_accuracy_detector_move_semantics_and_cv_state(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, moved.get_motion_metric());
 
     // Run inference after the move: this drives the feature scratch block and
+    RUN_TEST(test_wrapping_timestamp_order_resyncs_only_after_an_advancing_run);
+    RUN_TEST(test_temporal_csi_sampler_recovers_after_a_wrap_length_silence);
     // the reorder buffer, which the move had to carry over.
     const uint16_t window = moved.get_window_size();
     fill_past_window(moved, static_cast<uint16_t>(window + 20));

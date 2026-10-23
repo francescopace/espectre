@@ -9,34 +9,31 @@
 
 #include <cstdint>
 
+#include "core/wrapping_timestamp_order.h"
+
 namespace espectre {
 
-/** Track a wrapping 32-bit serial and reject duplicates or older values. */
+/**
+ * Track a wrapping 32-bit serial and reject duplicates or older values.
+ *
+ * Older values that keep advancing for the resync span restart the sequence,
+ * so a silence longer than half the range does not reject every later value.
+ */
 class SerialSequenceTracker {
  public:
+  /** Construct with the span, in serial units, that resyncs after a long silence. */
+  explicit SerialSequenceTracker(uint32_t resync_span) : order_(resync_span) {}
+
   bool accept(uint32_t value) {
-    if (!initialized_) {
-      last_ = value;
-      initialized_ = true;
-      return true;
-    }
-
-    const uint32_t delta = value - last_;
-    if (delta == 0U || delta >= 0x80000000U) {
-      return false;
-    }
-    last_ = value;
-    return true;
+    const WrappingTimestampOrderResult result = order_.observe(value);
+    return result != WrappingTimestampOrderResult::DUPLICATE &&
+           result != WrappingTimestampOrderResult::BACKWARD;
   }
 
-  void reset() {
-    initialized_ = false;
-    last_ = 0U;
-  }
+  void reset() { order_.reset(); }
 
  private:
-  bool initialized_{false};
-  uint32_t last_{0U};
+  WrappingTimestampOrder order_;
 };
 
 }  // namespace espectre

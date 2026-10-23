@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-15
-- Updated: 2026-10-02
+- Updated: 2026-10-22
 
 ## Context
 
@@ -29,7 +29,7 @@ The window is set in milliseconds, and CSI is admitted onto a fixed grid of time
 
 - At most one packet per slot: the one nearest the slot center, kept until a packet lands in a later slot. A candidate that loses its slot may take the free neighbour slot on its side if that slot's center is within three quarters of a slot; otherwise it counts as excess.
 - Two admitted candidates are at least half a slot apart, so packets on either side of a boundary cannot create an arbitrarily short interval.
-- Duplicate, backward, and stale packets are rejected, timestamp wrap is handled, and a gap longer than a window resets temporal history at once.
+- Duplicate, backward, and stale packets are rejected, timestamp wrap is handled, and a gap longer than a window resets temporal history at once. The 32-bit RX clock wraps every 71.6 minutes, so a silence of more than 35.8 minutes makes the next packets look like a step back. A run of such packets that keeps advancing for one window starts a new epoch, like any other gap; an isolated late packet is still rejected, and a repeated packet does not restart the run. The capture-level duplicate filter applies the same rule through `WrappingTimestampOrder` with a one-second span before admission sees the packets, so recovery takes about two windows by default.
 - Missing slots stay missing. Statistics use the valid samples; lag and adjacent features only use pairs at their exact slot offset.
 - Evaluation and startup calibration read the same admitted stream.
 - Detector switches and calibration clear window data but keep the grid phase. Only a CSI session break starts a new epoch.
@@ -64,6 +64,7 @@ Raw HTTP sends every provenance-classified frame before admission. The collector
 | 2026-08-23 | Re-anchor the grid after detector or calibration resets | Rejected: on C3 it changed occupancy for the same RX stream |
 | 2026-10-02 | Losing candidate fills a free neighbour slot | Accepted: more occupancy, no systematic detection change |
 | 2026-10-02 | Earliest free slot within three quarters of a slot | Rejected: even more occupancy, but larger timing error and lower Lightweight worst recall under jitter |
+| 2026-10-22 | Resync after a run of advancing backward timestamps | Accepted: a silence of 35.8–71.6 minutes had stalled admission for up to 36 more minutes |
 
 ## Evidence
 

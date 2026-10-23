@@ -111,7 +111,10 @@ class CsiCaptureService {
   std::atomic<int32_t> last_disable_err_{ESP_OK};
   std::atomic<bool> collapse_seen_{false};
   std::atomic<bool> remap_seen_{false};
-  SerialSequenceTracker rx_timestamp_tracker_;
+  // The RX timestamp counts microseconds; one second of advancing late
+  // timestamps resyncs it after a silence longer than half its range.
+  static constexpr uint32_t kRxTimestampResyncSpanUs = 1000000U;
+  SerialSequenceTracker rx_timestamp_tracker_{kRxTimestampResyncSpanUs};
   PendingEvent<> collapse_log_event_;
   PendingEvent<> remap_log_event_;
   PendingEvent<uint8_t, uint8_t> channel_change_event_;

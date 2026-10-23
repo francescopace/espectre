@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <memory>
 
+#include "wrapping_timestamp_order.h"
+
 namespace espectre {
 
 constexpr uint32_t TEMPORAL_CSI_MICROSECONDS_PER_SECOND = 1000000U;
@@ -147,7 +149,10 @@ class TemporalCsiSampler {
   uint64_t accepted_packets() const { return accepted_packets_; }
   /** Packets not kept because their slot already had a better candidate or they came too soon. */
   uint64_t excess_packets() const { return excess_packets_; }
-  /** Packets whose timestamp moved backwards. */
+  /**
+   * Packets whose timestamp moved backwards. Backward timestamps that keep
+   * advancing for one window start a new epoch instead, as after a long silence.
+   */
   uint64_t out_of_order_packets() const { return out_of_order_packets_; }
   /** Packets older than one window when processed; needs `now_us`. */
   uint64_t stale_packets() const { return stale_packets_; }
@@ -156,7 +161,7 @@ class TemporalCsiSampler {
   /** @} */
 
  private:
-  static constexpr uint32_t kHalfTimestampRange = 0x80000000U;
+  static constexpr uint32_t kHalfTimestampRange = WRAPPING_TIMESTAMP_HALF_RANGE;
 
   void clear_window_();
   bool drop_();
@@ -177,8 +182,7 @@ class TemporalCsiSampler {
   std::unique_ptr<uint8_t[]> slot_occupied_;
   uint32_t occupancy_slots_{0U};
 
-  bool has_last_timestamp_{false};
-  uint32_t last_timestamp_{0U};
+  WrappingTimestampOrder timestamp_order_{TEMPORAL_CSI_MICROSECONDS_PER_SECOND};
   uint64_t elapsed_us_{0U};
   bool has_last_admitted_slot_{false};
   uint64_t last_admitted_slot_{0U};
