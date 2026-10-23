@@ -290,6 +290,32 @@ void test_runtime_frontend_controller_preflight_rejects_the_station_raw_destinat
   TEST_ASSERT_EQUAL_STRING("10:b4:1d:e8:ec:00", controller.config().traffic_generator_target_mac.c_str());
 }
 
+void test_runtime_frontend_controller_stages_and_gates_csi_sample_spacing(void) {
+  RuntimeFrontendController staged;
+  TEST_ASSERT_TRUE(staged.config().csi_sample_spacing == TemporalCsiSpacing::HALF_SLOT);
+  TEST_ASSERT_TRUE(staged.set_csi_sample_spacing(TemporalCsiSpacing::DISTINCT));
+  TEST_ASSERT_TRUE(staged.config().csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
+  TEST_ASSERT_FALSE(staged.set_csi_sample_spacing(static_cast<TemporalCsiSpacing>(0x7f)));
+
+  RuntimeControlUpdate update;
+  update.has_csi_sample_spacing = true;
+  update.csi_sample_spacing = TemporalCsiSpacing::DISTINCT;
+  std::string message;
+  RuntimeFrontendController unsupported;
+  TEST_ASSERT_TRUE(unsupported.setup(nullptr));
+  TEST_ASSERT_FALSE(unsupported.validate_control_update(update, &message));
+  TEST_ASSERT_FALSE(unsupported.set_csi_sample_spacing(TemporalCsiSpacing::DISTINCT));
+  TEST_ASSERT_TRUE(unsupported.config().csi_sample_spacing == TemporalCsiSpacing::HALF_SLOT);
+  unsupported.shutdown();
+
+  frontend_runtime_shim::state.capabilities.supports_csi_sample_spacing = true;
+  RuntimeFrontendController controller;
+  TEST_ASSERT_TRUE(controller.setup(nullptr));
+  TEST_ASSERT_TRUE(controller.validate_control_update(update, &message));
+  TEST_ASSERT_TRUE(controller.set_csi_sample_spacing(TemporalCsiSpacing::DISTINCT));
+  TEST_ASSERT_TRUE(controller.config().csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
+}
+
 void test_runtime_frontend_controller_rejects_default_threshold_in_control_updates(void) {
   for (const bool set_up : {false, true}) {
     RuntimeFrontendController controller;
@@ -774,6 +800,7 @@ void test_runtime_frontend_controller_defers_firmware_scans_during_sdk_recovery(
 
 void test_runtime_frontend_controller_clears_persisted_overrides(void) {
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_target_mac("10:b4:1d:e8:ec:00"));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_sample_spacing(TemporalCsiSpacing::DISTINCT));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(TrafficGeneratorMode::DNS));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(7U, 5U));
   TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
@@ -784,6 +811,10 @@ void test_runtime_frontend_controller_clears_persisted_overrides(void) {
   bool has_saved_value = true;
   std::string target;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_target_mac(&target, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  TemporalCsiSpacing spacing = TemporalCsiSpacing::HALF_SLOT;
+  has_saved_value = true;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_sample_spacing(&spacing, &has_saved_value));
   TEST_ASSERT_FALSE(has_saved_value);
   TrafficGeneratorMode mode = TrafficGeneratorMode::PING;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&mode, &has_saved_value));
@@ -897,6 +928,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_validates_a_combined_control_update);
   RUN_TEST(test_runtime_frontend_controller_preflight_rejects_the_station_raw_destination);
+  RUN_TEST(test_runtime_frontend_controller_stages_and_gates_csi_sample_spacing);
   RUN_TEST(test_runtime_frontend_controller_rejects_default_threshold_in_control_updates);
   RUN_TEST(test_runtime_frontend_controller_reports_the_detector_subcarriers_before_and_after_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);

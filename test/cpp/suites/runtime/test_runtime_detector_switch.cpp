@@ -1956,11 +1956,53 @@ void test_raw_destination_persists_and_restarts_only_raw_traffic(void) {
   restored.shutdown();
 }
 
+void test_csi_sample_spacing_reaches_the_sampler_and_persists(void) {
+  RuntimeConfig config;
+  config.persist_runtime_overrides = true;
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  EspIdfRuntime runtime(config, generator, ingress);
+  TEST_ASSERT_TRUE(runtime.setup());
+  TEST_ASSERT_TRUE(runtime.capabilities_.supports_csi_sample_spacing);
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.csi_sample_spacing() == TemporalCsiSpacing::HALF_SLOT);
+  TEST_ASSERT_EQUAL(5000U, runtime.csi_pipeline_.sampler_.minimum_sample_spacing_us());
+
+  // Ping, the default source, applies the setting.
+  TEST_ASSERT_TRUE(runtime.set_csi_sample_spacing(TemporalCsiSpacing::DISTINCT));
+  TEST_ASSERT_TRUE(runtime.effective_config().csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.csi_sample_spacing() == TemporalCsiSpacing::DISTINCT);
+  TEST_ASSERT_EQUAL(1U, runtime.csi_pipeline_.sampler_.minimum_sample_spacing_us());
+  TEST_ASSERT_FALSE(runtime.set_csi_sample_spacing(static_cast<TemporalCsiSpacing>(0x7f)));
+
+  // Every traffic source keeps the rule.
+  for (TrafficGeneratorMode mode : {TrafficGeneratorMode::DNS, TrafficGeneratorMode::DNS_TCP,
+                                    TrafficGeneratorMode::WIFI_RAW, TrafficGeneratorMode::EXTERNAL_HOST}) {
+    if (mode == TrafficGeneratorMode::WIFI_RAW && !kSupportsWifiRaw) continue;
+    TEST_ASSERT_TRUE(runtime.set_traffic_generator_mode(mode));
+    TEST_ASSERT_TRUE(runtime.csi_pipeline_.csi_sample_spacing() == TemporalCsiSpacing::DISTINCT);
+    TEST_ASSERT_EQUAL(1U, runtime.csi_pipeline_.sampler_.minimum_sample_spacing_us());
+  }
+
+  // A failed save leaves the active rule unchanged.
+  nvs_mock_set_open_result(ESP_FAIL);
+  TEST_ASSERT_FALSE(runtime.set_csi_sample_spacing(TemporalCsiSpacing::HALF_SLOT));
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.csi_sample_spacing() == TemporalCsiSpacing::DISTINCT);
+  nvs_mock_set_open_result(ESP_OK);
+  runtime.shutdown();
+
+  EspIdfRuntime restored(config, generator, ingress);
+  TEST_ASSERT_TRUE(restored.setup());
+  TEST_ASSERT_TRUE(restored.effective_config().csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
+  TEST_ASSERT_TRUE(restored.csi_pipeline_.csi_sample_spacing() == TemporalCsiSpacing::DISTINCT);
+  restored.shutdown();
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_raw_destination_persists_and_restarts_only_raw_traffic);
+  RUN_TEST(test_csi_sample_spacing_reaches_the_sampler_and_persists);
   RUN_TEST(test_runtime_healthy_startup_does_not_scan_even_when_csi_is_rejected);
   RUN_TEST(test_runtime_silent_startup_refreshes_once_then_resumes_on_failure_or_timeout);
   RUN_TEST(test_runtime_stray_callbacks_do_not_hide_a_silent_receive_path);

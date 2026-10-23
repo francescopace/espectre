@@ -241,11 +241,13 @@ extern "C" bool espectre_native_detector_apply_adaptive_threshold(
 
 extern "C" void *espectre_native_sampler_create(
     uint32_t target_pps,
-    uint32_t window_size_ms) {
+    uint32_t window_size_ms,
+    uint8_t spacing) {
   espectre_native_ensure_log_sink();
   auto *sampler = new (std::nothrow) espectre::TemporalCsiSampler(
       target_pps,
-      window_size_ms);
+      window_size_ms,
+      static_cast<espectre::TemporalCsiSpacing>(spacing));
   if (sampler == nullptr || !sampler->is_valid()) {
     delete sampler;
     return nullptr;
@@ -319,6 +321,8 @@ extern "C" uint32_t espectre_native_sampler_get_u32(void *handle, uint8_t field)
       return sampler->minimum_sample_spacing_us();
     case 5:
       return sampler->occupancy_slots();
+    case 6:
+      return static_cast<uint32_t>(sampler->spacing());
     default:
       return 0U;
   }

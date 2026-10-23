@@ -45,6 +45,8 @@ using FrontendMotionHitsCallback =
 using FrontendTrafficGeneratorModeCallback = std::function<bool(TrafficGeneratorMode mode, std::string *message)>;
 /** Set the raw traffic destination. */
 using FrontendTrafficTargetMacCallback = std::function<bool(const std::string &target, std::string *message)>;
+/** Set the CSI sample spacing rule. */
+using FrontendCsiSampleSpacingCallback = std::function<bool(TemporalCsiSpacing spacing, std::string *message)>;
 /** Switch the active detector. */
 using FrontendDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 /** Start a recalibration; false reports the `busy` result code. */
@@ -178,8 +180,8 @@ class FrontendCommandEngine {
    * `update_sensing` first passes all its fields to
    * `sensing_preflight_callback` and rejects the request as `invalid_params`
    * if that fails, so nothing changes. It then applies the fields in order:
-   * detector, threshold, motion hits, raw destination, traffic generator mode, then sensing
-   * state. A backend refusal after the preflight stops there; fields applied
+   * detector, threshold, motion hits, raw destination, traffic generator mode, sample spacing,
+   * then sensing state. A backend refusal after the preflight stops there; fields applied
    * before it stay applied and are reported in
    * `FrontendCommandResult::changes`. Without a preflight callback, only
    * capabilities are checked up front. Extension
@@ -199,7 +201,8 @@ class FrontendCommandEngine {
                                 FrontendMqttConfigCallback mqtt_config_callback = {},
                                 FrontendSensingControlCallback sensing_control_callback = {},
                                 FrontendSensingPreflightCallback sensing_preflight_callback = {},
-                                FrontendTrafficTargetMacCallback traffic_target_mac_callback = {}) const;
+                                FrontendTrafficTargetMacCallback traffic_target_mac_callback = {},
+                                FrontendCsiSampleSpacingCallback csi_sample_spacing_callback = {}) const;
 };
 
 }  // namespace espectre

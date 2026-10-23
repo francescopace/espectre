@@ -280,6 +280,7 @@
         const motionOnInput = document.getElementById('sense-motion-on');
         const motionOffInput = document.getElementById('sense-motion-off');
         const trafficGeneratorSelect = document.getElementById('sense-generator-mode');
+        const sampleSpacingSelect = document.getElementById('sense-sample-spacing');
         if (Number.isFinite(threshold)) {
             applyRemoteThreshold(threshold);
         }
@@ -291,6 +292,9 @@
         }
         if (snapshot.motion_off_hits !== undefined && motionOffInput) {
             motionOffInput.value = snapshot.motion_off_hits;
+        }
+        if (snapshot.csi_sample_spacing !== undefined && sampleSpacingSelect) {
+            sampleSpacingSelect.value = snapshot.csi_sample_spacing;
         }
         const trafficGeneratorMode = snapshot.traffic_mode || snapshot.traffic_generator_mode;
         if (trafficGeneratorMode) {
@@ -925,6 +929,7 @@
                 supports_wifi_clear: 'true',
                 supports_mqtt_config: 'true',
                 supports_traffic_target_mac: 'true',
+                supports_csi_sample_spacing: 'true',
                 supports_device_config: 'true',
                 supports_extended_diagnostics: 'true',
                 supports_ota: 'false',
@@ -937,6 +942,7 @@
                 hampel_threshold: '3.0',
                 traffic_mode: 'ping',
                 traffic_generator_target_mac: 'auto',
+                csi_sample_spacing: 'half_slot',
                 csi_target_pps: '98',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',

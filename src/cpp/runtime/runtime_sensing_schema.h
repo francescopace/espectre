@@ -15,6 +15,7 @@
 #include "core/detector_limits.h"
 #include "core/detector_types.h"
 #include "core/filter_config.h"
+#include "core/temporal_csi_sampler.h"
 
 /**
  * @file runtime_sensing_schema.h
@@ -72,6 +73,10 @@ constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME = "dns_t
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_WIFI_RAW_NAME = "wifi_raw";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_EXTERNAL_NAME = "external";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
+
+constexpr const char *const RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME = "half_slot";
+constexpr const char *const RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME = "distinct";
+constexpr const char *const RUNTIME_CSI_SAMPLE_SPACING_DEFAULT_NAME = "half_slot";
 
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME = "lightweight";
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME = "high_accuracy";
@@ -148,6 +153,10 @@ constexpr bool runtime_traffic_generator_mode_valid(TrafficGeneratorMode mode) {
   return mode == TrafficGeneratorMode::PING || mode == TrafficGeneratorMode::DNS ||
          mode == TrafficGeneratorMode::DNS_TCP || mode == TrafficGeneratorMode::WIFI_RAW ||
          mode == TrafficGeneratorMode::EXTERNAL_HOST;
+}
+
+constexpr bool runtime_csi_sample_spacing_valid(TemporalCsiSpacing spacing) {
+  return spacing == TemporalCsiSpacing::HALF_SLOT || spacing == TemporalCsiSpacing::DISTINCT;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {

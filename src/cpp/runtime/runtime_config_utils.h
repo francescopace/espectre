@@ -34,6 +34,7 @@ enum class RuntimeConfigError : uint8_t {
   CSI_CAPTURE_PROFILE,
   CSI_CAPTURE_PROFILE_TRAFFIC,
   TRAFFIC_GENERATOR_TARGET_MAC,
+  CSI_SAMPLE_SPACING,
 };
 
 /** Whether a threshold is finite and inside the range shared by every detector. */
@@ -74,13 +75,15 @@ struct RuntimeControlUpdate {
   TrafficGeneratorMode traffic_generator_mode{TrafficGeneratorMode::PING};
   bool has_traffic_generator_target_mac{false};
   std::string traffic_generator_target_mac{"auto"};
+  bool has_csi_sample_spacing{false};
+  TemporalCsiSpacing csi_sample_spacing{TemporalCsiSpacing::HALF_SLOT};
 };
 
 /**
  * Return `config` with `update` applied, as the controller setters apply it.
  *
- * Fields apply in the order detector, threshold, motion hits, then traffic
- * destination and mode. Switching to a different detector also adopts that
+ * Fields apply in the order detector, threshold, motion hits, traffic
+ * destination and mode, then sample spacing. Switching to a different detector also adopts that
  * detector's default threshold unless the update sets one. Pass the result to
  * validate_runtime_config() to check the change before applying it.
  */
@@ -102,11 +105,15 @@ const char *wifi_band_policy_name(WifiBandPolicy policy);
 const char *traffic_generator_mode_name(TrafficGeneratorMode mode);
 /** Name of a detector: `lightweight` or `high_accuracy`. */
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
+/** Name of a sample spacing rule: `half_slot` or `distinct`. */
+const char *csi_sample_spacing_name(TemporalCsiSpacing spacing);
 
 /** Parse a traffic generator mode name. Defaults to `TrafficGeneratorMode::PING`. */
 TrafficGeneratorMode parse_traffic_generator_mode(const char *mode);
 /** Parse a detector name. Defaults to `DetectionAlgorithm::LIGHTWEIGHT`. */
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
+/** Parse a sample spacing name. Defaults to `TemporalCsiSpacing::HALF_SLOT`. */
+TemporalCsiSpacing parse_csi_sample_spacing(const char *spacing);
 /** Parse a Wi-Fi band policy name. Defaults to `WifiBandPolicy::BAND_2G`. */
 WifiBandPolicy parse_wifi_band_policy(const char *policy);
 /** @} */

@@ -117,6 +117,14 @@ struct RuntimeConfig {
    * still requires AUTO or LLTF. Other traffic modes ignore this setting.
    */
   std::string traffic_generator_target_mac{"auto"};
+  /**
+   * How close two admitted CSI samples may be. `HALF_SLOT`, the default, keeps
+   * them half a slot apart. `DISTINCT` needs only distinct timestamps, which
+   * recovers slots on congested channels where frames arrive in back-to-back
+   * pairs. It applies to every traffic source.
+   * See `TemporalCsiSpacing`.
+   */
+  TemporalCsiSpacing csi_sample_spacing{TemporalCsiSpacing::HALF_SLOT};
   /** UDP port used by the external CSI traffic mode. */
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
   /**
@@ -163,7 +171,7 @@ struct RuntimeConfig {
    *
    * Off by default: this config is the only source of truth, and the runtime
    * neither reads nor writes saved controls. When true, `setup()` restores the
-   * traffic generator mode, raw destination, and motion hits saved by earlier control calls,
+   * traffic generator mode, raw destination, sample spacing, and motion hits saved by earlier control calls,
    * plus the detector when `runtime_detector_selection_enabled` is set, and
    * those calls save their new values in the `ESPECTRE_NVS_NAMESPACE` NVS
    * namespace. Saved values then take precedence over this config until

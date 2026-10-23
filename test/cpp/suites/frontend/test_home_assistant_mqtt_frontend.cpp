@@ -592,6 +592,47 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "pacing"));
 }
 
+void test_native_frontend_ha_csi_sample_spacing_select_follows_runtime(void) {
+  frontend_runtime_shim::state.snapshot = make_ready_snapshot();
+  frontend_runtime_shim::state.capabilities.supports_csi_sample_spacing = true;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_scheme = "mqtt";
+  config.mqtt_host = "localhost";
+  config.mqtt_port = 1883U;
+
+  NativeFrontend frontend(&mqtt);
+  frontend.set_device_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  mqtt.emit_connection(true);
+  const std::string options = std::string("\"options\":[\"") + RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME +
+                              "\",\"" + RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME + "\"]";
+  TEST_ASSERT_TRUE(has_mqtt_publish_containing(
+      "homeassistant/select/native_0000abcdeffedcba_csi_packet_spacing/config", options.c_str()));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/state",
+                                    RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME));
+  mqtt_transport_mock::state.publishes.clear();
+
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/set", "distinct");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_sample_spacing_calls);
+  TEST_ASSERT_TRUE(frontend.runtime_.config().csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/state", "distinct"));
+  TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/sensing",
+                                               "\"csi_sample_spacing\":\"distinct\""));
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/set", "quarter_slot");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_sample_spacing_calls);
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/state"));
+
+  // A protocol command also reaches the select.
+  mqtt.emit_command(
+      "{\"command_id\":\"spacing\",\"command\":\"update_sensing\",\"csi_sample_spacing\":\"half_slot\"}");
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_csi_sample_spacing_calls);
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_sample_spacing/state", "half_slot"));
+}
+
 void test_native_frontend_ha_detector_command_updates_canonical_config(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
   MockMqttTransport mqtt;
@@ -711,6 +752,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_ha_calibrate_command_triggers_runtime);
   RUN_TEST(test_native_frontend_ha_calibrate_command_respects_manual_recalibration_capability);
   RUN_TEST(test_native_frontend_ha_traffic_control_commands_update_runtime);
+  RUN_TEST(test_native_frontend_ha_csi_sample_spacing_select_follows_runtime);
   RUN_TEST(test_native_frontend_ha_detector_command_updates_canonical_config);
   RUN_TEST(test_native_frontend_ha_diagnostics_button_publishes_cached_sample);
   RUN_TEST(test_native_frontend_motion_edge_publishes_ready_ha_motion);

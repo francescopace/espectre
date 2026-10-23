@@ -58,6 +58,7 @@ struct State {
   uint8_t last_motion_off_hits{RUNTIME_MOTION_OFF_HITS_DEFAULT};
   int set_traffic_generator_mode_calls{0};
   TrafficGeneratorMode last_traffic_generator_mode{TrafficGeneratorMode::PING};
+  int set_csi_sample_spacing_calls{0};
   int set_detector_calls{0};
   DetectionAlgorithm last_detector{DetectionAlgorithm::LIGHTWEIGHT};
   int trigger_recalibration_calls{0};

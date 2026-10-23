@@ -200,6 +200,11 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
       "CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP");
   config.traffic_generator_target_ip = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP;
   config.traffic_generator_target_mac = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC;
+#if CONFIG_ESPECTRE_CSI_SAMPLE_SPACING_DISTINCT
+  config.csi_sample_spacing = TemporalCsiSpacing::DISTINCT;
+#else
+  config.csi_sample_spacing = TemporalCsiSpacing::HALF_SLOT;
+#endif
 #if CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_LLTF
   config.csi_capture_policy = CsiCapturePolicy::LLTF;
 #elif CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_HT_VHT

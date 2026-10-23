@@ -94,6 +94,13 @@
                       <small class="field-help" id="sense-raw-target-help">Auto follows the AP. A peer must use External mode on the same channel.</small>
                     </div>
                   </div>
+                  <div data-capability="supports_csi_sample_spacing" hidden>
+                    <div class="field" data-device-command="update_sensing" hidden>
+                      <label for="sense-sample-spacing">Packet spacing</label>
+                      <select id="sense-sample-spacing" aria-describedby="sense-sample-spacing-help"><option value="half_slot">Half slot (default)</option><option value="distinct">Distinct timestamps</option></select>
+                      <small class="field-help" id="sense-sample-spacing-help">Distinct timestamps can raise occupancy on a busy channel where packets arrive in pairs.</small>
+                    </div>
+                  </div>
                 </div>
               </details>
             </div>

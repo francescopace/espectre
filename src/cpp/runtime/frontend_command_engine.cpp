@@ -40,7 +40,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendMqttConfigCallback mqtt_config_callback,
     FrontendSensingControlCallback sensing_control_callback,
     FrontendSensingPreflightCallback sensing_preflight_callback,
-    FrontendTrafficTargetMacCallback traffic_target_mac_callback) const {
+    FrontendTrafficTargetMacCallback traffic_target_mac_callback,
+    FrontendCsiSampleSpacingCallback csi_sample_spacing_callback) const {
   FrontendCommandResult result;
   result.handled = true;
   result.command = command;
@@ -180,6 +181,10 @@ FrontendCommandResult FrontendCommandEngine::execute(
         (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_TARGET_MAC) || !traffic_target_mac_callback)) {
       return reject("unsupported", "raw destination update is unsupported");
     }
+    if (command.has_csi_sample_spacing &&
+        (!supports(EspectreDirectMethod::SET_CSI_SAMPLE_SPACING) || !csi_sample_spacing_callback)) {
+      return reject("unsupported", "sample spacing update is unsupported");
+    }
     if (command.has_sensing_enabled &&
         (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback)) {
       return reject("unsupported", "sensing state update is unsupported");
@@ -197,6 +202,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
       update.traffic_generator_target_mac = command.traffic_generator_target_mac;
       update.has_traffic_generator_mode = command.has_traffic_generator_mode;
       update.traffic_generator_mode = parse_traffic_generator_mode(command.traffic_generator_mode.c_str());
+      update.has_csi_sample_spacing = command.has_csi_sample_spacing;
+      update.csi_sample_spacing = parse_csi_sample_spacing(command.csi_sample_spacing.c_str());
       std::string preflight_message;
       if (!sensing_preflight_callback(update, &preflight_message)) {
         return reject("invalid_params",
@@ -230,6 +237,10 @@ FrontendCommandResult FrontendCommandEngine::execute(
     apply(command.has_traffic_generator_mode, "traffic generator mode", [&] {
       return traffic_generator_mode_callback(
           parse_traffic_generator_mode(command.traffic_generator_mode.c_str()), &result.message);
+    });
+    apply(command.has_csi_sample_spacing, "sample spacing", [&] {
+      return csi_sample_spacing_callback(parse_csi_sample_spacing(command.csi_sample_spacing.c_str()),
+                                         &result.message);
     });
     apply(command.has_sensing_enabled, "sensing state",
           [&] { return sensing_control_callback(command.sensing_enabled, &result.message); });

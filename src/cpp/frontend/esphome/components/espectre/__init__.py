@@ -82,6 +82,9 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 CONF_TRAFFIC_GENERATOR_TARGET_IP = "traffic_generator_target_ip"
 CONF_TRAFFIC_GENERATOR_TARGET_MAC = "traffic_generator_target_mac"
 
+# Temporal admission
+CONF_CSI_SAMPLE_SPACING = "csi_sample_spacing"
+
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
 
@@ -111,6 +114,7 @@ CONF_MOTION_ON_HITS_NUMBER = "motion_on_hits_number"
 CONF_MOTION_OFF_HITS_NUMBER = "motion_off_hits_number"
 CONF_DETECTOR_SELECT = "detector_select"
 CONF_TRAFFIC_GENERATOR_MODE_SELECT = "traffic_generator_mode_select"
+CONF_CSI_SAMPLE_SPACING_SELECT = "csi_sample_spacing_select"
 
 CONF_SENSING_SWITCH = "sensing_switch"
 CONF_RECALIBRATE_BUTTON = "recalibrate_button"
@@ -121,6 +125,7 @@ ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.N
 ESpectreMotionHitsNumber = espectre_ns.class_("ESpectreMotionHitsNumber", number.Number, cg.Component)
 ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Select, cg.Component)
 ESpectreTrafficModeSelect = espectre_ns.class_("ESpectreTrafficModeSelect", select.Select, cg.Component)
+ESpectreSampleSpacingSelect = espectre_ns.class_("ESpectreSampleSpacingSelect", select.Select, cg.Component)
 ESpectreSensingSwitch = espectre_ns.class_("ESpectreSensingSwitch", switch.Switch, cg.Component)
 ESpectreRecalibrateButton = espectre_ns.class_("ESpectreRecalibrateButton", button.Button, cg.Component)
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
@@ -144,6 +149,11 @@ CSI_CAPTURE_PROFILE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_CAPTURE_PROFILE_DEFAU
 CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
 CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
+CSI_SAMPLE_SPACING_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_SAMPLE_SPACING_DEFAULT_NAME"]
+CSI_SAMPLE_SPACINGS = (
+    _RUNTIME_SCHEMA["RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME"],
+    _RUNTIME_SCHEMA["RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME"],
+)
 CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
 EVALUATION_INTERVAL_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT"]
@@ -231,6 +241,11 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_IP, default=""): validate_traffic_generator_target_ip,
     cv.Optional(CONF_TRAFFIC_GENERATOR_TARGET_MAC, default="auto"): validate_traffic_generator_target_mac,
+
+    # Admission spacing: half_slot (default) or distinct timestamps for congested channels.
+    cv.Optional(CONF_CSI_SAMPLE_SPACING, default=CSI_SAMPLE_SPACING_DEFAULT): cv.one_of(
+        *CSI_SAMPLE_SPACINGS, lower=True
+    ),
     
     # Detection profile: Lightweight (default) or High Accuracy.
     # Lightweight uses feature fusion and an adaptive startup threshold.
@@ -408,6 +423,10 @@ CONFIG_SCHEMA = cv.Schema({
         ESpectreTrafficModeSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
+    cv.Optional(CONF_CSI_SAMPLE_SPACING_SELECT, default={"name": "CSI Packet Spacing"}): select.select_schema(
+        ESpectreSampleSpacingSelect,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+    ),
     
     cv.Optional(CONF_SENSING_SWITCH, default={"name": "Sensing Enabled"}): switch.switch_schema(
         ESpectreSensingSwitch,
@@ -572,6 +591,7 @@ async def to_code(config):
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_traffic_generator_target_ip(config[CONF_TRAFFIC_GENERATOR_TARGET_IP]))
     cg.add(var.set_traffic_generator_target_mac(config[CONF_TRAFFIC_GENERATOR_TARGET_MAC]))
+    cg.add(var.set_csi_sample_spacing(config[CONF_CSI_SAMPLE_SPACING]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_evaluation_interval_ms(config[CONF_EVALUATION_INTERVAL_MS]))
     cg.add(var.set_motion_on_hits(config[CONF_MOTION_ON_HITS]))
@@ -666,6 +686,13 @@ async def to_code(config):
     )
     cg.add(traffic_generator_mode.set_parent(var))
     cg.add(var.set_traffic_generator_mode_select(traffic_generator_mode))
+
+    sample_spacing = await select.new_select(
+        config[CONF_CSI_SAMPLE_SPACING_SELECT],
+        options=list(CSI_SAMPLE_SPACINGS),
+    )
+    cg.add(sample_spacing.set_parent(var))
+    cg.add(var.set_csi_sample_spacing_select(sample_spacing))
     
     sensing = await switch.new_switch(config[CONF_SENSING_SWITCH])
     cg.add(sensing.set_parent(var))

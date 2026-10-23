@@ -49,9 +49,29 @@ uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps) {
       std::max<uint64_t>(1U, (numerator + denominator - 1U) / denominator));
 }
 
+uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps,
+                                            TemporalCsiSpacing spacing) {
+  if (target_pps == 0U) return 0U;
+  // Admission already rejects a repeated timestamp, so one microsecond is
+  // exactly "distinct".
+  return spacing == TemporalCsiSpacing::DISTINCT
+             ? 1U
+             : temporal_minimum_sample_spacing_us(target_pps);
+}
+
 TemporalCsiSampler::TemporalCsiSampler(uint32_t target_pps,
-                                       uint32_t window_size_ms) {
+                                       uint32_t window_size_ms,
+                                       TemporalCsiSpacing spacing)
+    : spacing_(spacing) {
   configure(target_pps, window_size_ms);
+}
+
+void TemporalCsiSampler::set_spacing(TemporalCsiSpacing spacing) {
+  spacing_ = spacing;
+  if (target_pps_ > 0U) {
+    minimum_sample_spacing_us_ =
+        temporal_minimum_sample_spacing_us(target_pps_, spacing_);
+  }
 }
 
 bool TemporalCsiSampler::configure(uint32_t target_pps,
@@ -73,7 +93,8 @@ bool TemporalCsiSampler::configure(uint32_t target_pps,
   window_slots_ = slots;
   minimum_valid_slots_ = temporal_minimum_valid_slots(slots);
   timestamp_order_.set_resync_span(window_size_us_);
-  minimum_sample_spacing_us_ = temporal_minimum_sample_spacing_us(target_pps);
+  minimum_sample_spacing_us_ =
+      temporal_minimum_sample_spacing_us(target_pps, spacing_);
   slot_occupied_ = std::move(slot_occupied);
   reset();
   return true;

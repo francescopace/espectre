@@ -678,6 +678,12 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_wifi_band_policy("5g") == WifiBandPolicy::BAND_5G);
     TEST_ASSERT_TRUE(parse_wifi_band_policy("auto") == WifiBandPolicy::AUTO);
     TEST_ASSERT_TRUE(parse_wifi_band_policy("unsupported") == WifiBandPolicy::BAND_2G);
+    TEST_ASSERT_EQUAL_STRING("half_slot", csi_sample_spacing_name(TemporalCsiSpacing::HALF_SLOT));
+    TEST_ASSERT_EQUAL_STRING("distinct", csi_sample_spacing_name(TemporalCsiSpacing::DISTINCT));
+    TEST_ASSERT_TRUE(parse_csi_sample_spacing("distinct") == TemporalCsiSpacing::DISTINCT);
+    TEST_ASSERT_TRUE(parse_csi_sample_spacing("half_slot") == TemporalCsiSpacing::HALF_SLOT);
+    TEST_ASSERT_TRUE(parse_csi_sample_spacing("unsupported") == TemporalCsiSpacing::HALF_SLOT);
+    TEST_ASSERT_TRUE(parse_csi_sample_spacing(nullptr) == TemporalCsiSpacing::HALF_SLOT);
 }
 
 void test_runtime_traffic_target_resolves_unicast_ipv4_and_rejects_invalid_addresses(void) {
@@ -730,7 +736,11 @@ void test_runtime_control_update_applies_fields_as_the_setters_do(void) {
     combined.motion_off_hits = 2U;
     combined.has_traffic_generator_mode = true;
     combined.traffic_generator_mode = TrafficGeneratorMode::DNS;
+    combined.has_csi_sample_spacing = true;
+    combined.csi_sample_spacing = TemporalCsiSpacing::DISTINCT;
+    TEST_ASSERT_TRUE(base.csi_sample_spacing == TemporalCsiSpacing::HALF_SLOT);
     const RuntimeConfig updated = apply_runtime_control_update(base, combined);
+    TEST_ASSERT_TRUE(updated.csi_sample_spacing == TemporalCsiSpacing::DISTINCT);
     TEST_ASSERT_EQUAL_FLOAT(0.3f, updated.threshold);
     TEST_ASSERT_EQUAL_UINT8(4U, updated.motion_on_hits);
     TEST_ASSERT_EQUAL_UINT8(2U, updated.motion_off_hits);
@@ -766,6 +776,9 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     config = RuntimeConfig{};
     config.traffic_generator_mode = static_cast<TrafficGeneratorMode>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::TRAFFIC_GENERATOR_MODE);
+    config = RuntimeConfig{};
+    config.csi_sample_spacing = static_cast<TemporalCsiSpacing>(0x7f);
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_SAMPLE_SPACING);
     config = RuntimeConfig{};
     config.traffic_generator_mode = TrafficGeneratorMode::EXTERNAL_HOST;
     config.csi_traffic_udp_port = 0U;

@@ -81,6 +81,23 @@ config ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC
         HT20 on 2.4 GHz, VHT20 on C5 5 GHz. Local sensing keeps LLTF.
         Ignored outside wifi_raw.
 
+choice ESPECTRE_CSI_SAMPLE_SPACING
+    prompt "CSI sample spacing"
+    default ESPECTRE_CSI_SAMPLE_SPACING_HALF_SLOT
+    help
+        How close two admitted CSI samples may be. Half slot, the default,
+        keeps them at least half a slot apart. Distinct needs only distinct
+        timestamps, which recovers slots on congested channels where frames
+        arrive in back-to-back pairs. It applies to every traffic source. A
+        saved runtime value takes precedence when saved controls are restored.
+
+    config ESPECTRE_CSI_SAMPLE_SPACING_HALF_SLOT
+        bool "Half slot"
+
+    config ESPECTRE_CSI_SAMPLE_SPACING_DISTINCT
+        bool "Distinct timestamps"
+endchoice
+
 choice ESPECTRE_CSI_CAPTURE_PROFILE
     prompt "CSI capture profile"
     default ESPECTRE_CSI_CAPTURE_PROFILE_AUTO

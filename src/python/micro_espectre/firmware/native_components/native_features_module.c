@@ -381,10 +381,12 @@ static mp_obj_t native_sampler_make_new(
     size_t n_kw,
     const mp_obj_t *all_args) {
   enum { ARG_target_pps,
-         ARG_window_size_ms };
+         ARG_window_size_ms,
+         ARG_spacing };
   static const mp_arg_t allowed_args[] = {
       {MP_QSTR_target_pps, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
       {MP_QSTR_window_size_ms, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+      {MP_QSTR_spacing, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
   };
   mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
   mp_arg_parse_all_kw_array(
@@ -394,7 +396,8 @@ static mp_obj_t native_sampler_make_new(
       MP_ARRAY_SIZE(allowed_args),
       allowed_args,
       args);
-  if (args[ARG_target_pps].u_int <= 0 || args[ARG_window_size_ms].u_int <= 0) {
+  if (args[ARG_target_pps].u_int <= 0 || args[ARG_window_size_ms].u_int <= 0 ||
+      args[ARG_spacing].u_int < 0 || args[ARG_spacing].u_int > 1) {
     mp_raise_ValueError(MP_ERROR_TEXT("invalid sampler configuration"));
   }
   native_sampler_obj_t *self = mp_obj_malloc_with_finaliser(
@@ -402,7 +405,8 @@ static mp_obj_t native_sampler_make_new(
       type);
   self->handle = espectre_native_sampler_create(
       (uint32_t) args[ARG_target_pps].u_int,
-      (uint32_t) args[ARG_window_size_ms].u_int);
+      (uint32_t) args[ARG_window_size_ms].u_int,
+      (uint8_t) args[ARG_spacing].u_int);
   if (self->handle == NULL) {
     mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("sampler allocation failed"));
   }

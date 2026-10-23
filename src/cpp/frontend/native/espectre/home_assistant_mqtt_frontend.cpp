@@ -142,6 +142,12 @@ void HomeAssistantMqttFrontend::setup() {
                                   this->handle_traffic_generator_mode_command_(payload);
                                 });
   }
+  if (owner_.runtime_.capabilities().supports_csi_sample_spacing) {
+    (void)transport_->subscribe(settings_.csi_sample_spacing_command_topic,
+                                [this](const std::string &, const std::string &payload) {
+                                  this->handle_csi_sample_spacing_command_(payload);
+                                });
+  }
   (void)transport_->subscribe(settings_.diagnostics_command_topic,
                               [this](const std::string &, const std::string &) { this->publish_diagnostics(); });
 }
@@ -172,7 +178,8 @@ void HomeAssistantMqttFrontend::drain_pending_snapshot() {
             owner_.runtime_.capabilities().supports_runtime_detector_selection,
             owner_.runtime_.capabilities().supports_runtime_motion_hits_updates,
             owner_.runtime_.capabilities().supports_traffic_control,
-            pending_discovery_index_, &pending_discovery_message_)) {
+            pending_discovery_index_, &pending_discovery_message_,
+            owner_.runtime_.capabilities().supports_csi_sample_spacing)) {
       pending_discovery_ = false;
       pending_discovery_index_ = 0U;
       break;
@@ -252,6 +259,13 @@ void HomeAssistantMqttFrontend::publish_traffic_control(TrafficGeneratorMode tra
                             false);
 }
 
+void HomeAssistantMqttFrontend::publish_csi_sample_spacing(TemporalCsiSpacing spacing) {
+  if (!ready_() || !owner_.runtime_.capabilities().supports_csi_sample_spacing) {
+    return;
+  }
+  (void)transport_->publish(settings_.csi_sample_spacing_state_topic, csi_sample_spacing_name(spacing), false);
+}
+
 void HomeAssistantMqttFrontend::publish_diagnostics() {
   if (!ready_()) {
     return;
@@ -279,6 +293,7 @@ void HomeAssistantMqttFrontend::publish_state(const RuntimeSnapshot &snapshot) {
   publish_calibrate(owner_.runtime_.is_calibrating() || snapshot.calibrating);
   publish_detector(snapshot.detector_name);
   publish_traffic_control(owner_.runtime_.config().traffic_generator_mode);
+  publish_csi_sample_spacing(owner_.runtime_.config().csi_sample_spacing);
 }
 
 void HomeAssistantMqttFrontend::publish_current_state() { publish_state(owner_.runtime_.snapshot()); }
@@ -353,6 +368,17 @@ void HomeAssistantMqttFrontend::handle_traffic_generator_mode_command_(const std
     return;
   }
   if (owner_.handle_traffic_generator_mode_write_(parse_traffic_generator_mode(mode.c_str()))) {
+    owner_.publish_runtime_config_state_();
+  }
+}
+
+void HomeAssistantMqttFrontend::handle_csi_sample_spacing_command_(const std::string &payload) {
+  const std::string spacing = normalize_text_token(payload);
+  if (spacing != RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME && spacing != RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME) {
+    ESP_LOGW(TAG, "Invalid HA CSI sample spacing command: %s", payload.c_str());
+    return;
+  }
+  if (owner_.handle_csi_sample_spacing_write_(parse_csi_sample_spacing(spacing.c_str()))) {
     owner_.publish_runtime_config_state_();
   }
 }

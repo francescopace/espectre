@@ -43,6 +43,7 @@ set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
     "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/motion_hits_number.cpp"
     "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/sensor_publisher.cpp"
     "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/threshold_number.cpp"
+    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/sample_spacing_select.cpp"
     "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/traffic_mode_select.cpp"
 )
 

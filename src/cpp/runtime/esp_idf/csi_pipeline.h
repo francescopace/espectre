@@ -143,6 +143,9 @@ class CsiPipeline {
     }
     return true;
   }
+  /** Switch the admission spacing rule for later packets, keeping the window. */
+  void set_csi_sample_spacing(TemporalCsiSpacing spacing) { sampler_.set_spacing(spacing); }
+  TemporalCsiSpacing csi_sample_spacing() const { return sampler_.spacing(); }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }
   void set_motion_hit_thresholds(uint8_t motion_on_hits, uint8_t motion_off_hits, bool reset_filter = false);

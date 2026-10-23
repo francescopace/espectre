@@ -1567,9 +1567,56 @@ void test_raw_target_validation_is_shared_by_direct_and_mqtt(void) {
   TEST_ASSERT_TRUE(espectre_capabilities_payload({}, {}, profile).find("\"traffic_generator_target_mac\":true") != std::string::npos);
 }
 
+void test_sample_spacing_is_shared_by_direct_and_mqtt_and_gated_by_capability(void) {
+  for (const char *spacing : {"half_slot", "distinct", "HALF_SLOT", "", "auto"}) {
+    const bool valid = std::string(spacing) == "half_slot" || std::string(spacing) == "distinct";
+    const std::string field = std::string("\"csi_sample_spacing\":\"") + spacing + "\"";
+    EspectreCommand direct, mqtt;
+    std::string error;
+    TEST_ASSERT_EQUAL(valid, parse_espectre_command_request("spacing", "update_sensing", "{" + field + "}", &direct, &error));
+    TEST_ASSERT_EQUAL(valid, parse_espectre_command("{\"command_id\":\"spacing\",\"command\":\"update_sensing\"," + field + "}", &mqtt, &error));
+    if (valid) {
+      TEST_ASSERT_TRUE(direct.has_csi_sample_spacing && mqtt.has_csi_sample_spacing);
+      TEST_ASSERT_EQUAL_STRING(spacing, direct.csi_sample_spacing.c_str());
+      TEST_ASSERT_EQUAL_STRING(spacing, mqtt.csi_sample_spacing.c_str());
+    }
+  }
+  EspectreCommand number;
+  std::string error;
+  TEST_ASSERT_FALSE(parse_espectre_command_request("spacing", "update_sensing", "{\"csi_sample_spacing\":1}", &number, &error));
+
+  EspectreCapabilityProfile profile;
+  TEST_ASSERT_TRUE(espectre_capabilities_payload({}, {}, profile).find("\"csi_sample_spacing\"") == std::string::npos);
+  profile.set(EspectreDirectMethod::SET_CSI_SAMPLE_SPACING);
+  TEST_ASSERT_TRUE(espectre_capabilities_payload({}, {}, profile).find("\"csi_sample_spacing\":true") != std::string::npos);
+
+  EspectreCommand command;
+  TEST_ASSERT_TRUE(parse_espectre_command_request("spacing", "update_sensing",
+                                                  "{\"csi_sample_spacing\":\"distinct\"}", &command, &error));
+  const FrontendCommandEngine engine;
+  TemporalCsiSpacing applied = TemporalCsiSpacing::HALF_SLOT;
+  const FrontendCsiSampleSpacingCallback set_spacing = [&applied](TemporalCsiSpacing spacing, std::string *) {
+    applied = spacing;
+    return true;
+  };
+  const auto unsupported = engine.execute(command, {}, engine_capabilities(EspectreDirectMethod::SET_SENSING), {},
+                                          {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, set_spacing);
+  TEST_ASSERT_EQUAL_STRING("unsupported", unsupported.code.c_str());
+  TEST_ASSERT_TRUE(applied == TemporalCsiSpacing::HALF_SLOT);
+
+  EspectreCapabilityProfile supported = engine_capabilities(EspectreDirectMethod::SET_SENSING);
+  supported.set(EspectreDirectMethod::SET_CSI_SAMPLE_SPACING);
+  const auto result = engine.execute(command, {}, supported, {},
+                                     {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, set_spacing);
+  TEST_ASSERT_TRUE(result.accepted);
+  TEST_ASSERT_TRUE(result.changes == FrontendCommandChange::SENSING);
+  TEST_ASSERT_TRUE(applied == TemporalCsiSpacing::DISTINCT);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_raw_target_validation_is_shared_by_direct_and_mqtt);
+  RUN_TEST(test_sample_spacing_is_shared_by_direct_and_mqtt_and_gated_by_capability);
   RUN_TEST(test_engine_read_commands_require_the_matching_capability_and_a_payload);
   RUN_TEST(test_engine_wifi_commands_flag_wifi_changes_except_a_scan);
   RUN_TEST(test_engine_label_mqtt_and_recalibrate_commands_report_their_outcome);

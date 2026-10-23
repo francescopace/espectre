@@ -11,6 +11,9 @@ MICROSECONDS_PER_SECOND = 1_000_000
 MINIMUM_COVERAGE_NUMERATOR = 7
 MINIMUM_COVERAGE_DENOMINATOR = 10
 SLOT_HALF_DENOMINATOR = 2
+# Spacing rules between committed candidates, mirroring core TemporalCsiSpacing.
+SPACING_HALF_SLOT = 0
+SPACING_DISTINCT = 1
 
 
 def temporal_window_slots(target_pps, window_size_ms):
@@ -34,11 +37,15 @@ def minimum_valid_slots(window_slots):
     ) // MINIMUM_COVERAGE_DENOMINATOR
 
 
-def minimum_sample_spacing_us(target_pps):
-    """Return half a target-rate slot, rounded up to whole microseconds."""
+def minimum_sample_spacing_us(target_pps, spacing=SPACING_HALF_SLOT):
+    """Return the committed-candidate spacing for a target rate and rule."""
     rate = int(target_pps)
     if rate <= 0:
         raise ValueError("target_pps must be positive")
+    if spacing not in (SPACING_HALF_SLOT, SPACING_DISTINCT):
+        raise ValueError("unknown spacing rule")
+    if spacing == SPACING_DISTINCT:
+        return 1
     denominator = rate * SLOT_HALF_DENOMINATOR
     return max(1, (MICROSECONDS_PER_SECOND + denominator - 1) // denominator)
 
@@ -46,7 +53,7 @@ def minimum_sample_spacing_us(target_pps):
 class TemporalCsiSampler:
     """Allocation-safe MicroPython facade over the core SDK sampler."""
 
-    def __init__(self, target_pps, window_size_ms):
+    def __init__(self, target_pps, window_size_ms, spacing=SPACING_HALF_SLOT):
         if (
             _native_core is None
             or not hasattr(_native_core, "TemporalCsiSampler")
@@ -54,10 +61,22 @@ class TemporalCsiSampler:
             raise RuntimeError(
                 "Micro-ESPectre requires a compatible espectre core sampler"
             )
-        self._native = _native_core.TemporalCsiSampler(
-            target_pps,
-            window_size_ms,
-        )
+        if spacing not in (SPACING_HALF_SLOT, SPACING_DISTINCT):
+            raise ValueError("unknown spacing rule")
+        # Older native modules take no spacing argument: pass it only when
+        # the caller opts in.
+        if spacing == SPACING_HALF_SLOT:
+            self._native = _native_core.TemporalCsiSampler(
+                target_pps,
+                window_size_ms,
+            )
+        else:
+            self._native = _native_core.TemporalCsiSampler(
+                target_pps,
+                window_size_ms,
+                spacing=spacing,
+            )
+        self.spacing = spacing
         self.target_pps = self._native.get_u32(0)
         self.window_size_ms = self._native.get_u32(1)
         self.window_size_us = self.window_size_ms * 1000

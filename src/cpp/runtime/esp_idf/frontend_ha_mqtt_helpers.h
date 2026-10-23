@@ -68,6 +68,8 @@ struct FrontendHaMqttSettings {
   std::string detector_command_topic;
   std::string traffic_generator_mode_state_topic;
   std::string traffic_generator_mode_command_topic;
+  std::string csi_sample_spacing_state_topic;
+  std::string csi_sample_spacing_command_topic;
   std::string diagnostics_command_topic;
   /** @} */
   /** @name Home Assistant object ids, each starting with ha_object_prefix */
@@ -81,6 +83,7 @@ struct FrontendHaMqttSettings {
   std::string calibration_active_object_id;
   std::string detector_object_id;
   std::string traffic_generator_mode_object_id;
+  std::string csi_sample_spacing_object_id;
   std::string diagnostics_object_id;
   /** @} */
   /** Prefix shared by every object id, derived from the frontend name and device id. */
@@ -109,18 +112,21 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
                                                        const EspectreDeviceInfo &info,
                                                        const char *frontend_name);
 /// Build one discovery message in publication order; false marks the end.
+/// `supports_csi_sample_spacing` adds the "CSI Packet Spacing" select.
 bool build_frontend_ha_discovery_message(
     const FrontendHaMqttSettings &settings,
     const EspectreDeviceInfo &info,
     bool supports_detector,
     bool supports_motion_hits,
-    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message);
+    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message,
+    bool supports_csi_sample_spacing = false);
 /** Build every discovery message at once, in publication order. */
 std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     const FrontendHaMqttSettings &settings,
     const EspectreDeviceInfo &info,
     bool supports_detector,
     bool supports_motion_hits,
-    bool supports_traffic_control);
+    bool supports_traffic_control,
+    bool supports_csi_sample_spacing = false);
 
 }  // namespace espectre

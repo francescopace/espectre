@@ -49,6 +49,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
 {
   friend class ESpectreDetectorSelect;
   friend class ESpectreTrafficModeSelect;
+  friend class ESpectreSampleSpacingSelect;
  public:
   ESpectreComponent() {
     // ESPHome always generates the detector select entity, so this frontend
@@ -89,6 +90,9 @@ class ESpectreComponent : public Component, public IRuntimeListener
   }
   void set_traffic_generator_target_mac(const std::string &target) {
     this->runtime_.config().traffic_generator_target_mac = target;
+  }
+  void set_csi_sample_spacing(const std::string &spacing) {
+    this->runtime_.config().csi_sample_spacing = parse_csi_sample_spacing(spacing.c_str());
   }
   void set_traffic_generator_target_ip(const std::string &address) {
     this->runtime_.config().traffic_generator_target_ip = address;
@@ -157,6 +161,8 @@ class ESpectreComponent : public Component, public IRuntimeListener
   void set_detector_select(select::Select *value) { this->detector_select_ = value; }
   void set_traffic_generator_mode_select(select::Select *value) { this->traffic_generator_mode_select_ = value; }
   bool set_traffic_generator_mode_runtime(const std::string &mode);
+  void set_csi_sample_spacing_select(select::Select *value) { this->csi_sample_spacing_select_ = value; }
+  bool set_csi_sample_spacing_runtime(const std::string &spacing);
   
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
@@ -257,6 +263,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   switch_::Switch *sensing_switch_{nullptr};
   select::Select *detector_select_{nullptr};
   select::Select *traffic_generator_mode_select_{nullptr};
+  select::Select *csi_sample_spacing_select_{nullptr};
 
   sensor::Sensor *generator_rate_sensor_{nullptr};
   sensor::Sensor *traffic_rate_sensor_{nullptr};
@@ -282,6 +289,7 @@ class ESpectreComponent : public Component, public IRuntimeListener
   bool detector_republished_{false};
   bool motion_hits_republished_{false};
   bool traffic_mode_republished_{false};
+  bool sample_spacing_republished_{false};
   uint32_t pending_mdns_ipv4_{0U};
   uint32_t next_mdns_setup_ms_{0U};
   bool mdns_ipv4_pending_{false};

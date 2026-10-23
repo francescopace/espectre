@@ -25,8 +25,25 @@ constexpr uint32_t TEMPORAL_CSI_MICROSECONDS_PER_SECOND = 1000000U;
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR = 7U;
 /** See `TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR`. */
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR = 10U;
-/** Selected candidates are at least one slot period divided by this apart. */
+/**
+ * With `TemporalCsiSpacing::HALF_SLOT`, selected candidates are at least one
+ * slot period divided by this apart.
+ */
 constexpr uint8_t TEMPORAL_CSI_SLOT_HALF_DENOMINATOR = 2U;
+
+/**
+ * How close two committed candidates may be.
+ *
+ * `HALF_SLOT` keeps them at least half a slot apart. `DISTINCT` requires only
+ * distinct timestamps, so the second frame of a closely spaced pair can still
+ * fill a free neighbour slot after a delivery gap. Every committed sample
+ * still lies within three quarters of a slot of its slot center, so a burst
+ * fills at most the slots around it.
+ */
+enum class TemporalCsiSpacing : uint8_t {
+  HALF_SLOT = 0U,  ///< At least half a slot apart; the default.
+  DISTINCT = 1U,   ///< Distinct timestamps only.
+};
 
 static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR > 0U);
 static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR <=
@@ -36,8 +53,11 @@ static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR <=
 uint32_t temporal_window_slots(uint32_t target_pps, uint32_t window_size_ms);
 /** Return the minimum occupied slots required for a ready window. */
 uint32_t temporal_minimum_valid_slots(uint32_t window_slots);
-/** Return the minimum spacing between selected candidates at a target rate. */
+/** Return the half-slot spacing between selected candidates at a target rate. */
 uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps);
+/** Return the spacing between selected candidates for a target rate and rule. */
+uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps,
+                                            TemporalCsiSpacing spacing);
 
 /**
  * Admit timestamped CSI packets onto the production fixed-time grid.
@@ -62,16 +82,20 @@ uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps);
  */
 class TemporalCsiSampler {
  public:
-  /** Construct a sampler for the requested target rate and window duration. */
-  explicit TemporalCsiSampler(uint32_t target_pps = 100U,
-                              uint32_t window_size_ms = 1000U);
+  /** Construct a sampler for the requested target rate, window duration, and spacing rule. */
+  explicit TemporalCsiSampler(
+      uint32_t target_pps = 100U,
+      uint32_t window_size_ms = 1000U,
+      TemporalCsiSpacing spacing = TemporalCsiSpacing::HALF_SLOT);
   TemporalCsiSampler(TemporalCsiSampler&&) noexcept = default;
   TemporalCsiSampler& operator=(TemporalCsiSampler&&) noexcept = default;
   TemporalCsiSampler(const TemporalCsiSampler&) = delete;
   TemporalCsiSampler& operator=(const TemporalCsiSampler&) = delete;
 
-  /** Reconfigure the grid and clear its timestamp epoch and window state. */
+  /** Reconfigure the grid and clear its timestamp epoch and window state; the spacing rule is kept. */
   bool configure(uint32_t target_pps, uint32_t window_size_ms);
+  /** Change the spacing rule for later packets, keeping window state. */
+  void set_spacing(TemporalCsiSpacing spacing);
   /** Return whether the active slot window owns complete storage. */
   bool is_valid() const { return slot_occupied_ != nullptr && window_slots_ > 0U; }
   /** Clear the timestamp epoch, window state, and lifetime counters. */
@@ -105,6 +129,8 @@ class TemporalCsiSampler {
   uint32_t minimum_sample_spacing_us() const {
     return minimum_sample_spacing_us_;
   }
+  /** Spacing rule between committed candidates. */
+  TemporalCsiSpacing spacing() const { return spacing_; }
   /** @} */
 
   /** @name Window state */
@@ -179,6 +205,7 @@ class TemporalCsiSampler {
   uint32_t window_slots_{100U};
   uint32_t minimum_valid_slots_{70U};
   uint32_t minimum_sample_spacing_us_{5000U};
+  TemporalCsiSpacing spacing_{TemporalCsiSpacing::HALF_SLOT};
   std::unique_ptr<uint8_t[]> slot_occupied_;
   uint32_t occupancy_slots_{0U};
 

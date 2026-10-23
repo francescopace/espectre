@@ -117,6 +117,8 @@
             supports_traffic_control: methods.has('update_sensing'),
             supports_traffic_target_mac: methods.has('update_sensing')
                 && capabilities.features?.traffic_generator_target_mac === true,
+            supports_csi_sample_spacing: methods.has('update_sensing')
+                && capabilities.features?.csi_sample_spacing === true,
             supports_ota: sections.has('ota')
         };
     }

@@ -18,6 +18,7 @@ namespace {
 constexpr const char *kNamespace = ESPECTRE_NVS_NAMESPACE;
 constexpr const char *kTrafficGeneratorModeKey = "traffic_gen";
 constexpr const char *kTrafficTargetMacKey = "traffic_mac";
+constexpr const char *kCsiSampleSpacingKey = "csi_spacing";
 
 esp_err_t load_string_key(const char *key, char *value, size_t value_size, bool *has_saved_value) {
   if (key == nullptr || value == nullptr || value_size == 0U || has_saved_value == nullptr) {
@@ -108,6 +109,26 @@ esp_err_t save_runtime_traffic_generator_target_mac(const std::string &target) {
 
 esp_err_t clear_runtime_traffic_generator_target_mac() {
   return detail::erase_espectre_nvs_keys({kTrafficTargetMacKey});
+}
+
+esp_err_t load_runtime_csi_sample_spacing(TemporalCsiSpacing *spacing, bool *has_saved_value) {
+  if (spacing == nullptr || has_saved_value == nullptr) return ESP_ERR_INVALID_ARG;
+  char value[16]{};
+  const esp_err_t err = load_string_key(kCsiSampleSpacingKey, value, sizeof(value), has_saved_value);
+  if (err != ESP_OK || !*has_saved_value) return err;
+  const TemporalCsiSpacing parsed = parse_csi_sample_spacing(value);
+  if (std::strcmp(value, csi_sample_spacing_name(parsed)) != 0) return ESP_ERR_INVALID_STATE;
+  *spacing = parsed;
+  return ESP_OK;
+}
+
+esp_err_t save_runtime_csi_sample_spacing(TemporalCsiSpacing spacing) {
+  if (!runtime_csi_sample_spacing_valid(spacing)) return ESP_ERR_INVALID_ARG;
+  return save_string_key(kCsiSampleSpacingKey, csi_sample_spacing_name(spacing));
+}
+
+esp_err_t clear_runtime_csi_sample_spacing() {
+  return detail::erase_espectre_nvs_keys({kCsiSampleSpacingKey});
 }
 
 }  // namespace espectre

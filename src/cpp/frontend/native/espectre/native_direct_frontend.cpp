@@ -332,6 +332,9 @@ std::string NativeDirectFrontend::sensing_payload() const {
   append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(runtime_config.traffic_generator_mode));
   append_json_pair(&out, "traffic_generator_target_mac", runtime_config.traffic_generator_target_mac.c_str());
   out += ",\"csi_target_pps\":" + std::to_string(runtime_config.csi_target_pps);
+  if (owner_.runtime_.capabilities().supports_csi_sample_spacing) {
+    append_json_pair(&out, "csi_sample_spacing", csi_sample_spacing_name(runtime_config.csi_sample_spacing));
+  }
   out += ",\"csi_traffic_udp_port\":" + std::to_string(runtime_config.csi_traffic_udp_port);
   append_json_pair(&out, "csi_traffic_multicast_group", runtime_config.csi_traffic_multicast_group.c_str());
   out += "}";

@@ -124,6 +124,7 @@ RuntimeConfig apply_runtime_control_update(RuntimeConfig config, const RuntimeCo
   }
   if (update.has_traffic_generator_target_mac) config.traffic_generator_target_mac = update.traffic_generator_target_mac;
   if (update.has_traffic_generator_mode) config.traffic_generator_mode = update.traffic_generator_mode;
+  if (update.has_csi_sample_spacing) config.csi_sample_spacing = update.csi_sample_spacing;
   return config;
 }
 
@@ -146,6 +147,9 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
   }
   if (!validate_traffic_generator_target_mac(config.traffic_generator_target_mac)) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_MAC;
+  }
+  if (!runtime_csi_sample_spacing_valid(config.csi_sample_spacing)) {
+    return RuntimeConfigError::CSI_SAMPLE_SPACING;
   }
   if (!config.traffic_generator_target_ip.empty() && runtime_traffic_target_addr(config, 0U) == 0U) {
     return RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP;
@@ -215,6 +219,7 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::CSI_TARGET_PPS: return "invalid CSI target PPS";
     case RuntimeConfigError::TRAFFIC_GENERATOR_MODE: return "invalid traffic generator mode";
     case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_MAC: return "invalid traffic generator target MAC (use auto or a unicast MAC)";
+    case RuntimeConfigError::CSI_SAMPLE_SPACING: return "invalid CSI sample spacing (use half_slot or distinct)";
     case RuntimeConfigError::TRAFFIC_GENERATOR_TARGET_IP: return "invalid traffic generator target IPv4 address";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";
@@ -264,6 +269,17 @@ const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
     default:
       return RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME;
   }
+}
+
+const char *csi_sample_spacing_name(TemporalCsiSpacing spacing) {
+  return spacing == TemporalCsiSpacing::DISTINCT ? RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME
+                                                 : RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME;
+}
+
+TemporalCsiSpacing parse_csi_sample_spacing(const char *spacing) {
+  return (spacing != nullptr && std::strcmp(spacing, RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME) == 0)
+             ? TemporalCsiSpacing::DISTINCT
+             : TemporalCsiSpacing::HALF_SLOT;
 }
 
 TrafficGeneratorMode parse_traffic_generator_mode(const char *mode) {

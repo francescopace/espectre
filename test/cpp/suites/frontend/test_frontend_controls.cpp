@@ -18,6 +18,7 @@
 #include "espectre.h"
 #include "motion_hits_number.h"
 #include "recalibrate_button.h"
+#include "sample_spacing_select.h"
 #include "sensing_switch.h"
 #include "threshold_number.h"
 #include "traffic_mode_select.h"
@@ -77,6 +78,11 @@ class DetectorSelectProbe : public ESpectreDetectorSelect {
 class TrafficModeSelectProbe : public ESpectreTrafficModeSelect {
  public:
   using ESpectreTrafficModeSelect::control;
+};
+
+class SampleSpacingSelectProbe : public ESpectreSampleSpacingSelect {
+ public:
+  using ESpectreSampleSpacingSelect::control;
 };
 
 class DiagnosticsButtonProbe : public ESpectreDiagnosticsButton {
@@ -200,6 +206,20 @@ void test_esphome_raw_destination_uses_shared_direct_contract(void) {
   TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
   const auto state = component.direct_bridge_.handle_request_(DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
   TEST_ASSERT_TRUE(state.find("\"traffic_generator_target_mac\":\"10:b4:1d:e8:ec:00\"") != std::string::npos);
+}
+
+void test_esphome_sample_spacing_uses_shared_direct_contract(void) {
+  frontend_runtime_shim::state.capabilities.supports_csi_sample_spacing = true;
+  ESpectreComponentProbe component;
+  component.setup();
+  TEST_ASSERT_FALSE(component.is_failed());
+  const auto catalog = component.direct_bridge_.handle_request_(DirectRequest{"caps", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(catalog.find("\"csi_sample_spacing\":true") != std::string::npos);
+  const auto result = component.direct_bridge_.handle_request_(
+      DirectRequest{"spacing", "update_sensing", R"({"csi_sample_spacing":"distinct"})"});
+  TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
+  const auto state = component.direct_bridge_.handle_request_(DirectRequest{"", "sensing", "{}", "/espectre/v1/sensing", "GET"});
+  TEST_ASSERT_TRUE(state.find("\"csi_sample_spacing\":\"distinct\"") != std::string::npos);
 }
 
 void test_espectre_component_raw_session_uses_shared_controller_and_recovers(void) {
@@ -846,6 +866,36 @@ void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
   TEST_ASSERT_EQUAL_STRING("dns_tcp", generator_mode_select.get_state().c_str());
 }
 
+void test_sample_spacing_select_switches_and_republishes_runtime_state(void) {
+  frontend_runtime_shim::state.capabilities.supports_csi_sample_spacing = true;
+  ESpectreComponentProbe component;
+  component.set_csi_sample_spacing("distinct");
+  component.setup();
+
+  SampleSpacingSelectProbe spacing_select;
+  spacing_select.set_parent(&component);
+  component.set_csi_sample_spacing_select(&spacing_select);
+
+  RuntimeSnapshot ready_snapshot{};
+  ready_snapshot.ready_to_publish = true;
+  frontend_runtime_shim::state.last_listener->on_periodic_update(ready_snapshot, 0U);
+  TEST_ASSERT_EQUAL_STRING("distinct", spacing_select.get_state().c_str());
+
+  spacing_select.control("half_slot");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_sample_spacing_calls);
+  TEST_ASSERT_TRUE(component.runtime_.config().csi_sample_spacing == TemporalCsiSpacing::HALF_SLOT);
+  TEST_ASSERT_EQUAL_STRING("half_slot", spacing_select.get_state().c_str());
+
+  // A rejected value restores the select to the runtime value.
+  spacing_select.control("quarter_slot");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_sample_spacing_calls);
+  TEST_ASSERT_EQUAL_STRING("half_slot", spacing_select.get_state().c_str());
+
+  // A command from another path also reaches the select.
+  TEST_ASSERT_TRUE(component.set_csi_sample_spacing_runtime("distinct"));
+  TEST_ASSERT_EQUAL_STRING("distinct", spacing_select.get_state().c_str());
+}
+
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
@@ -1148,12 +1198,14 @@ int process(void) {
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_entity_commands_validate_parameters_before_runtime_callbacks);
+  RUN_TEST(test_esphome_sample_spacing_uses_shared_direct_contract);
   RUN_TEST(test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_sensing_switch_and_recalibrate_button_use_the_command_engine);
   RUN_TEST(test_sensing_switch_initial_state_matches_runtime);
   RUN_TEST(test_motion_reset_is_published_when_runtime_is_not_ready);
   RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_traffic_mode_selects_switch_and_republish_runtime_state);
+  RUN_TEST(test_sample_spacing_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);
   return UNITY_END();
 }

@@ -50,6 +50,7 @@
       <article><h3>Bluetooth</h3><ul><li>Bluetooth and Wi-Fi share the same radio, so Bluetooth scanning pushes measurements into bursts.</li><li>Compare with Bluetooth turned off.</li><li>For an ESPHome Bluetooth proxy, use the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#bluetooth-proxy-and-csi-occupancy" target="_blank" rel="noopener">tested proxy settings</a>.</li></ul></article>
       <article><h3>Mesh Wi-Fi</h3><ul><li>Roaming between access points interrupts sensing.</li><li>In <a href="/tools/device-settings/">Device settings</a>, scan for access points, choose a <em>Preferred access point</em>, and save.</li><li>Choose <em>Automatic (strongest available)</em> to remove the pin.</li></ul></article>
       <article><h3>Weak or blocked link</h3><ul><li>Check <em>Wi-Fi RSSI</em> in Diagnostics.</li><li>Keep the sensor away from metal and from the edge of coverage.</li><li>Review the <a href="/guides/placement/">sensor placement</a>.</li></ul></article>
+      <article><h3>Busy channel</h3><ul><li>On a crowded channel, packets can arrive in pairs after short gaps.</li><li>Open <em>Advanced sensing settings</em> and set <em>Packet spacing</em> to <em>Distinct timestamps</em>.</li></ul></article>
     </div>
 
     <h2 id="trouble-false-motion">False motion in an empty room</h2>

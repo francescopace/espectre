@@ -8,10 +8,14 @@ Tests for runtime evaluation policy helpers.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+import pytest
+
 from detector_interface import MotionState
 import config
 from runtime_policy import PacketTimingTracker, RuntimeMotionPolicy, derive_detector_timing
 from temporal_csi_sampler import (
+    SPACING_DISTINCT,
+    SPACING_HALF_SLOT,
     TemporalCsiSampler,
     minimum_sample_spacing_us,
     minimum_valid_slots,
@@ -103,6 +107,42 @@ class TestTemporalCsiSampler:
         sampler = TemporalCsiSampler(100, 1000)
         assert self.replay(sampler, (0, 17_000, 20_500, 24_500)) == [0, 20_500]
         assert sampler.excess_packets == 2
+
+    def test_distinct_spacing_backfills_a_delayed_pair_but_not_a_burst(self):
+        # Mirrors test_temporal_csi_sampler_distinct_spacing_is_opt_in in C++.
+        # 26 ms and 26.113 ms arrive together after a gap: 26.113 ms keeps
+        # slot 3, and 26 ms can take the free slot 2 only when distinct
+        # timestamps are enough.
+        pair = (0, 10_000, 26_000, 26_113, 40_000)
+        default = TemporalCsiSampler(100, 1000)
+        assert default.spacing == SPACING_HALF_SLOT
+        assert self.replay(default, pair) == [0, 10_000, 26_113, 40_000]
+        assert (default.excess_packets, default.missing_slots) == (1, 1)
+
+        distinct = TemporalCsiSampler(100, 1000, SPACING_DISTINCT)
+        assert distinct.minimum_sample_spacing_us == 1
+        assert self.replay(distinct, pair) == list(pair)
+        assert (distinct.excess_packets, distinct.missing_slots) == (0, 0)
+
+        # The neighbour tolerance still bounds every sample, so a burst fills
+        # one slot under either rule.
+        burst = (0, 10_000, 20_000, 20_100, 20_200, 20_300, 30_000)
+        for spacing in (SPACING_HALF_SLOT, SPACING_DISTINCT):
+            sampler = TemporalCsiSampler(100, 1000, spacing)
+            assert self.replay(sampler, burst) == [0, 10_000, 20_000, 30_000]
+            assert sampler.excess_packets == 3
+
+    def test_spacing_rule_is_validated_and_switchable(self):
+        assert minimum_sample_spacing_us(100, SPACING_DISTINCT) == 1
+        with pytest.raises(ValueError):
+            TemporalCsiSampler(100, 1000, spacing=7)
+
+        sampler = TemporalCsiSampler(100, 1000)
+        sampler.admit(0)
+        sampler.set_spacing(SPACING_DISTINCT)
+        assert sampler.spacing == SPACING_DISTINCT
+        assert sampler.minimum_sample_spacing_us == 1
+        assert sampler.has_pending_candidate
 
     def test_recovers_after_a_wrap_length_silence(self):
         # Mirrors test_temporal_csi_sampler_recovers_after_a_wrap_length_silence in C++.

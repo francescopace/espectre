@@ -79,6 +79,8 @@ class IEspectreRuntime {
   virtual bool set_traffic_generator_mode(TrafficGeneratorMode mode) = 0;
   /** Set a raw destination; unsupported by default for existing backends. */
   virtual bool set_traffic_generator_target_mac(const std::string &target) { (void)target; return false; }
+  /** Set the CSI sample spacing rule; unsupported by default for existing backends. */
+  virtual bool set_csi_sample_spacing(TemporalCsiSpacing spacing) { (void)spacing; return false; }
   /** Switch detector, rebuilding detector state. False when not applied. */
   virtual bool set_detection_algorithm(DetectionAlgorithm algorithm) = 0;
   /** Restart startup calibration. False when calibration cannot start. */

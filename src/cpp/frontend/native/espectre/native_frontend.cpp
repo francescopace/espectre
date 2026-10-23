@@ -294,6 +294,18 @@ bool NativeFrontend::handle_traffic_generator_mode_write_(TrafficGeneratorMode m
   return true;
 }
 
+bool NativeFrontend::handle_csi_sample_spacing_write_(TemporalCsiSpacing spacing) {
+  if (!runtime_.capabilities().supports_csi_sample_spacing) {
+    ESP_LOGW(TAG, "Runtime CSI sample spacing is not supported");
+    return false;
+  }
+  if (!runtime_.set_csi_sample_spacing(spacing)) {
+    return false;
+  }
+  mqtt_frontend_->home_assistant().publish_csi_sample_spacing(runtime_.config().csi_sample_spacing);
+  return true;
+}
+
 bool NativeFrontend::handle_detector_write_(DetectionAlgorithm algorithm) {
   if (!runtime_.capabilities().supports_runtime_detector_selection) {
     ESP_LOGW(TAG, "Runtime detector selection is not supported");
@@ -355,6 +367,7 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   info.supports_manual_recalibration = runtime_.capabilities().supports_manual_recalibration;
   info.supports_traffic_control = runtime_.capabilities().supports_traffic_control;
   info.supports_traffic_target_mac = runtime_.capabilities().supports_traffic_target_mac;
+  info.supports_csi_sample_spacing = runtime_.capabilities().supports_csi_sample_spacing;
   info.traffic_mode = traffic_generator_mode_name(runtime_.config().traffic_generator_mode);
   info.csi_target_pps = runtime_.config().csi_target_pps;
   info.csi_traffic_udp_port = runtime_.config().csi_traffic_udp_port;

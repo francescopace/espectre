@@ -517,7 +517,7 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
     if (parsed.command == "update_sensing") {
       return name == "enabled" || name == "threshold" || name == "motion_on_hits" ||
              name == "motion_off_hits" || name == "detector" || name == "traffic_generator_mode" ||
-             name == "traffic_generator_target_mac";
+             name == "traffic_generator_target_mac" || name == "csi_sample_spacing";
     }
     if (parsed.command == "read_diagnostics") return name == "fields";
     if (parsed.command == "update_device") return name == "label";
@@ -599,8 +599,17 @@ bool validate_sdk_command_parameters(const std::vector<JsonObjectField> &fields,
           canonical_traffic_generator_target_mac(parsed.traffic_generator_target_mac);
       parsed.has_traffic_generator_target_mac = true;
     }
+    if (find_json_object_field(fields, "csi_sample_spacing") != nullptr) {
+      if (!string_field("csi_sample_spacing", &parsed.csi_sample_spacing) ||
+          (parsed.csi_sample_spacing != RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME &&
+           parsed.csi_sample_spacing != RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME)) {
+        return reject("invalid CSI sample spacing (accepted: half_slot, distinct)");
+      }
+      parsed.has_csi_sample_spacing = true;
+    }
     if (!parsed.has_sensing_enabled && !parsed.has_threshold && !parsed.has_motion_hits &&
-        !parsed.has_detector && !parsed.has_traffic_generator_mode && !parsed.has_traffic_generator_target_mac) {
+        !parsed.has_detector && !parsed.has_traffic_generator_mode && !parsed.has_traffic_generator_target_mac &&
+        !parsed.has_csi_sample_spacing) {
       return reject("sensing update is empty");
     }
   } else if (parsed.command == "update_device") {
@@ -945,6 +954,9 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   if (capabilities.supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_TARGET_MAC)) {
     out += ",\"traffic_generator_target_mac\":true";
   }
+  if (capabilities.supports(EspectreDirectMethod::SET_CSI_SAMPLE_SPACING)) {
+    out += ",\"csi_sample_spacing\":true";
+  }
   out += "}";
   if (supports_raw_csi) {
     out += ",\"csi\":{\"endpoint\":\"/espectre/v1/csi\","
@@ -991,6 +1003,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   capabilities.set(Method::RECALIBRATE, info.supports_manual_recalibration);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, info.supports_traffic_control);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, info.supports_traffic_target_mac);
+  capabilities.set(Method::SET_CSI_SAMPLE_SPACING, info.supports_csi_sample_spacing);
   capabilities.set(Method::WIFI_ACCESS_POINTS, supports_wifi_bssid);
   capabilities.set(Method::SCAN_WIFI_ACCESS_POINTS, supports_wifi_bssid);
   capabilities.set(Method::SET_WIFI_BSSID, supports_wifi_bssid);

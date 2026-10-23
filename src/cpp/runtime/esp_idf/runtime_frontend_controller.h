@@ -238,6 +238,15 @@ class RuntimeFrontendController : private IRuntimeListener {
    */
   bool set_traffic_generator_target_mac(const std::string &target);
   /**
+   * Set the CSI sample spacing rule: `HALF_SLOT` (default) or `DISTINCT`.
+   * It applies to later packets from every traffic source, without clearing
+   * the detector window. Persists when enabled.
+   *
+   * @return false when the rule is invalid, or when the runtime is up and
+   *         does not advertise `RuntimeCapabilities::supports_csi_sample_spacing`.
+   */
+  bool set_csi_sample_spacing(TemporalCsiSpacing spacing);
+  /**
    * Switch detector while running.
    *
    * The threshold follows the detector: the controller adopts the new

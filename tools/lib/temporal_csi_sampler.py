@@ -16,6 +16,12 @@ UINT32_HALF_RANGE = 1 << 31
 MINIMUM_COVERAGE_NUMERATOR = 7
 MINIMUM_COVERAGE_DENOMINATOR = 10
 SLOT_HALF_DENOMINATOR = 2
+# Spacing rules between committed candidates, mirroring core TemporalCsiSpacing.
+# Half-slot spacing is the default. Distinct spacing requires only distinct
+# timestamps; the neighbour tolerance still bounds every committed sample.
+SPACING_HALF_SLOT = 0
+SPACING_DISTINCT = 1
+SPACING_RULES = (SPACING_HALF_SLOT, SPACING_DISTINCT)
 # A candidate that loses its nearest slot may fill a free neighbour slot whose
 # center is at most three quarters of a slot away.
 NEIGHBOR_SLOT_TOLERANCE_NUMERATOR = 3
@@ -43,11 +49,20 @@ def minimum_valid_slots(window_slots):
     ) // MINIMUM_COVERAGE_DENOMINATOR
 
 
-def minimum_sample_spacing_us(target_pps):
-    """Return half a target-rate slot, rounded up to whole microseconds."""
+def minimum_sample_spacing_us(target_pps, spacing=SPACING_HALF_SLOT):
+    """Return the committed-candidate spacing for a target rate and rule.
+
+    Half-slot spacing is half a target-rate slot, rounded up to whole
+    microseconds. Distinct spacing is one microsecond: admission already
+    rejects a repeated timestamp.
+    """
     rate = int(target_pps)
     if rate <= 0:
         raise ValueError("target_pps must be positive")
+    if spacing not in SPACING_RULES:
+        raise ValueError("unknown spacing rule")
+    if spacing == SPACING_DISTINCT:
+        return 1
     numerator = MICROSECONDS_PER_SECOND
     denominator = rate * SLOT_HALF_DENOMINATOR
     return max(1, (numerator + denominator - 1) // denominator)
@@ -61,7 +76,7 @@ class TemporalCsiSampler:
     and training workflows.
     """
 
-    def __init__(self, target_pps, window_size_ms):
+    def __init__(self, target_pps, window_size_ms, spacing=SPACING_HALF_SLOT):
         self.target_pps = int(target_pps)
         self.window_size_ms = int(window_size_ms)
         self.window_size_us = self.window_size_ms * 1000
@@ -69,12 +84,18 @@ class TemporalCsiSampler:
             self.target_pps, self.window_size_ms
         )
         self.minimum_valid_slots = minimum_valid_slots(self.window_slots)
-        self.minimum_sample_spacing_us = minimum_sample_spacing_us(
-            self.target_pps
-        )
+        self.spacing = SPACING_HALF_SLOT
+        self.set_spacing(spacing)
         self._timestamp_order = WrappingTimestampOrder(self.window_size_us)
         self._slot_ids = [-1] * self.window_slots
         self.reset()
+
+    def set_spacing(self, spacing):
+        """Change the spacing rule for later packets, keeping window state."""
+        self.minimum_sample_spacing_us = minimum_sample_spacing_us(
+            self.target_pps, spacing
+        )
+        self.spacing = spacing
 
     def reset(self):
         """Clear temporal history and diagnostic counters."""

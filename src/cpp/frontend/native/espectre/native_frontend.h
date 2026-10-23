@@ -87,6 +87,7 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
   bool handle_traffic_generator_mode_write_(TrafficGeneratorMode mode);
+  bool handle_csi_sample_spacing_write_(TemporalCsiSpacing spacing);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_recalibration_write_();
   void drain_pending_runtime_events_();

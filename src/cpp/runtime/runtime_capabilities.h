@@ -49,6 +49,8 @@ struct RuntimeCapabilities {
   bool supports_raw_csi{false};
   /** The runtime can retarget WIFI_RAW to the AP or an explicit peer. */
   bool supports_traffic_target_mac{false};
+  /** The runtime can switch the CSI sample spacing rule while running. */
+  bool supports_csi_sample_spacing{false};
 };
 
 }  // namespace espectre

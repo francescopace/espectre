@@ -15,6 +15,7 @@
 #include "motion_hits_number.h"
 #include "sensing_switch.h"
 #include "detector_select.h"
+#include "sample_spacing_select.h"
 #include "traffic_mode_select.h"
 #include "esphome_log_sink.h"
 
@@ -627,6 +628,9 @@ void ESpectreComponent::sync_direct_config_() {
     this->traffic_generator_mode_select_->publish_state(
         traffic_generator_mode_name(this->runtime_.config().traffic_generator_mode));
   }
+  if (this->csi_sample_spacing_select_ != nullptr) {
+    this->csi_sample_spacing_select_->publish_state(csi_sample_spacing_name(this->runtime_.config().csi_sample_spacing));
+  }
   if (this->sensing_switch_ != nullptr) {
     static_cast<ESpectreSensingSwitch *>(this->sensing_switch_)->republish_state();
   }
@@ -718,6 +722,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
   capabilities.set(Method::RECALIBRATE, runtime_capabilities.supports_manual_recalibration);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
   capabilities.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, runtime_capabilities.supports_traffic_target_mac);
+  capabilities.set(Method::SET_CSI_SAMPLE_SPACING, runtime_capabilities.supports_csi_sample_spacing);
   capabilities.set(EspectreConfigSection::RUNTIME);
   FrontendCommandResult result = this->command_engine_.execute(
       command,
@@ -776,6 +781,9 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
           out += ",\"motion_off_hits\":" + std::to_string(config.motion_off_hits);
           append_json_pair(&out, "traffic_generator_mode", traffic_generator_mode_name(config.traffic_generator_mode));
           append_json_pair(&out, "traffic_generator_target_mac", config.traffic_generator_target_mac.c_str());
+          if (capabilities.supports(Method::SET_CSI_SAMPLE_SPACING)) {
+            append_json_pair(&out, "csi_sample_spacing", csi_sample_spacing_name(config.csi_sample_spacing));
+          }
           out += "}";
           return out;
         }
@@ -802,6 +810,9 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
       },
       [this](const std::string &target, std::string *) {
         return this->runtime_.set_traffic_generator_target_mac(target);
+      },
+      [this](TemporalCsiSpacing spacing, std::string *) {
+        return this->runtime_.set_csi_sample_spacing(spacing);
       });
   if (result.changes != FrontendCommandChange::NONE) {
     (void) this->direct_bridge_.publish_changes(result.changes);
@@ -810,6 +821,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const std::stri
     this->detector_republished_ = true;
     this->motion_hits_republished_ = true;
     this->traffic_mode_republished_ = true;
+    this->sample_spacing_republished_ = true;
   }
   return result;
 }
@@ -855,6 +867,15 @@ bool ESpectreComponent::set_traffic_generator_mode_runtime(const std::string &mo
   return result.accepted;
 }
 
+bool ESpectreComponent::set_csi_sample_spacing_runtime(const std::string &spacing) {
+  std::string parameters{"{"};
+  append_json_pair(&parameters, "csi_sample_spacing", spacing.c_str(), true);
+  parameters += "}";
+  const FrontendCommandResult result = this->execute_entity_command_("update_sensing", parameters);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
+}
+
 void ESpectreComponent::trigger_recalibration() {
   (void) this->execute_entity_command_("recalibrate");
 }
@@ -870,6 +891,7 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
     this->detector_republished_ = false;
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
+    this->sample_spacing_republished_ = false;
   }
   // Runtime stop and CSI restart events reset motion before sensing is ready.
   (void) this->runtime_events_.post_motion_state(snapshot);
@@ -882,6 +904,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->detector_republished_ = false;
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
+    this->sample_spacing_republished_ = false;
     return;
   }
 
@@ -906,6 +929,10 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
   if (!this->traffic_mode_republished_ && this->traffic_generator_mode_select_ != nullptr) {
     static_cast<ESpectreTrafficModeSelect *>(this->traffic_generator_mode_select_)->republish_state();
     this->traffic_mode_republished_ = true;
+  }
+  if (!this->sample_spacing_republished_ && this->csi_sample_spacing_select_ != nullptr) {
+    static_cast<ESpectreSampleSpacingSelect *>(this->csi_sample_spacing_select_)->republish_state();
+    this->sample_spacing_republished_ = true;
   }
 
 }

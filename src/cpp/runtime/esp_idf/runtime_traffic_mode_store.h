@@ -23,4 +23,11 @@ esp_err_t save_runtime_traffic_generator_target_mac(const std::string &target);
 /** Erase the saved raw destination; a missing value is not an error. */
 esp_err_t clear_runtime_traffic_generator_target_mac();
 
+/** Load a saved CSI sample spacing rule. */
+esp_err_t load_runtime_csi_sample_spacing(TemporalCsiSpacing *spacing, bool *has_saved_value);
+/** Persist a valid CSI sample spacing rule. */
+esp_err_t save_runtime_csi_sample_spacing(TemporalCsiSpacing spacing);
+/** Erase the saved CSI sample spacing rule; a missing value is not an error. */
+esp_err_t clear_runtime_csi_sample_spacing();
+
 }  // namespace espectre

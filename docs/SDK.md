@@ -211,6 +211,7 @@ Set these `RuntimeConfig` fields before setup. The defaults are those of a plain
 | `runtime_detector_selection_enabled` | `bool` | `false` | Allows `set_detection_algorithm()` at runtime; both detectors are then built into flash |
 | `window_size_ms` | `uint32_t` | `1000` | `1000-2000` ms detector window |
 | `csi_target_pps` | `uint32_t` | `100` | `1-500` packets per second the detector and managed traffic aim for |
+| `csi_sample_spacing` | `TemporalCsiSpacing`: `HALF_SLOT` or `DISTINCT` | `HALF_SLOT` | `DISTINCT` helps on congested channels. See [temporal admission](ALGORITHMS.md#temporal-admission) |
 | `csi_capture_policy` | `CsiCapturePolicy`: `AUTO`, `LLTF`, or `HT_VHT` | `AUTO` | Fixed after setup. Other packets are dropped and counted. See [capture profiles](CSI.md#capture-profiles) |
 | `traffic_generator_mode` | `TrafficGeneratorMode`: `PING`, `DNS`, `DNS_TCP`, `WIFI_RAW`, or `EXTERNAL_HOST` | `PING` | What generates the packets the device measures. `WIFI_RAW` is not available on ESP32-C6 and needs `AUTO` or `LLTF` capture. `EXTERNAL_HOST` sends nothing and listens for [external CSI traffic](API.md#external-csi-traffic) |
 | `traffic_generator_target_ip` | `std::string` | empty | See [traffic destination](#traffic-destination) |

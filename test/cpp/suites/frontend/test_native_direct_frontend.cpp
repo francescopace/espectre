@@ -671,8 +671,10 @@ void test_native_frontend_keeps_direct_available_for_a_legacy_mqtt_endpoint(void
 }
 
 
-void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void) {
-  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+// Updates one sensing field over Direct and then MQTT, and checks that the
+// capability flag, the published sensing message, and the Direct read agree.
+void expect_sensing_field_parity(const char *feature, const char *field_name,
+                                 const char *direct_value, const char *mqtt_value) {
   MockMqttTransport mqtt;
   MockDirectHttpService direct;
   NativeFrontend frontend(&mqtt, nullptr, &direct);
@@ -688,7 +690,7 @@ void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void)
   TEST_ASSERT_TRUE(frontend.setup());
   direct.emit_client_count(1U);
   const auto catalog = direct.emit_request(DirectRequest{"", "capabilities", "{}", "/espectre/v1/capabilities", "GET"});
-  TEST_ASSERT_TRUE(catalog.find("\"traffic_generator_target_mac\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find(std::string("\"") + feature + "\":true") != std::string::npos);
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_connection(true);
   const int catalog_index = mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/capabilities");
@@ -705,11 +707,11 @@ void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void)
   for (bool via_mqtt : {false, true}) {
     mqtt_transport_mock::state.publishes.clear();
     direct_http_service_mock::state.published_events.clear();
-    const std::string target = via_mqtt ? "auto" : "10:b4:1d:e8:ec:00";
-    const std::string field = "\"traffic_generator_target_mac\":\"" + target + "\"";
-    if (via_mqtt) mqtt.emit_command("{\"command_id\":\"raw\",\"command\":\"update_sensing\"," + field + "}");
+    const std::string value = via_mqtt ? mqtt_value : direct_value;
+    const std::string field = std::string("\"") + field_name + "\":\"" + value + "\"";
+    if (via_mqtt) mqtt.emit_command("{\"command_id\":\"field\",\"command\":\"update_sensing\"," + field + "}");
     else {
-      const auto result = direct.emit_request(DirectRequest{"raw", "update_sensing", "{" + field + "}"});
+      const auto result = direct.emit_request(DirectRequest{"field", "update_sensing", "{" + field + "}"});
       TEST_ASSERT_TRUE(result.find("\"accepted\":true") != std::string::npos);
     }
     const int index = mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/sensing");
@@ -725,11 +727,23 @@ void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void)
   }
 }
 
+void test_raw_destination_commands_publish_identical_direct_and_mqtt_state(void) {
+  frontend_runtime_shim::state.capabilities.supports_traffic_target_mac = true;
+  expect_sensing_field_parity("traffic_generator_target_mac", "traffic_generator_target_mac",
+                              "10:b4:1d:e8:ec:00", "auto");
+}
+
+void test_sample_spacing_commands_publish_identical_direct_and_mqtt_state(void) {
+  frontend_runtime_shim::state.capabilities.supports_csi_sample_spacing = true;
+  expect_sensing_field_parity("csi_sample_spacing", "csi_sample_spacing", "distinct", "half_slot");
+}
+
 int main(int argc, char **argv) {
   (void) argc;
   (void) argv;
   UNITY_BEGIN();
   RUN_TEST(test_raw_destination_commands_publish_identical_direct_and_mqtt_state);
+  RUN_TEST(test_sample_spacing_commands_publish_identical_direct_and_mqtt_state);
   RUN_TEST(test_native_frontend_direct_service_follows_station_address_lifecycle);
   RUN_TEST(test_native_frontend_direct_requests_share_command_dispatch_and_return_correlated_results);
   RUN_TEST(test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded);

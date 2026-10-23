@@ -100,6 +100,8 @@ enum class EspectreDirectMethod : uint8_t {
   DISCOVER_PEERS,
   /** The `traffic_generator_target_mac` field of `update_sensing`. */
   SET_TRAFFIC_GENERATOR_TARGET_MAC,
+  /** The `csi_sample_spacing` field of `update_sensing`. */
+  SET_CSI_SAMPLE_SPACING,
   /** Number of values; not a capability. */
   COUNT,
 };
@@ -349,6 +351,7 @@ struct EspectreDeviceInfo {
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
   bool supports_traffic_target_mac{false};
+  bool supports_csi_sample_spacing{false};
   /** @} */
   /**
    * Traffic generator mode: `"ping"`, `"dns"`, `"dns_tcp"`, `"wifi_raw"`, or `"external"`.
@@ -410,6 +413,9 @@ struct EspectreCommand {
   /** Raw destination: auto or an explicit unicast MAC. */
   std::string traffic_generator_target_mac;
   bool has_traffic_generator_target_mac{false};
+  /** `update_sensing` sample spacing name; see parse_csi_sample_spacing(). */
+  std::string csi_sample_spacing;
+  bool has_csi_sample_spacing{false};
   /** `update_sensing` detector name; see parse_detection_algorithm(). */
   std::string detector;
   bool has_detector{false};

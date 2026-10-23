@@ -312,6 +312,26 @@ std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttS
   return out;
 }
 
+std::string build_csi_sample_spacing_discovery_payload(const FrontendHaMqttSettings &settings,
+                                                       const EspectreDeviceInfo &info) {
+  std::string out = "{";
+  append_json_pair(&out, "name", "CSI Packet Spacing", true);
+  append_json_pair(&out, "unique_id", settings.csi_sample_spacing_object_id.c_str());
+  append_json_pair(&out, "object_id", settings.csi_sample_spacing_object_id.c_str());
+  append_json_pair(&out, "state_topic", settings.csi_sample_spacing_state_topic.c_str());
+  append_json_pair(&out, "command_topic", settings.csi_sample_spacing_command_topic.c_str());
+  append_discovery_availability(&out, settings);
+  out.append(",\"options\":[");
+  append_json_string(&out, RUNTIME_CSI_SAMPLE_SPACING_HALF_SLOT_NAME);
+  out.push_back(',');
+  append_json_string(&out, RUNTIME_CSI_SAMPLE_SPACING_DISTINCT_NAME);
+  out.push_back(']');
+  append_json_pair(&out, "entity_category", "config");
+  append_discovery_device(&out, settings, info);
+  out.push_back('}');
+  return out;
+}
+
 }  // namespace
 
 bool frontend_ha_mqtt_enabled() {
@@ -351,6 +371,8 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.detector_command_topic = ha_entity_base_topic(config, "detector/set");
   settings.traffic_generator_mode_state_topic = ha_entity_base_topic(config, "traffic_generator_mode/state");
   settings.traffic_generator_mode_command_topic = ha_entity_base_topic(config, "traffic_generator_mode/set");
+  settings.csi_sample_spacing_state_topic = ha_entity_base_topic(config, "csi_sample_spacing/state");
+  settings.csi_sample_spacing_command_topic = ha_entity_base_topic(config, "csi_sample_spacing/set");
   settings.diagnostics_command_topic = ha_entity_base_topic(config, "diagnostics/set");
   settings.ha_object_prefix = device_key;
   settings.motion_object_id = device_key + "_motion_detected";
@@ -362,6 +384,7 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.calibration_active_object_id = device_key + "_calibration_active";
   settings.detector_object_id = device_key + "_detection_profile";
   settings.traffic_generator_mode_object_id = device_key + "_csi_traffic_source";
+  settings.csi_sample_spacing_object_id = device_key + "_csi_packet_spacing";
   settings.diagnostics_object_id = device_key + "_refresh_diagnostics";
   settings.diagnostic_sensors.clear();
   settings.diagnostic_sensors.reserve(sizeof(kDiagnosticSensors) / sizeof(kDiagnosticSensors[0]));
@@ -388,7 +411,8 @@ bool build_frontend_ha_discovery_message(
     const EspectreDeviceInfo &info,
     bool supports_detector,
     bool supports_motion_hits,
-    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message) {
+    bool supports_traffic_control, size_t index, FrontendHaDiscoveryMessage *message,
+    bool supports_csi_sample_spacing) {
   if (message == nullptr) return false;
   if (index-- == 0U) {
     *message = FrontendHaDiscoveryMessage{
@@ -461,6 +485,15 @@ bool build_frontend_ha_discovery_message(
       return true;
     }
   }
+  if (supports_csi_sample_spacing) {
+    if (index-- == 0U) {
+      *message = FrontendHaDiscoveryMessage{
+          build_discovery_topic("select", settings.discovery_prefix, settings.csi_sample_spacing_object_id),
+          build_csi_sample_spacing_discovery_payload(settings, info),
+      };
+      return true;
+    }
+  }
   if (index-- == 0U) {
     *message = FrontendHaDiscoveryMessage{
         build_discovery_topic("button", settings.discovery_prefix, settings.recalibrate_object_id),
@@ -483,12 +516,13 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     const EspectreDeviceInfo &info,
     bool supports_detector,
     bool supports_motion_hits,
-    bool supports_traffic_control) {
+    bool supports_traffic_control,
+    bool supports_csi_sample_spacing) {
   std::vector<FrontendHaDiscoveryMessage> messages;
   FrontendHaDiscoveryMessage message;
   for (size_t index = 0U; build_frontend_ha_discovery_message(
            settings, info, supports_detector, supports_motion_hits,
-           supports_traffic_control, index, &message); ++index) {
+           supports_traffic_control, index, &message, supports_csi_sample_spacing); ++index) {
     messages.push_back(std::move(message));
   }
   return messages;

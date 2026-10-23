@@ -198,6 +198,42 @@ describe('tool reliability analytics', () => {
 });
 
 describe('Monitor traffic source availability', () => {
+    it('offers packet spacing only when advertised, for every traffic source', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const caps = { operations: [{ name: 'update_sensing' }], resources: ['sensing'] };
+        assert.equal(runtime.context.directCapabilitiesSnapshot(caps).supports_csi_sample_spacing, false);
+        caps.features = { csi_sample_spacing: true };
+        assert.equal(runtime.context.directCapabilitiesSnapshot(caps).supports_csi_sample_spacing, true);
+
+        const spacing = { value: 'half_slot', disabled: false };
+        const panel = {
+            dataset: { deviceCommand: 'update_sensing' },
+            hidden: true, querySelectorAll: () => [spacing]
+        };
+        const generator = { value: 'ping', options: [] };
+        const fields = { 'sense-generator-mode': generator, 'sense-sample-spacing': spacing };
+        runtime.context.document.getElementById = (id) => fields[id] || null;
+        runtime.context.$$ = (selector) => selector === '[data-device-command]' ? [panel] : [];
+        runtime.run("conn.mode = 'demo'; conn.status = 'connected'");
+        for (const mode of ['ping', 'dns', 'dns_tcp', 'wifi_raw', 'external']) {
+            generator.value = mode;
+            runtime.context.syncSensingControls();
+            assert.equal(panel.hidden, false, mode);
+            assert.equal(spacing.disabled, false, mode);
+        }
+
+        const requests = [];
+        runtime.setClient({ connected: true, request: async (method, resource, params) => {
+            requests.push({ method, resource, params });
+            return { message: 'ok' };
+        } });
+        runtime.run("route = 'tool-monitor'; conn.mode = 'direct'");
+        spacing.value = 'distinct';
+        await runtime.context.monitorChangeSampleSpacing();
+        assert.deepEqual(requests.map(({ method, resource }) => [method, resource]), [['patch', 'sensing']]);
+        assert.deepEqual({ ...requests[0].params }, { csi_sample_spacing: 'distinct' });
+    });
+
     it('disables wifi_raw on C6 and restores it when the connected chip changes', () => {
         const options = ['ping', 'dns', 'dns_tcp', 'wifi_raw', 'external'].map((value) => ({ value }));
         const context = vm.createContext({

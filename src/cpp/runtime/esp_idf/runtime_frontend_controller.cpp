@@ -312,6 +312,21 @@ bool RuntimeFrontendController::set_traffic_generator_target_mac(const std::stri
   return true;
 }
 
+bool RuntimeFrontendController::set_csi_sample_spacing(TemporalCsiSpacing spacing) {
+  if (!runtime_csi_sample_spacing_valid(spacing)) return false;
+  const bool staged_for_next_setup = runtime_ &&
+      config_.csi_sample_spacing != active_config_.csi_sample_spacing;
+  if (runtime_ && (!capabilities_.supports_csi_sample_spacing ||
+                   !runtime_->set_csi_sample_spacing(spacing))) {
+    apply_deferred_shutdown_();
+    return false;
+  }
+  if (!staged_for_next_setup) config_.csi_sample_spacing = spacing;
+  if (runtime_) active_config_.csi_sample_spacing = spacing;
+  apply_deferred_shutdown_();
+  return true;
+}
+
 bool RuntimeFrontendController::set_detection_algorithm(DetectionAlgorithm algorithm) {
   if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;
@@ -352,7 +367,8 @@ bool RuntimeFrontendController::validate_control_update(const RuntimeControlUpda
         (update.has_threshold && !capabilities_.supports_runtime_threshold_updates) ||
         (update.has_motion_hits && !capabilities_.supports_runtime_motion_hits_updates) ||
         (update.has_traffic_generator_mode && !capabilities_.supports_traffic_control) ||
-        (update.has_traffic_generator_target_mac && !capabilities_.supports_traffic_target_mac)) {
+        (update.has_traffic_generator_target_mac && !capabilities_.supports_traffic_target_mac) ||
+        (update.has_csi_sample_spacing && !capabilities_.supports_csi_sample_spacing)) {
       return reject("sensing control is unsupported by the active runtime");
     }
     if (update.has_traffic_generator_target_mac &&
@@ -422,7 +438,8 @@ RuntimeOperationState RuntimeFrontendController::operation_state() const {
 
 bool RuntimeFrontendController::clear_persisted_overrides() {
   bool cleared = true;
-  for (const esp_err_t err : {clear_runtime_traffic_generator_mode(), clear_runtime_traffic_generator_target_mac(), clear_runtime_motion_hits(),
+  for (const esp_err_t err : {clear_runtime_traffic_generator_mode(), clear_runtime_traffic_generator_target_mac(),
+                              clear_runtime_csi_sample_spacing(), clear_runtime_motion_hits(),
                               clear_runtime_detection_algorithm()}) {
     if (err != ESP_OK) {
       ESPECTRE_LOGW(TAG, "Failed to clear saved sensing controls: %s", esp_err_to_name(err));

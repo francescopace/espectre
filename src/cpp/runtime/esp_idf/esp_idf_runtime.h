@@ -61,6 +61,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool set_traffic_generator_mode(TrafficGeneratorMode mode) override;
   /** Set auto or a unicast raw destination other than this station; restart active raw traffic and persist when enabled. */
   bool set_traffic_generator_target_mac(const std::string &target) override;
+  /** Set the CSI sample spacing rule for every traffic source, and persist it when enabled. */
+  bool set_csi_sample_spacing(TemporalCsiSpacing spacing) override;
   bool set_detection_algorithm(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;

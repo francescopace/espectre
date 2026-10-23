@@ -111,6 +111,7 @@ void EspIdfRuntime::initialize_runtime_state_() {
   capabilities_.supports_extended_diagnostics = true;
   capabilities_.supports_traffic_control = true;
   capabilities_.supports_traffic_target_mac = runtime_traffic_generator_mode_supported(TrafficGeneratorMode::WIFI_RAW);
+  capabilities_.supports_csi_sample_spacing = true;
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
   // Raw CSI uses the same ESP-IDF capture boundary on every supported chip.
   capabilities_.supports_raw_csi = true;
@@ -164,6 +165,19 @@ void EspIdfRuntime::load_persisted_overrides_() {
                     config_.traffic_generator_target_mac.c_str(), saved_target.c_str());
     }
     config_.traffic_generator_target_mac = saved_target;
+  }
+
+  bool has_saved_spacing = false;
+  TemporalCsiSpacing saved_spacing = config_.csi_sample_spacing;
+  const esp_err_t spacing_err = load_runtime_csi_sample_spacing(&saved_spacing, &has_saved_spacing);
+  if (spacing_err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load CSI sample spacing: %s", esp_err_to_name(spacing_err));
+  } else if (has_saved_spacing) {
+    if (saved_spacing != config_.csi_sample_spacing) {
+      ESPECTRE_LOGI(RUNTIME_TAG, "Persisted CSI sample spacing override: configured=%s saved=%s",
+                    csi_sample_spacing_name(config_.csi_sample_spacing), csi_sample_spacing_name(saved_spacing));
+    }
+    config_.csi_sample_spacing = saved_spacing;
   }
 
   uint8_t saved_motion_on_hits = config_.motion_on_hits;
@@ -227,6 +241,7 @@ bool EspIdfRuntime::setup() {
     notify_fault_("Failed to allocate temporal CSI sampler");
     return false;
   }
+  csi_pipeline_.set_csi_sample_spacing(config_.csi_sample_spacing);
   csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
   csi_pipeline_.set_channel_change_callback([this](uint8_t previous_channel, uint8_t current_channel) {
     on_csi_channel_changed_(previous_channel, current_channel);
@@ -567,6 +582,24 @@ bool EspIdfRuntime::set_traffic_generator_target_mac(const std::string &requeste
       recalibrate_for_traffic_change_();
     }
   }
+  return true;
+}
+
+bool EspIdfRuntime::set_csi_sample_spacing(TemporalCsiSpacing spacing) {
+  if (!capabilities_.supports_csi_sample_spacing ||
+      operation_state() == RuntimeOperationState::RAW_COLLECTION ||
+      !runtime_csi_sample_spacing_valid(spacing)) {
+    return false;
+  }
+  if (spacing == config_.csi_sample_spacing) return true;
+  const esp_err_t err = config_.persist_runtime_overrides ? save_runtime_csi_sample_spacing(spacing) : ESP_OK;
+  if (err != ESP_OK) {
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist CSI sample spacing: %s", esp_err_to_name(err));
+    return false;
+  }
+  config_.csi_sample_spacing = spacing;
+  csi_pipeline_.set_csi_sample_spacing(config_.csi_sample_spacing);
+  ESPECTRE_LOGI(RUNTIME_TAG, "CSI sample spacing updated to %s", csi_sample_spacing_name(spacing));
   return true;
 }
 

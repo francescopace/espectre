@@ -176,6 +176,7 @@
         "src/cpp/frontend/esphome/components/espectre/motion_hits_number.cpp",
         "src/cpp/frontend/esphome/components/espectre/sensor_publisher.cpp",
         "src/cpp/frontend/esphome/components/espectre/threshold_number.cpp",
+        "src/cpp/frontend/esphome/components/espectre/sample_spacing_select.cpp",
         "src/cpp/frontend/esphome/components/espectre/traffic_mode_select.cpp"
       ]
     },

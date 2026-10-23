@@ -82,6 +82,7 @@ At boot, the threshold starts from the selected profile's SDK default: High Accu
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` / `external` selection |
+| `csi_sample_spacing_select` | select | `CSI Packet Spacing` | Runtime `half_slot` / `distinct` sample spacing |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine; publishes the runtime state at startup |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Whether calibration is running (read-only) |
@@ -196,6 +197,19 @@ espectre:
 ```
 
 Raw collection needs Direct; see the [`collect` command](../../../../docs/CLI.md#collect). Collection switches the device to external mode, and it stays there afterwards.
+
+### Sample spacing
+
+On a busy channel, packets can arrive in back-to-back pairs and leave the slot before each pair empty. `distinct` lets the earlier packet fill it:
+
+```yaml
+espectre:
+  csi_sample_spacing: distinct # Default: half_slot
+```
+
+The YAML value is where the device starts. The `csi_sample_spacing_select` entity and Direct change it at runtime, and the device remembers the last choice.
+
+See [low occupancy](../../../../docs/TROUBLESHOOTING.md#low-occupancy) for when to use it.
 
 ## Build and consumption
 
@@ -343,4 +357,5 @@ This section is for component maintainers. `sensing_schema.py` is generated from
 - [`sensing_switch.cpp`](components/espectre/sensing_switch.cpp): sensing lifecycle control
 - [`recalibrate_button.cpp`](components/espectre/recalibrate_button.cpp): runtime recalibration action
 - [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime traffic generator mode control
+- [`sample_spacing_select.cpp`](components/espectre/sample_spacing_select.cpp): runtime CSI sample spacing control
 - [`examples/`](examples/): production and local-development configurations for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, plus the Home Assistant dashboard

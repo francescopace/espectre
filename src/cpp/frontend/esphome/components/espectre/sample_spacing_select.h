@@ -1,0 +1,32 @@
+/*
+ * ESPectre - Sample Spacing Select
+ *
+ * ESPHome select entity for the runtime CSI sample spacing rule.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
+ */
+#pragma once
+
+#include "esphome/components/select/select.h"
+#include "esphome/core/component.h"
+
+namespace esphome {
+namespace espectre_component {
+
+class ESpectreComponent;
+
+class ESpectreSampleSpacingSelect : public select::Select, public Component {
+ public:
+  void dump_config() override;
+  void set_parent(ESpectreComponent *parent) { this->parent_ = parent; }
+  void republish_state();
+
+ protected:
+  void control(const std::string &value) override;
+  ESpectreComponent *parent_{nullptr};
+};
+
+}  // namespace espectre_component
+}  // namespace esphome

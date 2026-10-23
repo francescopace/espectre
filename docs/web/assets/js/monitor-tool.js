@@ -578,6 +578,16 @@
         return saving;
     }
 
+    function monitorChangeSampleSpacing() {
+        const csiSampleSpacing = document.getElementById('sense-sample-spacing').value;
+        return runSensingCommand(
+            { command: 'update_sensing', csi_sample_spacing: csiSampleSpacing },
+            'Saving packet spacing…',
+            'Packet spacing updated.',
+            () => { demoSysinfoSnapshot.csi_sample_spacing = csiSampleSpacing; }
+        );
+    }
+
     function monitorInit() {
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
@@ -636,6 +646,7 @@
                 }
             );
         });
+        document.getElementById('sense-sample-spacing').addEventListener('change', monitorChangeSampleSpacing);
         document.getElementById('sense-raw-target').addEventListener('change', monitorChangeRawTarget);
         document.getElementById('sense-raw-target-refresh').addEventListener('click', monitorRefreshRawTrafficTargets);
         window.addEventListener('resize', monitorResizeChart);

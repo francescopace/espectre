@@ -119,6 +119,12 @@ bool EspIdfRuntime::set_traffic_generator_target_mac(const std::string &target) 
   return true;
 }
 
+bool EspIdfRuntime::set_csi_sample_spacing(TemporalCsiSpacing spacing) {
+  frontend_runtime_shim::state.set_csi_sample_spacing_calls++;
+  config_.csi_sample_spacing = spacing;
+  return true;
+}
+
 bool EspIdfRuntime::set_detection_algorithm(DetectionAlgorithm algorithm) {
   frontend_runtime_shim::state.set_detector_calls++;
   frontend_runtime_shim::state.last_detector = algorithm;

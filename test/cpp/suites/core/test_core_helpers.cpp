@@ -347,6 +347,61 @@ void test_temporal_csi_sampler_fills_free_neighbour_slots(void) {
     TEST_ASSERT_EQUAL(2U, spaced.excess_packets());
 }
 
+void test_temporal_csi_sampler_distinct_spacing_is_opt_in(void) {
+    // Mirrors the Python spacing traces in test_runtime_policy.py.
+    TEST_ASSERT_EQUAL(1U, temporal_minimum_sample_spacing_us(100U, TemporalCsiSpacing::DISTINCT));
+    TEST_ASSERT_EQUAL(5000U, temporal_minimum_sample_spacing_us(100U, TemporalCsiSpacing::HALF_SLOT));
+    TEST_ASSERT_EQUAL(0U, temporal_minimum_sample_spacing_us(0U, TemporalCsiSpacing::DISTINCT));
+
+    // A delayed pair after a gap: the earlier frame backfills slot 2 only
+    // when distinct timestamps are enough.
+    const uint32_t pair[] = {0U, 10000U, 26000U, 26113U, 40000U};
+    TemporalCsiSampler half(100U, 1000U);
+    TEST_ASSERT_TRUE(half.spacing() == TemporalCsiSpacing::HALF_SLOT);
+    for (uint32_t timestamp : pair) half.admit(timestamp);
+    TEST_ASSERT_TRUE(half.flush());
+    TEST_ASSERT_EQUAL(4U, half.accepted_packets());
+    TEST_ASSERT_EQUAL(1U, half.excess_packets());
+    TEST_ASSERT_EQUAL(1U, half.missing_slots());
+
+    TemporalCsiSampler distinct(100U, 1000U, TemporalCsiSpacing::DISTINCT);
+    TEST_ASSERT_EQUAL(1U, distinct.minimum_sample_spacing_us());
+    uint64_t slots[5] = {};
+    size_t committed = 0U;
+    for (uint32_t timestamp : pair) {
+        if (distinct.admit(timestamp)) slots[committed++] = distinct.current_slot();
+    }
+    TEST_ASSERT_TRUE(distinct.flush());
+    slots[committed++] = distinct.current_slot();
+    TEST_ASSERT_EQUAL(5U, committed);
+    for (size_t index = 0U; index < committed; ++index) {
+        TEST_ASSERT_EQUAL(index, slots[index]);
+    }
+    TEST_ASSERT_EQUAL(0U, distinct.excess_packets());
+    TEST_ASSERT_EQUAL(0U, distinct.missing_slots());
+
+    // The neighbour tolerance still bounds a burst to one slot.
+    for (TemporalCsiSpacing spacing : {TemporalCsiSpacing::HALF_SLOT, TemporalCsiSpacing::DISTINCT}) {
+        TemporalCsiSampler burst(100U, 1000U, spacing);
+        for (uint32_t timestamp : {0U, 10000U, 20000U, 20100U, 20200U, 20300U, 30000U}) {
+            burst.admit(timestamp);
+        }
+        TEST_ASSERT_TRUE(burst.flush());
+        TEST_ASSERT_EQUAL(4U, burst.accepted_packets());
+        TEST_ASSERT_EQUAL(3U, burst.excess_packets());
+    }
+
+    // The rule can change on a live sampler and survives reconfiguration.
+    TemporalCsiSampler live(100U, 1000U);
+    TEST_ASSERT_FALSE(live.admit(0U));
+    live.set_spacing(TemporalCsiSpacing::DISTINCT);
+    TEST_ASSERT_TRUE(live.has_pending_candidate());
+    TEST_ASSERT_EQUAL(1U, live.minimum_sample_spacing_us());
+    TEST_ASSERT_TRUE(live.configure(50U, 1000U));
+    TEST_ASSERT_TRUE(live.spacing() == TemporalCsiSpacing::DISTINCT);
+    TEST_ASSERT_EQUAL(1U, live.minimum_sample_spacing_us());
+}
+
 void test_wrapping_timestamp_order_resyncs_only_after_an_advancing_run(void) {
     WrappingTimestampOrder order(1000U);
     TEST_ASSERT_TRUE(order.observe(100U) == WrappingTimestampOrderResult::FIRST);
@@ -866,8 +921,6 @@ void test_high_accuracy_detector_move_semantics_and_cv_state(void) {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, moved.get_motion_metric());
 
     // Run inference after the move: this drives the feature scratch block and
-    RUN_TEST(test_wrapping_timestamp_order_resyncs_only_after_an_advancing_run);
-    RUN_TEST(test_temporal_csi_sampler_recovers_after_a_wrap_length_silence);
     // the reorder buffer, which the move had to carry over.
     const uint16_t window = moved.get_window_size();
     fill_past_window(moved, static_cast<uint16_t>(window + 20));
@@ -928,6 +981,9 @@ int process(void) {
     RUN_TEST(test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets);
     RUN_TEST(test_temporal_csi_sampler_tolerates_alternating_scheduler_jitter);
     RUN_TEST(test_temporal_csi_sampler_fills_free_neighbour_slots);
+    RUN_TEST(test_temporal_csi_sampler_distinct_spacing_is_opt_in);
+    RUN_TEST(test_wrapping_timestamp_order_resyncs_only_after_an_advancing_run);
+    RUN_TEST(test_temporal_csi_sampler_recovers_after_a_wrap_length_silence);
     RUN_TEST(test_temporal_csi_sampler_handles_wrap_and_window_gap);
     RUN_TEST(test_temporal_csi_sampler_clears_window_without_rephasing);
     RUN_TEST(test_temporal_csi_sampler_matches_python_cross_runtime_trace);
