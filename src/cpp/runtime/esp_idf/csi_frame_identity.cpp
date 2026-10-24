@@ -218,7 +218,9 @@ bool matches_external_udp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &
 }
 
 bool matches_external_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
-  return packet.protocol == kIpProtoIcmp && destination_ip_matches(packet, config, false) &&
+  // Echo Requests to the configured group need CONFIG_LWIP_MULTICAST_PING so
+  // lwIP answers them; without that reply the station sends no uplink.
+  return packet.protocol == kIpProtoIcmp && destination_ip_matches(packet, config, true) &&
          packet.transport_len >= kTransportMinimumHeaderBytes &&
          packet.transport[0] == 8U && packet.transport[1] == 0U;
 }

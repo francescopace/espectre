@@ -142,6 +142,7 @@ The Native, Matter, and ESPHome firmware use these options:
 | `CONFIG_PM_ENABLE` | `n` | Keeps frequency scaling and light sleep off. This is the ESP-IDF default. |
 | `CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE` | `n` | Keeps Wi-Fi power saving off while reconnecting. |
 | `CONFIG_FREERTOS_HZ` | `1000` | Millisecond timing for traffic pacing. |
+| `CONFIG_LWIP_MULTICAST_PING` | `y` | Answers ICMP Echo Requests sent to the [external traffic](CSI.md#external-sources) multicast group. |
 
 Turning off A-MPDU lowers Wi-Fi throughput for the whole firmware, so OTA updates and other network services get slower. The Native firmware also raises Wi-Fi buffer counts and lwIP mailbox sizes; see its [sdkconfig.defaults](../src/cpp/frontend/native/app/sdkconfig.defaults).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Ingress-only panel; UDP pacing runs independently in the shared generator."""
+"""Ingress-only panel; traffic pacing runs independently in the shared generator."""
 
 import asyncio
 import hmac
@@ -71,8 +71,9 @@ async def protect_ingress(request, handler):
 
 def generator_status(generator):
     return {"running": generator.running, "targets": list(generator.targets),
-            "port": generator.port, "rate_pps": generator.rate_pps,
-            "sent_packets": generator.sent_packets, "send_errors": generator.send_errors}
+            "protocol": generator.protocol, "port": generator.port, "rate_pps": generator.rate_pps,
+            "sent_packets": generator.sent_packets, "send_errors": generator.send_errors,
+            "replies_received": generator.replies_received}
 
 
 async def status(request):
@@ -179,7 +180,7 @@ async def control_generator(request):
         expected = payload["action"] == "start"
         await asyncio.to_thread(generator.start if expected else generator.stop)
         request.app[GENERATOR_STATE].expected_running = expected
-        logging.info("UDP generator %s requested from panel", payload["action"])
+        logging.info("Traffic generator %s requested from panel", payload["action"])
         return web.json_response({"generator": generator_status(generator)})
 
 
@@ -226,7 +227,7 @@ async def serve():
         await web.TCPSite(runner, "0.0.0.0", ingress_port).start()
         generator.start()
         app[GENERATOR_STATE].expected_running = True
-        logging.info("UDP generator started: %s", json.dumps(options))
+        logging.info("Traffic generator started: %s", json.dumps(options))
         logging.info("Panel ready through Home Assistant Ingress on port %s", ingress_port)
         next_report = time.monotonic() + 60
         reported_errors = 0
@@ -236,12 +237,12 @@ async def serve():
             except TimeoutError:
                 pass
             if generator_failed(app):
-                raise RuntimeError("UDP generator stopped unexpectedly")
+                raise RuntimeError("Traffic generator stopped unexpectedly")
             if time.monotonic() >= next_report:
                 # The panel shows live counters; the log reports only new send errors.
                 send_errors = generator.send_errors
                 if send_errors > reported_errors:
-                    logging.warning("UDP send errors: %s in the last minute, %s in total",
+                    logging.warning("Send errors: %s in the last minute, %s in total",
                                     send_errors - reported_errors, send_errors)
                     reported_errors = send_errors
                 next_report = time.monotonic() + 60

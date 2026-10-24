@@ -3,10 +3,14 @@ configuration:
     name: 目标地址
     description: >-
       保留 239.255.0.1，可通过单个组播数据流向该组内的所有 ESPectre 设备发送流量。如果组播无法正常工作，请改用各设备的 IPv4 地址。请勿输入主机名或 URL，也不要同时通过组播和设备自身的地址向同一设备发送流量。
+  protocol:
+    name: 流量类型
+    description: >-
+      大多数情况下请选择 icmp（ping）：每台设备都会回复每个 ping，这个回复让设备持续发送，从而避免空房间中的误报。向多播组发送 ping 需要 ESPectre 3.1.0 或更高版本。仅在需要节省空口时间时保留默认的 udp：UDP 标记不会得到回复，如果设备没有持续发送流量，接入点可能会降低设备所测量信号的质量。设备向 Home Assistant 发送的常规更新并不足够。ping 占用的空口时间约为 udp 的两倍。
   port:
     name: 目标 UDP 端口
     description: >-
-      除非已在 ESPectre 固件中修改外部流量端口，否则请保留 5555。这是设备接收数据的端口，不是在 Home Assistant 上开放的服务。
+      仅在 udp 时使用。除非已在 ESPectre 固件中修改外部流量端口，否则请保留 5555。这是设备接收数据的端口，不是在 Home Assistant 上开放的服务。
   rate_pps:
     name: 每个目标每秒的数据包数
     description: >-

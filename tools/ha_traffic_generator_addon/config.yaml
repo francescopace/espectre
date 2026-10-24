@@ -1,5 +1,5 @@
 name: "ESPectre Traffic Generator"
-version: "0.3.1"
+version: "0.4.0"
 slug: "espectre_traffic_generator"
 description: "Generate external traffic for ESPectre devices."
 url: "https://espectre.dev/guides/home-assistant/"
@@ -19,6 +19,7 @@ arch:
 options:
   targets:
     - "239.255.0.1"
+  protocol: udp
   port: 5555
   rate_pps: 100
   source_ip: ""
@@ -27,6 +28,7 @@ options:
 schema:
   targets:
     - str
+  protocol: list(udp|icmp)
   port: port
   rate_pps: "int(1,1000)"
   source_ip: "str?"

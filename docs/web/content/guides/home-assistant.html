@@ -87,7 +87,7 @@
 
     <h2 id="ha-traffic-generator">Optional — Run the traffic generator app</h2>
     <p>The <strong>ESPectre Traffic Generator</strong> is a Home Assistant app (formerly called an add-on) that sends a steady stream of packets from Home Assistant to your sensors. In external mode, several sensors share one multicast stream instead of each sending its own requests to the router. Its sidebar panel switches ESPHome and Native MQTT devices between their own (internal) traffic and this external traffic. You don't need the dashboard above to use it.</p>
-    <p>You need 64-bit Home Assistant OS (<code>aarch64</code> or <code>amd64</code>), an administrator account, Internet access for the installation, and ESPectre 3.0 firmware (prereleases included). Home Assistant must reach the devices on UDP port <code>5555</code>. Container, Core, Supervised, and 32-bit installations are not supported.</p>
+    <p>You need 64-bit Home Assistant OS (<code>aarch64</code> or <code>amd64</code>), an administrator account, Internet access for the installation, and ESPectre 3.0 firmware (prereleases included). Home Assistant must reach the devices by ping, or on UDP port <code>5555</code>. Ping to the multicast group needs ESPectre 3.1.0 or later. Container, Core, Supervised, and 32-bit installations are not supported.</p>
 
     <h3>Install and start the app</h3>
     <ol class="steps-list">
@@ -102,7 +102,8 @@
     </figure>
 
     <h3>Check the traffic settings</h3>
-    <p>For a first test, keep <em>Target addresses</em> at <code>239.255.0.1</code>, the UDP port at <code>5555</code>, and the rate at <code>100</code> packets per second per target. Leave <em>Source IPv4 address</em> empty. The address, port, and rate must match the devices' external traffic settings; the app does not change them.</p>
+    <p>For a first test, keep <em>Target addresses</em> at <code>239.255.0.1</code> and the rate at <code>100</code> packets per second per target. Leave <em>Source IPv4 address</em> empty. The address, port, and rate must match the devices' external traffic settings; the app does not change them.</p>
+    <p>Set <em>Traffic type</em> to <code>icmp</code> when your sensors run ESPectre 3.1.0 or later. Each sensor answers every ping, and that reply keeps it transmitting while it measures, so an empty room stays quiet. With <code>udp</code>, the default, the sensors send almost nothing back, and the access point can then degrade the signal they measure: an empty room may show motion. Choose <code>udp</code> only to save airtime, or for older firmware on the multicast group. The UDP port, <code>5555</code>, applies only to <code>udp</code>.</p>
     <p>If multicast does not reach your sensors, list their IPv4 addresses instead, and reserve those addresses in your router. Never send to a sensor both by multicast and by its IP, or from two generators at once. Save and restart the app after changing options.</p>
     <!-- Screenshot source: https://github.com/user-attachments/assets/f76b0fc0-d770-40d7-8d82-6807fd1de6c7 -->
     <figure>

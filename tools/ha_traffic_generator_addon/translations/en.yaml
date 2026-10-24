@@ -6,10 +6,14 @@ configuration:
       that group. If multicast does not work, replace it with the devices'
       IPv4 addresses. Do not enter hostnames or URLs, or target the same device
       through both multicast and its own address.
+  protocol:
+    name: Traffic type
+    description: >-
+      Choose icmp (ping) in most setups: each device answers every ping, and that reply keeps it transmitting, which avoids false motion in an empty room. Ping to the multicast group needs ESPectre 3.1.0 or later. Keep udp, the default, only to save airtime: UDP markers get no reply, and without steady traffic from the devices the access point can degrade the signal they measure. Their normal updates to Home Assistant are not enough. Ping uses about twice the airtime of udp.
   port:
     name: Destination UDP port
     description: >-
-      Leave at 5555 unless you changed the external traffic port in the
+      Used only with udp. Leave at 5555 unless you changed the external traffic port in the
       ESPectre firmware. This is the receiving port on the devices, not a
       service opened on Home Assistant.
   rate_pps:

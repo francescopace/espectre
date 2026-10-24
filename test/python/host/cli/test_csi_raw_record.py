@@ -839,6 +839,155 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(
     assert sockets[0].closed
 
 
+class _FakeIcmpSocket:
+    """ICMP socket double: records sends and returns queued packets once per drain."""
+
+    def __init__(self, replies=()):
+        self.options = []
+        self.bound = None
+        self.sent = []
+        self.replies = list(replies)
+        self.closed = False
+        self.generator = None
+
+    def setsockopt(self, level, option, value):
+        self.options.append((level, option, value))
+
+    def bind(self, address):
+        self.bound = address
+
+    def getsockname(self):
+        # Linux assigns a ping socket's Echo identifier as its local port.
+        return ("0.0.0.0", 0x0102)
+
+    def sendto(self, payload, destination):
+        self.sent.append((payload, destination))
+        if len(self.sent) == 4:
+            self.generator._stop_event.set()
+
+    def recv(self, _size):
+        if self.replies:
+            return self.replies.pop(0)
+        raise BlockingIOError
+
+    def close(self):
+        self.closed = True
+
+
+def _echo_reply(identifier, with_ip_header=False):
+    reply = bytes([0, 0, 0, 0]) + identifier.to_bytes(2, "big") + bytes(2)
+    return (bytes([0x45]) + bytes(19) + reply) if with_ip_header else reply
+
+
+def _poll_fake_icmp_socket(monkeypatch, fake):
+    monkeypatch.setattr(espectre_traffic_generator.select, "select",
+                        lambda read, _write, _error, _timeout: (read if fake.replies else [], [], []))
+
+
+def _run_until_stopped(generator):
+    with generator as active:
+        deadline = time.monotonic() + 1.0
+        while active.running and time.monotonic() < deadline:
+            time.sleep(0.001)
+    assert not generator.running
+
+
+def test_external_traffic_generator_sends_empty_echo_requests_and_counts_replies(monkeypatch):
+    fake = _FakeIcmpSocket(replies=[_echo_reply(0x0102), _echo_reply(0x0103), b"short"])
+    opened = []
+    _poll_fake_icmp_socket(monkeypatch, fake)
+
+    def open_socket(*args):
+        opened.append(args)
+        return fake
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", open_socket)
+    generator = espectre_traffic_generator.ExternalTrafficGenerator(
+        ["127.0.0.1", "239.255.0.1"], rate_pps=1000, source_ip="127.0.0.3", protocol="icmp",
+    )
+    fake.generator = generator
+
+    _run_until_stopped(generator)
+
+    assert opened == [(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)]
+    assert fake.closed
+    assert generator.sent_by_target == {"127.0.0.1": 2, "239.255.0.1": 2}
+    # Only the reply carrying the socket's identifier counts.
+    assert generator.replies_received == 1
+    options = {(level, option): value for level, option, value in fake.options}
+    assert options[socket.IPPROTO_IP, socket.IP_MULTICAST_IF] == socket.inet_aton("127.0.0.3")
+    sequences = []
+    for payload, destination in fake.sent:
+        assert destination[1] == 0
+        assert len(payload) == 8 and payload[:2] == bytes([8, 0])
+        assert espectre_traffic_generator.icmp_checksum(payload) == 0
+        sequences.append(int.from_bytes(payload[6:8], "big"))
+    assert sequences == [0, 0, 1, 1]
+
+
+def test_external_traffic_generator_falls_back_to_a_raw_icmp_socket(monkeypatch):
+    fake = _FakeIcmpSocket()
+    kinds = []
+    _poll_fake_icmp_socket(monkeypatch, fake)
+
+    def open_socket(_family, kind, _protocol):
+        kinds.append(kind)
+        if kind == socket.SOCK_DGRAM:
+            raise PermissionError("ping sockets disabled")
+        return fake
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", open_socket)
+    generator = espectre_traffic_generator.ExternalTrafficGenerator(
+        ["127.0.0.1"], rate_pps=1000, protocol="icmp",
+    )
+    fake.generator = generator
+    original_send = fake.sendto
+
+    def send_and_queue_replies(payload, destination):
+        identifier = int.from_bytes(payload[4:6], "big")
+        # A raw socket also sees replies to other programs on the host.
+        fake.replies[:] = [_echo_reply(identifier, with_ip_header=True),
+                           _echo_reply(identifier ^ 0xFFFF, with_ip_header=True)]
+        original_send(payload, destination)
+
+    fake.sendto = send_and_queue_replies
+    _run_until_stopped(generator)
+
+    assert kinds == [socket.SOCK_DGRAM, socket.SOCK_RAW]
+    assert generator.replies_received == 3
+
+
+def test_external_traffic_generator_explains_unavailable_icmp_sockets(monkeypatch):
+    def deny(*_args):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", deny)
+    with pytest.raises(OSError, match="ping_group_range"):
+        espectre_traffic_generator.open_icmp_socket()
+
+
+def test_external_traffic_generator_refuses_icmp_on_windows(monkeypatch):
+    opened = []
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *args: opened.append(args))
+    with monkeypatch.context() as patch:
+        patch.setattr(espectre_traffic_generator.os, "name", "nt")
+        with pytest.raises(OSError, match="not supported on Windows"):
+            espectre_traffic_generator.open_icmp_socket()
+    assert opened == []
+
+
+@pytest.mark.parametrize("protocol", ["tcp", "ICMP", "", None, 1])
+def test_external_traffic_generator_rejects_unknown_protocol(tmp_path, protocol):
+    with pytest.raises(ValueError, match="protocol"):
+        espectre_traffic_generator.ExternalTrafficGenerator(["239.255.0.1"], protocol=protocol)
+    options_file = tmp_path / "options.json"
+    options_file.write_text(json.dumps({
+        "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100, "protocol": protocol,
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="protocol"):
+        traffic_addon.load_options(options_file)
+
+
 @pytest.mark.parametrize("multicast_ttl", [-1, 0, 256, True, 1.5, "8", None])
 def test_external_traffic_generator_rejects_invalid_multicast_ttl(tmp_path, multicast_ttl):
     with pytest.raises(ValueError, match="multicast_ttl"):
@@ -869,6 +1018,7 @@ def test_external_traffic_generator_rejects_invalid_dscp(tmp_path, dscp):
 @pytest.mark.parametrize("overrides", [
     {}, {"multicast_ttl": 1}, {"multicast_ttl": 255},
     {"dscp": 0}, {"dscp": 63}, {"multicast_ttl": 1, "dscp": 0},
+    {"protocol": "icmp"}, {"protocol": "udp"},
 ])
 def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monkeypatch, overrides):
     options_file = tmp_path / "options.json"
@@ -885,7 +1035,8 @@ def test_traffic_addon_passes_network_options_to_shared_generator(tmp_path, monk
 
     assert observed == [{
         "targets": ["239.255.0.1"], "port": 5555, "rate_pps": 100,
-        "source_ip": "192.168.1.10", "multicast_ttl": 8, "dscp": 46, **overrides,
+        "source_ip": "192.168.1.10", "multicast_ttl": 8, "dscp": 46, "protocol": "udp",
+        **overrides,
     }]
 
 
@@ -1298,8 +1449,9 @@ def test_ha_panel_http_routes_restrict_ingress_csrf_and_action_scope():
             async def act(self, ids, action):
                 self.calls.append((ids, action))
                 return {"results": []}
-        generator = SimpleNamespace(running=True, targets=["239.255.0.1"], port=5555,
-                                    rate_pps=100, sent_packets=10, send_errors=0)
+        generator = SimpleNamespace(running=True, targets=["239.255.0.1"], protocol="udp", port=5555,
+                                    rate_pps=100, sent_packets=10, send_errors=0,
+                                    replies_received=0)
         ha = HA()
         async with TestClient(TestServer(panel.create_app(ha, generator))) as client:
             response = await client.get("/api/status", headers={"X-Forwarded-For": panel.INGRESS_ADDRESS})
@@ -1445,8 +1597,9 @@ def test_ha_panel_websocket_requires_csrf_and_streams_without_browser_polling():
         async with TestServer(backend) as server:
             ha = ha_client.HomeAssistant("test-supervisor-secret",
                                          endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"))
-            generator = SimpleNamespace(running=False, targets=["239.255.0.1"], port=5555,
-                                        rate_pps=100, sent_packets=7, send_errors=0)
+            generator = SimpleNamespace(running=False, targets=["239.255.0.1"], protocol="udp", port=5555,
+                                        rate_pps=100, sent_packets=7, send_errors=0,
+                                        replies_received=0)
             async with TestClient(TestServer(panel.create_app(ha, generator, allowed_peer="127.0.0.1"))) as client:
                 async with client.ws_connect("/api/stream") as socket:
                     await socket.send_json({"csrf": "wrong"})

@@ -419,10 +419,22 @@ void test_external_accepts_bounded_shifted_llc_frame(void) {
   TEST_ASSERT_FALSE(matches(beyond_scan, config));
 }
 
-void test_external_accepts_unicast_ping_requests(void) {
-  const CsiFrameFilterConfig config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
+void test_external_accepts_unicast_and_group_ping_requests(void) {
+  CsiFrameFilterConfig config = filter(TrafficGeneratorMode::EXTERNAL_HOST);
   TEST_ASSERT_TRUE(matches(ping_request(kGateway), config));
   TEST_ASSERT_TRUE(matches(ping_request(kOther), config));
+
+  // The configured group is accepted as delivered by the AP, and after an
+  // AP converts it to unicast for this station.
+  const auto group = ping_request(kOther, kMulticast);
+  TEST_ASSERT_TRUE(matches(group, config, kMulticastMac));
+  TEST_ASSERT_TRUE(matches(group, config));
+  TEST_ASSERT_FALSE(matches(group, config, kOtherMac));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther, kMulticast ^ 0x01000000U), config, kMulticastMac));
+
+  config.multicast_ip_addr = 0U;
+  TEST_ASSERT_FALSE(matches(group, config, kMulticastMac));
+  TEST_ASSERT_FALSE(matches(group, config));
 }
 
 void test_external_accepts_direct_null_and_espnow_without_ip_identity(void) {
@@ -657,7 +669,7 @@ void test_external_rejects_other_icmp_traffic(void) {
   TEST_ASSERT_FALSE(matches(ping_request(kOther, kLocal, 1U), config));
   TEST_ASSERT_FALSE(matches(ping_request(kOther, kOther), config));
   TEST_ASSERT_FALSE(matches(ping_request(kOther), config, kOtherMac));
-  TEST_ASSERT_FALSE(matches(ping_request(kOther, kMulticast), config, kMulticastMac));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther, kMulticast, 1U), config, kMulticastMac));
 }
 
 void test_internal_ping_requires_gateway_echo_reply_and_active_identifier(void) {
@@ -736,7 +748,7 @@ int main() {
   RUN_TEST(test_external_accepts_multicast_to_local_mac_with_canonical_identity);
   RUN_TEST(test_external_rejects_udp_length_mismatch_and_data_after_marker);
   RUN_TEST(test_external_accepts_bounded_shifted_llc_frame);
-  RUN_TEST(test_external_accepts_unicast_ping_requests);
+  RUN_TEST(test_external_accepts_unicast_and_group_ping_requests);
   RUN_TEST(test_external_accepts_direct_null_and_espnow_without_ip_identity);
   RUN_TEST(test_external_radio_requires_direct_local_unicast_and_valid_header);
   RUN_TEST(test_external_padded_null_requires_ht20_or_vht20_and_exact_zero_padding);

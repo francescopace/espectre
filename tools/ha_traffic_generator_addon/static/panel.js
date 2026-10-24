@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 let rows = [], csrf = "", busy = false, pending = null, connectTask = null, reconnectTimer = null, actionMessage = "", pageActive = true;
 const selected = new Set();
 const deviceElements = new Map();
-let generatorRunning = null;
+let generatorRunning = null, generatorProtocol = null;
 let streamSocket = null;
 const base = new URL(location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`, location.origin);
 
@@ -196,12 +196,15 @@ async function loadStatus() {
 
 function showGenerator(generator) {
   generatorRunning = generator.running;
+  generatorProtocol = generator.protocol;
   $("generator-toggle").textContent = generator.running ? "Stop" : "Start";
-  $("generator-toggle").title = generator.running ? "Stop UDP traffic; device modes stay unchanged" : "Start UDP traffic";
+  $("generator-toggle").title = generator.running ? "Stop traffic; device modes stay unchanged" : "Start traffic";
   $("running").textContent = generator.running ? "Running" : "Stopped";
   $("rate").textContent = `${generator.rate_pps} pps`;
   $("errors").textContent = generator.send_errors.toLocaleString();
-  $("targets").textContent = `${generator.targets.join(", ")} · UDP ${generator.port}`;
+  $("targets").textContent = generator.protocol === "icmp"
+    ? `${generator.targets.join(", ")} · ping, ${(generator.replies_received ?? 0).toLocaleString()} replies`
+    : `${generator.targets.join(", ")} · UDP ${generator.port}`;
   controls();
 }
 
@@ -220,7 +223,8 @@ function propose(action, ids) {
   scheduleStream();
   $("confirm-title").textContent = `Use ${action} traffic?`;
   $("confirm-message").textContent = `${rows.filter(row => ids.includes(row.id)).map(row => row.name).join(", ")}. ` +
-    (action === "external" ? "Check targets, UDP port, and rate. Calibration may restart." : "Resume internal traffic. Calibration may restart.");
+    (action === "external"
+      ? `Check targets${generatorProtocol === "icmp" ? "" : ", UDP port,"} and rate. Calibration may restart.` : "Resume internal traffic. Calibration may restart.");
   $("confirm").returnValue = "cancel";
   $("confirm").showModal();
 }

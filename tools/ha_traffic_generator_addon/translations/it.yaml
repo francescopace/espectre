@@ -7,10 +7,14 @@ configuration:
       con gli indirizzi IPv4 dei dispositivi. Non inserire nomi host o URL e non
       inviare traffico allo stesso dispositivo sia tramite multicast sia tramite
       il suo indirizzo.
+  protocol:
+    name: Tipo di traffico
+    description: >-
+      Scegli icmp (ping) nella maggior parte dei casi: ogni dispositivo risponde a ogni ping, e quella risposta lo fa continuare a trasmettere, evitando falsi movimenti in una stanza vuota. Il ping al gruppo multicast richiede ESPectre 3.1.0 o successivo. Mantieni udp, il valore predefinito, solo per risparmiare tempo radio: i marker UDP non ricevono risposta, e senza traffico costante dai dispositivi l'access point può degradare il segnale che misurano. I loro normali aggiornamenti verso Home Assistant non bastano. Il ping usa circa il doppio del tempo radio di udp.
   port:
     name: Porta UDP di destinazione
     description: >-
-      Lascia 5555, a meno che tu non abbia modificato la porta del traffico esterno
+      Usata solo con udp. Lascia 5555, a meno che tu non abbia modificato la porta del traffico esterno
       nel firmware ESPectre. È la porta di ricezione dei dispositivi, non un
       servizio aperto su Home Assistant.
   rate_pps:

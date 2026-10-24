@@ -573,6 +573,8 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_LWIP_IRAM_OPTIMIZATION", True)
     add_idf_sdkconfig_option("CONFIG_LWIP_TCPIP_RECVMBOX_SIZE", 32)
     add_idf_sdkconfig_option("CONFIG_LWIP_UDP_RECVMBOX_SIZE", 16)
+    # External traffic may ping the multicast group; the reply is the uplink.
+    add_idf_sdkconfig_option("CONFIG_LWIP_MULTICAST_PING", True)
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Threshold is selected automatically at startup and remains adjustable

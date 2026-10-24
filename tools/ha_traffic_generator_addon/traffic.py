@@ -7,9 +7,9 @@ import ipaddress
 import json
 
 if __package__:
-    from .espectre_traffic_generator import DSCP, MULTICAST_TTL, run
+    from .espectre_traffic_generator import DSCP, MULTICAST_TTL, PROTOCOLS, run
 else:
-    from espectre_traffic_generator import DSCP, MULTICAST_TTL, run
+    from espectre_traffic_generator import DSCP, MULTICAST_TTL, PROTOCOLS, run
 
 
 def load_options(path="/data/options.json"):
@@ -47,6 +47,11 @@ def load_options(path="/data/options.json"):
     if type(dscp) is not int or not 0 <= dscp <= 63:
         raise ValueError("dscp must be an integer in the 0-63 range")
 
+    # Configurations saved before the option existed keep UDP markers.
+    protocol = options.get("protocol", "udp")
+    if protocol not in PROTOCOLS:
+        raise ValueError("protocol must be 'udp' or 'icmp'")
+
     source_ip = str(options.get("source_ip", "")).strip()
     if source_ip:
         source = ipaddress.ip_address(source_ip)
@@ -56,7 +61,8 @@ def load_options(path="/data/options.json"):
         source_ip = str(source)
 
     return {"targets": targets, "port": port, "rate_pps": rate_pps,
-            "source_ip": source_ip or None, "multicast_ttl": multicast_ttl, "dscp": dscp}
+            "source_ip": source_ip or None, "multicast_ttl": multicast_ttl, "dscp": dscp,
+            "protocol": protocol}
 
 
 def main():

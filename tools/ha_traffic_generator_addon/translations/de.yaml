@@ -7,10 +7,14 @@ configuration:
       funktioniert, ersetzen Sie die Adresse durch die IPv4-Adressen der Geräte.
       Geben Sie keine Hostnamen oder URLs ein und senden Sie nicht gleichzeitig
       per Multicast und über die eigene Adresse an dasselbe Gerät.
+  protocol:
+    name: Verkehrsart
+    description: >-
+      Wählen Sie in den meisten Fällen icmp (Ping): Jedes Gerät beantwortet jeden Ping, und diese Antwort hält es sendend, was Fehlbewegungen in einem leeren Raum vermeidet. Ping an die Multicast-Gruppe erfordert ESPectre 3.1.0 oder neuer. Behalten Sie udp, die Standardeinstellung, nur bei, um Funkzeit zu sparen: UDP-Marker erhalten keine Antwort, und ohne gleichmäßigen Verkehr der Geräte kann der Access Point das gemessene Signal verschlechtern. Die normalen Updates an Home Assistant reichen dafür nicht aus. Ping belegt etwa doppelt so viel Funkzeit wie udp.
   port:
     name: UDP-Zielport
     description: >-
-      Behalten Sie 5555 bei, sofern Sie den Port für externen Datenverkehr in der
+      Nur mit udp verwendet. Behalten Sie 5555 bei, sofern Sie den Port für externen Datenverkehr in der
       ESPectre-Firmware nicht geändert haben. Dies ist der Empfangsport der
       Geräte, kein auf Home Assistant geöffneter Dienst.
   rate_pps:

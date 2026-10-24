@@ -4,9 +4,15 @@
 """
 ESPectre - Traffic Generator
 
-Generates UDP traffic to trigger CSI extraction on ESPectre devices
-in external traffic mode (port 5555). Works on Linux, macOS, Windows, and
-Home Assistant.
+Generates traffic to trigger CSI extraction on ESPectre devices in external
+traffic mode: UDP markers on port 5555, or ICMP Echo Requests (ping). Works on Linux,
+macOS, Windows, and Home Assistant; ICMP is not available on Windows.
+
+Prefer ICMP in most setups. Each device answers every Echo Request, and that
+reply keeps it transmitting while it measures. UDP markers get no reply, and
+without steady uplink an empty room can show motion. Use UDP only to save
+airtime, when the devices already transmit at a similar steady rate.
+ICMP to a multicast group needs firmware 3.1.0 or later.
 
 Do not target a subnet or limited broadcast address. Those frames usually
 arrive as legacy PHY and do not produce HT20 CSI.
@@ -19,7 +25,8 @@ Usage:
   python3 espectre_traffic_generator.py run           # Run in foreground (Ctrl+C to stop)
 
 Configuration:
-  Edit TARGETS, PORT, RATE, MULTICAST_TTL, and DSCP below. Unicast each device IP,
+  Edit TARGETS, PROTOCOL, PORT, RATE, MULTICAST_TTL, and DSCP below. PORT
+  applies only to UDP. Unicast each device IP,
   or use the joined multicast group 239.255.0.1. Do not use x.x.x.255.
   MULTICAST_TTL defaults to 8; routed multicast still needs multicast routing.
   Ordinary switches on the same VLAN do not consume TTL.
@@ -40,6 +47,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 import ipaddress
 import json
 import os
+import select
 import signal
 import socket
 import subprocess
@@ -54,6 +62,7 @@ from pathlib import Path
 TARGETS = ['192.168.1.100']  # Unicast device IP
 # TARGETS = ['192.168.1.100', '192.168.1.101']  # Multiple devices: list each IP
 # TARGETS = ['239.255.0.1']  # All devices that joined the default multicast group
+PROTOCOL = 'udp'  # 'udp' markers, or 'icmp' Echo Requests that each device answers
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
 MULTICAST_TTL = 8  # Allows up to seven router hops when multicast routing is configured.
@@ -62,6 +71,55 @@ _RUNTIME_OWNER = str(os.getuid()) if hasattr(os, "getuid") else "user"
 PID_FILE = Path(tempfile.gettempdir()) / f"espectre_traffic_{_RUNTIME_OWNER}.pid"
 CONTROL_FILE = Path(tempfile.gettempdir()) / f"espectre_traffic_{_RUNTIME_OWNER}.control"
 # =========================================
+
+
+PROTOCOLS = ("udp", "icmp")
+_ICMP_ECHO_REQUEST = 8
+_ICMP_ECHO_REPLY = 0
+
+
+def icmp_checksum(data):
+    """Return the RFC 1071 Internet checksum of data."""
+    if len(data) % 2:
+        data += b"\0"
+    total = sum(int.from_bytes(data[index:index + 2], "big") for index in range(0, len(data), 2))
+    while total >> 16:
+        total = (total & 0xFFFF) + (total >> 16)
+    return ~total & 0xFFFF
+
+
+def icmp_echo_request(identifier, sequence):
+    """Build an ICMP Echo Request without data: the smallest frame the device answers."""
+    header = bytes([_ICMP_ECHO_REQUEST, 0, 0, 0]) + (
+        (identifier & 0xFFFF).to_bytes(2, "big") + (sequence & 0xFFFF).to_bytes(2, "big"))
+    checksum = icmp_checksum(header)
+    return header[:2] + checksum.to_bytes(2, "big") + header[4:]
+
+
+def open_icmp_socket():
+    """Open an ICMP socket, unprivileged where the OS allows it, else raw."""
+    if os.name == "nt":
+        raise OSError("ICMP traffic is not supported on Windows; use UDP")
+    try:
+        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP), False
+    except OSError as unprivileged_error:
+        try:
+            return socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP), True
+        except OSError as raw_error:
+            raise OSError(
+                "ICMP traffic needs an unprivileged ICMP socket (on Linux, allow this group in "
+                "net.ipv4.ping_group_range) or a raw socket (root or CAP_NET_RAW); "
+                f"unprivileged: {unprivileged_error}; raw: {raw_error}"
+            ) from raw_error
+
+
+def is_echo_reply(packet, identifiers=None):
+    """Return whether packet, with or without its IPv4 header, is an Echo Reply to us."""
+    if len(packet) >= 20 and packet[0] >> 4 == 4:
+        packet = packet[(packet[0] & 0x0F) * 4:]
+    if len(packet) < 8 or packet[0] != _ICMP_ECHO_REPLY:
+        return False
+    return identifiers is None or int.from_bytes(packet[4:6], "big") in identifiers
 
 
 def next_send_deadline(previous_deadline, send_started, interval):
@@ -137,13 +195,13 @@ def _remove_runtime_files(token):
 
 
 class ExternalTrafficGenerator:
-    """Reusable external ESPectre UDP traffic generator."""
+    """Reusable external ESPectre traffic generator: UDP markers or ICMP Echo Requests."""
 
     TRAFFIC_MARKER = '👻'
     PAYLOAD = TRAFFIC_MARKER.encode('utf-8')
 
     def __init__(self, targets, port=PORT, rate_pps=RATE, source_ip=None, control_token=None,
-                 multicast_ttl=MULTICAST_TTL, dscp=DSCP):
+                 multicast_ttl=MULTICAST_TTL, dscp=DSCP, protocol=PROTOCOL):
         raw_targets = [targets] if isinstance(targets, str) else list(targets)
         self.targets = []
         for target in raw_targets:
@@ -161,6 +219,8 @@ class ExternalTrafficGenerator:
             raise ValueError("multicast_ttl must be an integer in the 1-255 range")
         if type(dscp) is not int or not 0 <= dscp <= 63:
             raise ValueError("dscp must be an integer in the 0-63 range")
+        if protocol not in PROTOCOLS:
+            raise ValueError("protocol must be 'udp' or 'icmp'")
         if source_ip is not None:
             source = ipaddress.ip_address(str(source_ip).strip())
             if source.version != 4:
@@ -171,9 +231,11 @@ class ExternalTrafficGenerator:
         self.source_ip = source_ip
         self.multicast_ttl = multicast_ttl
         self.dscp = dscp
+        self.protocol = protocol
         self.control_token = control_token
         self.sent_packets = 0
         self.send_errors = 0
+        self.replies_received = 0
         self.sent_by_target = {target: 0 for target in self.targets}
         self.errors_by_target = {target: 0 for target in self.targets}
         self._socket = None
@@ -218,6 +280,18 @@ class ExternalTrafficGenerator:
                 self._socket.close()
                 self._socket = None
 
+    def _drain_echo_replies(self, sock, identifiers):
+        """Count pending Echo Replies without blocking the send cadence."""
+        while True:
+            try:
+                if not select.select([sock], [], [], 0)[0]:
+                    return
+                packet = sock.recv(2048)
+            except (OSError, ValueError):
+                return
+            if is_echo_reply(packet, identifiers):
+                self.replies_received += 1
+
     def run_forever(self, report_interval=0):
         """Run synchronously, optionally reporting counters every N seconds."""
         self._stop_event.clear()
@@ -229,7 +303,16 @@ class ExternalTrafficGenerator:
         next_report = time.perf_counter() + report_interval if report_interval > 0 else None
         first_error_reported = False
         last_error = None
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        icmp = self.protocol == "icmp"
+        raw_icmp = False
+        # Raw sockets, and ping sockets on macOS, see every Echo Reply to the
+        # host; match ours by identifier.
+        identifier = int.from_bytes(os.urandom(2), "big")
+        sequence = 0
+        if icmp:
+            sock, raw_icmp = open_icmp_socket()
+        else:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         with self._lifecycle_lock:
             self._socket = sock
         try:
@@ -242,9 +325,23 @@ class ExternalTrafficGenerator:
                     if sleep_time > 0 and self._stop_event.wait(sleep_time):
                         break
                 send_started = time.perf_counter()
+                if icmp:
+                    identifiers = {identifier}
+                    if not raw_icmp:
+                        # Linux replaces the identifier of a ping socket with its local port.
+                        try:
+                            identifiers.add(sock.getsockname()[1])
+                        except OSError:
+                            pass
+                    self._drain_echo_replies(sock, identifiers)
+                    payload = icmp_echo_request(identifier, sequence)
+                    sequence += 1
                 for target in self.targets:
                     try:
-                        sock.sendto(self.PAYLOAD, (target, self.port))
+                        if icmp:
+                            sock.sendto(payload, (target, 0))
+                        else:
+                            sock.sendto(self.PAYLOAD, (target, self.port))
                         self.sent_packets += 1
                         self.sent_by_target[target] += 1
                     except OSError as error:
@@ -258,6 +355,8 @@ class ExternalTrafficGenerator:
                 next_time = next_send_deadline(next_time, send_started, interval)
                 if next_report is not None and send_started >= next_report:
                     message = f"Sent {self.sent_packets} packets; send errors: {self.send_errors}"
+                    if icmp:
+                        message += f"; echo replies: {self.replies_received}"
                     if last_error is not None:
                         message += f"; last error: {last_error}"
                     print(message, flush=True)
@@ -363,7 +462,7 @@ def status():
 
 
 def run(token=None, *, targets=None, port=None, rate_pps=None, source_ip=None,
-        multicast_ttl=None, dscp=None):
+        multicast_ttl=None, dscp=None, protocol=None):
     """Run traffic generator in foreground (Ctrl+C to stop)."""
     def handle_signal(sig, frame):
         sys.exit(0)
@@ -379,12 +478,16 @@ def run(token=None, *, targets=None, port=None, rate_pps=None, source_ip=None,
         control_token=token,
         multicast_ttl=MULTICAST_TTL if multicast_ttl is None else multicast_ttl,
         dscp=DSCP if dscp is None else dscp,
+        protocol=PROTOCOL if protocol is None else protocol,
     )
     try:
         scope = (f"; multicast TTL {generator.multicast_ttl}"
                  if any(ipaddress.ip_address(target).is_multicast
                         for target in generator.targets) else "")
-        print(f"Sending UDP to {generator.targets}:{generator.port} "
+        destination = ("ICMP Echo Requests to " + str(generator.targets)
+                       if generator.protocol == "icmp"
+                       else f"UDP to {generator.targets}:{generator.port}")
+        print(f"Sending {destination} "
               f"@ {generator.rate_pps:g} pps per target; DSCP {generator.dscp}"
               f"{scope} (Ctrl+C to stop)", flush=True)
         generator.run_forever(report_interval=60)
