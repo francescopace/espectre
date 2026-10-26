@@ -24,7 +24,7 @@ idf-component-manager==2.5.2  # SDK registry tooling and ESP-IDF 5.5 firmware bu
 prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies
-ruff==0.17.1           # Python quality reports (SARIF)
+ruff==0.17.2           # Python quality reports (SARIF)
 cppcheck==1.5.3        # Cppcheck 2.17.1 wheel for C/C++ quality reports (SARIF)
 numpy==2.5.4            # ML environments must update through requirements-ml.txt
 pytest==9.1.1           # test framework
