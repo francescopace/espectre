@@ -33,6 +33,7 @@ from .host_feature_trackers import (
     FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     L1_SERIES_FEATURES,
     PHASE_FEATURES,
+    PHASE_SHAPE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_FEATURES,
     PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     SPECTRAL_FEATURES,
@@ -42,6 +43,7 @@ from .host_feature_trackers import (
     ChannelShapeTrajectoryTracker,
     ChannelShapeTracker,
     PhaseResidualTracker,
+    PhaseShapeTracker,
     turbulence_band_power_ratio,
 )
 
@@ -50,6 +52,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + SPECTRAL_FEATURES
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
+    + PHASE_SHAPE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
@@ -72,6 +75,7 @@ FEATURE_PROVIDER_VERSIONS = {
     'turbulence_series': 1,
     'aggregated_turbulence_series': 1,
     'phase_residual': 1,
+    'phase_shape': 1,
     'channel_shape': 1,
     'channel_shape_trajectory': 1,
     'fine_channel_shape_trajectory': 1,
@@ -92,6 +96,8 @@ def candidate_feature_provider(feature_name: str) -> str:
         return 'aggregated_turbulence_series'
     if name in PHASE_FEATURES:
         return 'phase_residual'
+    if name in PHASE_SHAPE_FEATURES:
+        return 'phase_shape'
     shape_features = (
         CHANNEL_SHAPE_FEATURES
         + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
@@ -206,6 +212,11 @@ def needs_phase_residual(feature_names: Iterable[str]) -> bool:
     return any(name in PHASE_FEATURES for name in feature_names)
 
 
+def needs_phase_shape(feature_names: Iterable[str]) -> bool:
+    """Return whether any requested feature needs offset-free phase shape."""
+    return any(name in PHASE_SHAPE_FEATURES for name in feature_names)
+
+
 def needs_channel_shape(feature_names: Iterable[str]) -> bool:
     """Return whether any requested feature needs normalized channel shape."""
     return any(
@@ -261,6 +272,7 @@ def candidate_values(
     amplitude_profile_tracker: AmplitudeProfileTracker = None,
     l1_series: Sequence[float] = None,
     fine_shape_trajectory_tracker=None,
+    phase_shape_tracker: PhaseShapeTracker = None,
 ) -> Dict[str, float]:
     """Evaluate the requested candidates from their preprocessed trackers."""
     values: Dict[str, float] = {}
@@ -446,6 +458,19 @@ def candidate_values(
                     f"{name} needs the sanitized phase tracker"
                 )
             values[name] = phase_tracker.phase_closure_variance_std()
+        elif name in PHASE_SHAPE_FEATURES:
+            if phase_shape_tracker is None:
+                raise ValueError(
+                    f"{name} needs the phase-shape tracker"
+                )
+            if name == 'phase_curv_lag_ratio':
+                values[name] = phase_shape_tracker.lag_ratio('curv')
+            elif name == 'phase_slope_lag_ratio':
+                values[name] = phase_shape_tracker.lag_ratio('slope')
+            elif name == 'cplx_slope_lag_ratio':
+                values[name] = phase_shape_tracker.lag_ratio('cplx')
+            elif name == 'amp_slope_lag_ratio':
+                values[name] = phase_shape_tracker.lag_ratio('amp')
         elif name == 'chan_shape_excess_path':
             if shape_trajectory_tracker is None:
                 raise ValueError(

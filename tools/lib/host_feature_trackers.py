@@ -12,6 +12,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -101,6 +102,12 @@ PHASE_FEATURES = (
     'phase_resid_lag_ratio',
     'phase_closure_var_std',
 )
+PHASE_SHAPE_FEATURES = (
+    'phase_curv_lag_ratio',
+    'phase_slope_lag_ratio',
+    'cplx_slope_lag_ratio',
+    'amp_slope_lag_ratio',
+)
 CHANNEL_SHAPE_FEATURES = (
     'chan_shape_lag_ratio',
     'chan_rank_gap',
@@ -149,6 +156,7 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
     + SPECTRAL_FEATURES
     + AGGREGATED_SPECTRAL_FEATURES
     + PHASE_FEATURES
+    + PHASE_SHAPE_FEATURES
     + CHANNEL_SHAPE_FEATURES
     + CLASSIC_ONLY_CHANNEL_SHAPE_FEATURES
     + L1_SERIES_FEATURES
@@ -1834,6 +1842,184 @@ class PhaseResidualTracker:
         self._closure_count = 0
         self._closure_sum = 0.0
         self._closure_square_sum = 0.0
+
+
+class _RunningMean:
+    """Fixed-capacity running mean over the most recent values."""
+
+    def __init__(self, capacity: int):
+        self._values = deque(maxlen=max(1, int(capacity)))
+        self._total = 0.0
+
+    def push(self, value: float) -> None:
+        if len(self._values) == self._values.maxlen:
+            self._total -= self._values[0]
+        self._values.append(value)
+        self._total += value
+
+    def mean(self) -> Optional[float]:
+        if not self._values:
+            return None
+        return self._total / len(self._values)
+
+    def clear(self) -> None:
+        self._values.clear()
+        self._total = 0.0
+
+
+def _phase_noise_weight(*terms) -> np.ndarray:
+    """Inverse phase-noise variance from ``(coefficient, amplitude)`` terms.
+
+    The phase of a product of tones has noise variance proportional to
+    ``sum(c^2 / |H|^2)``. Faded tones get zero weight instead of dominating.
+    """
+    inverse = None
+    valid = None
+    for coefficient, amplitude in terms:
+        positive = amplitude > 0.0
+        term = np.zeros(amplitude.shape, dtype=np.float64)
+        term[positive] = coefficient * coefficient / (
+            amplitude[positive] * amplitude[positive]
+        )
+        inverse = term if inverse is None else inverse + term
+        valid = positive if valid is None else valid & positive
+    weight = np.zeros(inverse.shape, dtype=np.float64)
+    weight[valid] = 1.0 / inverse[valid]
+    return weight
+
+
+def _weighted_phase_displacement(current, reference) -> Optional[float]:
+    """Weighted mean wrapped displacement in ``[0, 1]`` between unit phasors."""
+    phasor, weight = current
+    reference_phasor, reference_weight = reference
+    pair_weight = np.sqrt(weight * reference_weight)
+    total = float(pair_weight.sum())
+    if total <= 0.0:
+        return None
+    angle = np.abs(np.angle(phasor * np.conj(reference_phasor)))
+    return float(np.dot(pair_weight, angle) / (np.pi * total))
+
+
+class PhaseShapeTracker:
+    """Lag/adjacent displacement of phase shape with packet offsets cancelled.
+
+    Three per-packet views share one slot history:
+
+    * curvature, ``H[k-1] H[k+1] conj(H[k])^2``, cancels the gain, the common
+      phase (CFO, PLL), and the linear ramp (STO, SFO) exactly;
+    * slope, ``H[k+1] conj(H[k])``, cancels the gain and the common phase; the
+      ramp becomes one common rotation, removed by the circular mean;
+    * complex slope keeps the de-rotated slope products with unit L1 mass, so
+      amplitude and phase changes count together;
+    * amplitude slope keeps only the magnitudes of those products, as the
+      phase-free ablation of the complex view.
+
+    Tones are weighted by the inverse phase-noise variance their amplitudes
+    imply, and every ratio compares the profile lag with lag 1 so white noise
+    gives about 1 whatever the link SNR.
+    """
+
+    def __init__(self, window_size: int = 90, lag: int = L1_DELTA_LAG):
+        self.window_size = max(2, int(window_size))
+        self.lag = max(1, int(lag))
+        self._history = deque(maxlen=self.lag)
+        self._means = {
+            (view, lag_name): _RunningMean(self.window_size)
+            for view in ('curv', 'slope', 'cplx', 'amp')
+            for lag_name in ('lag', 'adjacent')
+        }
+
+    def _packet_state(self, csi_data):
+        profile = complex_profile(csi_data)
+        amplitude = np.abs(profile)
+        if float(amplitude.max()) <= 0.0:
+            return None
+
+        left = amplitude[_PHASE_CLOSURE_LEFT]
+        center = amplitude[_PHASE_CLOSURE_CENTER]
+        right = amplitude[_PHASE_CLOSURE_RIGHT]
+        closure = (
+            profile[_PHASE_CLOSURE_LEFT]
+            * profile[_PHASE_CLOSURE_RIGHT]
+            * np.conj(profile[_PHASE_CLOSURE_CENTER]) ** 2
+        )
+        curv_weight = _phase_noise_weight((1.0, left), (2.0, center), (1.0, right))
+        curv = _unit_phasor(closure)
+
+        slope_products = profile[_LIVE_LEFT] * np.conj(profile[_LIVE_RIGHT])
+        common = complex(slope_products.sum())
+        if abs(common) > 0.0:
+            slope_products = slope_products * (np.conj(common) / abs(common))
+        slope_weight = _phase_noise_weight(
+            (1.0, amplitude[_LIVE_LEFT]),
+            (1.0, amplitude[_LIVE_RIGHT]),
+        )
+        mass = float(np.abs(slope_products).sum())
+        cplx = slope_products / mass if mass > 0.0 else None
+        return {
+            'curv': (curv, curv_weight),
+            'slope': (_unit_phasor(slope_products), slope_weight),
+            'cplx': cplx,
+            'amp': np.abs(cplx) if cplx is not None else None,
+        }
+
+    def _displacements(self, current, reference):
+        values = {
+            'curv': _weighted_phase_displacement(
+                current['curv'], reference['curv'],
+            ),
+            'slope': _weighted_phase_displacement(
+                current['slope'], reference['slope'],
+            ),
+            'cplx': None,
+            'amp': None,
+        }
+        for view in ('cplx', 'amp'):
+            if current[view] is not None and reference[view] is not None:
+                values[view] = 0.5 * float(
+                    np.abs(current[view] - reference[view]).sum()
+                )
+        return values
+
+    def _push(self, lag_name: str, current, reference) -> None:
+        if current is None or reference is None:
+            return
+        for view, value in self._displacements(current, reference).items():
+            if value is not None:
+                self._means[(view, lag_name)].push(value)
+
+    def process_packet(self, csi_data) -> None:
+        state = self._packet_state(csi_data)
+        if self._history:
+            self._push('adjacent', state, self._history[-1])
+        if len(self._history) == self.lag:
+            self._push('lag', state, self._history[0])
+        self._history.append(state)
+
+    def advance_missing_slots(self, count: int) -> None:
+        """Keep the profile lag in slot time across capture holes."""
+        for _ in range(min(max(0, int(count)), self.lag)):
+            self._history.append(None)
+
+    def lag_ratio(self, view: str) -> float:
+        lag_mean = self._means[(view, 'lag')].mean()
+        adjacent_mean = self._means[(view, 'adjacent')].mean()
+        if lag_mean is None or adjacent_mean is None or adjacent_mean <= 0.0:
+            return 1.0
+        return lag_mean / adjacent_mean
+
+    def reset(self) -> None:
+        self._history.clear()
+        for mean in self._means.values():
+            mean.clear()
+
+
+def _unit_phasor(values: np.ndarray) -> np.ndarray:
+    magnitude = np.abs(values)
+    unit = np.ones(values.shape, dtype=np.complex128)
+    nonzero = magnitude > 0.0
+    unit[nonzero] = values[nonzero] / magnitude[nonzero]
+    return unit
 
 
 class ChannelCoherenceTracker:
