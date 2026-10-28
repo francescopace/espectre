@@ -4,9 +4,18 @@
 const $ = (id) => document.getElementById(id);
 let rows = [], csrf = "", busy = false, pending = null, connectTask = null, reconnectTimer = null, actionMessage = "", pageActive = true;
 const selected = new Set();
+// Devices whose last change failed or is unconfirmed: id → {option, status, message}.
+const outcomes = new Map();
 const deviceElements = new Map();
 let generatorRunning = null, generatorProtocol = null;
+// The bulk source the user picked; it survives selections that do not offer it.
+let bulkMode = "external";
 let streamSocket = null;
+// Labels for the modes the firmware offers; other options show their own name.
+const MODE_LABELS = {ping: "Ping", dns: "DNS", dns_tcp: "DNS over TCP", wifi_raw: "Wi-Fi raw", external: "External"};
+// `internal` asks each device for the internal source it used before.
+const INTERNAL = "internal";
+const modeLabel = mode => mode === INTERNAL ? "Previous internal source" : MODE_LABELS[mode] || mode;
 const base = new URL(location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`, location.origin);
 
 async function api(path, body) {
@@ -47,9 +56,28 @@ function controls() {
   $("select-all").indeterminate = eligible.some(row => selected.has(row.id)) && !$("select-all").checked;
   $("selection").textContent = selected.size ? `${selected.size} selected` : "";
   $("bulk-actions").hidden = selected.size === 0;
-  for (const name of ["external", "internal"]) {
-    $(name).disabled = busy || (name === "external" && generatorRunning !== true) || !eligible.some(row => selected.has(row.id));
+  // Bulk choices: every mode a selected device offers, plus each device's previous internal source.
+  const offered = new Set(eligible.filter(row => selected.has(row.id)).flatMap(row => row.modes));
+  const choices = [...Object.keys(MODE_LABELS).filter(mode => offered.has(mode)),
+    ...[...offered].filter(mode => !(mode in MODE_LABELS)), INTERNAL];
+  setOptions($("bulk-mode"), choices, bulkMode);
+  $("bulk-mode").disabled = busy;
+  $("bulk-apply").disabled = busy || !eligible.some(row => selected.has(row.id)) ||
+    ($("bulk-mode").value === "external" && generatorRunning !== true);
+}
+
+function setOptions(select, modes, value) {
+  const current = [...select.children].map(option => option.value);
+  if (current.join() !== modes.join()) {
+    select.replaceChildren(...modes.map(mode => {
+      const option = node("option", modeLabel(mode));
+      option.value = mode;
+      option.disabled = mode === "external" && generatorRunning !== true;
+      return option;
+    }));
   }
+  for (const option of select.children) option.disabled = option.value === "external" && generatorRunning !== true;
+  select.value = modes.includes(value) ? value : modes[0] ?? "";
 }
 
 function node(tag, text, className) {
@@ -77,23 +105,17 @@ function deviceElement(id) {
     nameCell.append(name, ip);
     const generator = node("td"), traffic = node("td"), trafficRx = node("td");
     const accepted = node("td"), occupancy = node("td"), rssi = node("td");
-    const actions = node("td"), buttons = node("div", undefined, "row-actions");
-    const modes = {};
-    for (const [action, label] of [["external", "External"], ["internal", "Internal"]]) {
-      const button = node("button", label);
-      button.type = "button";
-      button.addEventListener("click", () => propose(action, [id]));
-      buttons.append(button);
-      modes[action] = button;
-    }
-    actions.append(buttons);
-    tr.append(checkCell, nameCell, generator, traffic, trafficRx, accepted, occupancy, rssi, actions);
-    deviceElements.set(id, {tr, check, name, ip, generator, traffic, trafficRx, accepted, occupancy, rssi, modes});
+    const sourceCell = node("td"), source = node("select");
+    source.addEventListener("change", () => propose(source.value, [id]));
+    sourceCell.append(source);
+    tr.append(checkCell, nameCell, generator, traffic, trafficRx, accepted, occupancy, rssi, sourceCell);
+    deviceElements.set(id, {tr, check, name, ip, generator, traffic, trafficRx, accepted, occupancy, rssi, source});
   }
   return deviceElements.get(id);
 }
 
-function render() {
+// force resets every source picker, even the focused one, after a confirmation closes.
+function render(force = false) {
   const ids = new Set(rows.map(row => row.id));
   for (const id of selected) if (!rows.some(row => row.id === id && row.can_control)) selected.delete(id);
   for (const [id, element] of deviceElements) {
@@ -110,11 +132,12 @@ function render() {
     const address = row.reason ? "Unavailable" : row.ip_address || "—";
     element.ip.textContent = row.chip ? `${row.chip} · ${address}` : address;
     element.ip.title = row.reason || (row.ip_address ? "IP address reported by Home Assistant" : "IP address not exposed by Home Assistant");
-    for (const [action, button] of Object.entries(element.modes)) {
-      button.disabled = busy || !row.can_control || row.fields.ownership.value === action ||
-        (action === "external" && generatorRunning !== true);
-      button.setAttribute("aria-label", `${button.textContent}: ${row.name}`);
-    }
+    const current = row.fields.source.value;
+    const keep = !force && (pending !== null || document.activeElement === element.source);
+    const modes = row.modes.length ? row.modes : current ? [current] : [];
+    setOptions(element.source, modes, keep ? element.source.value : current);
+    element.source.disabled = busy || !row.can_control;
+    element.source.setAttribute("aria-label", `Traffic source: ${row.name}`);
     sample(element.generator, row.fields.generator);
     sample(element.traffic, row.fields.traffic);
     sample(element.trafficRx, row.fields.traffic_rx);
@@ -166,7 +189,8 @@ async function openStream() {
     showGenerator(data.generator);
     if (data.devices) {
       showSnapshot(data);
-      notice(actionMessage || data.error || (rows.length ? "" : "No ESPectre devices."), Boolean(actionMessage || data.error));
+      const message = outcomeMessage();
+      notice(message || data.error || (rows.length ? "" : "No ESPectre devices."), Boolean(message || data.error));
     }
   };
   socket.onclose = () => {
@@ -210,43 +234,64 @@ function showGenerator(generator) {
 
 function showSnapshot(data) {
   rows = data.devices;
+  // A late confirmation arrives through the stream: drop its warning and selection.
+  for (const [id, outcome] of outcomes) {
+    const row = rows.find(row => row.id === id);
+    if (outcome.status === "unconfirmed" && row?.fields.source.value === outcome.option) {
+      outcomes.delete(id);
+      selected.delete(id);
+    }
+  }
   render();
 }
 
-function propose(action, ids) {
+function outcomeMessage() {
+  if (actionMessage) return actionMessage;
+  const names = new Map(rows.map(row => [row.id, row.name]));
+  return [...outcomes].map(([id, outcome]) => `${names.get(id) || id}: ${outcome.message}`).join("\n");
+}
+
+function propose(mode, ids) {
   if (busy) return;
-  if (action === "external" && generatorRunning !== true) return;
+  if (mode === "external" && generatorRunning !== true) { render(true); return; }
   ids = ids.filter(id => rows.some(row => row.id === id && row.can_control));
   if (!ids.length) return;
   if (ids.length > 32) { notice("Select up to 32 devices.", true); return; }
-  pending = {action, ids};
+  pending = {mode, ids};
   scheduleStream();
-  $("confirm-title").textContent = `Use ${action} traffic?`;
+  $("confirm-title").textContent = mode === INTERNAL ? "Use the previous internal source?" : `Use ${modeLabel(mode)} traffic?`;
   $("confirm-message").textContent = `${rows.filter(row => ids.includes(row.id)).map(row => row.name).join(", ")}. ` +
-    (action === "external"
-      ? `Check targets${generatorProtocol === "icmp" ? "" : ", UDP port,"} and rate. Calibration may restart.` : "Resume internal traffic. Calibration may restart.");
+    (mode === "external"
+      ? `Check targets${generatorProtocol === "icmp" ? "" : ", UDP port,"} and rate. Calibration may restart.`
+      : `${mode === INTERNAL ? "Each device goes back to the internal source it used before, or ping. " : ""}Calibration may restart.`);
   $("confirm").returnValue = "cancel";
   $("confirm").showModal();
 }
 
-async function execute(action, ids) {
-  busy = true; actionMessage = ""; scheduleStream(); render(); notice("Applying…");
+async function execute(mode, ids) {
+  busy = true; actionMessage = ""; outcomes.clear(); scheduleStream(); render(); notice("Applying…");
   try {
     // Finish connection setup before sending a command; never retry writes automatically.
     await connectTask;
     await loadStatus();
-    const data = await api("action", {action, device_ids: ids});
+    const data = await api("action", {mode, device_ids: ids});
+    for (const result of data.results) {
+      if (["error", "unconfirmed"].includes(result.status)) {
+        outcomes.set(result.id, {option: result.option || mode, status: result.status, message: result.message});
+      }
+    }
+    // Keep only the devices that still need attention selected, so one click retries them.
+    selected.clear();
+    for (const id of outcomes.keys()) selected.add(id);
     showSnapshot(data);
-    const names = new Map(rows.map(row => [row.id, row.name]));
-    actionMessage = data.results.filter(result => ["error", "unconfirmed"].includes(result.status))
-      .map(result => `${names.get(result.id) || result.id}: ${result.message}`).join("\n");
-    notice(actionMessage, Boolean(actionMessage));
+    const message = outcomeMessage();
+    notice(message, Boolean(message));
   } catch (error) {
     // A timed-out write may have succeeded. Never retry it automatically.
-    rows = []; selected.clear();
+    rows = []; selected.clear(); outcomes.clear();
     const fallback = "Action not confirmed. Check the device in Home Assistant before retrying.";
     actionMessage = noticeFailure(error, fallback) ? "" : fallback;
-  } finally { busy = false; render(); scheduleStream(); }
+  } finally { busy = false; render(true); scheduleStream(); }
 }
 
 async function toggleGenerator() {
@@ -278,17 +323,16 @@ try {
 }
 $("confirm").addEventListener("close", () => {
   const request = pending; pending = null;
-  if ($("confirm").returnValue === "apply" && request) execute(request.action, request.ids);
-  else scheduleStream();
+  if ($("confirm").returnValue === "apply" && request) execute(request.mode, request.ids);
+  else { render(true); scheduleStream(); }
 });
 $("select-all").addEventListener("change", event => {
   selected.clear();
   if (event.target.checked) rows.filter(row => row.can_control).forEach(row => selected.add(row.id));
   render();
 });
-for (const action of ["external", "internal"]) {
-  $(action).addEventListener("click", () => propose(action, [...selected]));
-}
+$("bulk-mode").addEventListener("change", () => { bulkMode = $("bulk-mode").value; controls(); });
+$("bulk-apply").addEventListener("click", () => propose($("bulk-mode").value, [...selected]));
 document.addEventListener("visibilitychange", () => scheduleStream());
 window.addEventListener("pagehide", () => { pageActive = false; scheduleStream(); });
 window.addEventListener("pageshow", () => { pageActive = true; scheduleStream(); });

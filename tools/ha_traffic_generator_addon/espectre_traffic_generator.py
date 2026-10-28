@@ -236,6 +236,8 @@ class ExternalTrafficGenerator:
         self.sent_packets = 0
         self.send_errors = 0
         self.replies_received = 0
+        # Why the background thread ended, if it failed; cleared by start().
+        self.error = None
         self.sent_by_target = {target: 0 for target in self.targets}
         self.errors_by_target = {target: 0 for target in self.targets}
         self._socket = None
@@ -260,8 +262,9 @@ class ExternalTrafficGenerator:
             if self._thread is not None and self._thread.is_alive():
                 return
             self._stop_event.clear()
+            self.error = None
             self._thread = threading.Thread(
-                target=self._run,
+                target=self._run_thread,
                 name="espectre-external-traffic",
                 daemon=True,
             )
@@ -279,6 +282,13 @@ class ExternalTrafficGenerator:
             if self._socket is not None:
                 self._socket.close()
                 self._socket = None
+
+    def _run_thread(self):
+        try:
+            self._run()
+        except Exception as error:
+            self.error = str(error) or type(error).__name__
+            raise
 
     def _drain_echo_replies(self, sock, identifiers):
         """Count pending Echo Replies without blocking the send cadence."""

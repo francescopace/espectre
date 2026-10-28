@@ -1,0 +1,16 @@
+# The build context is the repository root; send only the files the image copies.
+*
+!requirements.txt
+!tools/ha_traffic_generator_addon/requirements.txt
+!tools/ha_traffic_generator_addon/espectre_traffic_generator.py
+!tools/ha_traffic_generator_addon/traffic.py
+!tools/ha_traffic_generator_addon/icon.png
+!tools/ha_traffic_generator_addon/static/panel.css
+!src/python/espectre_cli/__init__.py
+!src/python/espectre_cli/device_discovery.py
+!src/python/espectre_cli/device_transport.py
+!src/python/micro_espectre/__init__.py
+!src/python/micro_espectre/protocol.py
+!tools/traffic_generator_docker/server.py
+!tools/traffic_generator_docker/devices.py
+!tools/traffic_generator_docker/static

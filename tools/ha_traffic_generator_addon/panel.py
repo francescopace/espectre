@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import secrets
 import signal
@@ -28,6 +29,7 @@ else:
 
 
 INGRESS_ADDRESS = "172.30.32.2"
+MODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,31}")
 STATIC = Path(__file__).with_name("static")
 HA = web.AppKey("ha", HomeAssistant)
 GENERATOR = web.AppKey("generator", ExternalTrafficGenerator)
@@ -139,21 +141,22 @@ async def action(request):
         payload = await request.json()
     except (ValueError, UnicodeDecodeError):
         raise web.HTTPBadRequest(text="Expected a JSON object.") from None
-    if not isinstance(payload, dict) or set(payload) != {"device_ids", "action"}:
-        raise web.HTTPBadRequest(text="Expected device_ids and action.")
-    device_ids, operation = payload["device_ids"], payload["action"]
-    if (not isinstance(operation, str) or operation not in {"internal", "external"}
+    if not isinstance(payload, dict) or set(payload) != {"device_ids", "mode"}:
+        raise web.HTTPBadRequest(text="Expected device_ids and mode.")
+    device_ids, mode = payload["device_ids"], payload["mode"]
+    # Each device's select decides which modes it offers; this only bounds the input.
+    if (not isinstance(mode, str) or not MODE_PATTERN.fullmatch(mode)
             or not isinstance(device_ids, list) or not 1 <= len(device_ids) <= 32
             or any(not isinstance(value, str) or not value or len(value) > 128 for value in device_ids)
             or len(set(device_ids)) != len(device_ids)):
-        raise web.HTTPBadRequest(text="Select 1–32 unique devices and a supported action.")
-    if operation == "external" and not request.app[GENERATOR].running:
+        raise web.HTTPBadRequest(text="Select 1–32 unique devices and a traffic source.")
+    if mode == "external" and not request.app[GENERATOR].running:
         raise web.HTTPConflict(text="The traffic generator is not running.")
     lock = request.app[ACTION_LOCK]
     if lock.locked():
-        raise web.HTTPConflict(text="Another action is in progress. Refresh before retrying.")
+        raise web.HTTPConflict(text="Another action is in progress. Try again when it finishes.")
     async with lock:
-        return web.json_response(await request.app[HA].act(device_ids, operation))
+        return web.json_response(await request.app[HA].act(device_ids, mode))
 
 
 async def index(_request):

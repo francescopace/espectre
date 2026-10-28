@@ -231,6 +231,61 @@ jobs:
           path: .cache/reports/coverage/coverage-python.json
           retention-days: 14
 
+  build-traffic-generator-image:
+    name: Build Traffic Generator Image
+    needs: [prepare, test-python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the image and check its web UI
+        env:
+          IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          # Print the container log and remove it whatever the outcome.
+          trap 'docker logs traffic-generator || true; docker rm --force traffic-generator > /dev/null 2>&1 || true' EXIT
+          docker buildx build --load --platform linux/amd64 \
+            --build-arg VERSION="$IMAGE_VERSION" \
+            --tag espectre-traffic-generator:ci \
+            --file tools/traffic_generator_docker/Dockerfile .
+          docker run --detach --name traffic-generator --publish 127.0.0.1:8099:8099 \
+            --env ESPECTRE_UI_TOKEN=ci-smoke-test-token espectre-traffic-generator:ci
+          for _ in $(seq 1 30); do
+            curl --silent --fail --output /dev/null http://127.0.0.1:8099/ && break
+            sleep 1
+          done
+          sleep 2
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8099/api/status)" = 401
+          curl --silent --fail --output /dev/null --cookie-jar cookies.txt \
+            --header 'Content-Type: application/json' --data '{"token": "ci-smoke-test-token"}' \
+            http://127.0.0.1:8099/api/login
+          curl --silent --fail --cookie cookies.txt http://127.0.0.1:8099/api/status \
+            | python3 -c 'import json, sys; assert json.load(sys.stdin)["generator"]["running"]'
+
+      - name: Build the multi-architecture image archive
+        env:
+          IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p .cache/image
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$IMAGE_VERSION" \
+            --output type=oci,dest=.cache/image/traffic-generator-image.tar \
+            --file tools/traffic_generator_docker/Dockerfile .
+
+      - name: Upload the image archive
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          overwrite: true
+          name: traffic-generator-image
+          path: .cache/image/traffic-generator-image.tar
+          if-no-files-found: error
+          retention-days: 7
+
   build-esphome:
     needs: [prepare, build-site, test-cpp, test-python]
     permissions:
@@ -733,7 +788,7 @@ jobs:
 
   dispatch-publication:
     name: Dispatch Publication
-    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component]
+    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component, build-traffic-generator-image]
     if: >
       success() && github.event_name == 'push' && !github.event.deleted &&
       contains(fromJSON('["snapshot", "release"]'), needs.verify-sdk-component.outputs.publication)

@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Shared one-shot DNS-SD discovery for ESPectre frontends."""
+"""Shared one-shot DNS-SD discovery for ESPectre frontends.
+
+Discovery itself needs only zeroconf; terminal colors load with the printing helpers,
+so the traffic generator image can reuse it without the CLI dependencies.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,6 @@ import re
 import threading
 import time
 
-from .common import Fore, Style
 from micro_espectre.protocol import DNS_SD_TXT_SCHEMA_VERSION, PROTOCOL_VERSION
 
 try:
@@ -332,6 +335,8 @@ def choose_device_interactively(
     if len(records) == 1:
         return records[0]
 
+    from .common import Fore, Style
+
     label = f" {frontend_label}" if frontend_label else ""
     print(f"  {Fore.CYAN}Discovered{label} devices:{Style.RESET_ALL}")
     for idx, record in enumerate(records, start=1):
@@ -389,6 +394,8 @@ def print_device_list(
         print(json.dumps([record.as_serializable_dict() for record in records], indent=2, sort_keys=True))
         return
 
+    from .common import Fore, Style
+
     print()
     if not records:
         print(f"{Fore.YELLOW}No ESPectre devices discovered via mDNS.{Style.RESET_ALL}")
@@ -407,6 +414,8 @@ def run_devices_command(args) -> int:
         records = discover_devices(frontend=args.frontend, timeout_s=args.timeout)
         records = filter_discovered_devices(records, chip=getattr(args, "chip", None))
     except (DeviceDiscoveryError, ValueError) as exc:
+        from .common import Fore, Style
+
         print(f"{Fore.RED}Discovery failed: {exc}{Style.RESET_ALL}")
         return 1
     print_device_list(records, json_output=args.json)
