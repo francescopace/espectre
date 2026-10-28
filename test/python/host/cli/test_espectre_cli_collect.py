@@ -474,7 +474,7 @@ def test_discovery_first_txt_key_wins_even_without_value(first):
 def test_discovery_compares_dns_names_with_ascii_case_only():
     info = discovery_info(properties={b"name": b"Office Sensor"})
     zeroconf = SimpleNamespace(get_service_info=lambda *_args, **_kwargs: info)
-    listener = device_discovery._DeviceListener(zeroconf)
+    listener = device_discovery._DeviceListener()
     listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "Office._espectre._tcp.local.")
     listener.update_service(zeroconf, ESPECTRE_SERVICE_TYPE.upper(), "OFFICE._ESPECTRE._TCP.LOCAL.")
     assert len(listener.snapshot()) == 1
@@ -487,7 +487,7 @@ def test_discovery_compares_dns_names_with_ascii_case_only():
 def test_discovery_listener_updates_filters_and_removes_records():
     records = {"native": discovery_info(), "micro": discovery_info(properties={b"frontend": b"micro"})}
     zeroconf = SimpleNamespace(get_service_info=lambda _type, name, **_kwargs: records.get(name))
-    listener = device_discovery._DeviceListener(zeroconf)
+    listener = device_discovery._DeviceListener()
     for name in ["native", "micro", "missing", "native"]:
         listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, name)
     assert [record.frontend for record in listener.snapshot()] == ["micro", "native"]
@@ -507,7 +507,7 @@ def test_discovery_wait_uses_deadline_or_quiet_window(monkeypatch, has_record):
     waits = []
     monkeypatch.setattr(device_discovery.time, "monotonic", lambda: clock[0])
     zeroconf = SimpleNamespace(get_service_info=lambda *_args, **_kwargs: discovery_info())
-    listener = device_discovery._DeviceListener(zeroconf)
+    listener = device_discovery._DeviceListener()
     if has_record:
         listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "sensor")
 
@@ -525,7 +525,7 @@ def test_discovery_default_browse_includes_delayed_devices(monkeypatch, late_arr
     clock = [0.0]
     monkeypatch.setattr(device_discovery.time, "monotonic", lambda: clock[0])
     zeroconf = SimpleNamespace(get_service_info=lambda *_args, **_kwargs: discovery_info())
-    listener = device_discovery._DeviceListener(zeroconf)
+    listener = device_discovery._DeviceListener()
     listener.add_service(zeroconf, ESPECTRE_SERVICE_TYPE, "first")
     pending = [late_arrival_s]
 
@@ -543,43 +543,78 @@ def test_discovery_default_browse_includes_delayed_devices(monkeypatch, late_arr
     assert clock[0] == device_discovery.DISCOVERY_TIMEOUT_S
 
 
-@pytest.mark.parametrize("browser_fails", [False, True])
-def test_discovery_closes_resources_after_browse(monkeypatch, browser_fails):
-    events = []
+def fake_discovery_network(monkeypatch, events, *, multicast_fails=False, browser_fails=False, found=None):
+    """Patch Zeroconf and ServiceBrowser with one fake instance per browse mode."""
+    found = {} if found is None else found
+    instances = {}
 
-    def resolve(_type, _name, *, timeout, question_type):
-        assert timeout == 1000
-        assert question_type is device_discovery.DNSQuestionType.QM
-        return discovery_info()
-
-    zeroconf = SimpleNamespace(close=lambda: events.append("close"), get_service_info=resolve)
-
-    def open_discovery(*, unicast, ip_version):
-        assert unicast is True
+    def open_discovery(*, ip_version, unicast=False):
         assert ip_version is device_discovery.IPVersion.V4Only
-        return zeroconf
+        mode = "unicast" if unicast else "multicast"
+        if mode == "multicast" and multicast_fails:
+            raise OSError("address already in use")
 
-    monkeypatch.setattr(device_discovery, "Zeroconf", open_discovery)
-    monkeypatch.setattr(device_discovery._DeviceListener, "wait_for_quiet", lambda *_args: None)
+        def resolve(_type, name, *, timeout, question_type):
+            assert timeout == 1000
+            assert question_type is device_discovery.DNSQuestionType.QM
+            events.append(f"resolve:{mode}:{name}")
+            return discovery_info() if mode in found.get(name, ()) else None
 
-    def browser(_zeroconf, service_type, listener, *, question_type):
+        instances[mode] = SimpleNamespace(
+            mode=mode, close=lambda: events.append(f"close:{mode}"), get_service_info=resolve,
+        )
+        return instances[mode]
+
+    def browser(zeroconf, service_type, listener, *, question_type):
         assert service_type == ESPECTRE_SERVICE_TYPE
         assert question_type is device_discovery.DNSQuestionType.QM
         if browser_fails:
             raise OSError("browse failed")
-        listener.add_service(zeroconf, service_type, "sensor")
-        return SimpleNamespace(cancel=lambda: events.append("cancel"))
+        for name, modes in found.items():
+            if zeroconf.mode in modes:
+                listener.add_service(zeroconf, service_type, name)
+        return SimpleNamespace(cancel=lambda: events.append(f"cancel:{zeroconf.mode}"))
 
+    monkeypatch.setattr(device_discovery, "Zeroconf", open_discovery)
     monkeypatch.setattr(device_discovery, "ServiceBrowser", browser)
+    monkeypatch.setattr(device_discovery._DeviceListener, "wait_for_quiet", lambda *_args: None)
+
+
+@pytest.mark.parametrize("browser_fails", [False, True])
+def test_discovery_closes_resources_after_browse(monkeypatch, browser_fails):
+    events = []
+    fake_discovery_network(monkeypatch, events, browser_fails=browser_fails,
+                           found={"sensor": ("unicast", "multicast")})
     if browser_fails:
         with pytest.raises(OSError):
             device_discovery.discover_devices()
-        assert events == ["close"]
+        assert events == ["close:unicast", "close:multicast"]
     else:
         result = device_discovery.discover_devices(frontend="native")
         assert len(result) == 1
         assert result[0].device_id == 0x1234
-        assert events == ["cancel", "close"]
+        assert events[-4:] == ["cancel:unicast", "cancel:multicast", "close:unicast", "close:multicast"]
+
+
+def test_discovery_resolves_through_the_finding_browser_and_merges_results(monkeypatch):
+    events = []
+    # Behind an mDNS proxy, only the multicast browser sees the remote sensor.
+    fake_discovery_network(monkeypatch, events, found={
+        "local": ("unicast", "multicast"), "remote": ("multicast",),
+    })
+    result = device_discovery.discover_devices()
+    assert sorted(record.service_name for record in result) == ["local", "remote"]
+    assert sorted(event for event in events if event.startswith("resolve:")) == [
+        "resolve:multicast:local", "resolve:multicast:remote", "resolve:unicast:local",
+    ]
+
+
+def test_discovery_falls_back_to_unicast_when_mdns_port_is_unavailable(monkeypatch):
+    events = []
+    fake_discovery_network(monkeypatch, events, multicast_fails=True, found={"sensor": ("unicast",)})
+    result = device_discovery.discover_devices()
+    assert [record.service_name for record in result] == ["sensor"]
+    assert events == ["resolve:unicast:sensor", "cancel:unicast", "close:unicast"]
 
 
 @pytest.mark.parametrize("options", [

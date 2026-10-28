@@ -70,7 +70,7 @@ A protocol or bandwidth shown as `unavailable` in logs does not mean capture fai
 - **External traffic:** check client isolation, guest-network rules, and firewalls between the sender and the ESP32. Devices on different VLANs need a route for this traffic.
 - **Multicast:** if multicast does not arrive, try unicast to the device IP. Ports and markers are in [external CSI traffic](API.md#external-csi-traffic).
 
-Discovery uses different traffic from sensing. Blocked mDNS can hide the device while its IP still works; see [discovery fallback](DISCOVERY.md#client-validation-and-fallback).
+Discovery uses different traffic from sensing. Blocked mDNS can hide the device while its IP still works; see [discovery fallback](DISCOVERY.md#client-validation-and-fallback). If the device is on another VLAN behind an mDNS proxy, `./espectre devices` needs inbound UDP 5353 on the host, because the proxy relays only multicast replies; see [DNS-SD and mDNS](DISCOVERY.md#dns-sd-and-mdns).
 
 ## Bluetooth reduces CSI occupancy
 
