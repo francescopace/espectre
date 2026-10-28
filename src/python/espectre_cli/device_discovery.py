@@ -186,21 +186,22 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
 
 
 class _DeviceListener(ServiceListener):
-    def __init__(self, zeroconf: Zeroconf):
-        self._zeroconf = zeroconf
+    def __init__(self):
         self._records: dict[tuple[str, str], DiscoveredDevice] = {}
         self._records_changed = threading.Condition()
         self._last_change_monotonic = 0.0
 
-    def _resolve_record(self, service_type: str, name: str) -> DiscoveredDevice | None:
-        info = self._zeroconf.get_service_info(
+    @staticmethod
+    def _resolve_record(zeroconf: Zeroconf, service_type: str, name: str) -> DiscoveredDevice | None:
+        info = zeroconf.get_service_info(
             service_type, name, timeout=1000, question_type=DNSQuestionType.QM,
         )
         return None if info is None else _parse_record(service_type, name, info)
 
     def add_service(self, zeroconf: Zeroconf, service_type: str, name: str) -> None:
-        del zeroconf
-        record = self._resolve_record(service_type, name)
+        # Resolve through the instance whose browser found the service: a
+        # name seen only over multicast may not resolve over legacy unicast.
+        record = self._resolve_record(zeroconf, service_type, name)
         if record is not None:
             key = (_dns_key(service_type), _dns_key(name))
             with self._records_changed:
@@ -274,28 +275,40 @@ def discover_devices(
     try:
         # An ephemeral source port requests replies directly to this one-shot
         # client, without depending on multicast reception or sharing Bonjour's
-        # unicast replies on UDP port 5353.
-        zeroconf = Zeroconf(unicast=True, ip_version=IPVersion.V4Only)
+        # unicast replies on UDP port 5353. Some host firewalls drop inbound
+        # UDP 5353, so only these replies get through.
+        instances = [Zeroconf(unicast=True, ip_version=IPVersion.V4Only)]
     except OSError as exc:
         raise DeviceDiscoveryError(
             f"mDNS discovery could not open local network interfaces ({exc}). Use an explicit device address."
         ) from exc
-
-    listener = _DeviceListener(zeroconf)
-    browser = None
     try:
-        # The source port requests legacy-unicast replies. Keep the ordinary
-        # IN question class (QM) for browsing and follow-up resolution.
-        browser = ServiceBrowser(
-            zeroconf, ESPECTRE_SERVICE_TYPE, listener=listener, question_type=DNSQuestionType.QM,
-        )
+        # mDNS proxies between subnets or VLANs often relay only multicast on
+        # UDP port 5353 and drop legacy-unicast replies, so also browse from
+        # port 5353, shared with any system responder. Keep unicast only when
+        # the port cannot be opened, for example on Windows.
+        instances.append(Zeroconf(ip_version=IPVersion.V4Only))
+    except OSError:
+        pass
+
+    # One listener serves both browsers, so a device seen by both is listed once.
+    listener = _DeviceListener()
+    browsers = []
+    try:
+        # Keep the ordinary IN question class (QM) for browsing and follow-up
+        # resolution, so the multicast browser receives multicast replies.
+        for zeroconf in instances:
+            browsers.append(ServiceBrowser(
+                zeroconf, ESPECTRE_SERVICE_TYPE, listener=listener, question_type=DNSQuestionType.QM,
+            ))
         listener.wait_for_quiet(float(timeout_s), float(quiet_window_s))
     finally:
-        if browser is not None:
+        for browser in browsers:
             cancel = getattr(browser, "cancel", None)
             if callable(cancel):
                 cancel()
-        zeroconf.close()
+        for zeroconf in instances:
+            zeroconf.close()
     return listener.snapshot(frontend)
 
 
