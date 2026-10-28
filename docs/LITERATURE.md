@@ -2,7 +2,7 @@
 
 This index summarizes published Wi-Fi sensing research and what each source means for ESPectre: features, preprocessing, algorithms, results, hardware assumptions, and whether the idea can work on ESP32 hardware. It is written for sensing researchers and feature contributors. For how the detector works today, see the [algorithms reference](ALGORITHMS.md).
 
-It covers the external papers in the local `.papers` collection and the online sources reviewed up to 2026-08-21. ESPectre's own research is not included; the earlier NBVI work is recorded in the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Links point to the publisher, DOI, or arXiv, so the PDFs are not needed. Release dates are the first public version, not the date we read it.
+It covers the external papers in the local `.papers` collection and the online sources reviewed up to 2026-10-24. ESPectre's own research is not included; the earlier NBVI work is recorded in the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Links point to the publisher, DOI, or arXiv, so the PDFs are not needed. Release dates are the first public version, not the date we read it.
 
 A published result does not prove that an idea works on ESPectre data: tasks, labels, hardware, packet rates, rooms, and splits all differ. ESPectre's own measurements and verdicts are in the [feature analysis](FEATURES.md).
 
@@ -115,6 +115,14 @@ The most promising scale-invariant experiments:
 - **Method:** phase calibration, error correction, minimum-entropy subcarrier selection, frequency or instantaneous-phase respiration estimation, and MUSIC angle-of-arrival estimation.
 - **Results:** identifies a 0.3 Hz respiration example and reports AoA errors of 1-4 degrees after calibration.
 - **ESPectre:** **Adapt** for phase-calibration lessons and **Defer** for AoA. MUSIC requires multiple antennas and stable inter-antenna phase, which the current sensing contract does not expose.
+
+### Mitigation of CSI Temporal Phase Rotation with B2B Calibration Method for Fine-Grained Motion Detection Analysis on Commodity Wi-Fi Devices
+
+- **Source:** [Sensors](https://www.mdpi.com/1424-8220/18/11/3795); [DOI 10.3390/s18113795](https://doi.org/10.3390/s18113795)
+- **Released:** 2018-11-06
+- **Setup and method:** two laptops with Intel 5300 NICs, 40 MHz on channel 62 (5.31 GHz), 30 reported subcarriers, and 2,500 packets/s; the transmitter uses injection mode and the receiver monitor mode. A splitter at the first transmit antenna feeds a cabled, 40 dB attenuated back-to-back path into the second receive antenna. Dividing the target CSI by this reference cancels the phase rotation, spatial mapping, and cyclic-shift terms that both paths share, and a Morlet wavelet transform of the strongest delay bin then extracts hand-gesture Doppler.
+- **Results:** in a static room the calibrated phase varies by about 1.64°, apart from distorted subcarriers at the band edges. After removing a constant residual offset of about 3 rad, it stays within about 0.12 rad RMSE of a vector network analyzer over three runs. The residual offset changes at every receiver initialization and was removed with the analyzer data; the authors note it does not affect Doppler, because a constant phase maps to zero frequency. The sign of the gesture Doppler follows the motion direction at three positions, six repetitions each, for one person in an empty room.
+- **ESPectre:** **Defer**. The reference needs a cable, a splitter, and a second receive chain on the same receiver. ESPectre nodes have one antenna and no wired reference. The paper also shows that a constant per-boot offset does not matter for motion; the time-varying rotation does. The closest available analogue is cancelling common phase within one packet, as in the local phase-closure experiment.
 
 ### Non-Contact Heart Rate Monitoring Method Based on Wi-Fi CSI Signal
 
@@ -279,6 +287,30 @@ The most promising scale-invariant experiments:
 - **Method:** filters CIR by range before computing Doppler, uses temporal spectral windows, and switches adaptively between 10 Hz and 100 Hz sensing rates.
 - **Results:** reports robust device-free presence without per-room calibration or retraining on the tested platform.
 - **ESPectre:** **Context** for separating presence from motion and for multi-rate acquisition. The CIR resolution is not transferable to HT20, but a dimensionless narrowband spectral concentration remains worth testing on a dedicated presence corpus.
+
+### esp-crab: Co-Crystal Oscillator CSI Reception
+
+- **Source:** [Espressif ESP-CSI solution](https://docs.espressif.com/projects/esp-techpedia/en/latest/esp-friends/solution-introduction/esp-csi/esp-csi-solution.html); [esp-crab example](https://github.com/espressif/esp-csi/tree/master/examples/esp-crab)
+- **Released:** 2025-04-23, first commit of the example in the ESP-CSI repository
+- **Setup and method:** an esp-crab board carries two ESP32-C5 chips that share one crystal, with a clock buffer that removes their relative frequency offset. In self-transmit-and-receive mode one chip transmits and the other receives, and CSI phase derived from the CIR senses disturbances along a short path shaped by copper sheets. In single-transmit-dual-receive mode an external ESP32-C5 transmits and the master chip computes the amplitude and phase difference between the two on-board receivers.
+- **Results:** no quantitative evaluation. The example claims millimeter-level sensitivity in self-transmit-and-receive mode.
+- **ESPectre:** **Defer**. Espressif treats coherent phase across ESP32 chips as a hardware property: it comes from the shared oscillator on one board. Independent off-the-shelf nodes associated with an AP have no such reference, so the phase difference between chips is not observable in the current contract. The self-transmit mode is also a short-range monostatic task, separate from link motion detection.
+
+### ESPARGOS: An Ultra Low-Cost, Realtime-Capable Multi-Antenna WiFi Channel Sounder
+
+- **Source:** [arXiv](https://arxiv.org/abs/2502.09405)
+- **Released:** 2025-02-13
+- **Setup and method:** one four-layer board carries eight receive-only ESP32 chips behind a 2-by-4 array of ceramic antennas and streams raw L-LTF and HT-LTF CSI to a host over SPI. A daisy-chained 40 MHz reference oscillator gives frequency synchronization. The PLL phase changes at every reset and channel change, so each chip has an RF switch that alternates between its antenna and a Wi-Fi phase reference distributed through a resistive divider and microstrip lines; the clock and the reference arrive on one coaxial cable. Calibration divides the over-the-air CSI by the reference CSI and removes a constant phase set by the board layout. The receivers sniff frames in promiscuous mode, and the host groups them by MAC address, timestamp, and headers.
+- **Results:** qualitative only. On a 20 MHz channel, pairwise phase differences stay stable for a static transmitter and follow its movement, and MUSIC pseudo-spectra separate three transmitter positions. Quantitative characterization and coherent combination of several boards are left to future work.
+- **ESPectre:** **Defer**. Coherence comes from a shared clock, a wired phase reference, and periodic calibration on one custom board. Passive capture also needs promiscuous mode, which ESPectre does not enable: it takes CSI only from frames received while associated.
+
+### Frequency and Phase Synchronization of Antenna Arrays with Phase Incoherent Microcontrollers
+
+- **Source:** [University of Kentucky thesis](https://uknowledge.uky.edu/gradschool_theses/664/); [DOI 10.13023/etd.2026.413](https://doi.org/10.13023/etd.2026.413)
+- **Released:** 2026-08-05
+- **Setup and method:** a replication of ESPARGOS with five ESP32-S2 chips on a four-layer board. A controller chip drives one 40 MHz crystal and daisy-chains it to four sensor chips with ceramic patch antennas in a 2-by-2 array. The shared clock gives frequency coherence, but each chip still starts with a random phase offset that changes at every reset. An on-board reference over microstrip traces was built, but the transmitting controller overloaded the receivers and caused brownouts, the RF switches isolated too little, and frames from `esp_wifi_80211_tx` stayed at 1 Mbps, which is not OFDM. All reported data therefore use a third option: zero the array with a station at a known position, then track the per-packet phase difference between sensors. The sensors capture external frames passively at about one packet per second and use one pilot subcarrier.
+- **Results:** raw per-packet phase looks random, but the phase difference between two co-clocked sensors on the same packet stays stable for six minutes, apart from outliers attributed to multipath, and shifts by about 1 rad when the station moves horizontally. In the angle-of-arrival test a 6-inch move gives about 1.25 rad against 1.08 rad expected, with the wrong sign at the smallest angle; no angular error is reported. The author names crystal drift at ±10 ppm and 8-bit CSI resolution as limits.
+- **ESPectre:** **Defer**. Even with a shared clock, phase across ESP32 chips needs calibration at every boot against a known reference, and the only calibration that worked here was a transmitter at a known position. Like ESPARGOS, it relies on promiscuous capture. Independent ESPectre nodes cannot measure the offset, so array phase and AoA stay outside the current contract.
 
 ## Surveys, datasets, deployment, and security
 
