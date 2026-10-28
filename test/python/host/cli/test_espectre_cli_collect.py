@@ -15,7 +15,7 @@ from espectre_cli.app import build_parser
 from espectre_cli import device_discovery, host
 from espectre_cli.device_discovery import DiscoveredDevice, ESPECTRE_DIRECT_PORT, ESPECTRE_SERVICE_TYPE
 from tools.ha_traffic_generator_addon.espectre_traffic_generator import ExternalTrafficGenerator
-from tools.lib import csi_io
+from tools.lib import csi_io, detector_loader
 
 
 def discovered_device(
@@ -126,7 +126,7 @@ def test_collect_duration_expires_after_packets_stop(monkeypatch, tmp_path, labe
     monkeypatch.setattr(host.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(host, "_run_post_collect_quality_checks", lambda _paths: True)
     # Exercise the recording deadline independently of startup calibration.
-    monkeypatch.setattr("detector_interface.detector_needs_startup_calibration", lambda _kind: False)
+    monkeypatch.setattr("tools.lib.detector_loader.detector_needs_startup_calibration", lambda _kind: False)
     packet = csi_io.CSIPacket(
         timestamp=20.0,
         seq_num=0,
@@ -186,6 +186,65 @@ def test_collect_duration_expires_after_packets_stop(monkeypatch, tmp_path, labe
     assert receiver.stopped
     assert generator_stops
     assert saved_packets == ([packet] if label else [])
+
+
+@pytest.mark.parametrize(
+    "detector",
+    [
+        *detector_loader.supported_detector_algorithms(),
+        ",".join(detector_loader.supported_detector_algorithms()),
+    ],
+)
+def test_collect_runs_every_supported_detector(monkeypatch, detector):
+    clock = [20.0]
+    monkeypatch.setattr(host.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(host.signal, "signal", lambda *_args: None)
+    built = []
+    load_detector_class = detector_loader.load_detector_class
+
+    def spy_load_detector_class(kind):
+        detector_class = load_detector_class(kind)
+        built.append(detector_class.ALGORITHM)
+        return detector_class
+
+    monkeypatch.setattr(detector_loader, "load_detector_class", spy_load_detector_class)
+    packet = csi_io.CSIPacket(
+        timestamp=20.0, seq_num=0, num_subcarriers=64,
+        iq_raw=np.ones(128, dtype=np.int8), device_id=1,
+        device_ticks_us=10000, source_ip="192.0.2.1",
+    )
+
+    class Receiver:
+        effective_socket_rcvbuf_bytes = None
+        calls = 0
+
+        def add_callback(self, callback):
+            self.callback = callback
+
+        def run(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                self.callback(packet)
+            else:
+                clock[0] += 1.0
+
+        def stop(self):
+            pass
+
+    generator = SimpleNamespace(stop=lambda: None)
+    monkeypatch.setattr(host, "_prepare_raw_http_collection", lambda *_args: (Receiver(), generator, 5555))
+    monkeypatch.setattr(host, "_start_raw_http_collection", lambda *_args: None)
+    args = build_parser().parse_args([
+        "collect", "--target", "192.0.2.1", "--duration", "1",
+        "--ready-stable-seconds", "0", "--detector", detector,
+    ])
+    args.label = None
+    args.direct_endpoint = "http://192.0.2.1:8080/espectre/v1"
+    args.traffic_target = "192.0.2.1"
+
+    host._run_live_collect(args)
+
+    assert set(built) == set(detector.split(","))
 
 
 def test_collect_stream_error_remains_visible_after_inline_status_cleanup(monkeypatch):
