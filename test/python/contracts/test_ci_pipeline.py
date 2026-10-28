@@ -2100,7 +2100,13 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     caller = ci_jobs["dispatch-publication"]
     assert set(caller["needs"]) == {
         "audit-esphome", "audit-matter", "audit-native", "verify-sdk-component",
+        "build-traffic-generator-image",
     }
+    image_build = ci_jobs["build-traffic-generator-image"]
+    assert set(image_build["needs"]) == {"prepare", "test-python"}
+    image_upload = next(step for step in image_build["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    assert image_upload["if"] == "github.event_name == 'push'"
+    assert image_upload["with"]["name"] == "traffic-generator-image"
     assert "github.event_name == 'push'" in caller["if"]
     assert "!github.event.deleted" in caller["if"]
     assert caller["if"].strip() == (
@@ -2151,6 +2157,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "publish-coverage": ["release"],
         "publish-pages": ["release"],
         "dispatch-pages": ["publish-pages"],
+        "publish-traffic-generator-image": ["release"],
     }
     assert cd_jobs["validate-run"]["outputs"]["metadata"] == "${{ steps.source.outputs.metadata }}"
     assert cd_jobs["release"]["if"] == "needs.validate-run.outputs.current == 'true'"
@@ -2169,7 +2176,17 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert verification["with"]["source_run_id"] == (
         "${{ fromJSON(needs.publish-sdk.outputs.metadata).run_id }}"
     )
-    for job_id in ("publish-sdk", "publish-coverage", "dispatch-pages"):
+    image_publish = cd_jobs["publish-traffic-generator-image"]
+    # The image shares the SDK publication gate: the same allowed refs and release approval.
+    assert image_publish["environment"] == "${{ fromJSON(needs.release.outputs.metadata).environment }}"
+    assert image_publish["permissions"] == {"actions": "read", "contents": "read", "packages": "write"}
+    image_download = next(step for step in image_publish["steps"] if step.get("uses", "").startswith("actions/download-artifact@"))
+    assert image_download["with"]["name"] == "traffic-generator-image"
+    assert image_download["with"]["run-id"] == "${{ fromJSON(needs.release.outputs.metadata).run_id }}"
+    image_push = next(step for step in image_publish["steps"] if "skopeo copy" in step.get("run", ""))
+    assert "--preserve-digests" in image_push["run"]
+    assert "docker build" not in image_push["run"] and "buildx" not in image_push["run"]
+    for job_id in ("publish-sdk", "publish-coverage", "dispatch-pages", "publish-traffic-generator-image"):
         assert cd_jobs[job_id].get("if", "success()") == "success()"
     assert cd_jobs["publish-pages"]["if"] == "fromJSON(needs.release.outputs.metadata).publish_website"
     pages_checkout = next(

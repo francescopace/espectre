@@ -41,6 +41,7 @@ tfoot td { border-top: 1px solid var(--border); border-bottom: 0; }
 td:first-child, th:first-child { padding-left: 0; width: 32px; }
 .row-actions { display: flex; gap: 6px; min-width: 130px; }
 .row-actions button { font-size: 12px; padding: 5px 8px; }
+td select, #bulk-mode { font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; min-width: 120px; }
 .device-name { font-weight: 650; color: var(--accent); text-decoration: none; }
 .device-name:hover, .device-name:focus-visible { text-decoration: underline; }
 .device-ip { color: var(--muted); font-size: 13px; }

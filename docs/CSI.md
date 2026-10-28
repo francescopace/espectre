@@ -51,7 +51,7 @@ For direct Null Data at MCS0, configure the transmitter bandwidth explicitly wit
 
 For hardware validation, see the [external radio and peer sensing checks](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation).
 
-On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on sends pings or UDP markers, selected by its **Traffic type** option, and adds a panel to switch ESPHome and Native MQTT devices between internal and external mode. Match its `rate_pps` to the device's `csi_target_pps`. Stop the add-on before running `./espectre collect` on the same devices, because collection starts its own generator. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md).
+On 64-bit Home Assistant OS, the **ESPectre Traffic Generator** add-on sends pings or UDP markers, selected by its **Traffic type** option, and adds a panel to switch ESPHome and Native MQTT devices between internal and external mode. Match its `rate_pps` to the device's `csi_target_pps`. Stop the add-on before running `./espectre collect` on the same devices, because collection starts its own generator. See the [add-on documentation](../tools/ha_traffic_generator_addon/DOCS.md). On other Linux hosts, including Home Assistant Container, the [Docker image](../tools/traffic_generator_docker/README.md) sends the same traffic, and its web UI finds devices and switches their traffic source through Direct HTTP.
 
 The host generator sends multicast with TTL 8, so it can cross up to seven routers where multicast routing is set up. Set `multicast_ttl` to 1 to keep it on the local network. See [switches, VLANs, and routed networks](../tools/ha_traffic_generator_addon/DOCS.md#switches-vlans-and-routed-networks).
 

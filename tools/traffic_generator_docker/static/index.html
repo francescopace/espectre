@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>ESPectre Traffic Generator</title>
+  <link rel="icon" href="logo.png">
+  <link rel="stylesheet" href="static/panel.css">
+  <link rel="stylesheet" href="static/app.css">
+  <script src="static/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <a href="https://espectre.dev/" target="_blank" rel="noopener noreferrer" aria-label="ESPectre website"><img src="logo.png" alt="ESPectre" width="36" height="36"></a>
+      <h1>ESPectre Traffic Generator</h1>
+    </div>
+    <div id="controls" class="generator-controls" role="group" aria-label="Traffic generator controls" hidden>
+      <span id="running"></span>
+      <button id="generator-toggle" type="button" disabled>Start</button>
+      <button id="sign-out" class="icon-button" type="button" aria-label="Sign out" title="Sign out">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M10.09 15.59 11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67zM19 3H5a2 2 0 0 0-2 2v4h2V5h14v14H5v-4H3v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main>
+    <p id="notice" role="status" aria-live="polite">Connecting…</p>
+    <section id="sign-in" class="card narrow" aria-labelledby="sign-in-title" hidden>
+      <h2 id="sign-in-title">Sign in</h2>
+      <p class="muted">Enter the token from the container log, or from <code>ui_token</code> in the data folder.</p>
+      <form id="sign-in-form" class="fields">
+        <label for="token">Token</label>
+        <input id="token" name="token" type="password" autocomplete="current-password" required>
+        <div class="toolbar"><button type="submit">Sign in</button></div>
+      </form>
+    </section>
+    <div id="app" hidden>
+      <section class="card" aria-label="Traffic generator status">
+        <div class="summary">
+          <div><span class="label">Sent / s</span><strong id="send-rate">—</strong></div>
+          <div><span class="label">Rate / target</span><strong id="rate">—</strong></div>
+          <div><span class="label">Sent</span><strong id="sent">—</strong></div>
+          <div><span class="label">Errors</span><strong id="errors">—</strong></div>
+          <div id="replies-summary"><span class="label">Replies</span><strong id="replies">—</strong></div>
+        </div>
+        <p id="targets" class="muted"></p>
+      </section>
+      <section class="card" aria-labelledby="devices-title">
+        <div class="card-header">
+          <h2 id="devices-title">Devices</h2>
+          <div class="toolbar">
+            <button id="scan" type="button">Search</button>
+            <form id="add-form" class="inline-form">
+              <input id="add-address" type="text" spellcheck="false" autocomplete="off" placeholder="IPv4 address" aria-label="Device IPv4 address">
+              <button id="add" type="submit">Add</button>
+            </form>
+          </div>
+        </div>
+        <p id="devices-notice" role="status" aria-live="polite"></p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr>
+              <th><input id="select-all" type="checkbox" aria-label="Select all devices"></th>
+              <th>Device</th><th>Generator / s</th><th>TX / s</th><th>RX / s</th><th>CSI / s</th>
+              <th>Occupancy</th><th>Wi-Fi RSSI</th><th>Traffic source</th>
+            </tr></thead>
+            <tbody id="devices"></tbody>
+            <tfoot id="bulk-actions" hidden><tr>
+              <td colspan="7"><span id="selection" aria-live="polite"></span></td>
+              <td colspan="2"><div class="row-actions" role="group" aria-label="Selected devices">
+                <select id="bulk-mode" aria-label="Traffic source for the selected devices"></select>
+                <button id="bulk-apply" type="button">Apply</button>
+              </div></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </section>
+      <section class="card" aria-labelledby="settings-title">
+        <h2 id="settings-title">Settings</h2>
+        <form id="settings" class="fields settings-grid" novalidate>
+          <div class="field wide">
+            <label for="targets-input">Target addresses</label>
+            <textarea id="targets-input" name="targets" rows="3" spellcheck="false" aria-describedby="targets-help"></textarea>
+            <small id="targets-help">The multicast group, or one device IPv4 address per line.</small>
+          </div>
+          <div class="field">
+            <label for="protocol">Traffic type</label>
+            <select id="protocol" name="protocol" aria-describedby="protocol-help">
+              <option value="icmp">Ping (ICMP Echo)</option>
+              <option value="udp">UDP markers</option>
+            </select>
+            <small id="protocol-help">Ping keeps devices transmitting. Multicast ping needs ESPectre 3.1.0 or later.</small>
+          </div>
+          <div class="field">
+            <label for="rate_pps">Packets per second</label>
+            <input id="rate_pps" name="rate_pps" type="number" min="1" max="1000" step="1" inputmode="numeric" aria-describedby="rate-help">
+            <small id="rate-help">Per target. Match the devices' <code>csi_target_pps</code>.</small>
+          </div>
+          <div class="field">
+            <label for="port">UDP port</label>
+            <input id="port" name="port" type="number" min="1" max="65535" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="multicast_ttl">Multicast TTL</label>
+            <input id="multicast_ttl" name="multicast_ttl" type="number" min="1" max="255" step="1" inputmode="numeric" aria-describedby="ttl-help">
+            <small id="ttl-help"><code>1</code> keeps multicast on the local network.</small>
+          </div>
+          <div class="field">
+            <label for="dscp">DSCP</label>
+            <input id="dscp" name="dscp" type="number" min="0" max="63" step="1" inputmode="numeric">
+          </div>
+          <div class="field">
+            <label for="source_ip">Source IPv4 address</label>
+            <input id="source_ip" name="source_ip" type="text" spellcheck="false" placeholder="Automatic" aria-describedby="source-help">
+            <small id="source-help">Leave empty unless the host sends from the wrong interface.</small>
+          </div>
+          <div class="toolbar wide">
+            <button id="save" type="submit" disabled>Save and apply</button>
+            <button id="revert" type="button" disabled>Revert</button>
+          </div>
+        </form>
+      </section>
+    </div>
+    <dialog id="confirm">
+      <form method="dialog">
+        <h2 id="confirm-title">Change the traffic source?</h2>
+        <p id="confirm-message"></p>
+        <div class="toolbar"><button value="cancel">Cancel</button><button id="confirm-apply" value="apply">Apply</button></div>
+      </form>
+    </dialog>
+  </main>
+</body>
+</html>

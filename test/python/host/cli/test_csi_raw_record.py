@@ -17,6 +17,7 @@ import socket
 import threading
 import time
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import numpy as np
 import pytest
@@ -24,7 +25,10 @@ import pytest
 from tools.ha_traffic_generator_addon import espectre_traffic_generator
 from tools.ha_traffic_generator_addon import traffic as traffic_addon
 from tools.ha_traffic_generator_addon import ha_client, panel
+from tools.traffic_generator_docker import devices as standalone_devices
+from tools.traffic_generator_docker import server as standalone
 from tools.lib import dataset_metadata
+from espectre_cli.device_transport import DirectProtocolError, DirectRequestError
 from tools.lib.csi_io import (
     CSICollector,
     CSIReceiver,
@@ -1413,9 +1417,17 @@ def test_ha_panel_single_source_select_restores_the_previous_internal_packet():
                                          confirmation_timeout=0)
             assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "confirmed"
             assert (await ha.act(["sensor-a"], "internal"))["results"][0]["status"] == "confirmed"
+            # Any option the select offers works directly, and `internal` keeps the last internal one.
+            assert (await ha.act(["sensor-a"], "wifi_raw"))["results"][0]["option"] == "wifi_raw"
+            assert (await ha.act(["sensor-a"], "external"))["results"][0]["status"] == "confirmed"
+            restored, = (await ha.act(["sensor-a"], "internal"))["results"]
+            assert restored["status"] == "confirmed" and restored["option"] == "wifi_raw"
+            rejected, = (await ha.act(["sensor-a"], "flood"))["results"]
+            assert rejected["status"] == "error" and rejected["option"] == "flood"
             writes = [call for call in fake.calls if call["type"] == "call_service"]
-            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_source"}] * 2
-            assert [call["service_data"] for call in writes] == [{"option": "external"}, {"option": "dns"}]
+            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_source"}] * 5
+            assert [call["service_data"]["option"] for call in writes] == [
+                "external", "dns", "wifi_raw", "external", "wifi_raw"]
     asyncio.run(exercise())
 
 
@@ -1464,9 +1476,11 @@ def test_ha_panel_http_routes_restrict_ingress_csrf_and_action_scope():
             data = await response.json()
             assert "default-src 'self'" in response.headers["Content-Security-Policy"]
             headers = {"X-ESPectre-CSRF": data["csrf"]}
-            payload = {"device_ids": ["sensor-a"], "action": "external"}
+            payload = {"device_ids": ["sensor-a"], "mode": "external"}
             assert (await client.post("/api/action", json=payload)).status == 403
-            for invalid in [[], {}, dict(payload, service="turn_on"), dict(payload, action="delete"),
+            for invalid in [[], {}, dict(payload, service="turn_on"), dict(payload, mode="select.option"),
+                            dict(payload, mode="x" * 33), dict(payload, mode=""), dict(payload, mode=1),
+                            {"device_ids": ["sensor-a"], "action": "external"},
                             dict(payload, device_ids=["sensor-a"] * 33), dict(payload, device_ids=[{}])]:
                 assert (await client.post("/api/action", json=invalid, headers=headers)).status == 400
             assert not ha.calls
@@ -1543,6 +1557,207 @@ def test_ha_panel_generator_controls_preserve_panel_and_device_modes():
         finally:
             generator.stop()
     asyncio.run(exercise())
+
+
+def _standalone_settings(**overrides):
+    return {**standalone.DEFAULT_SETTINGS, "multicast_ttl": 1, "rate_pps": 1, **overrides}
+
+
+class _FakeDirectNetwork:
+    """Direct HTTP devices keyed by endpoint; an unknown endpoint never answers."""
+
+    def __init__(self):
+        self.devices, self.calls = {}, []
+
+    def add(self, ip, device_id, *, mode="ping", operations=("update_sensing",), catalog=None, reject=None,
+            chip="esp32c6", features=None):
+        self.devices[f"http://{ip}:62587/espectre/v1"] = {
+            "info": {"device_id": device_id, "name": f"Sensor {device_id[-1]}", "chip": chip,
+                     "frontend": "native", "firmware": "3.1.0"},
+            "operations": operations, "reject": reject, "features": features,
+            "catalog": tuple(standalone_devices.DIAGNOSTIC_FIELDS.values()) if catalog is None else catalog,
+            "sensing": {"traffic_generator_mode": mode, "csi_target_pps": 100, "csi_traffic_udp_port": 5555,
+                        "csi_traffic_multicast_group": "239.255.0.1"}}
+
+    def client(self, endpoint, timeout):
+        network = self
+
+        class Client:
+            def negotiate(self):
+                return network.request(endpoint, "get", "capabilities", None)
+
+            def request(self, method, resource, data=None):
+                return network.request(endpoint, method, resource, data)
+
+            def close(self):
+                pass
+        return Client()
+
+    def request(self, endpoint, method, resource, data):
+        self.calls.append((endpoint, method, resource, data))
+        device = self.devices.get(endpoint)
+        if device is None:
+            raise DirectProtocolError("Direct HTTP GET request failed: timed out") from TimeoutError("timed out")
+        if resource == "capabilities":
+            capabilities = {"protocol_version": "1.0", "resources": ["sensing"],
+                            "operations": [{"name": name} for name in device["operations"]]}
+            if device["features"] is not None:
+                capabilities["features"] = device["features"]
+            return capabilities
+        if resource == "device":
+            return dict(device["info"])
+        if resource == "diagnostics":
+            if not data["fields"]:
+                return {"fields": [{"name": name} for name in device["catalog"]]}
+            if any(name not in device["catalog"] for name in data["fields"]):
+                raise DirectRequestError("invalid_params", "unknown diagnostics field")
+            return {name: 12.5 for name in data["fields"]}
+        if method == "patch":
+            if device["reject"]:
+                # C++ frontends answer invalid_params with HTTP 400, which urllib raises as HTTPError.
+                body = json.dumps({"accepted": False, "code": "invalid_params", "message": device["reject"]})
+                raise DirectProtocolError(f"Direct HTTP 400: {body}") from HTTPError(
+                    endpoint, 400, "Bad Request", {}, None)
+            device["sensing"].update(data)
+            return {"accepted": True, "code": "ok", "message": ""}
+        return dict(device["sensing"])
+
+
+async def _standalone_client(controller, token="standalone-test-token", registry=None):
+    from aiohttp.test_utils import TestClient, TestServer
+    if registry is None:
+        registry = standalone_devices.DeviceRegistry(controller.path.with_name("devices.json"),
+                                                     client_factory=_FakeDirectNetwork().client,
+                                                     discover=lambda: [])
+    client = TestClient(TestServer(standalone.create_app(controller, token, registry)))
+    await client.start_server()
+    return client
+
+
+def test_standalone_ui_requires_sign_in_csrf_and_throttles_failures(tmp_path):
+    async def exercise():
+        controller = standalone.Controller(_standalone_settings(), tmp_path / "settings.json")
+        client = await _standalone_client(controller)
+        try:
+            for path in ["/", "/static/app.js", "/static/panel.css"]:
+                assert (await client.get(path)).status == 200
+            assert (await client.get("/logo.png")).content_type == "image/png"
+            assert (await client.get("/static/../server.py")).status in {401, 404}
+            assert (await client.get("/api/status")).status == 401
+            assert (await client.post("/api/generator", json={"action": "start"})).status == 401
+            for _attempt in range(standalone.LOGIN_FAILURES):
+                assert (await client.post("/api/login", json={"token": "wrong-token-value"})).status == 401
+            assert (await client.post("/api/login", json={"token": "standalone-test-token"})).status == 429
+            assert (await client.get("/api/status")).status == 401
+        finally:
+            await client.close()
+
+        client = await _standalone_client(controller)
+        try:
+            for invalid in [[], {}, {"token": 1}, {"token": "standalone-test-token", "user": "admin"}]:
+                assert (await client.post("/api/login", json=invalid)).status == 400
+            response = await client.post("/api/login", json={"token": "standalone-test-token"})
+            assert response.status == 200
+            cookie = response.cookies[standalone.SESSION_COOKIE]
+            assert cookie["httponly"] and cookie["samesite"] == "Strict" and cookie["path"] == "/"
+            response = await client.get("/api/status")
+            data = await response.json()
+            assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+            assert data["settings"] == controller.settings and data["generator"]["running"] is False
+            assert (await client.post("/api/generator", json={"action": "start"})).status == 403
+            headers = {"X-ESPectre-CSRF": data["csrf"]}
+            assert (await client.post("/api/generator", data="start", headers=headers)).status == 415
+            assert (await client.post("/api/logout", json={}, headers=headers)).status == 200
+            assert (await client.get("/api/status")).status == 401
+            assert not controller.generator.running
+        finally:
+            await client.close()
+            controller.stop()
+    asyncio.run(exercise())
+
+
+def test_standalone_settings_validate_persist_and_keep_the_run_state(tmp_path):
+    async def exercise():
+        path = tmp_path / "settings.json"
+        controller = standalone.Controller(_standalone_settings(), path)
+        client = await _standalone_client(controller)
+        try:
+            await client.post("/api/login", json={"token": "standalone-test-token"})
+            headers = {"X-ESPectre-CSRF": (await (await client.get("/api/status")).json())["csrf"]}
+            await client.post("/api/generator", json={"action": "start"}, headers=headers)
+            original = controller.generator
+            valid = _standalone_settings(targets=["239.255.0.2", "192.168.1.20"], protocol="udp", rate_pps=2, dscp=0)
+            missing = dict(valid)
+            del missing["dscp"]
+            for invalid in [[], missing, dict(valid, extra=1), dict(valid, targets=["2001:db8::1"]),
+                            dict(valid, targets=["239.255.0.2", "239.255.0.2"]), dict(valid, targets=[]),
+                            dict(valid, targets=[f"192.168.1.{index}" for index in range(1, standalone.MAX_TARGETS + 2)]),
+                            dict(valid, rate_pps=0), dict(valid, protocol="tcp"), dict(valid, multicast_ttl="8"),
+                            dict(valid, source_ip="239.255.0.9")]:
+                assert (await client.post("/api/settings", json=invalid, headers=headers)).status == 400
+            assert controller.generator is original and original.running and not path.exists()
+
+            response = await client.post("/api/settings", json=valid, headers=headers)
+            assert response.status == 200
+            data = await response.json()
+            assert data["settings"] == valid and data["generator"]["running"] is True
+            assert data["generator"]["targets"] == valid["targets"] and data["generator"]["protocol"] == "udp"
+            assert not original.running and controller.generator.running
+            assert standalone.load_settings(path) == valid
+
+            await client.post("/api/generator", json={"action": "stop"}, headers=headers)
+            response = await client.post("/api/settings", json=dict(valid, rate_pps=3), headers=headers)
+            assert (await response.json())["generator"]["running"] is False and not controller.generator.running
+        finally:
+            await client.close()
+            controller.stop()
+    asyncio.run(exercise())
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_standalone_reports_a_failed_generator_until_settings_fix_it(tmp_path):
+    async def exercise():
+        # 192.0.2.0/24 is reserved for documentation, so no host owns this source address.
+        controller = standalone.Controller(_standalone_settings(protocol="udp", source_ip="192.0.2.55"),
+                                           tmp_path / "settings.json")
+        client = await _standalone_client(controller)
+        try:
+            await client.post("/api/login", json={"token": "standalone-test-token"})
+            headers = {"X-ESPectre-CSRF": (await (await client.get("/api/status")).json())["csrf"]}
+            await client.post("/api/generator", json={"action": "start"}, headers=headers)
+            for _attempt in range(100):
+                status = (await (await client.get("/api/status")).json())["generator"]
+                if status["failed"]:
+                    break
+                await asyncio.sleep(0.01)
+            assert status["failed"] and not status["running"] and status["error"]
+            response = await client.post("/api/settings", json=dict(controller.settings, source_ip=""), headers=headers)
+            status = (await response.json())["generator"]
+            assert status["running"] and not status["failed"] and status["error"] is None
+        finally:
+            await client.close()
+            controller.stop()
+    asyncio.run(exercise())
+
+
+def test_standalone_token_and_settings_files(tmp_path, monkeypatch):
+    monkeypatch.delenv("ESPECTRE_UI_TOKEN", raising=False)
+    token = standalone.load_token(tmp_path)
+    assert len(token) >= standalone.MIN_TOKEN_LENGTH
+    assert (tmp_path / "ui_token").stat().st_mode & 0o777 == 0o600
+    assert standalone.load_token(tmp_path) == token
+    assert standalone.load_token(tmp_path, "configured-token-value") == "configured-token-value"
+    with pytest.raises(ValueError, match="token"):
+        standalone.load_token(tmp_path, "short")
+
+    path = tmp_path / "settings.json"
+    assert standalone.load_settings(path) == standalone.DEFAULT_SETTINGS
+    path.write_text(json.dumps({"targets": ["192.168.1.20"], "protocol": "udp"}), encoding="utf-8")
+    assert standalone.load_settings(path) == dict(standalone.DEFAULT_SETTINGS, targets=["192.168.1.20"], protocol="udp")
+    for invalid in [[], {"targets": ["127.0.0.1"]}]:
+        path.write_text(json.dumps(invalid), encoding="utf-8")
+        with pytest.raises(ValueError):
+            standalone.load_settings(path)
 
 
 def test_ha_panel_shared_event_feed_reads_once_and_tracks_registry_changes():
@@ -2543,3 +2758,133 @@ def test_emit_ready_status_block_falls_back_to_plain_lines():
 
     assert rendered == 2
     assert stream.getvalue() == 'summary\ndetail\n'
+
+
+def _standalone_registry(tmp_path, network, found=()):
+    records = [SimpleNamespace(ip_address=ip, port=62587) for ip in found]
+    return standalone_devices.DeviceRegistry(tmp_path / "devices.json", client_factory=network.client,
+                                             discover=lambda: list(records))
+
+
+def test_standalone_devices_are_found_by_mdns_or_address_and_read_only_supported_fields(tmp_path):
+    network = _FakeDirectNetwork()
+    network.add("192.168.1.20", "aaaaaaaaaaaaaaa1")
+    network.add("192.168.1.21", "aaaaaaaaaaaaaaa2", catalog=("generator_pps", "traffic_tx_pps"))
+    network.add("192.168.1.22", "aaaaaaaaaaaaaaa3")
+    registry = _standalone_registry(tmp_path, network, found=["192.168.1.20", "192.168.1.21", "192.168.1.99"])
+
+    # `wifi_raw` follows the raw-destination capability; 3.0 firmware without it falls back to the chip.
+    capabilities = {"features": {"traffic_generator_target_mac": True}}
+    assert "wifi_raw" in standalone_devices.supported_modes(capabilities, "esp32c6")
+    assert "wifi_raw" not in standalone_devices.supported_modes({"features": {"traffic_generator_target_mac": False}},
+                                                                "esp32s3")
+    assert "wifi_raw" in standalone_devices.supported_modes({}, "esp32s3")
+    assert standalone_devices.supported_modes({}, "esp32c6") == ("ping", "dns", "dns_tcp", "external")
+    # The HTTP server rejects some requests in plain text before they reach the application.
+    rejected = DirectProtocolError("Direct HTTP 403: origin not allowed")
+    rejected.__cause__ = HTTPError("http://192.168.1.20:62587/espectre/v1/sensing", 403, "Forbidden", {}, None)
+    assert standalone_devices.describe_error(rejected) == "origin not allowed"
+    rejected = DirectProtocolError("Direct HTTP 404: ")
+    rejected.__cause__ = HTTPError("http://192.168.1.20:62587/espectre/v1/sensing", 404, "Not Found", {}, None)
+    assert standalone_devices.describe_error(rejected) == "The device rejected the request (HTTP 404)."
+
+    assert registry.scan() == 2
+    devices = {device["id"]: device for device in registry.snapshot()["devices"]}
+    assert set(devices) == {"aaaaaaaaaaaaaaa1", "aaaaaaaaaaaaaaa2"}
+    first, second = devices["aaaaaaaaaaaaaaa1"], devices["aaaaaaaaaaaaaaa2"]
+    assert first["source"] == "mdns" and first["can_control"] and first["error"] is None
+    assert first["sensing"]["traffic_generator_mode"] == "ping"
+    assert first["modes"] == ["ping", "dns", "dns_tcp", "external"]
+    assert all(value == 12.5 for value in first["fields"].values())
+    # Asking for a field outside the catalog would fail the whole diagnostics request.
+    assert second["fields"]["generator"] == 12.5 and second["fields"]["rssi"] is None
+    assert second["error"] is None
+
+    for invalid in ["sensor.local", "127.0.0.1", "239.255.0.1", "192.168.1.22:0", "2001:db8::1"]:
+        with pytest.raises(ValueError):
+            registry.add(invalid)
+    with pytest.raises(ValueError, match="No ESPectre device"):
+        registry.add("192.168.1.98")
+    assert not (tmp_path / "devices.json").exists()
+    registry.add("192.168.1.22")
+    registry.add("192.168.1.20")
+    assert json.loads((tmp_path / "devices.json").read_text())["manual"] == ["192.168.1.22", "192.168.1.20"]
+
+    # A device added by address survives a search that misses it, and keeps its source when mDNS finds it.
+    reloaded = _standalone_registry(tmp_path, network, found=["192.168.1.20"])
+    assert reloaded.scan() == 3
+    sources = {device["id"]: device["source"] for device in reloaded.snapshot()["devices"]}
+    assert sources == {"aaaaaaaaaaaaaaa1": "manual", "aaaaaaaaaaaaaaa3": "manual"}
+    with pytest.raises(KeyError):
+        reloaded.remove("unknown")
+    reloaded.remove("aaaaaaaaaaaaaaa3")
+    assert json.loads((tmp_path / "devices.json").read_text())["manual"] == ["192.168.1.20"]
+
+    del network.devices["http://192.168.1.20:62587/espectre/v1"]
+    reloaded.refresh_all()
+    lost, = reloaded.snapshot()["devices"]
+    assert lost["error"] == "The device did not answer." and not lost["can_control"]
+
+
+def test_standalone_device_modes_change_each_device_on_its_own(tmp_path):
+    async def exercise():
+        network = _FakeDirectNetwork()
+        network.add("192.168.1.20", "aaaaaaaaaaaaaaa1")
+        network.add("192.168.1.21", "aaaaaaaaaaaaaaa2", reject="traffic_generator_mode is invalid")
+        network.add("192.168.1.22", "aaaaaaaaaaaaaaa3", operations=())
+        network.add("192.168.1.23", "aaaaaaaaaaaaaaa4", mode="external")
+        registry = _standalone_registry(tmp_path, network, found=["192.168.1.20", "192.168.1.21",
+                                                                   "192.168.1.22", "192.168.1.23"])
+        registry.scan()
+        controller = standalone.Controller(_standalone_settings(), tmp_path / "settings.json")
+        client = await _standalone_client(controller, registry=registry)
+        try:
+            await client.post("/api/login", json={"token": "standalone-test-token"})
+            data = await (await client.get("/api/status")).json()
+            headers = {"X-ESPectre-CSRF": data["csrf"]}
+            assert len(data["devices"]["devices"]) == 4
+            ids = ["aaaaaaaaaaaaaaa1", "aaaaaaaaaaaaaaa2", "aaaaaaaaaaaaaaa3", "aaaaaaaaaaaaaaa4"]
+            payload = {"device_ids": ids, "mode": "external"}
+            assert (await client.post("/api/devices/mode", json=payload)).status == 403
+            assert (await client.post("/api/devices/mode", json=payload, headers=headers)).status == 409
+            for invalid in [{}, dict(payload, mode="flood"), dict(payload, device_ids=[]),
+                            dict(payload, device_ids=ids[:1] * 2), dict(payload, extra=1),
+                            dict(payload, device_ids=[f"device-{index}" for index in range(33)])]:
+                assert (await client.post("/api/devices/mode", json=invalid, headers=headers)).status == 400
+            assert not [call for call in network.calls if call[1] == "patch"]
+
+            await client.post("/api/generator", json={"action": "start"}, headers=headers)
+            response = await client.post("/api/devices/mode", json=payload, headers=headers)
+            data = await response.json()
+            assert [result["status"] for result in data["results"]] == ["confirmed", "error", "error", "unchanged"]
+            # An HTTP 400 is an answer: show the device's own message, not a timeout.
+            assert data["results"][1]["message"] == "traffic_generator_mode is invalid"
+            modes = {device["id"]: device["sensing"]["traffic_generator_mode"] for device in data["devices"]["devices"]}
+            assert modes == dict(zip(ids, ["external", "ping", "ping", "external"], strict=True))
+            patches = [call for call in network.calls if call[1] == "patch"]
+            assert [call[3] for call in patches] == [{"traffic_generator_mode": "external"}] * 2
+
+            # `internal` restores the source each device used before external traffic.
+            response = await client.post("/api/devices/mode", json={"device_ids": ids[:1], "mode": "internal"},
+                                         headers=headers)
+            restored, = (await response.json())["results"]
+            assert restored["status"] == "confirmed" and restored["option"] == "ping"
+
+            # A C6 never receives a source it does not offer.
+            patch_count = len([call for call in network.calls if call[1] == "patch"])
+            response = await client.post("/api/devices/mode", json={"device_ids": ids[:1], "mode": "wifi_raw"},
+                                         headers=headers)
+            refused, = (await response.json())["results"]
+            assert refused["status"] == "error" and refused["message"] == "This device does not offer wifi_raw."
+            assert len([call for call in network.calls if call[1] == "patch"]) == patch_count
+
+            assert (await client.post("/api/devices/add", json={"address": "sensor.local"}, headers=headers)).status == 400
+            assert (await client.post("/api/devices/remove", json={"device_id": ids[0]}, headers=headers)).status == 404
+            assert (await client.post("/api/devices/scan", json={}, headers=headers)).status == 200
+            # A finished search leaves no task behind.
+            await asyncio.gather(*client.app[standalone.TASKS])
+            assert not client.app[standalone.TASKS]
+        finally:
+            await client.close()
+            controller.stop()
+    asyncio.run(exercise())

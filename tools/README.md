@@ -50,10 +50,11 @@ The tools work with every supported chip. If a chip has no dataset or hardware r
 | `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
 | `ha_traffic_generator_addon/espectre_traffic_generator.py` | send phase-paced unicast or multicast UDP traffic to devices in `traffic_generator_mode: external`; configurable DSCP and multicast TTL default to 46 and 8; shared by the CLI and Home Assistant add-on |
 | `ha_traffic_generator_addon/` | Home Assistant OS add-on that runs the external traffic generator continuously |
+| `traffic_generator_docker/` | standalone Docker image with a web UI that runs the same generator without Home Assistant OS |
 
 ## Home Assistant Traffic Generator add-on
 
-The add-on runs the external traffic generator continuously on 64-bit Home Assistant OS. See the [add-on documentation](ha_traffic_generator_addon/DOCS.md) for installation and configuration.
+The add-on runs the external traffic generator continuously on 64-bit Home Assistant OS. See the [add-on documentation](ha_traffic_generator_addon/DOCS.md) for installation and configuration. Elsewhere, use the [Docker image](traffic_generator_docker/README.md).
 
 ## Dataset inspection and validation
 

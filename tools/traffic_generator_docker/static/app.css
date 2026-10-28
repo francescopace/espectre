@@ -1,0 +1,30 @@
+/* Forms for the standalone UI; panel.css from the add-on supplies the shared look. */
+[hidden] { display: none !important; }
+.narrow { max-width: 440px; margin-left: auto; margin-right: auto; }
+.fields label { display: block; margin-bottom: 4px; font-weight: 600; }
+.fields input, .fields select, .fields textarea { width: 100%; font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.fields textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.fields input:disabled { opacity: .55; }
+.fields select:focus-visible, .fields textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+.fields small { margin-top: 4px; }
+#sign-in-form .toolbar { margin: 16px 0 0; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px 20px; margin-top: 16px; }
+.settings-grid .wide { grid-column: 1 / -1; }
+.settings-grid .toolbar { margin: 0; }
+#save { background: var(--soft); border-color: transparent; }
+#running.failed { color: #b43c30; font-weight: 600; }
+code { font-size: 13px; }
+@media (prefers-color-scheme: dark) { #running.failed { color: #ffb1a6; } }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; }
+.card-header .toolbar { margin: 0; }
+.inline-form { display: flex; gap: 8px; }
+.inline-form input, td select, #bulk-mode { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+.inline-form input { width: 170px; }
+td select { padding: 5px 8px; min-width: 120px; }
+#devices-notice { white-space: pre-line; }
+#devices-notice:empty { display: none; }
+.device-detail { color: var(--muted); font-size: 13px; }
+.device-detail button { margin-left: 6px; padding: 0 6px; font-size: 12px; font-weight: 600; border: 0; background: none; }
+.hint { display: block; margin-top: 4px; font-size: 12px; color: #9a5b00; }
+.unreachable { color: #b43c30; }
+@media (prefers-color-scheme: dark) { .hint { color: #ffcc80; } .unreachable { color: #ffb1a6; } }

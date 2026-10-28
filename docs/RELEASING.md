@@ -108,13 +108,13 @@ Before the first upload, the repository owner must complete these steps:
 `ci.yml` runs on every branch and tag push, on pull requests to `develop`, and on manual runs:
 
 1. `Prepare Build`, `Website Unit Tests`, `C++ Unit Tests`, and `Python Unit Tests` run in parallel. Preparation chooses the version, artifact names, signing mode, and publication channel.
-2. When all four pass, the ESPHome, Matter, and Native firmware builds and `Build SDK Package` start in parallel.
+2. When all four pass, the ESPHome, Matter, and Native firmware builds and `Build SDK Package` start in parallel. `Build Traffic Generator Image` starts once preparation and the Python tests pass: it builds the image, checks its web UI in a container, and builds the `amd64` and `arm64` OCI archive.
 3. Each firmware build then runs its dependency audit; the SDK package runs the isolated SDK verification builds.
-4. `Dispatch Publication` waits for the three audits and SDK verification, then starts `cd.yml` (`workflow_dispatch`) on the same branch or tag and links it in the CI summary.
+4. `Dispatch Publication` waits for the three audits, SDK verification, and the image build, then starts `cd.yml` (`workflow_dispatch`) on the same branch or tag and links it in the CI summary.
 
 CD derives the channel, release tag, registry, and environment from the validated source and passes them along through job outputs. Artifacts are built once in CI and downloaded by CD. Checks and publication show up as separate runs.
 
-Branch protection should require preparation, the initial test jobs, firmware builds, dependency audits, SDK packaging, and SDK component build checks. Downstream checks alone are insufficient because they can be skipped after an upstream failure. Snapshot and release dispatch require every terminal audit and SDK verification prerequisite to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
+Branch protection should require preparation, the initial test jobs, firmware builds, dependency audits, SDK packaging, SDK component build checks, and the traffic generator image build. Downstream checks alone are insufficient because they can be skipped after an upstream failure. Snapshot and release dispatch require every terminal audit and SDK verification prerequisite to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
 
 Registry packaging and Native and Matter container builds share the Component Manager version pinned in `requirements.txt`, which is compatible with ESP-IDF 5.5.6. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
 
@@ -136,7 +136,7 @@ Only pushes to `main` and `develop` publish snapshots (not pull requests, other 
 - `main` publishes `snapshot` and updates the website; `develop` publishes `snapshot-dev`. Both upload the SDK to staging, never to production.
 - CI's last job, `dispatch-publication`, waits for every build, test, audit, and SDK check, then starts `cd.yml` on the branch with the CI run ID, attempt, and full commit SHA. Nothing is published unless all of them pass; a failed CI leaves the published files and coverage badges unchanged.
 - In CD, `Validate Source Run` waits for that CI attempt and checks its repository, push event, branch, commit, result, SDK package, and dispatch job. `Create Release` depends only on it. If a newer commit has superseded the source, the release and everything after it are skipped.
-- After the release, the SDK upload to staging, the website, and the coverage badges run in parallel; SDK verification follows the upload. The SDK publisher uploads the CI's `registry-component` artifact through OIDC, after checking that the commit is still current, the archive matches its inventory, and the component belongs to that commit and channel.
+- After the release, the SDK upload to staging, the website, the coverage badges, and the traffic generator image run in parallel; SDK verification follows the upload. The SDK publisher uploads the CI's `registry-component` artifact through OIDC, after checking that the commit is still current, the archive matches its inventory, and the component belongs to that commit and channel.
 
 To retry a failed publication, use **Re-run failed jobs** on the CD run while the source CI artifacts are retained. Retry failed checks on the original CI run; its final dispatch supplies the new attempt. A publisher rejects an older attempt after CI has been rerun. The original branch and commit remain the publication source, and superseded commits are skipped. Push CI runs on these branches and on tags, and publication runs, finish without automatic cancellation by newer runs; pending runs may be superseded. Other CI runs retain automatic cancellation.
 
@@ -178,7 +178,7 @@ For a release tag (prereleases such as `3.0.0-rc3` included):
 1. CI builds firmware and SDK with the exact tag as version and, if every check passes, starts `cd.yml` on the tag with the CI run ID, attempt, and full commit SHA.
 2. `Validate Source Run` checks the CI attempt, SDK package, and dispatch job, and checks again that the tag is on `main`.
 3. `Create Release` publishes the artifacts, signed firmware manifests, compliance bundles, registry archive, and changelog notes on GitHub. Prerelease tags stay marked as prereleases.
-4. Then, in parallel: `Publish SDK` uploads the archive built by tag CI to the **production** registry (environment `sdk-registry-production`, official Espressif action, OIDC), the website is published, and the coverage badges are attached to the release.
+4. Then, in parallel: `Publish SDK` uploads the archive built by tag CI to the **production** registry (environment `sdk-registry-production`, official Espressif action, OIDC), the website is published, the coverage badges are attached to the release, and the traffic generator image is pushed.
 5. The SDK verification builds all twelve consumers against production, using the published registry and the original CI artifacts.
 
 Notes:
@@ -189,6 +189,19 @@ Notes:
 - A verification failure fails the CD run, but the GitHub release, website, and badges already published stay.
 
 Retry a failed release publication through **Re-run failed jobs** on the CD run while its source CI artifacts are retained. A failed publication does not change the successful CI result; follow the publication link in the CI summary for its outcome.
+
+### Traffic generator image
+
+`Publish Traffic Generator Image` copies the CI's `traffic-generator-image` archive to `ghcr.io/francescopace/espectre-traffic-generator` with `skopeo`, keeping its digests. It does not rebuild the image.
+
+| Publication | Tags |
+|-------------|------|
+| Stable release | the version, such as `3.1.0`, and `latest` |
+| Prerelease | the version, such as `3.1.0-rc1` |
+| `main` snapshot | `preview` |
+| `develop` snapshot | `develop` |
+
+A snapshot first checks that its commit is still the branch head. A release tag that already exists must have the same index digest, or the run fails; the same digest is a successful no-op. The job uses `GITHUB_TOKEN` with `packages: write`. It runs in the same environment as the SDK upload, `sdk-registry-staging` for snapshots and `sdk-registry-production` for releases, so the same ref rules and release approval apply. The first push creates the package as private: in the package settings on GitHub, make it public and confirm that it is linked to the repository.
 
 ### Website deployment
 

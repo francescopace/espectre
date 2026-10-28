@@ -1,0 +1,13 @@
+# Example Docker Compose service; see README.md.
+services:
+  espectre-traffic-generator:
+    image: ghcr.io/francescopace/espectre-traffic-generator:latest
+    container_name: espectre-traffic-generator
+    # Host networking lets multicast and ping replies reach the local network.
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./espectre-traffic:/data
+    # environment:
+    #   ESPECTRE_WEB_PORT: "8099"
+    #   ESPECTRE_UI_TOKEN: "choose-a-long-random-token"

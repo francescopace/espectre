@@ -499,6 +499,84 @@ jobs:
           fi
           gh release upload "$COVERAGE_TAG" coverage-badges/*.json --clobber
 
+  publish-traffic-generator-image:
+    name: Publish Traffic Generator Image
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Same refs and release approval as the SDK upload.
+    environment: ${{ fromJSON(needs.release.outputs.metadata).environment }}
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download the verified image archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ fromJSON(needs.release.outputs.metadata).run_id }}
+          name: traffic-generator-image
+          path: image
+
+      - name: Recheck source commit before publishing the image
+        if: fromJSON(needs.release.outputs.metadata).publication == 'snapshot'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SNAPSHOT_BRANCH: ${{ fromJSON(needs.release.outputs.metadata).head_branch }}
+          SNAPSHOT_SHA: ${{ fromJSON(needs.release.outputs.metadata).head_sha }}
+        with:
+          script: |
+            const branch = process.env.SNAPSHOT_BRANCH;
+            const expected = process.env.SNAPSHOT_SHA;
+            const response = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch
+            });
+            if (response.data.commit.sha !== expected) {
+              core.setFailed(`Refusing to publish a stale image for ${expected}; ${branch} is now ${response.data.commit.sha}.`);
+            }
+
+      - name: Push the image to GitHub Container Registry
+        shell: bash
+        env:
+          PUBLICATION: ${{ fromJSON(needs.release.outputs.metadata).publication }}
+          CHANNEL: ${{ fromJSON(needs.release.outputs.metadata).channel }}
+          RELEASE_TAG: ${{ fromJSON(needs.release.outputs.metadata).release_tag }}
+          STABLE: ${{ fromJSON(needs.release.outputs.metadata).stable }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/espectre-traffic-generator"
+          archive="oci-archive:image/traffic-generator-image.tar"
+          skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          push() {
+            skopeo copy --all --preserve-digests "$archive" "docker://$repository:$1"
+            echo "Published $repository:$1"
+          }
+          # Snapshot tags follow their branch; release tags never change once published.
+          if [[ "$PUBLICATION" == snapshot ]]; then
+            push "$CHANNEL"
+            exit 0
+          fi
+          if skopeo inspect --raw "docker://$repository:$RELEASE_TAG" > published.json 2> inspect-error.txt; then
+            if [[ "$(sha256sum < published.json)" != "$(skopeo inspect --raw "$archive" | sha256sum)" ]]; then
+              echo "::error::$repository:$RELEASE_TAG already exists with different contents."
+              exit 1
+            fi
+            echo "$repository:$RELEASE_TAG is already published."
+            exit 0
+          elif ! grep -qiE 'manifest unknown|not found' inspect-error.txt; then
+            cat inspect-error.txt >&2
+            exit 1
+          fi
+          push "$RELEASE_TAG"
+          if [[ "$STABLE" == true ]]; then
+            push latest
+          fi
+
   publish-pages:
     name: Publish Website
     needs: release

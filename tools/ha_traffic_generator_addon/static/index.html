@@ -37,14 +37,14 @@
           <thead><tr>
             <th><input id="select-all" type="checkbox" aria-label="Select all supported devices"></th>
             <th>Device</th><th>Generator / s</th><th>TX / s</th><th>RX / s</th><th>CSI / s</th>
-            <th>Occupancy</th><th>Wi-Fi RSSI</th><th>Traffic Generator</th>
+            <th>Occupancy</th><th>Wi-Fi RSSI</th><th>Traffic source</th>
           </tr></thead>
           <tbody id="devices"></tbody>
           <tfoot id="bulk-actions" hidden><tr>
-            <td colspan="8"><span id="selection" aria-live="polite"></span></td>
-            <td><div class="row-actions" role="group" aria-label="Selected devices">
-              <button id="external" type="button" disabled>External</button>
-              <button id="internal" type="button" disabled>Internal</button>
+            <td colspan="7"><span id="selection" aria-live="polite"></span></td>
+            <td colspan="2"><div class="row-actions" role="group" aria-label="Selected devices">
+              <select id="bulk-mode" aria-label="Traffic source for the selected devices"></select>
+              <button id="bulk-apply" type="button" disabled>Apply</button>
             </div></td>
           </tr></tfoot>
         </table>
@@ -52,7 +52,7 @@
     </section>
     <dialog id="confirm">
       <form method="dialog">
-        <h2 id="confirm-title">Change traffic mode?</h2>
+        <h2 id="confirm-title">Change the traffic source?</h2>
         <p id="confirm-message"></p>
         <div class="toolbar"><button value="cancel">Cancel</button><button id="confirm-apply" value="apply">Apply</button></div>
       </form>

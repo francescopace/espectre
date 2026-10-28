@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Read Home Assistant options and run the shared external traffic generator."""
+"""Validate traffic generator options and run the shared external traffic generator."""
 
 import ipaddress
 import json
@@ -15,9 +15,12 @@ else:
 def load_options(path="/data/options.json"):
     """Load and validate the Home Assistant add-on configuration."""
     with open(path, encoding="utf-8") as options_file:
-        options = json.load(options_file)
+        return validate_options(json.load(options_file))
 
-    if not isinstance(options["targets"], list):
+
+def validate_options(options):
+    """Validate add-on or standalone options; return generator keyword arguments."""
+    if not isinstance(options.get("targets"), list):
         raise ValueError("targets must be a list of IPv4 addresses")
     targets = []
     for raw_target in options["targets"]:
@@ -31,11 +34,11 @@ def load_options(path="/data/options.json"):
     if not targets:
         raise ValueError("at least one target is required")
 
-    port = options["port"]
+    port = options.get("port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("port must be in the 1-65535 range")
 
-    rate_pps = options["rate_pps"]
+    rate_pps = options.get("rate_pps")
     if type(rate_pps) is not int or not 1 <= rate_pps <= 1000:
         raise ValueError("rate_pps must be in the 1-1000 range")
 

@@ -158,6 +158,9 @@ def build_inventory(devices, entities, state_list, areas):
         # The source select offers `external` next to the internal packet modes.
         control = fields["source"]
         options = select_options(roles.get("source", {}), states)
+        # Keep the firmware's order; it differs by chip, for example without `wifi_raw`.
+        modes = [option for option in states.get(roles.get("source", {}).get("entity_id"), {})
+                 .get("attributes", {}).get("options", []) if isinstance(option, str)]
         internal_mode = control["value"] if control["value"] not in {None, "external"} else None
         fields["ownership"] = dict(control, value=None if control["value"] is None else
                                    ("external" if control["value"] == "external" else "internal"))
@@ -184,7 +187,7 @@ def build_inventory(devices, entities, state_list, areas):
             "integration": ", ".join(sorted({e.get("platform", "") for e in
                                             grouped.get(device["id"], [])})),
             "fields": fields, "can_control": reason is None, "reason": reason,
-            "can_refresh": can_refresh, "internal_mode": internal_mode,
+            "can_refresh": can_refresh, "internal_mode": internal_mode, "modes": modes,
         })
     return sorted(result, key=lambda row: (row["name"].casefold(), row["id"]))
 
@@ -340,14 +343,16 @@ class HomeAssistant:
                     finally:
                         await connection.close()
         except (aiohttp.ClientError, TimeoutError, ValueError, TypeError) as error:
-            raise HomeAssistantError("Home Assistant is unavailable or timed out. Refresh to check device state.") from error
+            raise HomeAssistantError("Home Assistant is unavailable or timed out. The panel reconnects by itself.") from error
 
     async def snapshot(self):
         async with self.connect() as connection:
             return build_inventory(*(await connection.inventory()))
 
-    async def act(self, device_ids, action):
-        """Resolve fresh registry entries; never accept entity IDs or services from the browser."""
+    async def act(self, device_ids, mode):
+        """Select `mode` on each device, or `internal` for the internal source it last used.
+
+        Resolve fresh registry entries; never accept entity IDs or services from the browser."""
         async with self.connect() as connection:
             inventory = await connection.inventory()
             rows = {row["id"]: row for row in build_inventory(*inventory)}
@@ -361,27 +366,32 @@ class HomeAssistant:
                 if not row["can_control"]:
                     result["message"] = row["reason"]
                     continue
-                if row["fields"]["ownership"]["value"] == action:
-                    result.update(status="unchanged", message="Already " + action + ".")
-                    continue
-                entity_id = row["fields"]["source"]["entity_id"]
                 if row["internal_mode"]:
                     self.internal_modes[device_id] = row["internal_mode"]
-                option = "external" if action == "external" else self.internal_modes.get(device_id, "ping")
+                option = self.internal_modes.get(device_id, "ping") if mode == "internal" else mode
+                result["option"] = option
+                if option not in row["modes"]:
+                    result["message"] = "This device does not offer " + option + "."
+                    continue
+                if row["fields"]["source"]["value"] == option:
+                    result.update(status="unchanged", message="Already " + option + ".")
+                    continue
+                entity_id = row["fields"]["source"]["entity_id"]
                 try:
                     await connection.command("call_service", domain="select", service="select_option",
                                              target={"entity_id": entity_id}, service_data={"option": option})
                 except HomeAssistantError:
                     result["message"] = "Home Assistant rejected the action."
                     continue
-                result.update(status="unconfirmed", message="Command sent, but the device has not confirmed it. Refresh before retrying.")
+                result.update(status="unconfirmed", message="Sent, but not confirmed yet. This clears when the device confirms.")
                 pending[entity_id] = (result, option)
             deadline = asyncio.get_running_loop().time() + self.confirmation_timeout
             while True:
                 states = await connection.command("get_states")
                 for state in states:
                     if state["entity_id"] in pending and state.get("state") == pending[state["entity_id"]][1]:
-                        pending.pop(state["entity_id"])[0].update(status="confirmed", message="Now " + action + ".")
+                        result, option = pending.pop(state["entity_id"])
+                        result.update(status="confirmed", message="Now " + option + ".")
                 if not pending or asyncio.get_running_loop().time() >= deadline:
                     break
                 await asyncio.sleep(0.25)
