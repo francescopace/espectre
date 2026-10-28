@@ -12,8 +12,8 @@ import vm from 'node:vm';
 import { createHash, generateKeyPairSync, sign, constants } from 'node:crypto';
 import { verifyCatalog, verifyArtifact, authenticateDownload } from '../../docs/web/assets/js/firmware-auth.mjs';
 import { AnsiUp } from '../../docs/web/node_modules/ansi_up/ansi_up.js';
-import { rollup } from '../../docs/web/node_modules/rollup/dist/es/rollup.js';
-import serialConfig from '../../docs/web/rollup.config.mjs';
+import { build } from '../../docs/web/node_modules/esbuild/lib/main.js';
+import serialConfig from '../../docs/web/esbuild.config.mjs';
 import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/improv-wifi-serial-sdk/dist/const.js';
 import { read, routeManifest, runSiteScript, toolContent } from './fixtures/site_test_helpers.mjs';
 import { peer, result } from './fixtures/peer_discovery_fixture.mjs';
@@ -755,16 +755,8 @@ let ImprovSerial;
 let ESPLoader;
 let Transport;
 before(async () => {
-    const bundle = await rollup({
-        ...serialConfig,
-        input: new URL('../../docs/web/headless-entry.js', import.meta.url).pathname,
-    });
-    try {
-        const { output } = await bundle.generate(serialConfig.output);
-        ({ ImprovSerial, ESPLoader, Transport } = await import(`data:text/javascript;base64,${Buffer.from(output[0].code).toString('base64')}`));
-    } finally {
-        await bundle.close();
-    }
+    const { outputFiles } = await build({ ...serialConfig, write: false });
+    ({ ImprovSerial, ESPLoader, Transport } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`));
 });
 
 describe('Improv Serial initialization', () => {

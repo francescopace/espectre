@@ -2,7 +2,7 @@
   "name": "espectre-web",
   "private": true,
   "scripts": {
-    "build:headless": "rollup --config rollup.config.mjs",
+    "build:headless": "node esbuild.config.mjs",
     "stage:vendor": "python3 ../../.github/scripts/stage_web_vendor.py",
     "test": "node --test '../../test/web/*.mjs'"
   },
@@ -13,9 +13,6 @@
     "qrcodejs": "1.0.0"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "29.0.3",
-    "@rollup/plugin-json": "6.1.0",
-    "@rollup/plugin-node-resolve": "16.0.3",
-    "rollup": "4.64.12"
+    "esbuild": "0.28.2"
   }
 }

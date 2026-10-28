@@ -1,6 +1,6 @@
-/*
+/*!
  * Browser-only dependency boundary for the ESPectre Web Serial wizard.
- * The Rollup output contains protocol and flashing code, but no third-party UI.
+ * The bundled output contains protocol and flashing code, but no third-party UI.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
