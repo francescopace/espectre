@@ -33,7 +33,11 @@ from .bootstrap import setup_paths
 from . import dataset_metadata
 from . import npz_cache
 from .atomic_io import atomic_savez_compressed
-from .detector_loader import load_detector_class
+from .detector_loader import (
+    detector_needs_startup_calibration,
+    load_detector_class,
+    normalize_host_detector_algorithm as normalize_detector_algorithm,
+)
 from .temporal_replay import TemporalReplayController
 from tools.lib.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
 from tools.lib.runtime_policy import (
@@ -75,20 +79,12 @@ except ImportError:
     )
 
 try:
-    from detector_interface import (
-        detector_needs_startup_calibration,
-        normalize_detector_algorithm,
-    )
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
 except ImportError:
-    from src.detector_interface import (
-        detector_needs_startup_calibration,
-        normalize_detector_algorithm,
-    )
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,

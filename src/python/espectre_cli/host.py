@@ -357,7 +357,13 @@ def collect_csi_data(args) -> None:
 
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
-    from tools.lib.detector_loader import load_detector_class
+    from tools.lib.detector_loader import (
+        detector_needs_startup_calibration,
+        get_detector_label,
+        load_detector_class,
+        normalize_host_detector_algorithm,
+        supported_detector_algorithms,
+    )
     from tools.lib.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
     from tools.lib.runtime_policy import (
         PacketTimingTracker,
@@ -380,12 +386,6 @@ def _run_live_collect(args) -> None:
         from tools.lib.temporal_replay import TemporalReplayController
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
-        from detector_interface import (
-            detector_needs_startup_calibration,
-            get_detector_label,
-            normalize_detector_algorithm,
-            supported_detector_algorithms,
-        )
         from runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
         from threshold import (
             CALIBRATION_MOTION_BUDGET_WINDOWS,
@@ -408,12 +408,6 @@ def _run_live_collect(args) -> None:
             from tools.lib.temporal_replay import TemporalReplayController
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
-            from src.detector_interface import (
-                detector_needs_startup_calibration,
-                get_detector_label,
-                normalize_detector_algorithm,
-                supported_detector_algorithms,
-            )
             from src.runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
             from src.threshold import (
                 CALIBRATION_MOTION_BUDGET_WINDOWS,
@@ -431,7 +425,7 @@ def _run_live_collect(args) -> None:
 
     supported_detectors = supported_detector_algorithms()
     detector_kinds = list(dict.fromkeys(
-        normalize_detector_algorithm(kind.strip().lower())
+        normalize_host_detector_algorithm(kind.strip().lower())
         for kind in str(getattr(args, "detector", "lightweight")).split(",")
         if kind.strip()
     ))

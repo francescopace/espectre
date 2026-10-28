@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 - The new `ghcr.io/francescopace/espectre-traffic-generator` Docker image runs the external traffic generator without Home Assistant OS, for example next to Home Assistant Container. Its web UI, protected by a sign-in token, sets the same options as the Home Assistant app, starts and stops the traffic, and shows the send rate, send errors, and ping replies. It finds devices with mDNS or by IPv4 address, shows their traffic diagnostics, and switches their traffic source through Direct HTTP, one device or several at once, with every source the device supports. It sends ping to the multicast group by default. Each release publishes `amd64` and `arm64` images, and `develop` and `main` publish `develop` and `preview` snapshots. See the [Docker image guide](../tools/traffic_generator_docker/README.md).
 
+- `./espectre collect --detector high_accuracy` works again. The CLI had been rejecting it with only `lightweight` listed as supported, although its help and the [CLI guide](CLI.md) still offered both (#203).
+
 - External traffic mode accepts direct non-QoS Null Data and unencrypted unicast ESP-NOW v1/v2 frames, subject to the existing CSI quality and capture-profile checks. C3-to-S3 acquisition is validated with both sources at HT20 MCS0, and with legacy OFDM/LLTF, with promiscuous mode disabled. Direct Null Data at MCS0 requires explicit transmitter HT20 bandwidth and a wildcard BSSID; the receiver keeps its standard HT20 profile. HT20 and VHT20 frames may carry exactly two zero padding bytes. ESP32-C6 needs them for valid CSI, and receives valid HT20 CSI from padded Null Data and unicast ESP-NOW.
 
 ## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools
