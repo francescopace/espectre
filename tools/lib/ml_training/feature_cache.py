@@ -76,6 +76,7 @@ from tools.lib.candidate_features import (
     needs_channel_shape_trajectory,
     needs_l1_series as needs_candidate_l1_series,
     needs_phase_residual,
+    needs_phase_shape,
     needs_subband_coherence,
     split_feature_names,
 )
@@ -88,6 +89,7 @@ from tools.lib.host_feature_trackers import (
     FINE_CHANNEL_SHAPE_TRAJECTORY_FEATURES,
     ChannelShapeTracker,
     PhaseResidualTracker,
+    PhaseShapeTracker,
 )
 from tools.lib.high_accuracy_detector import (  # noqa: F401 (re-exported for tests)
     FEATURE_NAMES as EXPORTED_FEATURE_NAMES,
@@ -625,6 +627,10 @@ class StreamingFeatureExtractor:
             PhaseResidualTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
             if needs_phase_residual(self.candidate_names) else None
         )
+        self.phase_shape_tracker = (
+            PhaseShapeTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
+            if needs_phase_shape(self.candidate_names) else None
+        )
         self.shape_tracker = (
             ChannelShapeTracker(
                 window_size=l1_capacity,
@@ -685,6 +691,7 @@ class StreamingFeatureExtractor:
         for tracker in (
             self.coherence_tracker,
             self.phase_tracker,
+            self.phase_shape_tracker,
             self.shape_tracker,
             self.amplitude_profile_tracker,
         ):
@@ -727,6 +734,8 @@ class StreamingFeatureExtractor:
             self.coherence_tracker.process_packet(csi_data)
         if self.phase_tracker is not None:
             self.phase_tracker.process_packet(csi_data)
+        if self.phase_shape_tracker is not None:
+            self.phase_shape_tracker.process_packet(csi_data)
         if self.shape_tracker is not None:
             self.shape_tracker.process_packet(csi_data)
         if self.shape_trajectory_tracker is not None:
@@ -772,6 +781,7 @@ class StreamingFeatureExtractor:
                     if self.l1_series is not None else None
                 ),
                 fine_shape_trajectory_tracker=self.fine_shape_trajectory_tracker,
+                phase_shape_tracker=self.phase_shape_tracker,
             ),
         )
 

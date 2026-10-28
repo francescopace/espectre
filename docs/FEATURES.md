@@ -81,6 +81,7 @@ This inventory groups formulations, related runtime settings, and ablations by p
 | [`chan_coh_lag_ratio`](#chan_coh_lag_ratio) | Research | Reopen only with new independent data that resolves the quiet tail without post-hoc exclusions. |
 | [`phase_resid_lag_ratio`](#phase_resid_lag_ratio) | Research | Needs a targeted phase hypothesis and better C5 stationary coverage. |
 | [`phase_closure_var_std`](#phase_closure_var_std) | Research | Reopen only if phase curvature has a task-specific role beyond generic motion. |
+| [Offset-free phase-shape lag ratios](#offset-free-phase-shape-lag-ratios) | Rejected | At chance for motion; reopen phase only for stationary presence. |
 | [`chan_shape_coherent_innovation_contrast`](#chan_shape_coherent_innovation_contrast) | Rejected | Rejected: no cross-domain gain despite strong within-session ranking. |
 | [`chan_shape_coherent_displacement_ratio`](#chan_shape_coherent_displacement_ratio) | Rejected | Nearly absent during the new C5 misses, while active on the S3 quiet disturbance. |
 | [`chan_shape_intraband_innovation_energy`](#chan_shape_intraband_innovation_energy) | Rejected | Small C5 recovery does not offset the grouped FP regression and added occupancy quiet alarms. |
@@ -139,6 +140,16 @@ This inventory groups formulations, related runtime settings, and ablations by p
 **Evidence:** Maximum production correlation `0.1367`, linear `R2=0.0906`; OOF F1 `97.3%`, worst-lineage recall `92.1%`, and FP `11.8%`. Complementary sanitized-phase evidence in [Device-Free Wireless Sensing for Gesture Recognition Based on Complementary CSI Amplitude and Phase](LITERATURE.md#device-free-wireless-sensing-for-gesture-recognition-based-on-complementary-csi-amplitude-and-phase) and hardware-preprocessing limits in [Optimal Preprocessing of WiFi CSI for Sensing Applications](LITERATURE.md#optimal-preprocessing-of-wifi-csi-for-sensing-applications) motivate the axis without validating this closure statistic
 
 **Decision:** Reopen only if phase curvature has a task-specific role beyond generic motion
+
+### Offset-free phase-shape lag ratios
+
+**Status:** Rejected
+
+**Formulation:** `PhaseShapeTracker` compares each packet with the one `L1_DELTA_LAG` slots earlier and with the previous slot, and reports the ratio of the two mean displacements, so white noise gives about `1` at any link SNR. Four views: `phase_curv_lag_ratio` uses the curvature `H[k-1] H[k+1] conj(H[k])^2`, which cancels gain, common phase, and the linear ramp; `phase_slope_lag_ratio` uses the slope `H[k+1] conj(H[k])` after removing its circular mean; `cplx_slope_lag_ratio` keeps the de-rotated slope products at unit L1 mass, so amplitude and phase count together; and `amp_slope_lag_ratio` keeps only their magnitudes, as the phase-free ablation. Phase displacements weight each tone by the inverse phase-noise variance its amplitudes imply. All views are scale-invariant. Host-only, under `tools/lib/host_feature_trackers.py`
+
+**Evidence:** Single-feature probe of 2026-10-24, scored per pair. The two pure phase views had a worst-pair AUC of about `0.48-0.50` on every chip. In motion their median ratio was about `1.01-1.03`, below the empty-room q95 of about `1.05`: within one 10 ms step the phase already decorrelates or is dominated by noise, so the lag ratio saturates near `1`. The complex view's strength came from amplitude: the amplitude-only ablation scored AUC `0.997` against `0.994` for the complex view, and `0.990` against `0.956` at 70% occupancy. `amp_slope_lag_ratio` beat `l1_delta` as a single feature but correlated with it at `r=0.98`. The corpus split, seed, and multi-feature fit were not recorded
+
+**Decision:** Rejected for motion: the phase views are at chance, and the amplitude view duplicates `l1_delta`. Phase may still matter for stationary presence, where it needs paired empty and presence sessions rather than another lag ratio
 
 ### `chan_shape_coherent_innovation_contrast`
 
