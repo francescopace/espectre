@@ -47,7 +47,7 @@ The production site stages pinned browser assets and the runtime dependencies in
 | qrcodejs | 1.0.0 | MIT |
 | ansi_up | 6.0.6 | MIT |
 
-Rollup and its plugins are build-time tooling and are not deployed. The npm lockfile also records transitive build and browser packages under Apache-2.0, BSD-3-Clause, ISC, MIT, 0BSD, and zlib terms. Production deployment uses the staged bundles and does not publish `node_modules`.
+esbuild is build-time tooling and is not deployed. The npm lockfile also records transitive build and browser packages under Apache-2.0, BSD-3-Clause, ISC, MIT, 0BSD, and zlib terms. Production deployment uses the staged bundles and does not publish `node_modules`.
 
 ## Host-side Python environment
 

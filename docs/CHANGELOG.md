@@ -36,6 +36,8 @@ All notable changes to this project will be documented in this file.
 
 - External traffic mode accepts direct non-QoS Null Data and unencrypted unicast ESP-NOW v1/v2 frames, subject to the existing CSI quality and capture-profile checks. C3-to-S3 acquisition is validated with both sources at HT20 MCS0, and with legacy OFDM/LLTF, with promiscuous mode disabled. Direct Null Data at MCS0 requires explicit transmitter HT20 bandwidth and a wildcard BSSID; the receiver keeps its standard HT20 profile. HT20 and VHT20 frames may carry exactly two zero padding bytes. ESP32-C6 needs them for valid CSI, and receives valid HT20 CSI from padded Null Data and unicast ESP-NOW.
 
+- The website's USB installer bundle is now built with esbuild instead of Rollup. This drops the `deepmerge` build dependency, which has an unpatched advisory (GHSA-gcqx-w48m-w2h4). The installer works as before.
+
 ## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools
 
 ESPectre 3.0 splits the sensing engine, runtime, and frontend so Wi-Fi motion detection can run inside other firmware. It turns the three release candidates into one stable release.
