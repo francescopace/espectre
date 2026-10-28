@@ -19,6 +19,8 @@ Clients browse the PTR record, then resolve SRV, TXT, and address records. Only 
 
 A manually entered address can use another port; clients never try old ports. ESPHome and Matter also publish their own services, but `./espectre devices` looks only for `_espectre._tcp.local.`.
 
+`./espectre devices` browses in two ways at once and lists each service once. A legacy-unicast query from an ephemeral port still works when a host firewall drops inbound UDP 5353. A standard query from port 5353 reaches devices behind an mDNS proxy between VLANs, which usually relays only multicast replies. Each service is resolved the way it was found. If port 5353 cannot be opened, for example on Windows, the command uses legacy unicast only.
+
 ### TXT record
 
 | Key | Value |
