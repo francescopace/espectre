@@ -108,7 +108,7 @@ This inventory groups formulations, related runtime settings, and ablations by p
 | [Effect of input compression on feature distributions](#high-accuracy-fit-recipe) | Production | Promoted `log1p` input compression with per-epoch reshuffling; rejected lineage early stopping, seed ensembles, and input clamps. |
 | [`gesture_random_kernel_ppv`](#gesture_random_kernel_ppv) | Planned | Keep host-only under `tools/` with `--no-export` after the high-rate path is stable. |
 | [Trusted profile-scale correction](#trusted-profile-scale-correction) | Deferred | Revisit only if a supported SDK and protocol expose the measured value consistently across chips. |
-| [Narrowband micro-motion energy](#narrowband-micro-motion-energy) | Deferred | Collect same-link, same-session paired evidence with longer windows before implementation. |
+| [Narrowband micro-motion energy](#narrowband-micro-motion-energy) | Deferred | The paired probe cannot separate presence from session drift; R0 needs empty, presence, empty sessions. |
 | [Delay/Doppler or CIR dynamics](#delaydoppler-or-cir-dynamics) | Deferred | Revisit only when the sensing contract can support and validate the map. |
 
 ### `chan_coh_lag_ratio`
@@ -491,11 +491,26 @@ At `4 / 3`, the normal C5 replay has three post-acquisition interruptions lastin
 
 **Status:** Deferred
 
-**Formulation:** Sub-Hz spectral concentration for breathing-related or occupancy micro-motion
+**Formulation:** Sub-Hz spectral concentration for breathing-related or occupancy micro-motion. `tools/analyze_stationary_presence.py` divides each packet's 56-bin live amplitude profile by its L2 norm, so the unrecorded per-packet gain cancels. It averages the profiles into 10 Hz bins on the device clock, cuts 60 s windows every 10 s, and removes a linear trend per tone. Three window features follow: `breath_band_fraction` is the largest share of 0.05-5 Hz power that falls in the 0.13-0.6 Hz breathing band, over the top three principal components; `breath_peak_concentration` keeps only the band peak and its two neighbours; and `micro_motion_energy` is the median per-tone standard deviation. Host-only
 
-**Evidence:** The current one-second motion window and unpaired Presence-versus-Empty sessions cannot distinguish micro-motion from session drift. SA-WiSense, Home Presence, heart-rate sensing, and RF-DS provide the task context catalogued in [SA-WiSense: A Blind-Spot-Free Respiration Sensing Framework for Single-Antenna Wi-Fi Devices](LITERATURE.md#sa-wisense-a-blind-spot-free-respiration-sensing-framework-for-single-antenna-wi-fi-devices), not validation on ESPectre data
+**Evidence:** SA-WiSense, Home Presence, heart-rate sensing, and RF-DS provide the task context catalogued in [SA-WiSense: A Blind-Spot-Free Respiration Sensing Framework for Single-Antenna Wi-Fi Devices](LITERATURE.md#sa-wisense-a-blind-spot-free-respiration-sensing-framework-for-single-antenna-wi-fi-devices), not validation on ESPectre data. Two probes on ESPectre data followed.
 
-**Decision:** Collect same-link, same-session paired evidence with longer windows before implementation
+- **Unpaired probe, 2026-10-25.** Its script was not retained. It measured breathing-band concentration of the top amplitude components in 60 s windows at 10 Hz. Window AUC was `0.62` overall and below `0.5` on C5 and C6. Only 8 of 50 presence files exceeded the empty-window q95. The strongest files showed plausible rates of 10-16 breaths per minute. Phase stayed at noise level, except a few tones on the strongest files.
+- **Catalog mode of the retained tool.** Over 18 empty and 47 presence files with admitted roles, pooled window AUC is `0.63` for both breathing features and `0.60` for `micro_motion_energy`. Per chip, `breath_band_fraction` ranges from `0.42` on C6 and `0.49` on ESP32 to `0.79` on C3 and S3; C5 reaches `0.62` here. Sessions in this pool are hours to days apart, so it measures session state as much as presence.
+- **Paired probe, 2026-10-30.** Only two admitted pairs have an empty capture and a still-presence capture from the same session: S3 in the hobby room, 24 min apart, and ESP32 in the living room, 57 min apart. Each has 120 s empty and 180 s presence, so 2 and 3 independent windows. AUC scores presence above empty. False presence is the share of empty windows at or above the presence median, and missed presence the share of presence windows at or below the empty median. Presence drift is the undirected AUC between the two halves of the presence capture. None depends on a threshold.
+
+| Pair | Feature | AUC | False presence | Missed presence | Presence drift |
+| --- | --- | --- | --- | --- | --- |
+| S3 hobby room | `breath_band_fraction` | `0.93` | `0.00` | `0.00` | `0.75` |
+| S3 hobby room | `breath_peak_concentration` | `0.82` | `0.14` | `0.08` | `0.62` |
+| S3 hobby room | `micro_motion_energy` | `1.00` | `0.00` | `0.00` | `1.00` |
+| ESP32 living room | `breath_band_fraction` | `0.75` | `0.14` | `0.23` | `0.58` |
+| ESP32 living room | `breath_peak_concentration` | `0.75` | `0.00` | `0.23` | `0.67` |
+| ESP32 living room | `micro_motion_energy` | `1.00` | `0.00` | `0.00` | `0.67` |
+
+The worst pair is ESP32 for both breathing features. With 30 s windows, its AUC falls to `0.62` and `0.51`. `micro_motion_energy` separates both pairs completely, yet the two halves of the S3 presence capture separate just as well. The two excluded C3 weak-link sessions, each with empty and presence 9 min apart, give it AUC `0.00` and `1.00`: the same feature flips direction from one session to the next. It tracks session state, not presence
+
+**Decision:** Not decidable from current data. The only feature that separates the usable pairs completely also separates the halves of one capture and flips direction across sessions, and the breathing features are weak on the worst pair. Before continuing or stopping R0, collect sessions that run empty, still presence, and empty again, about 10 min per phase, in at least two rooms, on two chips, and over one weak link. Then rerun `analyze_stationary_presence.py` on them
 
 ### Delay/Doppler or CIR dynamics
 

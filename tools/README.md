@@ -43,6 +43,7 @@ The tools work with every supported chip. If a chip has no dataset or hardware r
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
 | `sweep_occupancy_floor.py` | replay reserved pairs while thinning admitted CSI; `--always-evaluate` keeps occupancy holes scored |
 | `benchmark_lightweight_candidate_pairs.py` | screen Lightweight features and combinations without threshold coupling |
+| `analyze_stationary_presence.py` | measure threshold-free false and missed presence on same-session empty and still-presence pairs (R0) |
 | `test/cpp/support/benchmark_lightweight_iqr_resources.cpp` | compare host C++ RAM and hot-path cost for the normal- and aggregated-IQR Lightweight finalists |
 | `test/cpp/support/benchmark_detector_resources.cpp` | measure current production Lightweight and High Accuracy host memory, packet cost, inference latency, and nominal CPU load |
 | `replay_lightweight_candidates.py` | fit and replay research-only Lightweight candidates end to end |
@@ -197,6 +198,7 @@ The candidate tools answer different questions:
 | Does one feature or combination separate paired states before threshold tuning? | `benchmark_lightweight_candidate_pairs.py` |
 | Does a candidate survive causal calibration, clean replay, and packet stress? | `replay_lightweight_candidates.py` |
 | Does adjacent-bin aggregation change channel statistics or detector behavior? | `benchmark_subcarrier_aggregation.py` |
+| Does a still person separate from the same session's empty room? | `analyze_stationary_presence.py` |
 | How much does a metric move across training seeds? | `analyze_seed_dispersion.py` |
 | Does a selected ML candidate survive the reserved selection roles? | `compare_reserved_selection.py` |
 
