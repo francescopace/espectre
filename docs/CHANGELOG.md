@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.3.0] - work in progress
+
+ESPectre 3.3 adds stationary presence as a result separate from motion, and moves official ESPHome images to the `espectre` component built into ESPHome.
+
+### Tools and integrations
+
+- `tools/analyze_stationary_presence.py` measures false and missed presence on paired recordings of an empty room and a still person from the same session. See the [analysis tools](../tools/README.md).
+
+---
+
 ## [3.2.0] - 2026-11-11 - Arduino library and Direct API for the ESPHome built-in component
 
 ESPectre 3.2 adds an Arduino library, and brings the website tools and the CLI to the `espectre` component built into ESPHome. Code written for 3.1 builds without changes.
