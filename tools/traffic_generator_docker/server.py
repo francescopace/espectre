@@ -24,7 +24,7 @@ if __package__:
     from ..ha_traffic_generator_addon.espectre_traffic_generator import (
         DSCP, MULTICAST_TTL, PORT, RATE, ExternalTrafficGenerator)
     from ..ha_traffic_generator_addon.traffic import validate_options
-    from .devices import INTERNAL, TRAFFIC_MODES, DeviceRegistry
+    from .devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry
 else:
     sys.path.insert(0, str(ADDON))
     # A repository checkout supplies the CLI's discovery and Direct client; the image copies them.
@@ -33,7 +33,7 @@ else:
         sys.path.insert(0, str(REPO_PYTHON))
     from espectre_traffic_generator import DSCP, MULTICAST_TTL, PORT, RATE, ExternalTrafficGenerator
     from traffic import validate_options
-    from devices import INTERNAL, TRAFFIC_MODES, DeviceRegistry
+    from devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry
 
 
 # Ping is the recommended source; a new installation has no UDP setups to keep.
@@ -337,15 +337,18 @@ async def remove_device(request):
     return status_response(request)
 
 
+def valid_device_ids(device_ids):
+    return (isinstance(device_ids, list) and 1 <= len(device_ids) <= MAX_ACTION_DEVICES
+            and all(isinstance(value, str) and value and len(value) <= 64 for value in device_ids)
+            and len(set(device_ids)) == len(device_ids))
+
+
 async def set_device_mode(request):
     payload = await read_json(request)
     if not isinstance(payload, dict) or set(payload) != {"device_ids", "mode"}:
         raise web.HTTPBadRequest(text="Expected device_ids and mode.")
     device_ids, mode = payload["device_ids"], payload["mode"]
-    if (mode not in (*TRAFFIC_MODES, INTERNAL) or not isinstance(device_ids, list)
-            or not 1 <= len(device_ids) <= MAX_ACTION_DEVICES
-            or any(not isinstance(value, str) or not value or len(value) > 64 for value in device_ids)
-            or len(set(device_ids)) != len(device_ids)):
+    if mode not in (*TRAFFIC_MODES, INTERNAL) or not valid_device_ids(device_ids):
         raise web.HTTPBadRequest(text=f"Select 1-{MAX_ACTION_DEVICES} unique devices and a supported traffic source.")
     controller = request.app[CONTROLLER]
     if mode == "external" and not controller.generator.running:
@@ -354,6 +357,21 @@ async def set_device_mode(request):
         raise web.HTTPConflict(text="Another change is in progress.")
     async with controller.lock:
         results = await asyncio.to_thread(request.app[DEVICES].set_mode, device_ids, mode)
+    return status_response(request, results=results)
+
+
+async def set_device_spacing(request):
+    payload = await read_json(request)
+    if not isinstance(payload, dict) or set(payload) != {"device_ids", "spacing"}:
+        raise web.HTTPBadRequest(text="Expected device_ids and spacing.")
+    device_ids, spacing = payload["device_ids"], payload["spacing"]
+    if spacing not in SAMPLE_SPACINGS or not valid_device_ids(device_ids):
+        raise web.HTTPBadRequest(text=f"Select 1-{MAX_ACTION_DEVICES} unique devices and a supported sample spacing.")
+    controller = request.app[CONTROLLER]
+    if controller.lock.locked():
+        raise web.HTTPConflict(text="Another change is in progress.")
+    async with controller.lock:
+        results = await asyncio.to_thread(request.app[DEVICES].set_spacing, device_ids, spacing)
     return status_response(request, results=results)
 
 
@@ -407,6 +425,7 @@ def create_app(controller, token, registry):
     app.router.add_post("/api/devices/add", add_device)
     app.router.add_post("/api/devices/remove", remove_device)
     app.router.add_post("/api/devices/mode", set_device_mode)
+    app.router.add_post("/api/devices/spacing", set_device_spacing)
     app.router.add_static("/static/", STATIC, show_index=False, follow_symlinks=False)
     return app
 

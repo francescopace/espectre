@@ -35,7 +35,7 @@ If the traffic cannot be sent, the status shows **Failed** and the reason, for e
 
 ## Devices
 
-The container searches the network with mDNS when it starts, every five minutes while the web UI is open, and when you select **Search**. If a device is on another VLAN or mDNS does not reach it, enter its IPv4 address and select **Add**; the container remembers it. **Remove** forgets a device added this way.
+The container searches the network with mDNS when it starts, every five minutes while the web UI is open, and when you select **Search**. If a device is on another VLAN or mDNS does not reach it, enter its IPv4 address and select **Add**; the container remembers it. **Remove** forgets a device added this way. A saved address stays listed as **Unreachable** while nothing answers there, so you can remove it.
 
 Each row shows:
 
@@ -45,6 +45,7 @@ Each row shows:
 - **Occupancy**: how much usable CSI reaches the detector.
 - **Wi-Fi RSSI**: signal strength in dBm.
 - **Traffic source**: the device's current source. Pick another one and confirm to switch it. The list shows only the sources the device offers; for example, ESP32-C6 has no `wifi_raw`.
+- **Sample spacing**: **Half slot** keeps accepted CSI packets at least half a slot apart; **Distinct** needs only distinct timestamps, which can help on busy channels where packets arrive in pairs. The change applies at once, without a confirmation or a new calibration. **—** means the firmware has no such setting, or the device has not answered yet. See [CSI sample spacing](../../docs/ALGORITHMS.md#temporal-admission).
 
 To switch several devices, tick them, pick a source below the table, and select **Apply**. **Previous internal source** gives each device back the internal source it used before external traffic, or ping if the container has restarted since. Each device succeeds or fails on its own. Afterwards only the devices that failed stay selected, so **Apply** retries just those. **External** needs the generator running.
 

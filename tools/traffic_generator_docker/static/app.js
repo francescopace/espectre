@@ -13,6 +13,8 @@ const MODE_LABELS = {ping: "Ping", dns: "DNS", dns_tcp: "DNS over TCP", wifi_raw
 const INTERNAL = "internal";
 const modeLabel = mode => mode === INTERNAL ? "Previous internal source" : MODE_LABELS[mode] || mode;
 const FIELDS = ["generator", "traffic_tx", "traffic_rx", "accepted", "occupancy", "rssi"];
+// How far apart admitted CSI packets must be; see docs/ALGORITHMS.md#temporal-admission.
+const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct"]];
 let devices = [], scanning = false, deviceBusy = false, pending = null, deviceMessage = "";
 const selected = new Set();
 const rowElements = new Map();
@@ -177,8 +179,17 @@ function deviceRow(id) {
     const modeCell = node("td"), mode = node("select"), hint = node("small", "", "hint");
     mode.addEventListener("change", () => propose(mode.value, [id]));
     modeCell.append(mode, hint);
-    tr.append(checkCell, nameCell, ...cells, modeCell);
-    rowElements.set(id, {tr, check, name, detailText, remove, cells, mode, hint});
+    const spacingCell = node("td"), spacing = node("select"), noSpacing = node("span", "—");
+    for (const [value, label] of SPACINGS) {
+      const option = node("option", label);
+      option.value = value;
+      spacing.append(option);
+    }
+    // Spacing applies to the next packets without restarting calibration, so it needs no confirmation.
+    spacing.addEventListener("change", () => applySpacing(spacing.value, [id]));
+    spacingCell.append(spacing, noSpacing);
+    tr.append(checkCell, nameCell, ...cells, modeCell, spacingCell);
+    rowElements.set(id, {tr, check, name, detailText, remove, cells, mode, hint, spacing, noSpacing});
   }
   return rowElements.get(id);
 }
@@ -217,6 +228,12 @@ function showDevices(snapshot, force = false) {
     setOptions(row.mode, device.modes.length ? device.modes : current ? [current] : [], keep ? row.mode.value : current);
     row.mode.setAttribute("aria-label", `Traffic source: ${device.name}`);
     row.hint.textContent = hints(device).join(" · ");
+    row.spacing.hidden = !device.spacing_supported;
+    row.noSpacing.hidden = device.spacing_supported;
+    // A saved address that never answered has unknown firmware, not one without the setting.
+    row.noSpacing.title = device.error ? "Unknown until the device answers" : "This firmware has no sample spacing setting";
+    if (force || document.activeElement !== row.spacing) row.spacing.value = device.sensing.csi_sample_spacing || "half_slot";
+    row.spacing.setAttribute("aria-label", `Sample spacing: ${device.name}`);
     if ($("devices").children[index] !== row.tr) $("devices").insertBefore(row.tr, $("devices").children[index] || null);
   });
   deviceControls();
@@ -239,6 +256,7 @@ function deviceControls() {
     const row = rowElements.get(device.id);
     row.check.disabled = deviceBusy || !device.can_control;
     row.mode.disabled = deviceBusy || !device.can_control;
+    row.spacing.disabled = deviceBusy || !device.can_control;
     row.remove.disabled = deviceBusy;
   }
   $("select-all").disabled = deviceBusy || !eligible.length;
@@ -308,6 +326,15 @@ async function applyMode(mode, ids) {
   selected.clear();
   for (const id of outcomes.keys()) selected.add(id);
   showDevices(data.devices, true);
+}
+
+async function applySpacing(spacing, ids) {
+  const data = await deviceChange("devices/spacing", {device_ids: ids, spacing}, "");
+  if (data) {
+    deviceMessage = data.results.filter(result => ["error", "unconfirmed"].includes(result.status))
+      .map(result => `${devices.find(device => device.id === result.id)?.name || result.id}: ${result.message}`).join("\n");
+  }
+  showDevices(data ? data.devices : {devices, scanning}, true);
 }
 
 function showOutcome(next) {

@@ -44,9 +44,9 @@ class Element {
 function device(id, mode = 'ping', extra = {}) {
     return { id, name: `Sensor ${id}`, chip: 'esp32c6', frontend: 'native', firmware: '3.1.0',
         ip_address: '192.168.1.20', port: 62587, address: '192.168.1.20', source: 'mdns',
-        can_control: true, error: null, modes: ['ping', 'dns', 'dns_tcp', 'external'],
+        can_control: true, error: null, modes: ['ping', 'dns', 'dns_tcp', 'external'], spacing_supported: true,
         sensing: { traffic_generator_mode: mode, csi_target_pps: 100, csi_traffic_udp_port: 5555,
-            csi_traffic_multicast_group: '239.255.0.1' },
+            csi_traffic_multicast_group: '239.255.0.1', csi_sample_spacing: 'half_slot' },
         fields: { generator: 0, traffic_tx: 5, traffic_rx: 100, accepted: 99, occupancy: 0.98, rssi: -54 },
         ...extra };
 }
@@ -85,6 +85,12 @@ function fixture({ signedIn = false, devices = [] } = {}) {
         if (path === '/api/settings') {
             if (state.reject) return reply(400, state.reject);
             state.settings = body;
+        }
+        if (path === '/api/devices/spacing') {
+            for (const row of state.devices) {
+                if (body.device_ids.includes(row.id)) row.sensing.csi_sample_spacing = body.spacing;
+            }
+            return reply(200, { ...status(), results: body.device_ids.map(id => ({ id, status: 'confirmed' })) });
         }
         if (path === '/api/devices/mode') {
             const results = body.device_ids.map(id => ({ id, status: state.results[id] || 'confirmed',
@@ -250,4 +256,28 @@ it('offers each device only the sources it supports, and their union in bulk', a
     await check(1).dispatch('change');
     assert.deepEqual(options($('bulk-mode')), ['ping', 'dns', 'dns_tcp', 'wifi_raw', 'external', 'internal']);
     assert.equal($('bulk-mode').value, 'external');
+});
+
+it('changes one device sample spacing at once and hides it where the firmware lacks it', async () => {
+    const { $, calls, settle } = fixture({ signedIn: true,
+        devices: [device('a'), device('b', 'ping', { spacing_supported: false }),
+            device('c', 'ping', { spacing_supported: false, can_control: false, error: 'The device did not answer.' })] });
+    await settle();
+    const cell = row => $('devices').children[row].children[9];
+    assert.equal(cell(0).children[0].value, 'half_slot');
+    assert.equal(cell(0).children[0].hidden, false);
+    assert.equal(cell(1).children[0].hidden, true);
+    assert.equal(cell(1).children[1].hidden, false);
+    assert.equal(cell(1).children[1].title, 'This firmware has no sample spacing setting');
+    // A saved address that has not answered says so instead of blaming its firmware.
+    assert.equal(cell(2).children[1].title, 'Unknown until the device answers');
+
+    cell(0).children[0].value = 'distinct';
+    await cell(0).children[0].dispatch('change');
+    await settle();
+    assert.equal($('confirm').open, undefined);
+    const change = calls.find(call => call.path === '/api/devices/spacing');
+    assert.deepEqual(change.body, { device_ids: ['a'], spacing: 'distinct' });
+    assert.equal(change.headers['X-ESPectre-CSRF'], 'csrf-token');
+    assert.equal(cell(0).children[0].value, 'distinct');
 });

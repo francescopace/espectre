@@ -1577,7 +1577,7 @@ class _FakeDirectNetwork:
             "operations": operations, "reject": reject, "features": features,
             "catalog": tuple(standalone_devices.DIAGNOSTIC_FIELDS.values()) if catalog is None else catalog,
             "sensing": {"traffic_generator_mode": mode, "csi_target_pps": 100, "csi_traffic_udp_port": 5555,
-                        "csi_traffic_multicast_group": "239.255.0.1"}}
+                        "csi_traffic_multicast_group": "239.255.0.1", "csi_sample_spacing": "half_slot"}}
 
     def client(self, endpoint, timeout):
         network = self
@@ -2885,6 +2885,97 @@ def test_standalone_device_modes_change_each_device_on_its_own(tmp_path):
             # A finished search leaves no task behind.
             await asyncio.gather(*client.app[standalone.TASKS])
             assert not client.app[standalone.TASKS]
+        finally:
+            await client.close()
+            controller.stop()
+    asyncio.run(exercise())
+
+
+def test_standalone_saved_addresses_stay_listed_and_removable_while_silent(tmp_path):
+    network = _FakeDirectNetwork()
+    (tmp_path / "devices.json").write_text(json.dumps({"manual": ["192.168.1.11"]}), encoding="utf-8")
+    registry = _standalone_registry(tmp_path, network)
+
+    assert registry.scan() == 0
+    silent, = registry.snapshot()["devices"]
+    assert silent["source"] == "manual" and silent["address"] == "192.168.1.11"
+    assert silent["error"] == "The device did not answer." and not silent["can_control"]
+    result, = registry.set_mode([silent["id"]], "external")
+    assert result["status"] == "error"
+
+    # Once the address answers, its row takes the device's own identity.
+    network.add("192.168.1.11", "aaaaaaaaaaaaaaa1")
+    registry.refresh_all()
+    found, = registry.snapshot()["devices"]
+    assert found["id"] == "aaaaaaaaaaaaaaa1" and found["source"] == "manual" and found["error"] is None
+
+    # A known device that stops answering keeps its identity instead of turning back into an address.
+    del network.devices["http://192.168.1.11:62587/espectre/v1"]
+    registry.scan()
+    lost, = registry.snapshot()["devices"]
+    assert lost["id"] == "aaaaaaaaaaaaaaa1" and lost["error"] == "The device did not answer."
+
+    registry.remove("aaaaaaaaaaaaaaa1")
+    assert registry.snapshot()["devices"] == []
+    assert json.loads((tmp_path / "devices.json").read_text())["manual"] == []
+    registry.manual = ["192.168.1.12"]
+    registry.scan()
+    silent, = registry.snapshot()["devices"]
+    registry.remove(silent["id"])
+    assert registry.manual == [] and registry.snapshot()["devices"] == []
+
+
+def test_standalone_address_removed_during_a_probe_stays_removed(tmp_path):
+    registry = _standalone_registry(tmp_path, _FakeDirectNetwork())
+    probe = registry.probe
+    for run in (registry.refresh_all, registry.scan):
+        registry.probe, registry.manual = probe, ["192.168.1.11"]
+        registry.scan()
+        silent, = registry.snapshot()["devices"]
+
+        # Remove arrives while the probe that will find nothing is still waiting for an answer.
+        def removed_meanwhile(*args, device_id=silent["id"]):
+            registry.remove(device_id)
+            return probe(*args)
+        registry.probe = removed_meanwhile
+        run()
+        assert registry.manual == [] and registry.snapshot()["devices"] == []
+
+
+def test_standalone_sample_spacing_changes_only_devices_that_offer_it(tmp_path):
+    async def exercise():
+        network = _FakeDirectNetwork()
+        network.add("192.168.1.20", "aaaaaaaaaaaaaaa1", features={"csi_sample_spacing": True})
+        network.add("192.168.1.21", "aaaaaaaaaaaaaaa2", features={"csi_sample_spacing": True},
+                    reject="csi_sample_spacing is busy")
+        network.add("192.168.1.22", "aaaaaaaaaaaaaaa3")
+        registry = _standalone_registry(tmp_path, network, found=["192.168.1.20", "192.168.1.21", "192.168.1.22"])
+        registry.scan()
+        controller = standalone.Controller(_standalone_settings(), tmp_path / "settings.json")
+        client = await _standalone_client(controller, registry=registry)
+        try:
+            await client.post("/api/login", json={"token": "standalone-test-token"})
+            data = await (await client.get("/api/status")).json()
+            headers = {"X-ESPectre-CSRF": data["csrf"]}
+            supported = {device["id"]: device["spacing_supported"] for device in data["devices"]["devices"]}
+            assert supported == {"aaaaaaaaaaaaaaa1": True, "aaaaaaaaaaaaaaa2": True, "aaaaaaaaaaaaaaa3": False}
+            ids = sorted(supported)
+            for invalid in [{}, {"device_ids": ids, "spacing": "quarter_slot"}, {"device_ids": [], "spacing": "distinct"},
+                            {"device_ids": ids, "spacing": "distinct", "mode": "external"}]:
+                assert (await client.post("/api/devices/spacing", json=invalid, headers=headers)).status == 400
+            # Spacing needs no running generator: it changes admission, not the traffic source.
+            response = await client.post("/api/devices/spacing", json={"device_ids": ids, "spacing": "distinct"},
+                                         headers=headers)
+            data = await response.json()
+            assert [result["status"] for result in data["results"]] == ["confirmed", "error", "error"]
+            assert data["results"][1]["message"] == "csi_sample_spacing is busy"
+            spacing = {device["id"]: device["sensing"]["csi_sample_spacing"] for device in data["devices"]["devices"]}
+            assert spacing == dict(zip(ids, ["distinct", "half_slot", "half_slot"], strict=True))
+            patches = [call[3] for call in network.calls if call[1] == "patch"]
+            assert patches == [{"csi_sample_spacing": "distinct"}] * 2
+            again, = (await (await client.post("/api/devices/spacing", json={"device_ids": ids[:1], "spacing": "distinct"},
+                                               headers=headers)).json())["results"]
+            assert again["status"] == "unchanged"
         finally:
             await client.close()
             controller.stop()

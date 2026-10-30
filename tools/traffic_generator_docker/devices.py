@@ -21,6 +21,9 @@ TRAFFIC_MODES = ("ping", "dns", "dns_tcp", "wifi_raw", "external")
 RAW_MODE_FEATURE = "traffic_generator_target_mac"
 # Firmware before that flag (3.0) offers `wifi_raw` on every chip but this one; see docs/CSI.md.
 NO_RAW_CHIP = "esp32c6"
+# CSI sample spacing values; devices that accept them say so in their capabilities.
+SAMPLE_SPACINGS = ("half_slot", "distinct")
+SPACING_FEATURE = "csi_sample_spacing"
 # Asks each device for the internal source it used before external traffic, or ping.
 INTERNAL = "internal"
 # Panel column → Direct diagnostics field; see docs/API.md#diagnostics.
@@ -28,8 +31,10 @@ DIAGNOSTIC_FIELDS = {"generator": "generator_pps", "traffic_tx": "traffic_tx_pps
                      "traffic_rx": "traffic_rx_pps", "accepted": "csi_accepted_pps",
                      "occupancy": "csi_occupancy", "rssi": "wifi_rssi_dbm"}
 SENSING_FIELDS = ("traffic_generator_mode", "csi_target_pps", "csi_traffic_udp_port",
-                  "csi_traffic_multicast_group")
+                  "csi_traffic_multicast_group", "csi_sample_spacing")
 MAX_DEVICES = 64
+# A saved address that has not answered yet has no device ID; its row uses this prefix.
+UNIDENTIFIED = "address:"
 MAX_MANUAL_ADDRESSES = 32
 REQUEST_TIMEOUT_S = 3.0
 REFRESH_WORKERS = 8
@@ -67,6 +72,11 @@ def supported_modes(capabilities, chip):
     return tuple(mode for mode in TRAFFIC_MODES if mode != "wifi_raw" or raw)
 
 
+def supports_spacing(capabilities):
+    features = capabilities.get("features")
+    return isinstance(features, dict) and features.get(SPACING_FEATURE) is True
+
+
 def describe_error(error):
     if isinstance(error, DirectRequestError):
         return error.message or "The device rejected the request."
@@ -101,9 +111,14 @@ class Device:
     can_control: bool = False
     catalog: tuple = ()
     modes: tuple = ()
+    spacing_supported: bool = False
     sensing: dict = field(default_factory=dict)
     diagnostics: dict = field(default_factory=dict)
     error: str | None = None
+
+    @property
+    def identified(self):
+        return not self.id.startswith(UNIDENTIFIED)
 
     @property
     def endpoint(self):
@@ -119,7 +134,7 @@ class Device:
                 "firmware": self.firmware, "ip_address": self.ip_address, "port": self.port,
                 "address": address_text(self.ip_address, self.port), "source": self.source,
                 "can_control": self.can_control and self.error is None, "error": self.error,
-                "modes": self.offered_modes(),
+                "modes": self.offered_modes(), "spacing_supported": self.spacing_supported,
                 "sensing": {name: self.sensing.get(name) for name in SENSING_FIELDS},
                 "fields": {column: self.diagnostics.get(name) for column, name in DIAGNOSTIC_FIELDS.items()}}
 
@@ -180,6 +195,7 @@ class DeviceRegistry:
                         name=str(info.get("name") or device_id), chip=chip,
                         frontend=str(info.get("frontend") or ""), firmware=str(info.get("firmware") or ""),
                         can_control="update_sensing" in operations, modes=supported_modes(capabilities, chip),
+                        spacing_supported=supports_spacing(capabilities),
                         catalog=tuple(entry["name"] for entry in catalog
                                       if isinstance(entry, dict) and isinstance(entry.get("name"), str)))
         self.refresh(device)
@@ -197,15 +213,36 @@ class DeviceRegistry:
         finally:
             client.close()
 
+    def _refresh_one(self, device):
+        if device.identified:
+            self.refresh(device)
+        else:
+            # A saved address that never answered gets identified once it does.
+            self._store(self._probe_saved(device.ip_address, device.port))
+
     def refresh_all(self):
         with self.lock:
             devices = list(self.devices.values())
         if devices:
             with ThreadPoolExecutor(max_workers=REFRESH_WORKERS) as pool:
-                list(pool.map(self.refresh, devices))
+                list(pool.map(self._refresh_one, devices))
 
     def _store(self, device):
         with self.lock:
+            if device.source == "manual" and address_text(device.ip_address, device.port) not in self.manual:
+                # The address was removed while this probe was waiting for an answer.
+                return
+            same_address = [key for key, other in self.devices.items()
+                            if (other.ip_address, other.port) == (device.ip_address, device.port) and key != device.id]
+            if not device.identified:
+                # Keep a known device that stopped answering under its own ID, with the new reason.
+                known = [key for key in same_address if self.devices[key].identified]
+                if known:
+                    self.devices[known[0]].error = device.error
+                    return
+            for key in same_address:
+                if not self.devices[key].identified:
+                    del self.devices[key]
             existing = self.devices.get(device.id)
             if existing is not None and existing.source == "manual":
                 device.source = "manual"
@@ -233,17 +270,28 @@ class DeviceRegistry:
                 self.devices = {key: device for key, device in self.devices.items() if device.source == "manual"}
             for device in sorted(probed, key=lambda device: device.source == "manual"):
                 self._store(device)
-            return len(probed)
+            return sum(device.identified for device in probed)
         finally:
             with self.lock:
                 self.scanning, self.scan_error, self.scanned_at = False, error, time.time()
 
     def _try_probe(self, candidate):
+        if candidate[2] == "manual":
+            return self._probe_saved(*candidate[:2])
         try:
             return self.probe(*candidate)
         except (DirectProtocolError, DirectRequestError, OSError, TimeoutError, ValueError) as error:
             logging.info("Skipped %s: %s", address_text(*candidate[:2]), describe_error(error))
             return None
+
+    def _probe_saved(self, ip, port):
+        """Probe a saved address; when nothing answers, list it so it can be removed."""
+        try:
+            return self.probe(ip, port, "manual")
+        except (DirectProtocolError, DirectRequestError, OSError, TimeoutError, ValueError) as error:
+            text = address_text(ip, port)
+            return Device(id=UNIDENTIFIED + text, ip_address=ip, port=port, source="manual",
+                          name=text, error=describe_error(error))
 
     def add(self, address):
         ip, port = parse_address(address)
@@ -292,24 +340,45 @@ class DeviceRegistry:
             result = {"id": device_id, "option": option}
             if option not in device.modes:
                 return {**result, "status": "error", "message": f"This device does not offer {option}."}
-            if current == option and device.error is None:
-                return {**result, "status": "unchanged", "message": f"Already {option}."}
-            client = self._client(device)
-            try:
-                client.request("patch", "sensing", {"traffic_generator_mode": option})
-            except (DirectProtocolError, DirectRequestError, OSError, TimeoutError) as error:
-                return {**result, "status": "error", "message": describe_error(error)}
-            finally:
-                client.close()
-            self.refresh(device)
-            if device.sensing.get("traffic_generator_mode") != option:
-                return {**result, "status": "unconfirmed",
-                        "message": "The device accepted the change but still reports another source."}
-            logging.info("Traffic source of %s set to %s", device.name, option)
-            return {**result, "status": "confirmed", "message": f"Now {option}."}
+            return self._apply(device, "traffic_generator_mode", option, result)
 
         with ThreadPoolExecutor(max_workers=REFRESH_WORKERS) as pool:
             return list(pool.map(change, targets))
+
+    def set_spacing(self, device_ids, spacing):
+        """Set the CSI sample spacing on each device that supports it."""
+        with self.lock:
+            targets = [(device_id, self.devices.get(device_id)) for device_id in device_ids]
+
+        def change(item):
+            device_id, device = item
+            result = {"id": device_id, "option": spacing}
+            if device is None:
+                return {**result, "status": "error", "message": "Device is no longer listed."}
+            if not device.can_control or not device.spacing_supported:
+                return {**result, "status": "error", "message": "This device has no sample spacing setting."}
+            return self._apply(device, "csi_sample_spacing", spacing, result)
+
+        with ThreadPoolExecutor(max_workers=REFRESH_WORKERS) as pool:
+            return list(pool.map(change, targets))
+
+    def _apply(self, device, name, option, result):
+        """Write one sensing field, then confirm it from a fresh read."""
+        if device.sensing.get(name) == option and device.error is None:
+            return {**result, "status": "unchanged", "message": f"Already {option}."}
+        client = self._client(device)
+        try:
+            client.request("patch", "sensing", {name: option})
+        except (DirectProtocolError, DirectRequestError, OSError, TimeoutError) as error:
+            return {**result, "status": "error", "message": describe_error(error)}
+        finally:
+            client.close()
+        self.refresh(device)
+        if device.sensing.get(name) != option:
+            return {**result, "status": "unconfirmed",
+                    "message": "The device accepted the change but still reports another value."}
+        logging.info("%s of %s set to %s", name, device.name, option)
+        return {**result, "status": "confirmed", "message": f"Now {option}."}
 
     def snapshot(self):
         with self.lock:
