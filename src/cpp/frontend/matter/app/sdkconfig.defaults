@@ -55,7 +55,9 @@ CONFIG_DEVICE_VENDOR_ID=0xFFF1
 CONFIG_DEVICE_PRODUCT_ID=0x8000
 CONFIG_DEVICE_TYPE=0x0107
 CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION=1
-CONFIG_DEVICE_SOFTWARE_VERSION_NUMBER=300
+# SoftwareVersion comes from PROJECT_VER_NUMBER, set from the git identity in CMakeLists.txt.
+# Test Event Triggers are for certification testing; esp-matter enables them with a public key.
+CONFIG_TEST_EVENT_TRIGGER_ENABLED=n
 CONFIG_ENABLE_COMMISSIONABLE_DEVICE_TYPE=y
 
 # ESPectre Matter runtime
@@ -70,7 +72,10 @@ CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y
 CONFIG_CHIP_LOG_DEFAULT_LEVEL_ERROR=y
 
 # Matter commissioning (BLE)
+# Community builds generate onboarding data and a MAC serial on the device.
+# Product builds switch both to factory data; see sdkconfig.factory.example.
 CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER=y
+CONFIG_CUSTOM_DEVICE_INSTANCE_INFO_PROVIDER=y
 # CONFIG_ENABLE_TEST_SETUP_PARAMS is not set
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y

@@ -497,6 +497,11 @@ void test_matter_surface_mapping_helpers(void) {
   RuntimeSnapshot snapshot = make_ready_snapshot(true);
 
   TEST_ASSERT_TRUE(snapshot_to_motion_detected(snapshot));
+
+  const uint8_t mac[6] = {0x10, 0xB4, 0x1D, 0xE8, 0xEC, 0x00};
+  const std::string serial = matter_serial_number_from_mac(mac);
+  TEST_ASSERT_EQUAL_STRING("ESPECTRE-10B41DE8EC00", serial.c_str());
+  TEST_ASSERT_TRUE(serial.size() <= 32U);
 }
 
 int main(int argc, char **argv) {

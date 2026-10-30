@@ -2103,7 +2103,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "build-traffic-generator-image",
     }
     image_build = ci_jobs["build-traffic-generator-image"]
-    assert set(image_build["needs"]) == {"prepare", "test-python"}
+    assert set(image_build["needs"]) == initial_checks
     image_upload = next(step for step in image_build["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert image_upload["if"] == "github.event_name == 'push'"
     assert image_upload["with"]["name"] == "traffic-generator-image"

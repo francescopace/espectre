@@ -90,6 +90,6 @@ Official Native and ESPHome images accept only signed OTA updates. This affects 
 - **Official to personal build:** install the personal build over USB. OTA rejects unsigned images.
 - **Personal build to official:** install the full official image over USB. This restores signed OTA updates.
 - **ESPHome Device Builder:** after adopting an official image, install the first Builder image over USB. Later Builder updates can use the network.
-- **Matter:** has no OTA. Always update over USB. Matter firmware does not verify image signatures.
+- **Matter:** has no OTA. Always update over USB. Matter firmware does not verify image signatures. Field updates are part of [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product).
 
 The installer checks each published download before it writes flash. OTA details are in each frontend guide. Signing keys, rotation, and recovery are in [firmware signing](RELEASING.md#firmware-signing).

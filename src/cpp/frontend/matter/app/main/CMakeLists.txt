@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.cpp"
         "matter_bindings_esp_matter.cpp"
         "matter_commissioning_data.cpp"
+        "matter_device_instance_info.cpp"
     INCLUDE_DIRS
         "."
         "../../espectre"

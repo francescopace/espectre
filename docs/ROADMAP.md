@@ -6,9 +6,8 @@
 | --- | --- | --- |
 | **v3.1.0** | In progress | Broaden Matter compatibility and provide external sensing traffic from ESP32 peers or a standalone service |
 | **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
-| **v3.3.0** | Demand-gated | Add a dedicated Apple Home frontend where Matter falls short |
-| **v3.4.0** | Research-gated | Add stationary presence as a distinct sensing output |
-| **v3.5.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
+| **v3.3.0** | Research-gated | Add stationary presence as a distinct sensing output |
+| **v3.4.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
 | **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
 | **v4.1.0** | Planned | Add an optional, self-hostable relay for remote access |
 | **v4.2.0** | Demand-gated | Add optional fleet, history, update, and alert workflows |
@@ -23,8 +22,8 @@
 Matter already provides pairing, occupancy updates, and Direct controls. Controller coverage is limited, OTA is not implemented, and published images use development credentials.
 
 - [ ] Verify commissioning, occupancy updates, and an automation trigger with additional controllers; record results in the [controller compatibility matrix](../src/cpp/frontend/matter/README.md#matter-controller-compatibility)
-- [ ] Define the Matter OTA design: Requestor and Provider responsibilities, update ownership, and release artifacts
-- [x] Document manufacturer certification gaps: vendor identity, device attestation, factory provisioning, and test coverage; see [certification readiness](../src/cpp/frontend/matter/README.md#certification-readiness)
+- [x] Make Matter firmware certification-ready and document what the integrator provides, including OTA; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
+- [x] Document manufacturer certification gaps: vendor identity, device attestation, factory provisioning, and test coverage; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
 
 ### External radio sources
 
@@ -38,7 +37,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 - [x] Publish a standalone Docker image with a web UI for configuration, start/stop controls, and status
 - [ ] Document and verify setup with Home Assistant Container and without Home Assistant or Supervisor, including Native and Matter devices
 
-**Exit criteria**: each selected Matter controller and each supported receiver, source, and profile combination has a recorded result or documented limitation. The Matter OTA design and production certification requirements are documented. The Docker image can be installed and operated through its web UI with Home Assistant Container or without Home Assistant.
+**Exit criteria**: each selected Matter controller and each supported receiver, source, and profile combination has a recorded result or documented limitation. Production certification requirements and integrator responsibilities are documented. The Docker image can be installed and operated through its web UI with Home Assistant Container or without Home Assistant.
 
 ## v3.2.0 - Arduino SDK runtime
 
@@ -56,22 +55,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 
 **Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK.
 
-## v3.3.0 - Apple Home frontend
-
-**Product outcome**: a dedicated Apple Home frontend built on Espressif's `esp-homekit-sdk`, reusing the shared sensing code.
-
-**Starts when**: testing Matter with Apple Home (`v3.1.0`) shows a need that Matter cannot meet, and the license checks below pass.
-
-**Scope**:
-
-- Confirm the SDK's license, redistribution terms, maintained ESP-IDF compatibility, supported targets, and the boundary between the open-source and MFi product paths before adding the dependency
-- Map ESPectre sensing state into supported HomeKit services and characteristics through a frontend adapter over the shared runtime
-- Validate Wi-Fi provisioning, pairing, reconnect, reset, accessory identity, and recovery in Apple Home on the selected device matrix
-- Document the certification, factory provisioning, credential, and OTA responsibilities that apply to commercial products
-
-**Exit criteria**: the dependency fits the project's dual license, every selected chip builds and runs, Apple Home results are documented, and the line between open-source and MFi products is clear.
-
-## v3.4.0 - Stationary presence detection
+## v3.3.0 - Stationary presence detection
 
 **Product outcome**: tell a room with someone sitting still apart from an empty room, as a new result separate from motion. No identification, counting, or precise location.
 
@@ -86,7 +70,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 
 **Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature analysis](FEATURES.md) and postpone this release.
 
-## v3.5.0 - Gesture and micro-motion research
+## v3.4.0 - Gesture and micro-motion research
 
 **Product outcome**: ship short gestures or non-medical breathing detection only if research supports it; otherwise record the negative result and ship nothing.
 
@@ -96,7 +80,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 - Evaluate breathing-related micro-motion only after stationary presence is measurable and paired recordings support longer analysis windows
 - Keep candidates in host-side research until their evidence justifies production runtime work and C++/Python parity
 
-**Exit criteria**: each candidate has a measured decision (promote, reject, or defer) in the [feature analysis](FEATURES.md). `3.5.0` ships a feature only if at least one candidate passes its sensing, resource, privacy, and parity gates.
+**Exit criteria**: each candidate has a measured decision (promote, reject, or defer) in the [feature analysis](FEATURES.md). `3.4.0` ships a feature only if at least one candidate passes its sensing, resource, privacy, and parity gates.
 
 ## v4.0.0 - Local cooperative sensing
 
@@ -188,14 +172,14 @@ Research runs in steps. A first small study on today's HT20 capture decides whet
 | R1 | **HE20 and HT40 sensing profiles** | Do HE20 or HT40 provide enough additional sensing detail to justify their capture and processing costs? | Both layouts map to canonical detector inputs, paired captures characterize their benefits and costs, and any promoted profile has a defined grid, normalization path, resource limits, and C++/Python parity |
 | R2 | **Higher CSI rate** | Which sustained CSI rate preserves useful micro-motion information on supported hardware? | Rate sweeps select the highest useful rate within declared limits for loss, jitter, compute, memory, and transport load |
 | R3 | **Longer and multi-scale windows** | Can longer windows expose slow micro-motion without weakening the current movement response? | The runtime analyzes short and long windows within declared latency and memory limits while preserving the movement detector's response time |
-| R4 | **Stationary presence** | Can the selected capture profile distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.4.0` across the required hardware and environments |
-| R5 | **Breathing-related motion** | Can the selected capture profile detect non-medical breathing-related micro-motion over longer windows? | Stationary presence is measurable, paired recordings cover the required observation period, and host-side evidence justifies runtime work for `v3.5.0` |
-| R6 | **Brief gestures** | Does the higher-rate profile preserve enough short-timescale information for a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
+| R4 | **Stationary presence** | Can the selected capture profile distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.3.0` across the required hardware and environments |
+| R5 | **Breathing-related motion** | Can the selected capture profile detect non-medical breathing-related micro-motion over longer windows? | Stationary presence is measurable, paired recordings cover the required observation period, and host-side evidence justifies runtime work for `v3.4.0` |
+| R6 | **Brief gestures** | Does the higher-rate profile preserve enough short-timescale information for a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.4.0` |
 
 Order:
 
 - R0 can run during v3, starting from existing `static_presence` captures that have a same-session `empty` reference, and may stop the presence track early.
-- R1 to R3 come before R4. R4 uses the best capture profile found, and the changes it needs ship with `v3.4.0`.
+- R1 to R3 come before R4. R4 uses the best capture profile found, and the changes it needs ship with `v3.3.0`.
 - R5 also needs validated presence (R4) and longer windows (R3).
 - R6 can start once R2 is stable.
 
@@ -212,7 +196,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **October 16, 2026**
+Last update: **October 30, 2026**
 
 For discussion and proposed changes:
 

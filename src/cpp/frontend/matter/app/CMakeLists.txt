@@ -15,6 +15,10 @@ cmake_minimum_required(VERSION 3.16)
 include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_git_version.cmake")
 set(PROJECT_VER "${ESPECTRE_GIT_VERSION}")
 
+# Matter SoftwareVersion follows the same identity as PROJECT_VER.
+include("${CMAKE_CURRENT_LIST_DIR}/espectre_matter_software_version.cmake")
+espectre_matter_software_version("${ESPECTRE_GIT_VERSION}" PROJECT_VER_NUMBER)
+
 include("${CMAKE_CURRENT_LIST_DIR}/../../espectre_frontend_sources.cmake")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

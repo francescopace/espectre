@@ -1,0 +1,27 @@
+# Example settings for a factory-provisioned Matter product.
+#
+# Copy this file, replace the IDs, and list it after the shared defaults:
+#   SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.<target>;<your copy>"
+# Then build with `./espectre matter build --chip <chip> --clean`.
+
+# Your CSA vendor ID and product ID.
+CONFIG_DEVICE_VENDOR_ID=0xFFF1
+CONFIG_DEVICE_PRODUCT_ID=0x8000
+
+# Read onboarding data, DAC, and device identity from the `fctry` partition.
+CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER=y
+CONFIG_ENABLE_ESP32_DEVICE_INSTANCE_INFO_PROVIDER=y
+CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL="fctry"
+CONFIG_FACTORY_COMMISSIONABLE_DATA_PROVIDER=y
+# CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER is not set
+CONFIG_FACTORY_DEVICE_INSTANCE_INFO_PROVIDER=y
+# CONFIG_CUSTOM_DEVICE_INSTANCE_INFO_PROVIDER is not set
+
+# Keep the DAC in `fctry`, or use CONFIG_SEC_CERT_DAC_PROVIDER=y to read it from
+# `esp_secure_cert`, which can protect the key with the DS peripheral.
+CONFIG_FACTORY_PARTITION_DAC_PROVIDER=y
+
+# Certification testing needs Test Event Triggers with your own key; turn them
+# off again in shipped firmware.
+# CONFIG_TEST_EVENT_TRIGGER_ENABLED=y
+# CONFIG_TEST_EVENT_TRIGGER_ENABLE_KEY="<32 hex characters>"

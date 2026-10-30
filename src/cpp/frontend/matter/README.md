@@ -78,7 +78,7 @@ The table shows what each ecosystem documents and what we have actually tested w
 | Samsung SmartThings | Provides a standard Matter [`motionSensor`](https://developer.smartthings.com/docs/edge-device-drivers/matter/defaults/motionSensor.html) handler in its Edge driver API | Not yet recorded |
 | Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Not yet recorded |
 
-Not every controller and chip combination has been tested. Current images are uncertified development devices, so some ecosystems ask you to confirm before adding them. [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
+Not every controller and chip combination has been tested. Current images are uncertified development devices, so some ecosystems ask you to confirm before adding them, and Google Home needs a one-time setup; see [Google Home with community images](#google-home-with-community-images). [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
 
 Mark a controller as validated only with a reproducible hardware record that identifies the controller app and hub versions, ESP32 target, firmware identity, and results for commissioning, occupancy-state updates, and an automation trigger.
 
@@ -93,6 +93,16 @@ Record each session with these fields:
 | Occupancy updates seen in the controller | |
 | Automation trigger fired | |
 | Limits, prompts, or workarounds | |
+
+### Google Home with community images
+
+Google Home adds an uncertified device only for members of a Google Home Developer Console project that has a Matter integration for its vendor and product ID. Published images use the development IDs, so set this up once per Google account:
+
+1. Open the [Google Home Developer Console](https://console.home.google.com/) with the account you use in the Google Home app, and create a project.
+2. Add a Matter integration with vendor ID `0xFFF1` and product ID `0x8000`.
+3. Commission the device from the Google Home app with the same account, using its QR code.
+
+Other people in the home need to be members of the same project. Apple Home asks you to confirm an uncertified accessory, and Home Assistant needs no extra step. Only a certified product removes this requirement; see [Google's pairing rules](https://developers.home.google.com/matter/integration/pair) and [building a certified product](#building-a-certified-product).
 
 ## Commissioning and runtime ownership
 
@@ -116,6 +126,7 @@ This map is for frontend maintainers; it is not required for commissioning an ex
 - [`app/`](app/): standalone ESP-IDF firmware app
 - [`app_main.cpp`](app/main/app_main.cpp): Matter node setup, endpoint creation, commissioning window behavior, and startup order
 - [matter_commissioning_data.cpp](app/main/matter_commissioning_data.cpp): random per-device onboarding data and `matter_factory` persistence
+- [matter_device_instance_info.cpp](app/main/matter_device_instance_info.cpp): MAC-derived serial number for builds without factory data
 - [`idf_component.yml`](app/main/idf_component.yml): `esp_matter` dependency declaration
 
 ## Dependencies and firmware layout
@@ -129,28 +140,39 @@ This map is for frontend maintainers; it is not required for commissioning an ex
 - partition layout: [`partitions.csv`](app/partitions.csv)
 - defaults: [`sdkconfig.defaults`](app/sdkconfig.defaults)
 
-The per-device onboarding flow removes the shared Matter test passcode, but the published firmware still uses development VID/PID and example device attestation credentials. Production certification requires a manufacturing pipeline for unique DAC credentials in addition to this onboarding partition.
+Published images use development IDs and the SDK's example attestation credentials. [Building a certified product](#building-a-certified-product) covers what changes in a product build.
 
-## Certification readiness
+## Building a certified product
 
-Published images are development devices, not certifiable products. A manufacturer shipping ESPectre with Matter would need to close these gaps. Each row was checked against [sdkconfig.defaults](app/sdkconfig.defaults) and the resolved build configuration.
+Published images are development devices. A certified Matter product also needs a vendor ID, per-device credentials written in the factory, and certification tests, which only the company that builds and sells the hardware can provide. The firmware is ready for that product build; the integrator does the rest.
 
-| Area | Today | Missing for a certified product |
+| Area | ESPectre firmware | Integrator |
 | --- | --- | --- |
-| Vendor and product identity | Development VID/PID `0xFFF1` / `0x8000` | A Connectivity Standards Alliance vendor ID and a product ID owned by the manufacturer |
-| Device attestation | Example DAC, PAI, and certification declaration from the SDK; no factory data provider or secure certificate provider is enabled | A unique DAC per device signed by a PAI under a PAA in the CSA trust store, plus a certification declaration issued for the product |
-| Factory provisioning | The `matter_factory` partition holds only random onboarding data | Per-device DAC, private key, serial number, and unique ID written on the line, with the DAC key protected |
-| Serial number | Devices report the shared fallback `TEST_SN` because no serial number is stored | A unique serial number per device |
-| Test hooks | The Test Event Trigger is enabled with the SDK's public default enable key | Disabled, or set to a per-product secret key, in shipped firmware |
-| Firmware protection | Secure Boot and flash encryption are off; the app is unsigned on the device | Enabled, to protect DAC keys and satisfy the security requirements of the certification program |
-| OTA | Not supported | Tracked in the OTA item of the roadmap |
-| Certification tests | Hardware smoke results only; no Matter certification test cases run | A run of the Matter certification test cases against the product build, and a test plan for the clusters the device exposes |
+| Vendor and product ID | Development `0xFFF1` / `0x8000`, set by `CONFIG_DEVICE_VENDOR_ID` and `CONFIG_DEVICE_PRODUCT_ID` | A Connectivity Standards Alliance vendor ID and a product ID |
+| Onboarding data | Generated on first boot in `matter_factory`; read from the `fctry` partition in a factory-data build | Per-device passcode verifier and discriminator, with the QR code printed on the product |
+| Device attestation | The SDK's example DAC; a factory-data build reads the DAC from `fctry` or `esp_secure_cert` | A unique DAC per device under a PAA in the CSA trust store, and the product's certification declaration |
+| Serial number | Derived from the base MAC; read from `fctry` in a factory-data build | A unique serial number per device |
+| Software version | `SoftwareVersion` and its string come from the release identity at build time | Its own numbering only if it ships a modified firmware |
+| Test hooks | Test Event Triggers are off | Turn them on with its own key for certification tests, and off again for shipping |
+| Firmware protection | Secure Boot and flash encryption are off | Secure Boot and flash encryption as part of manufacturing, to protect the DAC key |
+| Firmware updates | USB only | An update method, usually a Matter OTA Requestor with two app slots; C5 and C6 images need 8 MB of flash for that |
+| Certification | Hardware smoke results | Certification tests at an authorized lab and the product's entry in the Distributed Compliance Ledger |
 
-The Test Event Trigger and the shared serial number are set in today's images too. Neither should stay in firmware used outside development.
+### Factory-data builds
+
+1. Copy [sdkconfig.factory.example](app/sdkconfig.factory.example), set the vendor and product ID, and choose where the DAC lives.
+2. Generate each device's factory partition with Espressif's [Matter manufacturing tool](https://github.com/espressif/esp-matter-mfg-tool), and write it to `fctry` at `0x13000`. A DAC kept in `esp_secure_cert` goes to `0x11000`.
+3. Build with the copy listed after the shared defaults:
+
+   ```bash
+   SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32s3;/path/to/product.defaults" ./espectre matter build --chip s3 --clean
+   ```
+
+The factory partition holds the passcode verifier, not the passcode, so the device cannot show its QR code. The web installer, `./espectre matter flash`, and `./espectre matter qr` report the codes as unavailable; use the codes the manufacturing tool writes for the product label. The certification declaration given to the tool must name the same vendor ID as the DAC, or commissioning fails device attestation.
 
 ## OTA
 
-Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service. Matter firmware does not enforce an application signature on the device. See [official images and personal builds](../../../../docs/SETUP.md#official-images-and-personal-builds) for catalog verification and the shared USB workflow.
+Update Matter over USB using a full firmware image. The frontend implements neither a Matter OTA requestor nor Native's HTTPS OTA service, and the firmware does not check an application signature. A product that needs updates in the field adds them; see [building a certified product](#building-a-certified-product). See [official images and personal builds](../../../../docs/SETUP.md#official-images-and-personal-builds) for catalog verification and the shared USB workflow.
 
 ## Matter-specific troubleshooting
 

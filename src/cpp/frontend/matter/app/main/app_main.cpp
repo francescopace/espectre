@@ -37,6 +37,7 @@
 #include "improv_serial_service.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
+#include "matter_device_instance_info.h"
 #include "matter_frontend.h"
 #include "primary_console.h"
 
@@ -50,7 +51,14 @@ using namespace chip::app::Clusters;
 namespace {
 
 espectre::MatterEspBindings g_bindings;
+#if CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER
+// Community builds generate onboarding data on the device and can show its codes.
+constexpr bool kDeviceKnowsOnboardingCodes = true;
 espectre::MatterCommissioningDataProvider g_commissioning_data;
+#else
+// Factory data holds only the SPAKE2+ verifier; the codes ship on the product label.
+constexpr bool kDeviceKnowsOnboardingCodes = false;
+#endif
 espectre::MatterFrontend *g_frontend = nullptr;
 espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
@@ -279,15 +287,31 @@ bool matter_onboarding_codes(std::string *qr, std::string *manual_code) {
   return true;
 }
 
+// SerialNumber is optional in Basic Information; its value comes from the
+// device instance info provider, so the attribute only declares support.
+[[gnu::noinline]] bool add_serial_number_attribute(node_t *node) {
+  endpoint_t *root = endpoint::get(node, 0);
+  cluster_t *basic_information = cluster::get(root, BasicInformation::Id);
+  return basic_information != nullptr &&
+         cluster::basic_information::attribute::create_serial_number(basic_information, nullptr, 0) != nullptr;
+}
+
 void log_onboarding_codes() {
   if (g_matter_qr.empty() || g_matter_manual_code.empty()) {
-    ESP_LOGE(TAG, "Matter onboarding codes are unavailable");
+    if (kDeviceKnowsOnboardingCodes) {
+      ESP_LOGE(TAG, "Matter onboarding codes are unavailable");
+    } else {
+      ESP_LOGI(TAG, "Matter onboarding codes come from the product's factory data");
+    }
     return;
   }
   ESP_LOGI(TAG, "MATTER_QR=%s", g_matter_qr.c_str());
   ESP_LOGI(TAG, "MATTER_MANUAL_CODE=%s", g_matter_manual_code.c_str());
-  ESP_LOGI(TAG, "MATTER_DISCRIMINATOR=%u",
-           static_cast<unsigned>(g_commissioning_data.setup_discriminator()));
+  uint16_t discriminator = 0;
+  if (chip::DeviceLayer::GetCommissionableDataProvider()->GetSetupDiscriminator(discriminator) ==
+      CHIP_NO_ERROR) {
+    ESP_LOGI(TAG, "MATTER_DISCRIMINATOR=%u", static_cast<unsigned>(discriminator));
+  }
 }
 
 void sync_post_start_state_on_chip_thread(intptr_t arg) {
@@ -527,6 +551,7 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
+#if CONFIG_CUSTOM_COMMISSIONABLE_DATA_PROVIDER
   CHIP_ERROR commissioning_error = g_commissioning_data.initialize();
   if (commissioning_error != CHIP_NO_ERROR) {
     ESP_LOGE(TAG, "Failed to initialize per-device Matter commissioning data");
@@ -535,6 +560,13 @@ extern "C" void app_main() {
   esp_matter::set_custom_commissionable_data_provider(&g_commissioning_data);
   ESP_LOGI(TAG, "Matter factory data: %s",
            g_commissioning_data.generated_on_boot() ? "generated" : "loaded");
+#else
+  ESP_LOGI(TAG, "Matter factory data: provisioned");
+#endif
+#if CONFIG_CUSTOM_DEVICE_INSTANCE_INFO_PROVIDER
+  static espectre::MatterDeviceInstanceInfoProvider device_instance_info;
+  esp_matter::set_custom_device_instance_info_provider(&device_instance_info);
+#endif
 
   node::config_t node_config;
   std::snprintf(node_config.root_node.basic_information.node_label,
@@ -545,6 +577,9 @@ extern "C" void app_main() {
   if (node == nullptr) {
     ESP_LOGE(TAG, "Failed to create Matter node");
     return;
+  }
+  if (!add_serial_number_attribute(node)) {
+    ESP_LOGW(TAG, "Matter SerialNumber attribute is unavailable");
   }
 
   occupancy_sensor::config_t occupancy_config;
@@ -623,7 +658,7 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
     return;
   }
-  if (!refresh_matter_onboarding_codes()) {
+  if (!refresh_matter_onboarding_codes() && kDeviceKnowsOnboardingCodes) {
     ESP_LOGE(TAG, "Failed to generate Matter onboarding codes");
     return;
   }
