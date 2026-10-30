@@ -25,7 +25,7 @@ RUN grep -E '^zeroconf==' /repository-requirements.txt | cut -d' ' -f1 >> /requi
 FROM ${PYTHON_IMAGE}
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="ESPectre Traffic Generator" \
-      org.opencontainers.image.description="Sends external sensing traffic to ESPectre devices, with a web UI." \
+      org.opencontainers.image.description="Sends external sensing traffic to ESPectre devices, finds them on the network, and switches their traffic source from a web UI." \
       org.opencontainers.image.source="https://github.com/francescopace/espectre" \
       org.opencontainers.image.url="https://espectre.dev/" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
