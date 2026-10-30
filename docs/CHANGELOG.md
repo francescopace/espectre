@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 - The Home Assistant app panel keeps only the devices that failed or have not confirmed a bulk change selected, so one click retries them, and clears a device's warning when it confirms later. Its messages no longer point to a Refresh button that does not exist (#193).
 
+- Matter firmware raises the main task stack from the 3584-byte ESP-IDF default to 4608 bytes. Startup peaks at about 3.6 KiB on ESP32-S3, so develop and preview snapshots after 3.0.0 restarted in a loop before commissioning. The stack is freed once startup finishes.
+
 - The new `ghcr.io/francescopace/espectre-traffic-generator` Docker image runs the external traffic generator without Home Assistant OS, for example next to Home Assistant Container. Its web UI, protected by a sign-in token, sets the same options as the Home Assistant app, starts and stops the traffic, and shows the send rate, send errors, and ping replies. It finds devices with mDNS or by IPv4 address, shows their traffic diagnostics, and switches their traffic source through Direct HTTP, one device or several at once, with every source the device supports. It sends ping to the multicast group by default. Each release publishes `amd64` and `arm64` images, and `develop` and `main` publish `develop` and `preview` snapshots. See the [Docker image guide](../tools/traffic_generator_docker/README.md).
 
 - `./espectre collect --detector high_accuracy` works again. The CLI had been rejecting it with only `lightweight` listed as supported, although its help and the [CLI guide](CLI.md) still offered both (#203).

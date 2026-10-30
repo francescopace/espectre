@@ -80,6 +80,19 @@ def test_httpd_priority_uses_shared_default_for_all_targets() -> None:
     assert "CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" not in esphome_example
 
 
+def test_matter_main_task_stack_covers_app_main_on_every_target() -> None:
+    # The 3584-byte IDF default overflowed during app_main on ESP32-S3.
+    app_dir = CPP_ROOT / "frontend" / "matter" / "app"
+    defaults = (app_dir / "sdkconfig.defaults").read_text(encoding="utf-8")
+    match = re.search(r"(?m)^CONFIG_ESP_MAIN_TASK_STACK_SIZE=(\d+)$", defaults)
+    assert match is not None
+    assert int(match.group(1)) >= 4608
+    for target_defaults in app_dir.glob("sdkconfig.defaults.*"):
+        assert "CONFIG_ESP_MAIN_TASK_STACK_SIZE=" not in target_defaults.read_text(
+            encoding="utf-8"
+        )
+
+
 def test_micro_native_tasks_use_the_shared_build_policy_names() -> None:
     expected = {
         "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY": 1,

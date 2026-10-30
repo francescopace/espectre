@@ -7,6 +7,9 @@ CONFIG_LOG_VERSION_2=y
 
 CONFIG_PM_ENABLE=n
 CONFIG_FREERTOS_HZ=1000
+# app_main peaks near 3.6 KiB on ESP32-S3, above the 3584-byte default.
+# The main task is deleted when app_main returns, so this costs RAM only at boot.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4608
 
 CONFIG_ESP_WIFI_CSI_ENABLED=y
 CONFIG_HTTPD_WS_SUPPORT=y
