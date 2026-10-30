@@ -106,7 +106,7 @@ Clients must ignore resources, operations, events, and fields they do not know.
 | `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (see [compatibility limits](CSI.md#compatibility-limits)) for the device's own traffic, or `external` when another host sends it |
 | `traffic_generator_target_mac` | string, optional | Configured `wifi_raw` destination: `auto` (currently associated AP) or an explicit unicast peer MAC; `auto` remains the configured value after AP changes |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
-| `csi_sample_spacing` | string, optional | Configured `half_slot` (default) or `distinct`; it applies with `external` traffic only. See [temporal admission](ALGORITHMS.md#temporal-admission) |
+| `csi_sample_spacing` | string, optional | Configured `half_slot` (default) or `distinct`; it applies to every traffic source. See [temporal admission](ALGORITHMS.md#temporal-admission) |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |
 | `csi_traffic_multicast_group` | string, optional | External CSI traffic multicast group |
 
