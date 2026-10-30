@@ -53,7 +53,7 @@ struct RuntimeDiagnosticsSample {
   float csi_stale_pps{0.0f};
   /** Out-of-order temporal drops per second. */
   float csi_out_of_order_pps{0.0f};
-  /** Valid-slot occupancy of the active temporal detector window. */
+  /** Valid-slot occupancy of the active temporal detector window; zero once no admitted input arrived within one window. */
   float csi_occupancy_ratio{0.0f};
   /** RSSI of the current association. `INT8_MIN` when unavailable. */
   int8_t wifi_rssi_dbm{INT8_MIN};

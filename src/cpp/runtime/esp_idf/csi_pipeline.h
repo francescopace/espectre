@@ -240,6 +240,13 @@ class CsiPipeline {
   uint32_t detector_window_occupancy_slots() const {
     return sampler_.occupancy_slots();
   }
+  /**
+   * Detector-window occupancy for diagnostics: zero once no admitted input arrived within one window.
+   * The window itself only slides when a packet is admitted, so without traffic it keeps its last count.
+   */
+  uint32_t current_detector_window_occupancy_slots(int64_t now_us) const {
+    return has_current_detector_input(now_us) ? sampler_.occupancy_slots() : 0U;
+  }
   uint32_t detector_window_slots() const { return sampler_.window_slots(); }
   uint64_t capture_callback_invocations_total() const {
     return capture_service_.callback_invocations();

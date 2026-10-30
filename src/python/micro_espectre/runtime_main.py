@@ -770,6 +770,8 @@ def main(wlan=None):
     last_heartbeat_time = time.ticks_ms()
     last_diagnostic_time = last_heartbeat_time
     last_csi_frame_time = last_heartbeat_time
+    # Monotonic time of the last input the detector processed, for current occupancy.
+    last_detector_input_time = None
     csi_recovery_attempts = 0
     collapse_logged = False
     remap_logged = False
@@ -793,6 +795,7 @@ def main(wlan=None):
         RuntimePerformanceDiagnostics,
         advance_periodic_anchor,
         collect_runtime_diagnostics_snapshot,
+        current_occupancy_slots,
         periodic_maintenance_due,
         wifi_csi_available,
         wifi_csi_callbacks,
@@ -960,7 +963,12 @@ def main(wlan=None):
                         excess_total=temporal_sampler.excess_packets,
                         stale_total=temporal_sampler.stale_packets,
                         out_of_order_total=temporal_sampler.out_of_order_packets,
-                        occupancy_slots=temporal_sampler.occupancy_slots,
+                        occupancy_slots=current_occupancy_slots(
+                            temporal_sampler.occupancy_slots,
+                            None if last_detector_input_time is None
+                            else time.ticks_diff(current_time, last_detector_input_time),
+                            temporal_sampler.window_size_ms,
+                        ),
                         window_slots=temporal_sampler.window_slots,
                         wifi_channel=g_state.current_channel,
                         rssi_dbm=wifi_rssi_dbm(wlan),
@@ -1141,6 +1149,7 @@ def main(wlan=None):
                         config.DEFAULT_SUBCARRIERS,
                         timestamp_us=emitted_timestamp_us,
                     )
+                    last_detector_input_time = current_time
                     runtime_policy.note_arrival(emitted_timestamp_us)
                 if temporal_sampler.gap_reset_required:
                     detector.reset()

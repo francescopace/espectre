@@ -141,6 +141,18 @@ def wifi_csi_available(wlan):
     return _wifi_csi_counter(wlan, "csi_available")
 
 
+def current_occupancy_slots(occupancy_slots, input_age_ms, window_size_ms):
+    """Report an empty window once no admitted input arrived within one window.
+
+    The window only slides when a packet is admitted, so without traffic it keeps
+    its last count; the C++ runtime applies the same rule. `input_age_ms` is None
+    before the first admitted input.
+    """
+    if input_age_ms is None or input_age_ms < 0 or input_age_ms >= window_size_ms:
+        return 0
+    return occupancy_slots
+
+
 def collect_runtime_diagnostics_snapshot(
     traffic_generator=None,
     callback_total=0,

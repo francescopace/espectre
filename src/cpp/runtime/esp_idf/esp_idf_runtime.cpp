@@ -411,7 +411,8 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.csi.excess_total = csi_pipeline_.detector_excess_packets_total();
   diagnostics.csi.stale_total = csi_pipeline_.detector_stale_packets_total();
   diagnostics.csi.out_of_order_total = csi_pipeline_.detector_out_of_order_packets_total();
-  diagnostics.csi.occupancy_slots = csi_pipeline_.detector_window_occupancy_slots();
+  diagnostics.csi.occupancy_slots =
+      csi_pipeline_.current_detector_window_occupancy_slots(static_cast<int64_t>(monotonic_now_us()));
   diagnostics.csi.window_slots = csi_pipeline_.detector_window_slots();
   diagnostics.csi.pending_frames = static_cast<uint32_t>(csi_pipeline_.pending_frame_count());
   diagnostics.csi.pending_frame_capacity =

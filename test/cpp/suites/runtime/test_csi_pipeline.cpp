@@ -1641,6 +1641,39 @@ void test_csi_pipeline_clear_detector_buffer(void) {
     TEST_ASSERT_EQUAL(1U, manager.detector_window_occupancy_slots());
 }
 
+void test_csi_pipeline_reports_an_empty_window_once_input_goes_stale(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+    TEST_ASSERT_TRUE(manager.set_segmentation_window_size_ms(1000U));
+    manager.enable(nullptr);
+    esp_timer_mock::reset(100000, 0);
+
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    csi_info.rx_ctrl.timestamp = 1000000U;
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 1010000U;
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1U, manager.detector_window_occupancy_slots());
+    TEST_ASSERT_EQUAL(1U, manager.current_detector_window_occupancy_slots(esp_timer_mock::time_us));
+
+    // Without new input the window keeps its last count, but diagnostics must not report it as current.
+    esp_timer_mock::advance(999999);
+    TEST_ASSERT_EQUAL(1U, manager.current_detector_window_occupancy_slots(esp_timer_mock::time_us));
+    esp_timer_mock::advance(1);
+    TEST_ASSERT_EQUAL(1U, manager.detector_window_occupancy_slots());
+    TEST_ASSERT_EQUAL(0U, manager.current_detector_window_occupancy_slots(esp_timer_mock::time_us));
+
+    csi_info.rx_ctrl.timestamp = 1020000U;
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_TRUE(manager.current_detector_window_occupancy_slots(esp_timer_mock::time_us) > 0U);
+
+    manager.disable();
+    TEST_ASSERT_EQUAL(0U, manager.current_detector_window_occupancy_slots(esp_timer_mock::time_us));
+}
+
 void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {
     LightweightDetector detector(10, 1.0f);
     CsiPipeline manager;
@@ -1895,6 +1928,7 @@ int process(void) {
     
     // Clear buffer test
     RUN_TEST(test_csi_pipeline_clear_detector_buffer);
+    RUN_TEST(test_csi_pipeline_reports_an_empty_window_once_input_goes_stale);
     RUN_TEST(test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks);
     
     // Legacy normalization tests

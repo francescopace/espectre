@@ -108,6 +108,19 @@ def test_runtime_wifi_diagnostics_tolerate_older_or_unavailable_drivers(reader, 
         assert reader(SimpleNamespace(isconnected=lambda: False, status=lambda *_args: -60)) is None
 
 
+@pytest.mark.parametrize(("input_age_ms", "expected"), [
+    (None, 0), (0, 82), (999, 82), (1000, 0), (60_000, 0), (-1, 0),
+])
+def test_runtime_diagnostics_report_an_empty_window_once_input_goes_stale(input_age_ms, expected):
+    # The window only slides on admission, so a silent device would keep its last count.
+    assert diagnostics.current_occupancy_slots(82, input_age_ms, 1000) == expected
+    sampler = diagnostics.RuntimeDiagnosticsSampler()
+    sampler.reset(diagnostics.collect_runtime_diagnostics_snapshot(window_slots=100), 1000)
+    snapshot = diagnostics.collect_runtime_diagnostics_snapshot(
+        occupancy_slots=diagnostics.current_occupancy_slots(82, input_age_ms, 1000), window_slots=100)
+    assert sampler.sample(snapshot, 2000)["csi_occupancy"] == expected / 100
+
+
 def test_runtime_diagnostics_include_native_quality_rejections_without_ring_drops():
     wlan = SimpleNamespace(csi_filtered=lambda: 100, csi_dropped=lambda: 7, csi_hw_errors=lambda: 40)
     snapshot = diagnostics.collect_runtime_diagnostics_snapshot(

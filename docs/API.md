@@ -194,8 +194,8 @@ The CLI requests `["*"]` by default; pass `fields: []` to see the catalog. Selec
 | `csi_hw_error_pps` | Hardware-quality rejection rate over the same elapsed interval as the other CSI rates |
 | `csi_sanitized_first_word_total` | Frames whose hardware-invalid source pairs were zeroed; classic DC/+1 or centered guards, with the default turbulence band preserved |
 | `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total` | Cumulative queue and temporal-admission drop counters |
-| `csi_occupancy_slots`, `csi_window_slots`, `csi_pending_frames`, `csi_pending_frame_capacity` | Detector-window and callback-queue occupancy |
-| CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached packet rates and detector-window occupancy ratio |
+| `csi_occupancy_slots`, `csi_window_slots`, `csi_pending_frames`, `csi_pending_frame_capacity` | Detector-window and callback-queue occupancy; `csi_occupancy_slots` drops to `0` once no admitted packet has arrived for one detector window |
+| CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached packet rates and detector-window occupancy ratio; `csi_occupancy` follows the same rule as `csi_occupancy_slots` |
 | `wifi_channel`, `wifi_rssi_dbm` | Current channel and RSSI; unavailable RSSI is `null` |
 | `runtime_motion_event_drops_total` | Runtime-to-frontend motion publications overwritten in the bounded mailbox |
 | `task_stack_high_water_bytes` | Native frontend task stack headroom; `null` where unavailable |

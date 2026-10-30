@@ -77,7 +77,7 @@ struct RuntimeDiagnosticsSnapshot {
     uint64_t stale_total{0U};
     /** Packets rejected because their timestamp moved backwards. */
     uint64_t out_of_order_total{0U};
-    /** Valid slots in the current detector window. */
+    /** Valid slots in the current detector window; zero once no admitted input arrived within one window. */
     uint32_t occupancy_slots{0U};
     /** Total slots in the configured detector window. */
     uint32_t window_slots{0U};
