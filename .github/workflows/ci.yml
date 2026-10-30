@@ -271,8 +271,13 @@ jobs:
           IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir -p .cache/image
+          # GitHub reads a multi-architecture package's description from index annotations, not labels.
           docker buildx build --platform linux/amd64,linux/arm64 \
             --build-arg VERSION="$IMAGE_VERSION" \
+            --annotation "index:org.opencontainers.image.description=Sends external sensing traffic to ESPectre devices, finds them on the network, and switches their traffic source from a web UI. Guide: https://github.com/francescopace/espectre/blob/main/tools/traffic_generator_docker/README.md" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/francescopace/espectre" \
+            --annotation "index:org.opencontainers.image.licenses=GPL-3.0-only" \
+            --annotation "index:org.opencontainers.image.version=$IMAGE_VERSION" \
             --output type=oci,dest=.cache/image/traffic-generator-image.tar \
             --file tools/traffic_generator_docker/Dockerfile .
 
