@@ -24,7 +24,7 @@ if __package__:
     from ..ha_traffic_generator_addon.espectre_traffic_generator import (
         DSCP, MULTICAST_TTL, PORT, RATE, ExternalTrafficGenerator)
     from ..ha_traffic_generator_addon.traffic import validate_options
-    from .devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry
+    from .devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry, RejectedInput
 else:
     sys.path.insert(0, str(ADDON))
     # A repository checkout supplies the CLI's discovery and Direct client; the image copies them.
@@ -33,7 +33,7 @@ else:
         sys.path.insert(0, str(REPO_PYTHON))
     from espectre_traffic_generator import DSCP, MULTICAST_TTL, PORT, RATE, ExternalTrafficGenerator
     from traffic import validate_options
-    from devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry
+    from devices import INTERNAL, SAMPLE_SPACINGS, TRAFFIC_MODES, DeviceRegistry, RejectedInput
 
 
 # Ping is the recommended source; a new installation has no UDP setups to keep.
@@ -58,13 +58,17 @@ PUBLIC_ROUTES = {"/", "/logo.png", "/api/login"}
 def normalize_settings(settings):
     """Validate settings with the add-on rules; return the stored form."""
     if not isinstance(settings, dict):
-        raise ValueError("settings must be an object")
+        raise RejectedInput("settings must be an object")
     targets = settings.get("targets")
     if isinstance(targets, list) and len(targets) > MAX_TARGETS:
-        raise ValueError(f"list at most {MAX_TARGETS} targets")
-    options = validate_options(settings)
+        raise RejectedInput(f"list at most {MAX_TARGETS} targets")
+    try:
+        options = validate_options(settings)
+    except (ValueError, TypeError) as error:
+        # validate_options writes every message itself, so it is safe to show.
+        raise RejectedInput(str(error)) from None
     if len(set(options["targets"])) != len(options["targets"]):
-        raise ValueError("targets must not repeat")
+        raise RejectedInput("targets must not repeat")
     return {**options, "source_ip": options["source_ip"] or ""}
 
 
@@ -289,8 +293,8 @@ async def update_settings(request):
         raise web.HTTPBadRequest(text="Expected every setting.")
     try:
         settings = normalize_settings(payload)
-    except (ValueError, TypeError) as error:
-        raise web.HTTPBadRequest(text=str(error)) from None
+    except RejectedInput as error:
+        raise web.HTTPBadRequest(text=error.message) from None
     controller = request.app[CONTROLLER]
     if controller.lock.locked():
         raise web.HTTPConflict(text="Another change is in progress.")
@@ -320,8 +324,8 @@ async def add_device(request):
         raise web.HTTPBadRequest(text="Expected an address.")
     try:
         device = await asyncio.to_thread(request.app[DEVICES].add, payload["address"][:64])
-    except ValueError as error:
-        raise web.HTTPBadRequest(text=str(error)) from None
+    except RejectedInput as error:
+        raise web.HTTPBadRequest(text=error.message) from None
     logging.info("Device %s added at %s", device.name, device.ip_address)
     return status_response(request)
 

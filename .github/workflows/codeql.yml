@@ -1,8 +1,9 @@
 name: Code Analysis
 
 on:
+  # Code reaches main only from develop, so main is checked by the weekly run.
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
     branches: [develop]
   schedule:

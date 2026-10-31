@@ -24,7 +24,10 @@ def validate_options(options):
         raise ValueError("targets must be a list of IPv4 addresses")
     targets = []
     for raw_target in options["targets"]:
-        target = ipaddress.ip_address(str(raw_target).strip())
+        try:
+            target = ipaddress.ip_address(str(raw_target).strip())
+        except ValueError:
+            raise ValueError("targets must contain only IPv4 addresses") from None
         if target.version != 4:
             raise ValueError("targets must contain only IPv4 addresses")
         if (target.is_unspecified or target.is_loopback or target.is_link_local
@@ -57,7 +60,10 @@ def validate_options(options):
 
     source_ip = str(options.get("source_ip", "")).strip()
     if source_ip:
-        source = ipaddress.ip_address(source_ip)
+        try:
+            source = ipaddress.ip_address(source_ip)
+        except ValueError:
+            raise ValueError("source_ip must be a unicast IPv4 address") from None
         if (source.version != 4 or source.is_unspecified or source.is_multicast
                 or source.is_reserved):
             raise ValueError("source_ip must be a unicast IPv4 address")

@@ -40,21 +40,29 @@ REQUEST_TIMEOUT_S = 3.0
 REFRESH_WORKERS = 8
 
 
+class RejectedInput(ValueError):
+    """Rejected input whose message is written for the web UI."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
 def parse_address(text):
     """Return (ip, port) from an IPv4 address with an optional port."""
     if not isinstance(text, str):
-        raise ValueError("Enter an IPv4 address.")
+        raise RejectedInput("Enter an IPv4 address.")
     host, separator, port_text = text.strip().partition(":")
     try:
         address = ipaddress.IPv4Address(host)
     except ValueError:
-        raise ValueError("Enter an IPv4 address, optionally with :port.") from None
+        raise RejectedInput("Enter an IPv4 address, optionally with :port.") from None
     if address.is_unspecified or address.is_loopback or address.is_multicast or address.is_reserved:
-        raise ValueError(f"{address} cannot be an ESPectre device.")
+        raise RejectedInput(f"{address} cannot be an ESPectre device.")
     port = ESPECTRE_DIRECT_PORT
     if separator:
         if not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
-            raise ValueError("The port must be in the 1-65535 range.")
+            raise RejectedInput("The port must be in the 1-65535 range.")
         port = int(port_text)
     return str(address), port
 
@@ -298,11 +306,12 @@ class DeviceRegistry:
         text = address_text(ip, port)
         with self.lock:
             if text not in self.manual and len(self.manual) >= MAX_MANUAL_ADDRESSES:
-                raise ValueError(f"Add at most {MAX_MANUAL_ADDRESSES} addresses.")
+                raise RejectedInput(f"Add at most {MAX_MANUAL_ADDRESSES} addresses.")
         try:
             device = self.probe(ip, port, "manual")
-        except (DirectProtocolError, DirectRequestError, OSError, TimeoutError) as error:
-            raise ValueError(f"No ESPectre device answered at {text}: {describe_error(error)}") from None
+        except (DirectProtocolError, DirectRequestError, OSError, TimeoutError, ValueError) as error:
+            # describe_error writes the same text the device list shows.
+            raise RejectedInput(f"No ESPectre device answered at {text}: {describe_error(error)}") from None
         with self.lock:
             if text not in self.manual:
                 self.manual.append(text)
