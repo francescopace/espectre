@@ -35,7 +35,7 @@ Matter already provides pairing, occupancy updates, and Direct controls. Control
 The Python generator runs independently, and the [Docker image](../tools/traffic_generator_docker/README.md) adds a web UI without Home Assistant OS.
 
 - [x] Publish a standalone Docker image with a web UI for configuration, start/stop controls, and status
-- [ ] Document and verify setup with Home Assistant Container and without Home Assistant or Supervisor, including Native and Matter devices
+- [x] Document and verify setup with Home Assistant Container and without Home Assistant or Supervisor, including Native and Matter devices; see [with Home Assistant Container](../tools/traffic_generator_docker/README.md#with-home-assistant-container)
 
 **Exit criteria**: each selected Matter controller and each supported receiver, source, and profile combination has a recorded result or documented limitation. Production certification requirements and integrator responsibilities are documented. The Docker image can be installed and operated through its web UI with Home Assistant Container or without Home Assistant.
 

@@ -6,6 +6,7 @@ This container sends sensing traffic to ESPectre devices in external mode. Its w
 
 - A 64-bit Linux host (`amd64` or `arm64`) with Docker, on the same network as the devices.
 - Host networking (`--network host`). On Docker's default bridge network, multicast stays inside Docker and never reaches the devices: the web UI shows packets sent but no replies. Only device IP addresses can work there, through Docker's NAT.
+- Docker Desktop on macOS also works, with limits. Turn on **Enable host networking** under **Settings > Resources > Network**. **Search** finds no devices there, so add them by address. Devices answer ping, but the web UI shows no replies. UDP markers sent to the multicast group never leave Docker Desktop, so keep ping.
 - ESPectre 3.0 or later with the ESPHome, Native, or Matter frontend. Ping to the multicast group needs ESPectre 3.1.0 or later.
 - To find and switch devices, the container must reach them on TCP port `62587`, and mDNS must work between them. Devices built with the `espectre` component that comes with ESPHome do not offer this; they can still receive the traffic, but you switch them in Home Assistant.
 
@@ -52,6 +53,12 @@ To switch several devices, tick them, pick a source below the table, and select 
 Under an external device, a warning means it does not match the generator: a different `csi_target_pps`, UDP port, or multicast group. Fix it on the device; the container changes only the traffic source.
 
 The container reads the devices every three seconds, and only while someone has the web UI open. It does not use MQTT or Home Assistant.
+
+## With Home Assistant Container
+
+Run the container on the same host as Home Assistant Container, both with host networking. The web UI port `8099` does not clash with Home Assistant's `8123`, and the container never talks to Home Assistant.
+
+ESPectre's ESPHome devices and Native devices with MQTT Discovery also show their traffic source in Home Assistant, so you can switch them in either place. The web UI shows a change made in Home Assistant at its next reading. Matter devices have no traffic source in Home Assistant: switch them in the web UI or in [Monitor](https://espectre.dev/tools/monitor/).
 
 ## Environment variables
 
