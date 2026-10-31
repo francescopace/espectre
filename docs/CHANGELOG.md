@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 - The Home Assistant app panel keeps only the devices that failed or have not confirmed a bulk change selected, so one click retries them, and clears a device's warning when it confirms later. Its messages no longer point to a Refresh button that does not exist (#193).
 
+- The Home Assistant app panel adds a **Sample spacing** column, which switches a device between `half_slot` and `distinct` through its CSI Packet Spacing select, like the Docker image.
+
 - Matter Basic Information now reports a real `SoftwareVersion`, encoded from the release identity so that later builds always have a higher number; it was 0 before. It also reports a `SerialNumber` derived from the chip's base MAC. Test Event Triggers, which esp-matter enabled with a public key, are off. A product build can read onboarding data, the DAC, and the serial number from factory partitions instead; the partition table reserves `esp_secure_cert` and `fctry` for this without moving any existing partition, so updates keep fabrics and onboarding codes. The Matter guide lists what the firmware provides and what an integrator must add for a certified product, and how to add community images to Google Home.
 
 - Matter firmware raises the main task stack from the 3584-byte ESP-IDF default to 4608 bytes. Startup peaks at about 3.6 KiB on ESP32-S3, so develop and preview snapshots after 3.0.0 restarted in a loop before commissioning. The stack is freed once startup finishes.

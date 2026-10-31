@@ -19,6 +19,8 @@ UNAVAILABLE = {"unknown", "unavailable", None}
 # Every ESPectre firmware offers these packet modes in its traffic source select,
 # whatever the user named it.
 TRAFFIC_SOURCE_MODES = {"ping", "dns", "dns_tcp"}
+# CSI sample spacing values; ESPHome and Native MQTT expose them as one select.
+SAMPLE_SPACINGS = ("half_slot", "distinct")
 # Integration-owned identifiers, not user-editable entity IDs or display names.
 ENTITY_ROLES = {
     "refresh": ("button", "refresh_diagnostics"),
@@ -141,7 +143,8 @@ def build_inventory(devices, entities, state_list, areas):
         candidates, signals = {}, []
         for entity in grouped.get(device["id"], []):
             options = select_options(entity, states)
-            role = "source" if TRAFFIC_SOURCE_MODES <= options else entity_role(entity)
+            role = ("source" if TRAFFIC_SOURCE_MODES <= options else
+                    "spacing" if set(SAMPLE_SPACINGS) <= options else entity_role(entity))
             if role:
                 candidates.setdefault(role, []).append(entity)
             elif is_wifi_signal(entity, states):
@@ -154,7 +157,7 @@ def build_inventory(devices, entities, state_list, areas):
         roles = {key: values[0] for key, values in candidates.items() if len(values) == 1}
         fields = {key: entity_value(roles.get(key), states, numeric=key in
                   {"generator", "traffic", "traffic_rx", "accepted", "occupancy", "rssi"})
-                  for key in ("source", "rssi", *ENTITY_ROLES)}
+                  for key in ("source", "spacing", "rssi", *ENTITY_ROLES)}
         # The source select offers `external` next to the internal packet modes.
         control = fields["source"]
         options = select_options(roles.get("source", {}), states)
@@ -188,6 +191,7 @@ def build_inventory(devices, entities, state_list, areas):
                                             grouped.get(device["id"], [])})),
             "fields": fields, "can_control": reason is None, "reason": reason,
             "can_refresh": can_refresh, "internal_mode": internal_mode, "modes": modes,
+            "can_set_spacing": reason is None and fields["spacing"]["value"] in SAMPLE_SPACINGS,
         })
     return sorted(result, key=lambda row: (row["name"].casefold(), row["id"]))
 
@@ -350,7 +354,22 @@ class HomeAssistant:
             return build_inventory(*(await connection.inventory()))
 
     async def act(self, device_ids, mode):
-        """Select `mode` on each device, or `internal` for the internal source it last used.
+        """Select `mode` on each device, or `internal` for the internal source it last used."""
+        def choose(device_id, row):
+            if row["internal_mode"]:
+                self.internal_modes[device_id] = row["internal_mode"]
+            option = self.internal_modes.get(device_id, "ping") if mode == "internal" else mode
+            return option, None if option in row["modes"] else "This device does not offer " + option + "."
+        return await self.select(device_ids, "source", choose)
+
+    async def set_spacing(self, device_ids, spacing):
+        """Select the CSI sample spacing on each device that exposes it."""
+        def choose(_device_id, row):
+            return spacing, None if row["can_set_spacing"] else "This device has no sample spacing setting."
+        return await self.select(device_ids, "spacing", choose)
+
+    async def select(self, device_ids, field, choose):
+        """Write one select per device, then confirm it from the returned state.
 
         Resolve fresh registry entries; never accept entity IDs or services from the browser."""
         async with self.connect() as connection:
@@ -366,17 +385,15 @@ class HomeAssistant:
                 if not row["can_control"]:
                     result["message"] = row["reason"]
                     continue
-                if row["internal_mode"]:
-                    self.internal_modes[device_id] = row["internal_mode"]
-                option = self.internal_modes.get(device_id, "ping") if mode == "internal" else mode
+                option, problem = choose(device_id, row)
                 result["option"] = option
-                if option not in row["modes"]:
-                    result["message"] = "This device does not offer " + option + "."
+                if problem:
+                    result["message"] = problem
                     continue
-                if row["fields"]["source"]["value"] == option:
+                if row["fields"][field]["value"] == option:
                     result.update(status="unchanged", message="Already " + option + ".")
                     continue
-                entity_id = row["fields"]["source"]["entity_id"]
+                entity_id = row["fields"][field]["entity_id"]
                 try:
                     await connection.command("call_service", domain="select", service="select_option",
                                              target={"entity_id": entity_id}, service_data={"option": option})

@@ -20,11 +20,11 @@ from aiohttp import web
 
 if __package__:
     from .espectre_traffic_generator import ExternalTrafficGenerator
-    from .ha_client import HomeAssistant, HomeAssistantError, HomeAssistantFeed
+    from .ha_client import SAMPLE_SPACINGS, HomeAssistant, HomeAssistantError, HomeAssistantFeed
     from .traffic import load_options
 else:
     from espectre_traffic_generator import ExternalTrafficGenerator
-    from ha_client import HomeAssistant, HomeAssistantError, HomeAssistantFeed
+    from ha_client import SAMPLE_SPACINGS, HomeAssistant, HomeAssistantError, HomeAssistantFeed
     from traffic import load_options
 
 
@@ -136,27 +136,46 @@ async def close_feed(app):
     await app[FEED].close()
 
 
-async def action(request):
+async def device_change(request, key, valid, message):
+    """Read device_ids and one option; reject anything else before touching Home Assistant."""
     try:
         payload = await request.json()
     except (ValueError, UnicodeDecodeError):
         raise web.HTTPBadRequest(text="Expected a JSON object.") from None
-    if not isinstance(payload, dict) or set(payload) != {"device_ids", "mode"}:
-        raise web.HTTPBadRequest(text="Expected device_ids and mode.")
-    device_ids, mode = payload["device_ids"], payload["mode"]
-    # Each device's select decides which modes it offers; this only bounds the input.
-    if (not isinstance(mode, str) or not MODE_PATTERN.fullmatch(mode)
+    if not isinstance(payload, dict) or set(payload) != {"device_ids", key}:
+        raise web.HTTPBadRequest(text=f"Expected device_ids and {key}.")
+    device_ids, option = payload["device_ids"], payload[key]
+    if (not valid(option)
             or not isinstance(device_ids, list) or not 1 <= len(device_ids) <= 32
             or any(not isinstance(value, str) or not value or len(value) > 128 for value in device_ids)
             or len(set(device_ids)) != len(device_ids)):
-        raise web.HTTPBadRequest(text="Select 1–32 unique devices and a traffic source.")
-    if mode == "external" and not request.app[GENERATOR].running:
-        raise web.HTTPConflict(text="The traffic generator is not running.")
+        raise web.HTTPBadRequest(text=message)
+    return device_ids, option
+
+
+async def run_exclusive(request, change):
     lock = request.app[ACTION_LOCK]
     if lock.locked():
         raise web.HTTPConflict(text="Another action is in progress. Try again when it finishes.")
     async with lock:
-        return web.json_response(await request.app[HA].act(device_ids, mode))
+        return web.json_response(await change())
+
+
+async def action(request):
+    # Each device's select decides which modes it offers; this only bounds the input.
+    device_ids, mode = await device_change(
+        request, "mode", lambda mode: isinstance(mode, str) and MODE_PATTERN.fullmatch(mode),
+        "Select 1–32 unique devices and a traffic source.")
+    if mode == "external" and not request.app[GENERATOR].running:
+        raise web.HTTPConflict(text="The traffic generator is not running.")
+    return await run_exclusive(request, lambda: request.app[HA].act(device_ids, mode))
+
+
+async def spacing(request):
+    device_ids, value = await device_change(
+        request, "spacing", lambda value: value in SAMPLE_SPACINGS,
+        "Select 1–32 unique devices and a sample spacing.")
+    return await run_exclusive(request, lambda: request.app[HA].set_spacing(device_ids, value))
 
 
 async def index(_request):
@@ -206,6 +225,7 @@ def create_app(ha, generator, *, allowed_peer=INGRESS_ADDRESS):
     app.router.add_get("/api/devices", devices)
     app.router.add_get("/api/stream", stream)
     app.router.add_post("/api/action", action)
+    app.router.add_post("/api/spacing", spacing)
     app.router.add_post("/api/generator", control_generator)
     # Serve only public assets, not configuration, sources, or /data.
     app.router.add_static("/static/", STATIC, show_index=False, follow_symlinks=False)

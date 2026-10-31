@@ -38,8 +38,9 @@ class Element {
 
 function device(id = 'sensor-a') {
     const field = value => ({ value, status: 'available', entity_id: 'sensor.sample' });
-    return { id, name: id, can_control: true, can_refresh: true, modes: ['ping', 'dns', 'wifi_raw', 'external'],
-        fields: { source: field('ping'), generator: field(0), traffic: field(5), traffic_rx: field(100),
+    return { id, name: id, can_control: true, can_refresh: true, can_set_spacing: true,
+        modes: ['ping', 'dns', 'wifi_raw', 'external'],
+        fields: { source: field('ping'), spacing: field('half_slot'), generator: field(0), traffic: field(5), traffic_rx: field(100),
             accepted: field(99), occupancy: field(98), rssi: field(-54) } };
 }
 
@@ -82,17 +83,18 @@ function fixture(count = 1) {
             const body = options.body && JSON.parse(options.body);
             calls.push({ path: url.pathname, body, headers: options.headers });
             if (hold) { const wait = hold; hold = null; await wait; }
-            if (fail === true || (body && (body.action ?? body.mode) === fail)) { fail = false; throw new Error('offline'); }
+            const option = body && (body.spacing ?? body.mode);
+            if (fail === true || (body && (body.action ?? option) === fail)) { fail = false; throw new Error('offline'); }
             if (typeof fail === 'number') { const status = fail; fail = false; return { ok: false, status, headers: new Map() }; }
             if (url.pathname.endsWith('/generator')) running = body.action === 'start';
             else if (body) devices.forEach(row => {
-                if (body.device_ids.includes(row.id) && !results[row.id]) row.fields.source.value = body.mode;
+                if (body.device_ids.includes(row.id) && !results[row.id]) row.fields[body.spacing ? 'spacing' : 'source'].value = option;
             });
             return { ok: true, json: async () => structuredClone(/\/(status|generator)$/.test(url.pathname) ? {
                 csrf: 'test-csrf', generator: { running, rate_pps: 100, sent_packets: calls.length,
                     send_errors: 0, targets: ['239.255.0.1'], port: 5555 },
-            } : { devices, results: body?.device_ids.map(id => ({ id, status: results[id] || 'confirmed', option: body.mode,
-                message: results[id] ? `${results[id]} message` : `Now ${body.mode}.` })) }) };
+            } : { devices, results: body?.device_ids.map(id => ({ id, status: results[id] || 'confirmed', option,
+                message: results[id] ? `${results[id]} message` : `Now ${option}.` })) }) };
         },
     });
     vm.runInContext(source, context);
@@ -466,4 +468,35 @@ it('offers each mode a selected device has, plus the previous internal source, i
     f.get('confirm').close('apply');
     await f.flush();
     assert.deepEqual(writes(f).at(-1).body, { mode: 'wifi_raw', device_ids: ['sensor-0', 'sensor-1'] });
+});
+
+it('sets sample spacing without confirmation and keeps the selection for source changes', async () => {
+    const f = fixture(2);
+    await f.tick();
+    const spacing = row => f.get('devices').children[row].children[9].children;
+    const checkbox = f.get('devices').children[0].children[0].children[0];
+    checkbox.checked = true;
+    checkbox.dispatch('change');
+    f.devices[1].can_set_spacing = false;
+    f.sockets[0].push();
+    assert.equal(spacing(0)[0].value, 'half_slot');
+    assert.deepEqual([spacing(1)[0].hidden, spacing(1)[1].hidden], [true, false]);
+
+    f.resultNext({ 'sensor-0': 'unconfirmed' });
+    spacing(0)[0].value = 'distinct';
+    spacing(0)[0].dispatch('change');
+    await f.flush();
+    await f.tick();
+    assert.equal(f.get('confirm').open, undefined);
+    assert.equal(writes(f).at(-1).path, '/ingress/api/spacing');
+    assert.deepEqual(writes(f).at(-1).body, { spacing: 'distinct', device_ids: ['sensor-0'] });
+    assert.equal(checkbox.checked, true);
+    assert.equal(f.get('notice').textContent, 'sensor-0: unconfirmed message');
+
+    // The device confirms later; the source value must not be mistaken for it.
+    f.resultNext({});
+    f.devices[0].fields.spacing.value = 'distinct';
+    f.sockets.at(-1).push();
+    assert.equal(f.get('notice').textContent, '');
+    assert.equal(f.devices[0].fields.source.value, 'ping');
 });

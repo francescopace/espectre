@@ -1051,11 +1051,12 @@ def _ha_panel_inventory(platform="esphome", version=3, source="ping"):
     devices = [{"id": "sensor-a", "name": "ESPectre kitchen", "name_by_user": "Kitchen",
                 "manufacturer": "ESPectre" if platform == "mqtt" else "Espressif", "area_id": "kitchen"}]
     entities, states = [], []
-    values = {"source": source, "refresh": "unknown",
+    values = {"source": source, "spacing": "half_slot", "refresh": "unknown",
               "generator": "0", "traffic": "5", "traffic_rx": "100",
               "accepted": "99.5", "occupancy": "98", "rssi": "-54"}
-    options = {"source": _TRAFFIC_SOURCE_OPTIONS}
-    roles = {"source": ("select", "csi_traffic_source"), **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
+    options = {"source": _TRAFFIC_SOURCE_OPTIONS, "spacing": ha_client.SAMPLE_SPACINGS}
+    roles = {"source": ("select", "csi_traffic_source"), "spacing": ("select", "csi_packet_spacing"),
+             **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
     for role, (domain, suffix) in roles.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
@@ -1316,7 +1317,9 @@ class _PanelHomeAssistantServer:
                                                "error": {"message": "private details"}})
                     continue
                 if self.confirm and command["domain"] == "select":
-                    self.inventory[2][0]["state"] = command["service_data"]["option"]
+                    target = command["target"]["entity_id"]
+                    state = next(state for state in self.inventory[2] if state["entity_id"] == target)
+                    state["state"] = command["service_data"]["option"]
                 if self.emit_diagnostics and command["domain"] == "button":
                     state = next(state for state in self.inventory[2] if state["entity_id"] == "sensor.renamed_accepted")
                     state["state"] = str(float(state["state"]) + 1)
@@ -1431,6 +1434,49 @@ def test_ha_panel_single_source_select_restores_the_previous_internal_packet():
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize("case", ["available", "unavailable", "missing", "device_disabled"])
+def test_ha_panel_offers_sample_spacing_only_through_a_usable_select(case):
+    devices, entities, states, areas = _ha_panel_inventory()
+    spacing = next(state for state in states if state["entity_id"] == "select.renamed_spacing")
+    if case == "unavailable":
+        spacing["state"] = "unavailable"
+    elif case == "missing":
+        entities = [entity for entity in entities if entity["entity_id"] != "select.renamed_spacing"]
+    elif case == "device_disabled":
+        devices[0]["disabled_by"] = "user"
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+    assert row["can_set_spacing"] == (case == "available")
+    assert row["fields"]["spacing"]["value"] == ("half_slot" if case in {"available", "device_disabled"} else None)
+    # The traffic source select stays the device's control, whatever happens to the spacing select.
+    assert row["fields"]["source"]["entity_id"] == "select.renamed_source"
+
+
+def test_ha_panel_sets_sample_spacing_through_its_select_and_confirms_it():
+    async def exercise():
+        from aiohttp import web
+        from aiohttp.test_utils import TestServer
+        fake = _PanelHomeAssistantServer()
+        upstream = _upstream_inventory()
+        for index in range(3):
+            fake.inventory[index].extend(upstream[index])
+        app = web.Application()
+        app.router.add_get("/core/websocket", fake.websocket)
+        async with TestServer(app) as server:
+            ha = ha_client.HomeAssistant("test-supervisor-secret",
+                                         endpoint=str(server.make_url("/core/websocket")).replace("http:", "ws:"),
+                                         confirmation_timeout=0)
+            changed, unsupported = (await ha.set_spacing(["sensor-a", "upstream-a"], "distinct"))["results"]
+            assert changed["status"] == "confirmed" and changed["option"] == "distinct"
+            assert unsupported["status"] == "error"
+            assert (await ha.set_spacing(["sensor-a"], "distinct"))["results"][0]["status"] == "unchanged"
+            writes = [call for call in fake.calls if call["type"] == "call_service"]
+            assert [call["target"] for call in writes] == [{"entity_id": "select.renamed_spacing"}]
+            assert writes[0]["service_data"] == {"option": "distinct"}
+            source = next(state for state in fake.inventory[2] if state["entity_id"] == "select.renamed_source")
+            assert source["state"] == "ping"
+    asyncio.run(exercise())
+
+
 def test_ha_panel_controls_the_upstream_component_without_refresh():
     async def exercise():
         from aiohttp import web
@@ -1461,6 +1507,9 @@ def test_ha_panel_http_routes_restrict_ingress_csrf_and_action_scope():
             async def act(self, ids, action):
                 self.calls.append((ids, action))
                 return {"results": []}
+            async def set_spacing(self, ids, spacing):
+                self.calls.append((ids, "spacing", spacing))
+                return {"results": []}
         generator = SimpleNamespace(running=True, targets=["239.255.0.1"], protocol="udp", port=5555,
                                     rate_pps=100, sent_packets=10, send_errors=0,
                                     replies_received=0)
@@ -1489,6 +1538,15 @@ def test_ha_panel_http_routes_restrict_ingress_csrf_and_action_scope():
             generator.running = True
             assert (await client.post("/api/action", json=payload, headers=headers)).status == 200
             assert ha.calls == [(["sensor-a"], "external")]
+            spacing = {"device_ids": ["sensor-a"], "spacing": "distinct"}
+            assert (await client.post("/api/spacing", json=spacing)).status == 403
+            for invalid in [dict(spacing, spacing="tight"), dict(spacing, spacing=["distinct"]),
+                            dict(spacing, mode="external"), dict(spacing, device_ids=[])]:
+                assert (await client.post("/api/spacing", json=invalid, headers=headers)).status == 400
+            # Spacing does not depend on the generator, unlike external traffic.
+            generator.running = False
+            assert (await client.post("/api/spacing", json=spacing, headers=headers)).status == 200
+            assert ha.calls[1:] == [(["sensor-a"], "spacing", "distinct")]
             assert (await client.get("/api/devices")).status == 200
     asyncio.run(exercise())
 

@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 let rows = [], csrf = "", busy = false, pending = null, connectTask = null, reconnectTimer = null, actionMessage = "", pageActive = true;
 const selected = new Set();
-// Devices whose last change failed or is unconfirmed: id → {option, status, message}.
+// Devices whose last change failed or is unconfirmed: id → {field, option, status, message}.
 const outcomes = new Map();
 const deviceElements = new Map();
 let generatorRunning = null, generatorProtocol = null;
@@ -16,6 +16,8 @@ const MODE_LABELS = {ping: "Ping", dns: "DNS", dns_tcp: "DNS over TCP", wifi_raw
 // `internal` asks each device for the internal source it used before.
 const INTERNAL = "internal";
 const modeLabel = mode => mode === INTERNAL ? "Previous internal source" : MODE_LABELS[mode] || mode;
+// How far apart admitted CSI packets must be; see docs/ALGORITHMS.md#temporal-admission.
+const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct"]];
 const base = new URL(location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`, location.origin);
 
 async function api(path, body) {
@@ -108,8 +110,17 @@ function deviceElement(id) {
     const sourceCell = node("td"), source = node("select");
     source.addEventListener("change", () => propose(source.value, [id]));
     sourceCell.append(source);
-    tr.append(checkCell, nameCell, generator, traffic, trafficRx, accepted, occupancy, rssi, sourceCell);
-    deviceElements.set(id, {tr, check, name, ip, generator, traffic, trafficRx, accepted, occupancy, rssi, source});
+    const spacingCell = node("td"), spacing = node("select"), noSpacing = node("span", "—");
+    for (const [value, label] of SPACINGS) {
+      const option = node("option", label);
+      option.value = value;
+      spacing.append(option);
+    }
+    // Spacing applies to the next packets without restarting calibration, so it needs no confirmation.
+    spacing.addEventListener("change", () => execute("spacing", spacing.value, [id]));
+    spacingCell.append(spacing, noSpacing);
+    tr.append(checkCell, nameCell, generator, traffic, trafficRx, accepted, occupancy, rssi, sourceCell, spacingCell);
+    deviceElements.set(id, {tr, check, name, ip, generator, traffic, trafficRx, accepted, occupancy, rssi, source, spacing, noSpacing});
   }
   return deviceElements.get(id);
 }
@@ -138,6 +149,12 @@ function render(force = false) {
     setOptions(element.source, modes, keep ? element.source.value : current);
     element.source.disabled = busy || !row.can_control;
     element.source.setAttribute("aria-label", `Traffic source: ${row.name}`);
+    element.spacing.hidden = !row.can_set_spacing;
+    element.noSpacing.hidden = row.can_set_spacing;
+    element.noSpacing.title = row.fields.spacing.entity_id ? "Sample spacing entity is unavailable" : "Sample spacing not exposed by this firmware";
+    if (row.can_set_spacing && (force || document.activeElement !== element.spacing)) element.spacing.value = row.fields.spacing.value;
+    element.spacing.disabled = busy;
+    element.spacing.setAttribute("aria-label", `Sample spacing: ${row.name}`);
     sample(element.generator, row.fields.generator);
     sample(element.traffic, row.fields.traffic);
     sample(element.trafficRx, row.fields.traffic_rx);
@@ -237,7 +254,7 @@ function showSnapshot(data) {
   // A late confirmation arrives through the stream: drop its warning and selection.
   for (const [id, outcome] of outcomes) {
     const row = rows.find(row => row.id === id);
-    if (outcome.status === "unconfirmed" && row?.fields.source.value === outcome.option) {
+    if (outcome.status === "unconfirmed" && row?.fields[outcome.field].value === outcome.option) {
       outcomes.delete(id);
       selected.delete(id);
     }
@@ -268,21 +285,26 @@ function propose(mode, ids) {
   $("confirm").showModal();
 }
 
-async function execute(mode, ids) {
+// field is "source" or "spacing"; both write one select per device and report per device.
+async function execute(field, option, ids) {
   busy = true; actionMessage = ""; outcomes.clear(); scheduleStream(); render(); notice("Applying…");
   try {
     // Finish connection setup before sending a command; never retry writes automatically.
     await connectTask;
     await loadStatus();
-    const data = await api("action", {mode, device_ids: ids});
+    const data = field === "source"
+      ? await api("action", {mode: option, device_ids: ids})
+      : await api("spacing", {spacing: option, device_ids: ids});
     for (const result of data.results) {
       if (["error", "unconfirmed"].includes(result.status)) {
-        outcomes.set(result.id, {option: result.option || mode, status: result.status, message: result.message});
+        outcomes.set(result.id, {field, option: result.option || option, status: result.status, message: result.message});
       }
     }
-    // Keep only the devices that still need attention selected, so one click retries them.
-    selected.clear();
-    for (const id of outcomes.keys()) selected.add(id);
+    // Keep only the devices that still need a source change selected, so one click retries them.
+    if (field === "source") {
+      selected.clear();
+      for (const id of outcomes.keys()) selected.add(id);
+    }
     showSnapshot(data);
     const message = outcomeMessage();
     notice(message, Boolean(message));
@@ -323,7 +345,7 @@ try {
 }
 $("confirm").addEventListener("close", () => {
   const request = pending; pending = null;
-  if ($("confirm").returnValue === "apply" && request) execute(request.mode, request.ids);
+  if ($("confirm").returnValue === "apply" && request) execute("source", request.mode, request.ids);
   else { render(true); scheduleStream(); }
 });
 $("select-all").addEventListener("change", event => {

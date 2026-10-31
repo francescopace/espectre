@@ -44,6 +44,7 @@ Each row shows:
 - **Occupancy**: how much usable CSI reaches the detector. This is not the Matter occupancy sensor.
 - **Wi-Fi RSSI**: signal strength in dBm.
 - **Traffic source**: the source the device uses now. Pick another one and confirm to switch it.
+- **Sample spacing**: **Half slot** keeps accepted CSI packets at least half a slot apart; **Distinct** needs only distinct timestamps, which can help on busy channels where packets arrive in pairs. The change applies at once, without a confirmation or a new calibration. **—** means the device does not expose the CSI Packet Spacing select, or it is disabled or unavailable. See [CSI sample spacing](https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md#temporal-admission).
 
 **—** means the value is missing, disabled, or unknown. You can enable hidden entities in **Settings → Devices & services → Entities**.
 
