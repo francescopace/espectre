@@ -4,7 +4,7 @@
 # Supported ecosystems:
 #   - pip: Python dependencies (includes ESPHome)
 #   - npm: Website build and browser dependencies
-#   - github-actions: Workflow action versions
+#   - github-actions: Workflow and composite action versions
 #
 # Not supported by Dependabot:
 #   - ESP-IDF Component Manager: idf_component.yml and dependencies.lock
@@ -85,8 +85,11 @@ updates:
 
   # GitHub Actions
   # Monitors: actions/checkout, actions/setup-python, actions/upload-artifact, etc.
+  # "/" covers .github/workflows only; composite actions need their own entry.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     target-branch: "develop"
     schedule:
       interval: "weekly"
