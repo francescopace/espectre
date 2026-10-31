@@ -110,6 +110,9 @@ std::string g_matter_manual_code;
 
 constexpr TickType_t kOperationalStartRetryDelay = pdMS_TO_TICKS(1000);
 constexpr TickType_t kPostCommissioningRuntimeGrace = pdMS_TO_TICKS(10000);
+// The detector already waits motion_off_hits before reporting IDLE, so
+// occupancy adds only the shortest HoldTime the cluster allows.
+constexpr uint16_t kOccupancyHoldTimeSeconds = 1;
 
 espectre::WifiBssidPinStationState matter_wifi_station_state() {
   const espectre::DirectWifiSnapshot snapshot = espectre::read_direct_wifi_snapshot();
@@ -296,6 +299,18 @@ bool matter_onboarding_codes(std::string *qr, std::string *manual_code) {
          cluster::basic_information::attribute::create_serial_number(basic_information, nullptr, 0) != nullptr;
 }
 
+// HoldTime is optional in Occupancy Sensing, but some controllers read it.
+// With it, the CHIP cluster keeps Occupancy set until HoldTime seconds after
+// the detector reports IDLE, and controllers can change the delay within
+// HoldTimeLimits.
+[[gnu::noinline]] bool add_occupancy_hold_time_attributes(endpoint_t *endpoint) {
+  cluster_t *occupancy_sensing = cluster::get(endpoint, OccupancySensing::Id);
+  return occupancy_sensing != nullptr &&
+         cluster::occupancy_sensing::attribute::create_hold_time(occupancy_sensing, kOccupancyHoldTimeSeconds) !=
+             nullptr &&
+         cluster::occupancy_sensing::attribute::create_hold_time_limits(occupancy_sensing, nullptr, 0, 0) != nullptr;
+}
+
 void log_onboarding_codes() {
   if (g_matter_qr.empty() || g_matter_manual_code.empty()) {
     if (kDeviceKnowsOnboardingCodes) {
@@ -319,6 +334,7 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
 
   const bool commissioned = has_commissioned_fabric_on_chip_thread();
   g_bindings.refresh_node_label_on_chip_thread();
+  g_bindings.configure_occupancy_hold_time_on_chip_thread(g_motion_endpoint_id, kOccupancyHoldTimeSeconds);
   log_onboarding_codes();
   g_commissioned_event.post(commissioned);
 
@@ -590,6 +606,9 @@ extern "C" void app_main() {
   if (motion_endpoint == nullptr) {
     ESP_LOGE(TAG, "Failed to create occupancy endpoint");
     return;
+  }
+  if (!add_occupancy_hold_time_attributes(motion_endpoint)) {
+    ESP_LOGW(TAG, "Matter occupancy HoldTime is unavailable");
   }
 
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);

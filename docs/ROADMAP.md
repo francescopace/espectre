@@ -21,7 +21,7 @@
 
 Matter already provides pairing, occupancy updates, and Direct controls. Controller coverage is limited, OTA is not implemented, and published images use development credentials.
 
-- [ ] Verify commissioning, occupancy updates, and an automation trigger with additional controllers; record results in the [controller compatibility matrix](../src/cpp/frontend/matter/README.md#matter-controller-compatibility)
+- [x] Verify commissioning, occupancy updates, and an automation trigger with additional controllers; record results in the [controller compatibility matrix](../src/cpp/frontend/matter/README.md#matter-controller-compatibility)
 - [x] Make Matter firmware certification-ready and document what the integrator provides, including OTA; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
 - [x] Document manufacturer certification gaps: vendor identity, device attestation, factory provisioning, and test coverage; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
 

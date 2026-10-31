@@ -34,7 +34,7 @@ ESPectre detects changes in the radio environment. It does not identify people, 
 |---|---|---|
 | **Native** | Standalone sensors, MQTT integrations, including Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
 | **ESPHome** | Home Assistant users who want native entities, ESPHome provisioning, and Device Builder updates | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
-| **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
+| **Matter** | Matter controllers with occupancy-sensor support; tested with Google Home, Apple Home, and Home Assistant | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
 ## Quick start
@@ -51,7 +51,7 @@ To find your devices on the network, use **Find devices** in the browser tools o
 
 ![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
 
-> **Matter status:** Matter support is still being tested with the different controller ecosystems. A controller that supports occupancy sensors may not have been tested with ESPectre yet.
+> **Matter status:** pairing, occupancy updates, and automations are tested with Google Home, Apple Home, and Home Assistant. Amazon Alexa and Samsung SmartThings are not tested yet. Google Home needs a one-time [Developer Console setup](src/cpp/frontend/matter/README.md#google-home-with-community-images).
 > See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
 
 ## Local setup

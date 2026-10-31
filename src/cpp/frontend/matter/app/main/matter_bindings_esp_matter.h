@@ -31,6 +31,8 @@ class MatterEspBindings : public IMatterBindings {
   void refresh_node_label_on_chip_thread();
   /** Copy a successful NodeLabel update for readers outside the CHIP task. */
   void cache_node_label(const std::string &label);
+  /** Set HoldTimeLimits and apply the HoldTime default once, on the CHIP task. */
+  void configure_occupancy_hold_time_on_chip_thread(uint16_t endpoint_id, uint16_t default_seconds);
 
  private:
   struct PendingMotionPublish {

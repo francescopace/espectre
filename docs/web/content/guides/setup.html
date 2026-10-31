@@ -32,7 +32,7 @@
       <tbody>
         <tr><td>Want a standalone sensor, the browser tools, MQTT, or Home Assistant through an MQTT broker</td><td><strong>Native</strong></td><td>USB Wi-Fi setup, browser monitoring without a broker, optional MQTT, Home Assistant discovery, and browser games</td></tr>
         <tr><td>Want the fullest Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>A device that Home Assistant finds on its own, with motion, movement level, a threshold slider, and a recalibrate button</td></tr>
-        <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor. Controller testing is still limited: check the <a href="#setup-matter-compatibility">current status</a></td></tr>
+        <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor, tested with Google Home, Apple Home, and Home Assistant: check the <a href="#setup-matter-compatibility">current status</a></td></tr>
         <tr><td>Want raw CSI data for research</td><td><strong>Native, ESPHome, or Matter</strong></td><td>Raw CSI capture from the browser tool or with <code>./espectre collect</code></td></tr>
       </tbody>
     </table></div>
@@ -138,8 +138,8 @@ espectre&gt; recalibrate</code></pre>
 
     <h3 id="setup-matter-compatibility" class="subheading">Matter controller compatibility</h3>
     <p>ESPectre reports motion as a standard Matter occupancy sensor. Our hardware benchmark pairs every build with CHIP Tool, the Matter reference controller, connects to it over Direct HTTP, checks that its access-point choice survives a restart, and measures detection with both profiles. It does not test motion reports or automations in a consumer app.</p>
-    <p>No end-to-end test has been recorded yet for Google Home, Amazon Alexa, Apple Home, Samsung SmartThings, or Home Assistant. A controller that supports occupancy sensors may still fail to pair ESPectre or to trigger automations. Wider controller testing is planned for v3.1.0; follow it on the <a href="/roadmap/#roadmap-v3-1">roadmap</a>.</p>
-    <div class="note"><strong>Before choosing Matter:</strong> the firmware is not certified yet and uses development IDs and test credentials. Your controller may ask you to confirm that you want to add an uncertified device, or may require its developer mode.</div>
+    <p>Google Home, Apple Home, and Home Assistant pass an end-to-end test: pairing, occupancy updates in both directions, and an automation. Amazon Alexa and Samsung SmartThings are not tested yet, so they may fail to pair ESPectre or to trigger automations. The <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md#controller-validation-records" target="_blank" rel="noopener">validation records ↗</a> list the versions and limits.</p>
+    <div class="note"><strong>Before choosing Matter:</strong> the firmware is not certified yet and uses development IDs and test credentials. Apple Home asks you to confirm an uncertified device, and Google Home needs a one-time <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md#google-home-with-community-images" target="_blank" rel="noopener">Developer Console setup ↗</a>. Removing the device in Apple Home also removes it from your other controllers.</div>
 
     <details class="article-details">
       <summary>For integrators: how browser discovery works</summary>

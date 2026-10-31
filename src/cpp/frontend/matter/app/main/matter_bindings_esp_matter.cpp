@@ -17,12 +17,15 @@
 #include <esp_matter.h>
 #include <esp_matter_mem.h>
 #include <platform/CHIPDeviceLayer.h>
+#include <platform/KeyValueStoreManager.h>
 
 namespace espectre {
 
 namespace {
 
 const char *const TAG = "espectre.matter.bindings";
+// NVS keys hold at most 15 characters.
+const char *const kHoldTimeDefaultAppliedKey = "esp-hold-def";
 
 }  // namespace
 
@@ -124,6 +127,31 @@ bool MatterEspBindings::set_node_label(const std::string &label) {
   esp_matter_attr_val_t value =
       esp_matter_char_str(const_cast<char *>(label.data()), static_cast<uint16_t>(label.size()));
   return esp_matter::attribute::update(0, Id, Attributes::NodeLabel::Id, &value) == ESP_OK;
+}
+
+void MatterEspBindings::configure_occupancy_hold_time_on_chip_thread(uint16_t endpoint_id,
+                                                                     uint16_t default_seconds) {
+  using namespace chip::app::Clusters::OccupancySensing;
+  auto *cluster = esp_matter::data_model::provider::get_instance().registry().Get(
+      chip::app::ConcreteClusterPath(endpoint_id, Id));
+  if (cluster == nullptr) {
+    ESP_LOGW(TAG, "Matter occupancy cluster is unavailable");
+    return;
+  }
+  auto *occupancy = static_cast<chip::app::Clusters::OccupancySensingCluster *>(cluster);
+  occupancy->SetHoldTimeLimits(
+      {.holdTimeMin = 1U, .holdTimeMax = 300U, .holdTimeDefault = default_seconds});
+  // The cluster persists HoldTime on every write and reloads it at startup, so
+  // apply the default once and let a value a controller writes later win.
+  auto &store = chip::DeviceLayer::PersistedStorage::KeyValueStoreMgr();
+  uint8_t applied = 0U;
+  if (store.Get(kHoldTimeDefaultAppliedKey, &applied, sizeof(applied)) == CHIP_NO_ERROR) return;
+  if (!occupancy->SetHoldTime(default_seconds).IsSuccess()) {
+    ESP_LOGW(TAG, "Failed to set Matter occupancy HoldTime");
+    return;
+  }
+  applied = 1U;
+  (void) store.Put(kHoldTimeDefaultAppliedKey, &applied, sizeof(applied));
 }
 
 }  // namespace espectre

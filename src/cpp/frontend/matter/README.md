@@ -49,10 +49,11 @@ Improv Serial supports firmware discovery and retrieval of Matter codes, but doe
 | Feature | Matter mapping | Type | Access |
 |---------|----------------|------|--------|
 | Motion detected | `OccupancySensing` occupancy bitmap | bitmap | read-only |
+| Occupancy hold time | `OccupancySensing` `HoldTime` and `HoldTimeLimits` | seconds, 1-300 | read-write |
 
 ## What you can configure today
 
-Matter exposes read-only occupancy, which means motion: a person sitting still can read as unoccupied. Stationary presence will not change this attribute when it ships; it will be reported separately. To change detector or traffic settings, open [Monitor](https://espectre.dev/tools/monitor/) through Direct HTTP after commissioning. Run `./espectre devices --frontend matter` to find the endpoint.
+Matter exposes read-only occupancy, which means motion: a person sitting still can read as unoccupied. Stationary presence will not change this attribute when it ships; it will be reported separately. Occupancy clears 1 second after the detector reports idle, which already waits for `motion_off_hits`. A controller can set a longer `HoldTime`, up to 300 seconds, and the device keeps it across reboots. To change detector or traffic settings, open [Monitor](https://espectre.dev/tools/monitor/) through Direct HTTP after commissioning. Run `./espectre devices --frontend matter` to find the endpoint.
 
 Direct provides sensing controls, diagnostics, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI collection. See the [API reference](../../../../docs/API.md) for the resource contract and the [discovery reference](../../../../docs/DISCOVERY.md) for discovery.
 
@@ -72,11 +73,11 @@ The table shows what each ecosystem documents and what we have actually tested w
 
 | Controller ecosystem | Vendor-documented Matter support | ESPectre validation |
 | --- | --- | --- |
-| Google Home | Lists the Occupancy Sensor device type (`0x0107`) and Occupancy Sensing cluster (`0x0406`) in its [supported-device matrix](https://developers.home.google.com/matter/supported-devices) | Not yet recorded |
+| Google Home | Lists the Occupancy Sensor device type (`0x0107`) and Occupancy Sensing cluster (`0x0406`) in its [supported-device matrix](https://developers.home.google.com/matter/supported-devices) | Validated on ESP32-S3; needs a [Developer Console project](#google-home-with-community-images). See the [validation records](#controller-validation-records) |
 | Amazon Alexa | Maps a Matter motion detector using Occupancy Sensing to `Alexa.MotionSensor` in its [supported-category matrix](https://developer.amazon.com/docs/alexaplus/smarthome/supported-matter-device-categories.html) | Not yet recorded |
-| Apple Home | Lists Matter motion sensors among the categories supported by Apple Home in its [Matter accessory guidance](https://developer.apple.com/apple-home/works-with-apple-home/) | Not yet recorded |
+| Apple Home | Lists Matter motion sensors among the categories supported by Apple Home in its [Matter accessory guidance](https://developer.apple.com/apple-home/works-with-apple-home/) | Validated on ESP32-S3; see the [validation records](#controller-validation-records) |
 | Samsung SmartThings | Provides a standard Matter [`motionSensor`](https://developer.smartthings.com/docs/edge-device-drivers/matter/defaults/motionSensor.html) handler in its Edge driver API | Not yet recorded |
-| Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Not yet recorded |
+| Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Validated on ESP32-S3; see the [validation records](#controller-validation-records) |
 
 Not every controller and chip combination has been tested. Current images are uncertified development devices, so some ecosystems ask you to confirm before adding them, and Google Home needs a one-time setup; see [Google Home with community images](#google-home-with-community-images). [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
 
@@ -93,6 +94,21 @@ Record each session with these fields:
 | Occupancy updates seen in the controller | |
 | Automation trigger fired | |
 | Limits, prompts, or workarounds | |
+
+### Controller validation records
+
+Tested on 2026-10-31 with an ESP32-S3 on a 2.4 GHz Wi-Fi network. The firmware was a 3.1.0 development build that includes `HoldTime`. Each controller passed commissioning, occupancy updates in both directions, and an automation triggered by occupancy.
+
+| Field | Google Home | Home Assistant | Apple Home |
+| --- | --- | --- | --- |
+| Controller and app version | Google Home app, version not recorded | Home Assistant OS 18.4, Core 2026.10.4, Companion app 2026.4.0 on iPhone 15 | Home app on iPhone 15, iOS 27.0.1 |
+| Hub or border router model and firmware | Not recorded | Matter Server add-on, version not recorded | Not recorded |
+| Commissioning result | Passed from the QR code as the first controller | Passed with a pairing code from Google Home | Passed with a pairing code from Google Home, and earlier from the QR code as the first controller |
+| Occupancy updates seen in the controller | Occupied and unoccupied | Occupied and unoccupied | Occupied and unoccupied |
+| Automation trigger fired | Yes | Yes | Yes |
+| Limits, prompts, or workarounds | Needs the Developer Console project. | None | Asks to confirm an uncertified accessory. Removing the accessory in Apple Home also removed every other controller's fabric, so the device restarted for commissioning |
+
+The device holds up to five Matter fabrics. Google Home used two of them, while Apple Home and Home Assistant used one each.
 
 ### Google Home with community images
 

@@ -117,3 +117,13 @@ def test_matter_defaults_leave_identity_to_the_build() -> None:
         assert "\nCONFIG_DEVICE_SOFTWARE_VERSION_NUMBER=" not in f"\n{text}"
     shared = (MATTER_APP / "sdkconfig.defaults").read_text(encoding="utf-8")
     assert "CONFIG_TEST_EVENT_TRIGGER_ENABLED=n" in shared.splitlines()
+
+
+def test_occupancy_exposes_hold_time_without_extra_delay() -> None:
+    # Google Home reads HoldTime and shows the sensor offline without it; the
+    # detector already debounces IDLE, so the default adds no further delay.
+    app_main = (MATTER_APP / "main" / "app_main.cpp").read_text(encoding="utf-8")
+    assert "constexpr uint16_t kOccupancyHoldTimeSeconds = 1;" in app_main
+    assert "create_hold_time(" in app_main
+    assert "create_hold_time_limits(" in app_main
+    assert "configure_occupancy_hold_time_on_chip_thread(g_motion_endpoint_id, kOccupancyHoldTimeSeconds)" in app_main
