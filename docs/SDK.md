@@ -119,13 +119,14 @@ class MotionSensor : public espectre::IRuntimeListener {
 
 ### Wi-Fi
 
-If your firmware already manages Wi-Fi, keep it, and check `traffic_allows_radio_work()` before reconfiguring the station and `wifi_scan_allowed()` before scanning. Set `wifi_scan_results_managed_externally` if your code consumes every scan result itself.
+If your firmware already manages Wi-Fi, keep it, and check `traffic_allows_radio_work()` before reconfiguring the station and `wifi_scan_allowed()` before scanning. While such work waits, call `hold_pending_traffic_restart(true)`, and call it with `false` once the work has reached the driver. Set `wifi_scan_results_managed_externally` if your code consumes every scan result itself.
 
-If you have no Wi-Fi code yet, use `StandaloneWifiService`, as the example does:
+If you have no Wi-Fi code yet, use `StandaloneWifiService` from `espectre_services_sdk.h`, as the example does. It needs no optional group.
 
 - Initialize NVS first. The service creates the netif and event loop and starts the driver.
 - Call `setup()` on the service, then on the runtime, then `start()` on the service. Call both `loop()` methods from one task.
-- Pass `wifi_band_policy` from your `RuntimeConfig`: the service defaults to 2.4 GHz.
+- Connect `set_radio_work_ready_callback()` to `traffic_allows_radio_work()`, and before each runtime `loop()` call `hold_pending_traffic_restart(wifi.has_deferred_radio_work())`.
+- Set `StandaloneWifiConfig::band_policy` from `RuntimeConfig::wifi_band_policy`: the service defaults to 2.4 GHz.
 - The `ssid`, `password`, and `bssid` strings must stay valid until shutdown.
 - After `max_retry` quick reconnects (default 8), it waits 30 seconds and tries again, until it connects or shuts down.
 - Shut down the runtime first, then the service.

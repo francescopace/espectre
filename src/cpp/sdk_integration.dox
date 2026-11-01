@@ -100,7 +100,7 @@ Firmware that owns the Wi-Fi station coordinates its own radio work with the con
 - Before starting a scan, wait until `wifi_scan_allowed()` returns true.
 - While such work is deferred, call `hold_pending_traffic_restart(true)` so restarted traffic cannot race it, and call `hold_pending_traffic_restart(false)` once the work has reached the driver.
 
-`StandaloneWifiService` applies the scan check itself; connect its `set_radio_work_ready_callback()` to `traffic_allows_radio_work()`.
+`StandaloneWifiService` applies the scan check itself; connect its `set_radio_work_ready_callback()` to `traffic_allows_radio_work()`, and pass its `has_deferred_radio_work()` to `hold_pending_traffic_restart()` before each `loop()`.
 
 Stopping managed traffic never blocks `loop()`. The generator's task leaves its send on its own; the runtime disables CSI and resumes sensing from a later `loop()` once it has. A task still inside a socket call is left to finish, because deleting a task inside lwIP could leave the stack locked. It is logged after 2 seconds and raises a runtime fault only after 30 seconds, since Wi-Fi TX stalls and beacon-timeout disconnects release it well before then. Once the worker exits, an unread timeout is dropped, so a later runtime does not report a stop that already finished.
 

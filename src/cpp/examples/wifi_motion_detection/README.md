@@ -28,11 +28,12 @@ idf.py build
 idf.py -p YOUR_PORT flash monitor
 ```
 
-In menuconfig, set your SSID and password under **ESPectre example** (a BSSID is optional). They are saved in the local `sdkconfig`: never commit or share it. CSI and the Lightweight detector are on by default; change the detector and other settings in the ESPectre sensing menu.
+In menuconfig, set your SSID and password under **ESPectre example** (a BSSID is optional). They are saved in the local `sdkconfig`: never commit or share it. CSI and the Lightweight detector are on by default; change the detector and other settings under **ESPectre Sensing**.
 
 How it works:
 
 - It registers a log sink, starts NVS and Wi-Fi, sets up the sensing controller, and connects. One task handles both Wi-Fi and sensing events.
+- Wi-Fi waits for `traffic_allows_radio_work()` before it changes the station or scans, and holds traffic restarts while that work is pending.
 - If the connection drops, it retries eight times in a row, then waits 30 seconds and tries again, so it recovers even after a long outage. Keep calling both `loop()` methods meanwhile.
 - To stop, shut down the sensing controller first, then Wi-Fi. The Wi-Fi strings must stay valid until then (the example uses static strings).
 - Motion is reported only when `ready_to_publish` is true, which needs a calibration after startup and after Wi-Fi recovers.

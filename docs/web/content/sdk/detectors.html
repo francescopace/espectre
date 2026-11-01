@@ -73,8 +73,9 @@ config.detection_algorithm =
     espectre::DetectionAlgorithm::HIGH_ACCURACY;
 
 espectre::RuntimeFrontendController runtime;
-runtime.set_config(config);
-runtime.setup(listener);</code></pre>
+if (!runtime.set_config(config) || !runtime.setup(listener)) {
+  // Report the failure; the configuration can be fixed and retried.
+}</code></pre>
   <p>Use <code>DetectionAlgorithm::LIGHTWEIGHT</code> for the lighter profile. An integration that uses only the core can create detectors directly, but must then handle timing, readiness, gaps, and spike filtering the same way the runtime does.</p>
 
   <h2 id="sdk-detectors-evidence" data-toc-label="Evidence">Evidence sources</h2>

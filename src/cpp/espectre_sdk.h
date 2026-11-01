@@ -44,8 +44,8 @@
  * class ProductFrontend : public espectre::IRuntimeListener {
  *  public:
  *   bool setup() {
- *     runtime_.set_config(espectre::make_runtime_sensing_config_from_kconfig());
- *     return runtime_.setup(this);
+ *     return runtime_.set_config(espectre::make_runtime_sensing_config_from_kconfig()) &&
+ *            runtime_.setup(this);
  *   }
  *
  *   void loop() { runtime_.loop(); }

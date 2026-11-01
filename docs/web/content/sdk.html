@@ -77,9 +77,9 @@
 <span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {
  <span class="k">public</span>:
   <span class="k">bool</span> setup() {
-    runtime_.set_config(
-        espectre::make_runtime_sensing_config_from_kconfig());
-    <span class="k">return</span> runtime_.setup(<span class="k">this</span>);
+    <span class="k">return</span> runtime_.set_config(
+               espectre::make_runtime_sensing_config_from_kconfig()) &amp;&amp;
+           runtime_.setup(<span class="k">this</span>);
   }
 
   <span class="k">void</span> loop() { runtime_.loop(); }

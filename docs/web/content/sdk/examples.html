@@ -56,9 +56,9 @@ if (!espectre::set_log_sink(sink)) return false;</code></pre>
 class ProductFrontend : public espectre::IRuntimeListener {
  public:
   bool setup() {
-    runtime_.set_config(
-        espectre::make_runtime_sensing_config_from_kconfig());
-    return runtime_.setup(this);
+    return runtime_.set_config(
+               espectre::make_runtime_sensing_config_from_kconfig()) &amp;&amp;
+           runtime_.setup(this);
   }
 
   void loop() {
@@ -94,7 +94,8 @@ class ProductFrontend : public espectre::IRuntimeListener {
   <h2 id="handle-startup-steady-state-and-shutdown" data-toc-label="Lifecycle">Handle startup, steady state, and shutdown</h2>
   <ol class="steps-list compact-steps">
     <li><h3>Create the station before setup</h3><p>Call setup after creating the Wi-Fi station and default event loop, ideally before connecting, so the radio is configured for CSI from the start. If Wi-Fi is already connected, the runtime picks up the current connection.</p></li>
-    <li><h3>Check the setup result</h3><p>If <code>setup()</code> fails, nothing is configured. Fix the configuration or the Wi-Fi connection, then retry.</p></li>
+    <li><h3>Check the setup result</h3><p>If <code>set_config()</code> or <code>setup()</code> fails, nothing is configured. Fix the configuration or the Wi-Fi connection, then retry.</p></li>
+    <li><h3>Let traffic leave the radio first</h3><p>Before changing the station or scanning, wait until <code>traffic_allows_radio_work()</code> returns true, and call <code>hold_pending_traffic_restart()</code> while that work waits. The example connects its Wi-Fi service this way.</p></li>
     <li><h3>Call loop continuously</h3><p><code>loop()</code> processes the CSI queue and delivers listener events. Slow callbacks can fill the queue, and new packets are then dropped.</p></li>
     <li><h3>Shut down from the owner task</h3><p>Call <code>shutdown()</code> before stopping Wi-Fi or the services your code uses.</p></li>
   </ol>

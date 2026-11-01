@@ -48,6 +48,7 @@ All notable changes to this project will be documented in this file.
 - The website's USB installer bundle is now built with esbuild instead of Rollup. This drops the `deepmerge` build dependency, which has an unpatched advisory (GHSA-gcqx-w48m-w2h4). The installer works as before.
 
 - `./espectre devices` finds devices on another VLAN behind an mDNS proxy, such as the UniFi gateway's. It now also browses from UDP port 5353 alongside the legacy-unicast query, which proxies do not relay, and resolves each service the way it was found. Without port 5353, for example on Windows, it uses legacy unicast only (#205).
+- The SDK Wi-Fi example waits for traffic to leave the radio before it changes the station or scans, checks the `set_config()` result, and answers ping on the multicast group.
 
 ## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools
 

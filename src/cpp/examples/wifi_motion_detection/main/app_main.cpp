@@ -70,8 +70,9 @@ extern "C" void app_main() {
   ESP_ERROR_CHECK(wifi.setup(config,
                             []() { ESP_LOGI(TAG, "Wi-Fi connected"); },
                             []() { ESP_LOGW(TAG, "Wi-Fi disconnected"); }));
-  runtime.set_config(sensing);
-  if (!runtime.setup(&listener)) {
+  // Defer station changes and scans until traffic has left the radio.
+  wifi.set_radio_work_ready_callback([]() { return runtime.traffic_allows_radio_work(); });
+  if (!runtime.set_config(sensing) || !runtime.setup(&listener)) {
     ESP_LOGE(TAG, "Unable to initialize sensing");
     return;
   }
@@ -85,6 +86,7 @@ extern "C" void app_main() {
   // Service Wi-Fi before sensing, keeping all SDK lifecycle calls on this task.
   while (true) {
     wifi.loop();
+    runtime.hold_pending_traffic_restart(wifi.has_deferred_radio_work());
     runtime.loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
