@@ -1055,9 +1055,9 @@ def _ha_panel_inventory(platform="esphome", version=3, source="ping"):
               "generator": "0", "traffic": "5", "traffic_rx": "100",
               "accepted": "99.5", "occupancy": "98", "rssi": "-54"}
     options = {"source": _TRAFFIC_SOURCE_OPTIONS, "spacing": ha_client.SAMPLE_SPACINGS}
-    roles = {"source": ("select", "csi_traffic_source"), "spacing": ("select", "csi_packet_spacing"),
-             **ha_client.ENTITY_ROLES, "rssi": ("sensor", "wifi_rssi")}
-    for role, (domain, suffix) in roles.items():
+    roles = {"source": ("select", ("csi_traffic_source",)), "spacing": ("select", ("csi_packet_spacing",)),
+             **ha_client.ENTITY_ROLES, "rssi": ("sensor", ("wifi_rssi",))}
+    for role, (domain, (suffix, *_)) in roles.items():
         name = suffix.replace("_", " ").title()
         if platform == "mqtt":
             unique_id = "espectre_0123456789abcdef_" + suffix
@@ -1205,12 +1205,21 @@ _UPSTREAM_ROLES = ["source", "generator", "traffic", "traffic_rx", "accepted", "
 _UPSTREAM_RECOMMENDED = ["CSI Traffic Source", "Generator Rate", "Traffic TX Rate", "Traffic RX Rate",
                          "CSI Accepted Rate", "CSI Temporal Occupancy"]
 _UPSTREAM_CUSTOM = ["Sorgente", "Generati", "Inviati", "Ricevuti", "CSI utili", "Copertura"]
+# Named after the `diagnostics` config keys; only `csi_occupancy` differs from the recommended names.
+_UPSTREAM_CONFIG_KEYS = [*_UPSTREAM_RECOMMENDED[:-1], "CSI Occupancy"]
+
+
+def _upstream_unique_id(domain, name, layout):
+    # ESPHome v3: mac/sub-device/domain/name; v1/v2: mac-domain-name with an optional @n.
+    return f"a0b1c2d3e4f5/0/{domain}/{name}" if layout == "v3" else f"a0b1c2d3e4f5-{domain}-{name}@1"
 
 
 def _upstream_inventory(names=_UPSTREAM_RECOMMENDED, options=_TRAFFIC_SOURCE_OPTIONS,
-                        diagnostics=True, signals=(("WiFi Signal", "diagnostic"),)):
+                        diagnostics=True, signals=(("WiFi Signal", "diagnostic"),),
+                        layout="v3", refresh=None):
     """An ESPHome device with the upstream `espectre` component: user-chosen names,
-    a board model, ESPHome's own `wifi_signal` sensor, and no Refresh Diagnostics button."""
+    a board model, ESPHome's own `wifi_signal` sensor, and an optional template
+    button named `refresh`."""
     devices = [{"id": "upstream-a", "name": "living-room", "manufacturer": "Espressif",
                 "model": "esp32-c6-devkitc-1"}]
     values = ["ping", "100.0", "101.0", "3.0", "99.0", "97"]
@@ -1219,33 +1228,71 @@ def _upstream_inventory(names=_UPSTREAM_RECOMMENDED, options=_TRAFFIC_SOURCE_OPT
     for role, name, value in rows:
         domain = "select" if role == "source" else "sensor"
         entities.append({"entity_id": f"{domain}.living_room_{role}", "device_id": "upstream-a",
-                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/{domain}/{name}"})
+                         "platform": "esphome", "unique_id": _upstream_unique_id(domain, name, layout)})
         states.append({"entity_id": entities[-1]["entity_id"], "state": value,
                        "attributes": {"options": list(options)} if role == "source" else {}})
+    if refresh:
+        entities.append({"entity_id": "button.living_room_refresh", "device_id": "upstream-a",
+                         "platform": "esphome", "unique_id": _upstream_unique_id("button", refresh, layout)})
+        states.append({"entity_id": "button.living_room_refresh", "state": "unknown", "attributes": {}})
     for index, (name, category) in enumerate(signals):
         entities.append({"entity_id": f"sensor.living_room_signal_{index}", "device_id": "upstream-a",
-                         "platform": "esphome", "unique_id": f"a0b1c2d3e4f5/0/sensor/{name}",
+                         "platform": "esphome", "unique_id": _upstream_unique_id("sensor", name, layout),
                          "entity_category": category})
         states.append({"entity_id": entities[-1]["entity_id"], "state": str(-61 - index),
                        "attributes": {"device_class": "signal_strength", "unit_of_measurement": "dBm"}})
     return devices, entities, states, []
 
 
-@pytest.mark.parametrize("names,options,diagnostics", [
-    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, True),
-    (_UPSTREAM_CUSTOM, _TRAFFIC_SOURCE_OPTIONS, True),
-    (_UPSTREAM_RECOMMENDED, ["ping", "dns", "dns_tcp", "external"], True),  # ESP32-C6
-    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, False),
-], ids=["recommended", "custom", "c6", "no_diagnostics"])
-def test_ha_panel_recognizes_the_upstream_esphome_component(names, options, diagnostics):
-    row, = ha_client.build_inventory(*_upstream_inventory(names, options, diagnostics))
+@pytest.mark.parametrize("names,options,diagnostics,layout,refresh", [
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, True, "v3", None),
+    (_UPSTREAM_CUSTOM, _TRAFFIC_SOURCE_OPTIONS, True, "v3", None),
+    (_UPSTREAM_RECOMMENDED, ["ping", "dns", "dns_tcp", "external"], True, "v3", None),  # ESP32-C6
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, False, "v3", None),
+    (_UPSTREAM_CONFIG_KEYS, _TRAFFIC_SOURCE_OPTIONS, True, "v3", None),
+    (_UPSTREAM_CONFIG_KEYS, _TRAFFIC_SOURCE_OPTIONS, True, "legacy", None),
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, True, "v3", "Refresh Diagnostics"),
+    (_UPSTREAM_RECOMMENDED, _TRAFFIC_SOURCE_OPTIONS, True, "legacy", "Refresh Diagnostics"),
+], ids=["recommended", "custom", "c6", "no_diagnostics", "config_keys", "config_keys_legacy",
+        "refresh", "refresh_legacy"])
+def test_ha_panel_recognizes_the_upstream_esphome_component(names, options, diagnostics, layout, refresh):
+    row, = ha_client.build_inventory(*_upstream_inventory(
+        names, options, diagnostics, layout=layout, refresh=refresh))
     assert row["can_control"] and row["reason"] is None and row["chip"] == "ESP32-C6"
-    assert not row["can_refresh"] and row["fields"]["refresh"]["status"] == "missing"
+    assert row["can_refresh"] == bool(refresh)
+    assert row["fields"]["refresh"].get("entity_id") == ("button.living_room_refresh" if refresh else None)
     assert row["fields"]["ownership"]["value"] == "internal" and row["internal_mode"] == "ping"
     assert row["fields"]["rssi"]["value"] == -61
-    recognized = diagnostics and names is _UPSTREAM_RECOMMENDED
+    recognized = diagnostics and names is not _UPSTREAM_CUSTOM
     assert [row["fields"][role]["value"] for role in _UPSTREAM_ROLES[1:]] == (
         [100, 101, 3, 99, 97] if recognized else [None] * 5)
+
+
+def test_ha_panel_reads_the_packet_spacing_select_of_newer_upstream_versions():
+    """ESPHome after 2026.10 adds CSI Packet Spacing and Detection Profile selects."""
+    devices, entities, states, areas = _upstream_inventory(refresh="Refresh Diagnostics")
+    for role, name, options, value in (
+            ("profile", "Detection Profile", ["lightweight", "high_accuracy"], "lightweight"),
+            ("spacing", "CSI Packet Spacing", list(ha_client.SAMPLE_SPACINGS), "distinct")):
+        entities.append({"entity_id": f"select.living_room_{role}", "device_id": "upstream-a",
+                         "platform": "esphome", "unique_id": _upstream_unique_id("select", name, "v3")})
+        states.append({"entity_id": entities[-1]["entity_id"], "state": value,
+                       "attributes": {"options": options}})
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+    assert row["can_control"] and row["can_refresh"] and row["can_set_spacing"]
+    assert row["fields"]["spacing"]["value"] == "distinct"
+    assert row["fields"]["ownership"]["entity_id"] == "select.living_room_source"
+
+
+def test_ha_panel_drops_a_field_that_two_upstream_entities_claim():
+    devices, entities, states, areas = _upstream_inventory()
+    occupancy = entities[_UPSTREAM_ROLES.index("occupancy")]
+    entities.append(dict(occupancy, entity_id="sensor.living_room_csi_occupancy",
+                         unique_id="a0b1c2d3e4f5/0/sensor/CSI Occupancy"))
+    states.append({"entity_id": "sensor.living_room_csi_occupancy", "state": "96", "attributes": {}})
+    row, = ha_client.build_inventory(devices, entities, states, areas)
+    assert row["fields"]["occupancy"]["status"] == "missing"
+    assert row["fields"]["accepted"]["value"] == 99
 
 
 @pytest.mark.parametrize("signals,expected", [

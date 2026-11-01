@@ -48,7 +48,7 @@ Each row shows:
 
 **—** means the value is missing, disabled, or unknown. You can enable hidden entities in **Settings → Devices & services → Entities**.
 
-A device shows up as long as its traffic source select is enabled, whatever it is called. Diagnostics are matched by the names the firmware gives them: renaming a sensor in Home Assistant is fine, but renaming it in ESPHome YAML breaks the match. With the ESPHome `espectre` component, keep these names: Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Accepted Rate, and CSI Temporal Occupancy. RSSI is matched by type, so any diagnostic signal strength sensor in dBm works.
+A device shows up as long as its traffic source select is enabled, whatever it is called. Diagnostics are matched by the names the firmware gives them: renaming a sensor in Home Assistant is fine, but renaming it in ESPHome YAML breaks the match. RSSI is matched by type, so any diagnostic signal strength sensor in dBm works. The ESPHome `espectre` component needs [a few extra lines](#the-esphome-espectre-component) of YAML.
 
 The summary at the top shows the targets, the rate, and the send errors since the app started. With `icmp` it also counts replies, which is the easiest way to tell that the devices actually receive the traffic.
 
@@ -56,11 +56,46 @@ The summary at the top shows the targets, the rate, and the send errors since th
 
 ### What the panel does in the background
 
-While the panel is open and visible, it presses each device's **Refresh Diagnostics** button about once a second to keep the numbers fresh. It stops when nobody has the panel open. The traffic keeps going either way. Devices without that button update on their own schedule.
+While the panel is open and visible, it presses each device's **Refresh Diagnostics** button about once a second to keep the numbers fresh. It stops when nobody has the panel open. The traffic keeps going either way. Devices without that button update on their own schedule. With the ESPHome `espectre` component, that means the diagnostics' `update_interval`, and without one they never update.
 
 If the connection to Home Assistant drops, the panel reconnects by itself. It never retries a mode change on its own.
 
 The app talks only to Home Assistant, with the token Home Assistant gives it. It does not scan the network or use mDNS, MQTT, or ESPectre's Direct API. Its web server only accepts requests that come through Home Assistant.
+
+### The ESPHome `espectre` component
+
+The `espectre` component built into ESPHome creates only the entities you add to the YAML, and you pick their names. For the panel to fill in every column:
+
+- Name the diagnostic sensors Generator Rate, Traffic TX Rate, Traffic RX Rate, CSI Accepted Rate, and CSI Temporal Occupancy. The occupancy sensor can also be called CSI Occupancy, after its `csi_occupancy` key. The panel does not show the other diagnostics.
+- Add a template button named Refresh Diagnostics that runs `component.update` on the diagnostics, or set `update_interval` on them. The diagnostics publish nothing by themselves, so without either one their columns stay empty.
+- Add a `wifi_signal` sensor for the Wi-Fi RSSI column.
+- For the Packet spacing column, add the `csi_sample_spacing` select, available in ESPHome versions after 2026.10.
+
+```yaml
+sensor:
+  - platform: espectre
+    diagnostics:
+      id: espectre_diagnostics
+      generator_rate:
+        name: Generator Rate
+      traffic_tx_rate:
+        name: Traffic TX Rate
+      traffic_rx_rate:
+        name: Traffic RX Rate
+      csi_accepted_rate:
+        name: CSI Accepted Rate
+      csi_occupancy:
+        name: CSI Temporal Occupancy
+  - platform: wifi_signal
+    name: WiFi Signal
+
+button:
+  - platform: template
+    name: Refresh Diagnostics
+    entity_category: diagnostic
+    on_press:
+      - component.update: espectre_diagnostics
+```
 
 ## Configuration
 

@@ -25,6 +25,7 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 ### Tools and integrations
 
 - Official firmware builds use ESPHome 2026.10.1.
+- The Home Assistant traffic generator add-on (0.4.1) also recognizes the occupancy sensor of the `espectre` component built into ESPHome when it is named after its `csi_occupancy` key. Its guide shows the YAML that fills every panel column: the diagnostic sensors, a Refresh Diagnostics button, and a `wifi_signal` sensor. See the [add-on guide](../tools/ha_traffic_generator_addon/DOCS.md#the-esphome-espectre-component).
 
 ---
 

@@ -22,13 +22,14 @@ TRAFFIC_SOURCE_MODES = {"ping", "dns", "dns_tcp"}
 # CSI sample spacing values; ESPHome and Native MQTT expose them as one select.
 SAMPLE_SPACINGS = ("half_slot", "distinct")
 # Integration-owned identifiers, not user-editable entity IDs or display names.
+# The native ESPHome `espectre` component has no default names, so its config keys count too.
 ENTITY_ROLES = {
-    "refresh": ("button", "refresh_diagnostics"),
-    "generator": ("sensor", "generator_rate"),
-    "traffic": ("sensor", "traffic_tx_rate"),
-    "traffic_rx": ("sensor", "traffic_rx_rate"),
-    "accepted": ("sensor", "csi_accepted_rate"),
-    "occupancy": ("sensor", "csi_temporal_occupancy"),
+    "refresh": ("button", ("refresh_diagnostics",)),
+    "generator": ("sensor", ("generator_rate",)),
+    "traffic": ("sensor", ("traffic_tx_rate",)),
+    "traffic_rx": ("sensor", ("traffic_rx_rate",)),
+    "accepted": ("sensor", ("csi_accepted_rate",)),
+    "occupancy": ("sensor", ("csi_temporal_occupancy", "csi_occupancy")),
 }
 
 
@@ -41,17 +42,17 @@ def entity_role(entity):
     platform = entity.get("platform")
     domain = entity.get("entity_id", "").partition(".")[0]
     unique_id = str(entity.get("unique_id", ""))
-    for role, (expected_domain, suffix) in ENTITY_ROLES.items():
+    for role, (expected_domain, suffixes) in ENTITY_ROLES.items():
         if domain != expected_domain:
             continue
-        if platform == "mqtt" and unique_id.endswith("_" + suffix):
+        if platform == "mqtt" and unique_id.endswith(tuple("_" + suffix for suffix in suffixes)):
             return role
         if platform == "esphome":
             # ESPHome v3: mac/sub-device/domain/name; v1/v2: mac-domain-name.
             match = re.fullmatch(r"[^/]+/\d+/" + domain + r"/(.+)", unique_id)
             legacy = re.fullmatch(r"[0-9a-fA-F:]+-" + domain + r"-(.+?)(?:@\d+)?", unique_id)
             name = (match or legacy).group(1) if (match or legacy) else ""
-            if re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") == suffix:
+            if re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") in suffixes:
                 return role
     return None
 
