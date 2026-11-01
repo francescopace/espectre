@@ -64,8 +64,6 @@ def sample_snapshot_payload() -> dict:
             "csi_buffer_overruns": 0,
             "wifi_sta_ip": "192.168.1.42",
             "wifi_sta_mac": "18:fe:34:d2:91:a4",
-            "admin_password": "super-secret-password-123",
-            "api_token": "bearer-token-abc",
         },
     }
 
@@ -107,7 +105,7 @@ def test_redact_diagnostic_value():
     stats: dict[str, int] = {}
 
     assert redact_diagnostic_value("password", "secret123", stats) == "[REDACTED]"
-    assert stats["secret"] == 1
+    assert stats["redacted_fields"] == 1
 
     assert redact_diagnostic_value("ssid", "MyHomeWifi", stats) == "<redacted_ssid>"
     assert stats["ssid"] == 1
@@ -124,6 +122,8 @@ def test_redact_diagnostic_value():
 
 def test_redact_diagnostics_full_payload():
     payload = sample_snapshot_payload()
+    payload["diagnostics"]["admin_password"] = "mock-admin-password"
+    payload["diagnostics"]["api_token"] = "mock-bearer-token"
     redacted, stats = redact_diagnostics(payload)
 
     assert redacted["wifi"]["ssid"] == "<redacted_ssid>"
@@ -133,7 +133,7 @@ def test_redact_diagnostics_full_payload():
     assert redacted["diagnostics"]["admin_password"] == "[REDACTED]"
     assert redacted["diagnostics"]["api_token"] == "[REDACTED]"
     assert redacted["diagnostics"]["csi_packets_rx"] == 45000
-    assert "secret" in stats
+    assert "redacted_fields" in stats
     assert "mac" in stats
     assert "ip" in stats
     assert "ssid" in stats
@@ -168,6 +168,7 @@ def test_collect_diagnostic_snapshot():
 
 def test_format_markdown_report():
     payload = sample_snapshot_payload()
+    payload["diagnostics"]["admin_password"] = "mock-admin-password"
     redacted, stats = redact_diagnostics(payload)
     report = format_markdown_report(redacted, stats)
 

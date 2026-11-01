@@ -55,7 +55,7 @@ def redact_diagnostic_value(key: str, val: Any, stats: dict[str, int]) -> Any:
 
     if "password" in lower_key or "secret" in lower_key or "token" in lower_key or "credential" in lower_key:
         if val:
-            stats["secret"] = stats.get("secret", 0) + 1
+            stats["redacted_fields"] = stats.get("redacted_fields", 0) + 1
             return "[REDACTED]"
         return val
 
@@ -277,12 +277,13 @@ def run_diagnostic_report_command(args) -> int:
         if getattr(args, "output", None):
             with open(args.output, "w", encoding="utf-8") as f:
                 f.write(output + "\n")
-            print(f"Diagnostic report written to {args.output}")
+            sys.stdout.write(f"Diagnostic report written to {args.output}\n")
         else:
-            print(output)
+            sys.stdout.write(output + "\n")
+            sys.stdout.flush()
         return 0
     except (OSError, RuntimeError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
-        print(f"Diagnostic report generation failed: {exc}", file=sys.stderr)
+        sys.stderr.write(f"Diagnostic report generation failed: {exc}\n")
         return 1
 
 
