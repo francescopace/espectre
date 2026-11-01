@@ -22,6 +22,10 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 - `espectre_sdk.h` adds `espectre::ESPectre`, the same sensor, for ESP-IDF projects that use Arduino as a component. See [Arduino-style sensor](SDK.md#arduino-style-sensor).
 - `log_sink_registered()` reports whether a log sink is registered.
 
+### Tools and integrations
+
+- Official firmware builds use ESPHome 2026.10.1.
+
 ---
 
 ## [3.1.0] - 2026-11-01 - Matter controller compatibility and external traffic sources

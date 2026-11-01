@@ -569,9 +569,12 @@ def test_firmware_audit_union_deduplicates_shared_vulnerability_inputs(firmware_
     assert {package["name"] for package in union["packages"]} >= {"target-c3", "target-c6"}
     union_path = tmp_path / "union.spdx.json"
     union_path.write_text(json.dumps(union), encoding="utf-8")
+    from esp_idf_sbom.libsbom import formats as idf_formats
     from esp_idf_sbom.libsbom import sbom as idf_sbom
 
-    scanned_names = {package.package_name for package in idf_sbom.app_packages(idf_sbom.load(str(union_path)))}
+    scanned_names = {
+        package.package_name for package in idf_sbom.app_packages(idf_formats.load_sbom(str(union_path)))
+    }
     assert {"cJSON", "target-c3", "target-c6"} <= scanned_names
 
 
