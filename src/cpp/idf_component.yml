@@ -37,7 +37,8 @@ dependencies:
       - if: "idf_version >=6.0.0"
       - if: "$CONFIG{ESPECTRE_SDK_ENABLE_MQTT} == True"
   espressif/mdns:
-    version: "1.12.0"
+    # Direct uses private mDNS APIs; widen only after Direct build checks.
+    version: ">=1.12.0,<1.15.0"
     registry_url: "https://components.espressif.com"
     rules:
       - if: "$CONFIG{ESPECTRE_SDK_ENABLE_DIRECT} == True"

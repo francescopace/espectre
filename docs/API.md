@@ -64,7 +64,7 @@ Mutations return a result object:
   "name": "Kitchen",
   "label": "Kitchen",
   "frontend": "native",
-  "firmware": "3.0.0-rc1",
+  "firmware": "3.1.0",
   "chip": "esp32c6",
   "csi_profile": "ht20"
 }

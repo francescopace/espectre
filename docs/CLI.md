@@ -132,7 +132,7 @@ Common flags are `--chip`, `--config`, and `--device`. Each chip has one example
 - `build --json` prints a final JSON object with the frontend, chip, image path, size, and SHA-256.
 
 ```bash
-./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
+./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.1.0-esp32c6-ota.bin
 ```
 
 ### `native` and `matter`

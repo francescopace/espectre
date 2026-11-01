@@ -4,46 +4,19 @@
 
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
-| **v3.1.0** | In progress | Broaden Matter compatibility and provide external sensing traffic from ESP32 peers or a standalone service |
-| **v3.2.0** | Demand-gated | Bring ESPectre to Arduino projects through a supported SDK runtime |
-| **v3.3.0** | Research-gated | Add stationary presence as a distinct sensing output |
+| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime |
+| **v3.3.0** | Planned | Add stationary presence as a distinct sensing output |
 | **v3.4.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
 | **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
 | **v4.1.0** | Planned | Add an optional, self-hostable relay for remote access |
 | **v4.2.0** | Demand-gated | Add optional fleet, history, update, and alert workflows |
 | **v5.0.0** | Exploratory | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
-## v3.1.0 - Matter compatibility and traffic sources
-
-**Product outcome**: support more Matter controllers, define the requirements for production Matter devices, and make external sensing traffic available from ESP32 peers or a standalone service.
-
-### Matter compatibility and production requirements
-
-Matter already provides pairing, occupancy updates, and Direct controls. Controller coverage is limited, OTA is not implemented, and published images use development credentials.
-
-- [x] Verify commissioning, occupancy updates, and an automation trigger with additional controllers; record results in the [controller compatibility matrix](../src/cpp/frontend/matter/README.md#matter-controller-compatibility)
-- [x] Make Matter firmware certification-ready and document what the integrator provides, including OTA; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
-- [x] Document manufacturer certification gaps: vendor identity, device attestation, factory provisioning, and test coverage; see [building a certified product](../src/cpp/frontend/matter/README.md#building-a-certified-product)
-
-### External radio sources
-
-- [x] Support direct Null Data and ESP-NOW reception in `external` mode; see [external sources](CSI.md#external-sources) and the [hardware validation summary](adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation)
-- [x] Validate both sources with HT20 and LLTF on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6, and complete external LLTF receiver validation on ESP32-C5
-
-### Standalone traffic generator
-
-The Python generator runs independently, and the [Docker image](../tools/traffic_generator_docker/README.md) adds a web UI without Home Assistant OS.
-
-- [x] Publish a standalone Docker image with a web UI for configuration, start/stop controls, and status
-- [x] Document and verify setup with Home Assistant Container and without Home Assistant or Supervisor, including Native and Matter devices; see [with Home Assistant Container](../tools/traffic_generator_docker/README.md#with-home-assistant-container)
-
-**Exit criteria**: each selected Matter controller and each supported receiver, source, and profile combination has a recorded result or documented limitation. Production certification requirements and integrator responsibilities are documented. The Docker image can be installed and operated through its web UI with Home Assistant Container or without Home Assistant.
-
 ## v3.2.0 - Arduino SDK runtime
 
 **Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Starts when**: a real Arduino project shows what it needs. Until then, Arduino is not supported.
+**Status**: in progress. Arduino stays unsupported until this release ships.
 
 **Scope**:
 
@@ -59,7 +32,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 
 **Product outcome**: tell a room with someone sitting still apart from an empty room, as a new result separate from motion. No identification, counting, or precise location.
 
-**Research timing**: a small feasibility study can run during v3. It can decide whether to continue, but cannot ship a detector: that still needs the gates in the [research pipeline](#research-pipeline).
+**Commitment**: stationary presence is planned work, not an open research question. The detector still ships only after it passes the gates below and in the [research pipeline](#research-pipeline).
 
 **Scope**:
 
@@ -68,7 +41,7 @@ The Python generator runs independently, and the [Docker image](../tools/traffic
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
 
-**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If the research fails, record it in the [feature analysis](FEATURES.md) and postpone this release.
+**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If a candidate misses a gate, record why in the [feature analysis](FEATURES.md) and move to the next one; the release waits until one passes.
 
 ## v3.4.0 - Gesture and micro-motion research
 
@@ -164,11 +137,11 @@ Hardware acceleration is a separate track that starts only with evidence, and do
 
 ## Research pipeline
 
-Research runs in steps. A first small study on today's HT20 capture decides whether presence research is worth pursuing. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the real presence gate. Stopping or postponing is a valid outcome. Experiments are recorded in the [feature analysis](FEATURES.md), published research in the [literature review](LITERATURE.md).
+Research runs in steps. R0 measures stationary presence on today's HT20 capture and sets the baseline. Then come other capture formats (HE20, HT40), higher packet rates, and longer windows, before the presence gate for `v3.3.0`. Presence (R0 and R4) is committed; for the other tracks, stopping or postponing is a valid outcome. Experiments are recorded in the [feature analysis](FEATURES.md), published research in the [literature review](LITERATURE.md).
 
 | Order | Track | Product question | Promotion gate |
 | --- | --- | --- | --- |
-| R0 | **HT20 stationary-presence feasibility** | Does paired same-session HT20 evidence justify further presence research? | A small, predeclared corpus measures false presence and missed presence across more than one room and link condition; the result can continue or stop the research track, but cannot enter production |
+| R0 | **HT20 stationary-presence baseline** | How well does today's HT20 capture tell a still person from an empty room in the same session? | A predeclared corpus of empty, presence, and empty sessions measures false presence and missed presence across more than one room and link condition; it sets the baseline for R4 and cannot enter production |
 | R1 | **HE20 and HT40 sensing profiles** | Do HE20 or HT40 provide enough additional sensing detail to justify their capture and processing costs? | Both layouts map to canonical detector inputs, paired captures characterize their benefits and costs, and any promoted profile has a defined grid, normalization path, resource limits, and C++/Python parity |
 | R2 | **Higher CSI rate** | Which sustained CSI rate preserves useful micro-motion information on supported hardware? | Rate sweeps select the highest useful rate within declared limits for loss, jitter, compute, memory, and transport load |
 | R3 | **Longer and multi-scale windows** | Can longer windows expose slow micro-motion without weakening the current movement response? | The runtime analyzes short and long windows within declared latency and memory limits while preserving the movement detector's response time |
@@ -178,12 +151,12 @@ Research runs in steps. A first small study on today's HT20 capture decides whet
 
 Order:
 
-- R0 can run during v3, starting from existing `static_presence` captures that have a same-session `empty` reference, and may stop the presence track early.
+- R0 runs during v3, on sessions that record an empty room, still presence, and an empty room again.
 - R1 to R3 come before R4. R4 uses the best capture profile found, and the changes it needs ship with `v3.3.0`.
 - R5 also needs validated presence (R4) and longer windows (R3).
 - R6 can start once R2 is stable.
 
-Each step can end in promotion, rejection, or postponement. Candidates are prototyped on the host first; C++ and device code come only when the evidence justifies them.
+Each candidate can end in promotion, rejection, or postponement. Candidates are prototyped on the host first; C++ and device code come only when the evidence justifies them.
 
 ## Ownership and updates
 
@@ -196,7 +169,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **October 30, 2026**
+Last update: **November 1, 2026**
 
 For discussion and proposed changes:
 

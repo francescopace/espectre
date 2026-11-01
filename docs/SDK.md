@@ -182,7 +182,7 @@ All groups are off by default, so the base SDK pulls in no network stack. Enable
 | Menuconfig option | Adds | Pulls in |
 |-------------------|------|----------|
 | `ESPECTRE_SDK_ENABLE_MQTT` | `EspIdfMqttTransport` | `mqtt` on ESP-IDF 5.5; `espressif/mqtt` 1.0.0 on ESP-IDF 6 |
-| `ESPECTRE_SDK_ENABLE_DIRECT` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `espressif/mdns` 1.12.0 |
+| `ESPECTRE_SDK_ENABLE_DIRECT` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `espressif/mdns` 1.12 to 1.14 |
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | Device configuration store and Wi-Fi provisioning | Nothing extra |
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | Turns on provisioning |
 

@@ -112,7 +112,7 @@ The result schema is:
       "protocol_version": "1.0",
       "transport": "http",
       "path": "/espectre/v1",
-      "firmware": "3.0.0-rc1",
+      "firmware": "3.1.0",
       "chip": "esp32c3",
       "port": 62587,
       "capabilities": ["config", "csi", "monitor"],

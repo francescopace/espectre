@@ -55,7 +55,7 @@ Install the packaging dependencies from `requirements.txt` and Doxygen 1.18.0, a
 
 ```sh
 python .github/scripts/build_sdk_package.py \
-  --channel release --version 3.0.0 --release-tag 3.0.0 \
+  --channel release --version 3.1.0 --release-tag 3.1.0 \
   --commit "$(git rev-parse HEAD)" --output-dir .cache/sdk \
   --component-output-dir .cache/registry/espectre
 ```
@@ -81,17 +81,15 @@ python .github/scripts/verify_sdk_component.py build \
 
 Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.6 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. Native and ESPHome firmware builds on S2 cover the frontend-owned TinyUSB console.
 
-The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and pins it to `1.12.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. Run the Direct compile and link checks before changing that pin.
+The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and limits it to `>=1.12.0,<1.15.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. The range includes the mDNS 1.14.0 that ESPHome pins. Before raising the upper bound, build Direct with the new version and confirm that `mdns_priv_receive_action` is still called from another source file, so `--wrap` intercepts it.
 
 ### ESP-IDF compatibility checks
 
-The [SDK compatibility table](SDK.md#esp-idf-compatibility-validation) comes from Docker builds of the example with the `espressif/idf` images, covering the application and bootloader. The 2026-10-21 run built the registry package with every optional service group on all six targets, for each image tag in the table; the `v6.1` tag is ESP-IDF's name for the 6.1 release. ESP-IDF 5.5.0–5.5.2 were checked against the official headers only; no full firmware build was run.
+Before a release, build the example with every optional service group on all six targets, in Docker with each `espressif/idf` image listed in the [SDK compatibility table](SDK.md#esp-idf-compatibility-validation), and update the table. The `v6.1` tag is ESP-IDF's name for 6.1.
 
-The build lockfiles confirm bundled MQTT on 5.5.x and `espressif/mqtt` `1.0.0` on 6.x, with `espressif/mdns` `1.12.0` everywhere. On 5.5.3, Component Manager warns that `ESPECTRE_SDK_ENABLE_DIRECT` is not found in any Kconfig file, but it still resolves mDNS and the build links. With every service on, ESP-IDF 6.x leaves 3–5% of the 1.5 MB app partition free on C5 and C6, against 11–15% on 5.5.6. The linked applications contain the expected SHA-256 backend: mbedTLS before IDF 6 and PSA Crypto from IDF 6 onward. The compatibility change preserves device identity input bytes, digest byte order, and identifier formatting. It also uses the `WIFI_BW20` and `WIFI_BW40` enum names shared by these versions; the sensing bandwidth remains 20 MHz.
+Check the lockfiles: bundled MQTT on 5.5.x, `espressif/mqtt` `1.0.0` on 6.x, and `espressif/mdns` within the manifest range. On 6.x, C5 and C6 keep only about 3–5% of the app partition free with every service on.
 
-Host tests exercise both identity branches with real OpenSSL-backed SHA-256 adapters, three known vectors, a deterministic MAC, cached results, crypto initialization and hashing failures, and invalid digest lengths. For MAC `7c:2c:67:42:bb:ac`, both branches produce `3cf79180d3a0aca4`. These automated tests do not execute ESP-IDF's hardware crypto drivers.
-
-No hardware validation was performed for this matrix. Before publishing, compare the same device's ID before and after upgrading from 5.5.3 and 5.5.5 to each 6.x version, and verify boot, Wi-Fi reconnection, CSI acquisition and sensing readiness, MQTT, and Direct on the representative targets. Include the minimum supported 5.5.3, both supported bands on C5, and the supported traffic modes on C6. Full ESPHome, Native, and Matter firmware builds and a clean registry installation remain separate integration gates.
+These are build checks only. Before publishing, verify on hardware that the device ID stays the same after upgrading to 6.x, and check boot, Wi-Fi reconnection, sensing readiness, MQTT, and Direct on 5.5.3, on both C5 bands, and on C6. Host tests cover both SHA-256 identity backends, but not ESP-IDF's crypto drivers.
 
 ### Registry setup
 
@@ -99,7 +97,7 @@ Before the first upload, the repository owner must complete these steps:
 
 1. Sign in to both [staging](https://components-staging.espressif.com/) and [production](https://components.espressif.com/), own the `francescopace` namespace, and create the `espectre` component entry in each registry.
 2. In GitHub, configure environments `sdk-registry-staging` and `sdk-registry-production`. Allow release tags (`*.*.*`), including prerelease tags such as `3.0.0-rc3`, in production, allow only **Branch** rules for `main` and `develop` in staging, and require owner approval for the first production release. The rolling tags `snapshot` and `snapshot-dev` are publication outputs and need no environment rules.
-3. In the Espressif registries, configure trusted uploaders for repository `francescopace/espectre`: one staging uploader (`cd.yml`, with environment `sdk-registry-staging`) and one production uploader (`cd.yml`, with environment `sdk-registry-production`). In each Espressif trusted uploader, leave the Branch field empty; GitHub environment rules restrict the allowed refs. Each publisher's filename identifies the workflow that requests the OIDC token. Replace the previous `snapshot.yml` and `release.yml` trusted uploaders when migrating to unified delivery. Follow Espressif's [OIDC setup](https://docs.espressif.com/projects/idf-component-manager/en/latest/publish/how_to_github_actions_upload.html), and verify the uploader configuration with the first staging run.
+3. In the Espressif registries, configure trusted uploaders for repository `francescopace/espectre`: one staging uploader (`cd.yml`, with environment `sdk-registry-staging`) and one production uploader (`cd.yml`, with environment `sdk-registry-production`). In each Espressif trusted uploader, leave the Branch field empty; GitHub environment rules restrict the allowed refs. Each publisher's filename identifies the workflow that requests the OIDC token. Follow Espressif's [OIDC setup](https://docs.espressif.com/projects/idf-component-manager/en/latest/publish/how_to_github_actions_upload.html), and verify the uploader configuration with the first staging run.
 4. Confirm the right to redistribute every packaged contribution under the commercial agreement as well as GPLv3. Review the packaged source history, including renames, against the [CLA](../CLA.md) and the signatures recorded in [cla-signatures.json](../.github/cla-signatures.json); a DCO trailer alone does not grant commercial relicensing rights. Resolve any uncovered historical contribution before offering it under that agreement.
 5. Complete the owner review of the [registry terms](https://components.espressif.com/pages/terms), including sections 5.1–5.5. Section 5.3 recognizes the supplied license; seek clarification from Espressif if the broader wording of section 5.5 leaves unresolved concerns. The workflow cannot establish these legal rights or accept the terms for the owner.
 
@@ -173,6 +171,8 @@ Deletion is permanent, and a deleted version number cannot be uploaded again, ev
 
 ### Release workflow
 
+Ensure the tag points to the intended commit on `main` and has a finalized changelog entry. Its own CI run must succeed before release publication starts.
+
 For a release tag (prereleases such as `3.0.0-rc3` included):
 
 1. CI builds firmware and SDK with the exact tag as version and, if every check passes, starts `cd.yml` on the tag with the CI run ID, attempt, and full commit SHA.
@@ -188,7 +188,9 @@ Notes:
 - Registry lookups retry for a limited time to cover propagation delays, without accepting a different package.
 - A verification failure fails the CD run, but the GitHub release, website, and badges already published stay.
 
-Retry a failed release publication through **Re-run failed jobs** on the CD run while its source CI artifacts are retained. A failed publication does not change the successful CI result; follow the publication link in the CI summary for its outcome.
+Retry a failed release publication through **Re-run failed jobs** on the CD run while its source CI artifacts are retained: the registry component is kept for 7 days, so approve the production environment within that time. A failed publication does not change the successful CI result; follow the publication link in the CI summary for its outcome.
+
+After publication, confirm that public installation succeeds and that the C3 hardware check covers startup, calibration, movement, and Wi-Fi reconnection. If either fails, restore the milestone in the [roadmap](ROADMAP.md) as in progress.
 
 ### Traffic generator image
 
@@ -210,11 +212,3 @@ CD starts `pages.yml` on `main` after building and verifying the website, and wa
 The serialized Pages job uploads the verified website archive unchanged, including the API reference generated by that build. Each build replaces the generated reference tree and verifies that it contains exactly its current page inventory. The deployment checks the live channel catalogs and signing keys before notifying IndexNow.
 
 For a website-only retry, rerun the failed Pages job, or dispatch `pages.yml` on `main` with the CD run ID as `pages_run_id` and its current attempt as `pages_run_attempt`. This does not publish firmware or registry components.
-
-### Migrating the workflow configuration
-
-Install `cd.yml` and `pages.yml` on the default branch (`main`) before relying on automatic dispatches from `develop` or version tags. GitHub requires dispatched workflow files to exist on the default branch, and the selected ref must contain the new workflow definitions and validation script. Carry the configuration through the normal protected-branch review process, update the registry trusted uploaders and environment rules described above, and retire `snapshot.yml` and `release.yml` as part of the same migration. The Pages validator accepts only artifacts from `cd.yml`; reruns that use the previous workflow definitions must be completed before switching.
-
-Ensure the tag points to the intended commit on `main` and has a finalized changelog entry. Its own CI run must succeed before release publication starts.
-
-Keep the [roadmap](ROADMAP.md) publication gate open until public installation succeeds and the C3 hardware check covers startup, calibration, movement, and Wi-Fi reconnection.

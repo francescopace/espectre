@@ -58,9 +58,9 @@
           <p>The v3 line brings ESPectre closer to real products, with more integrations, SDK support, and new sensing features.</p>
         </div>
         <ol class="roadmap-release-sequence" aria-label="Version 3 minor release sequence">
-          <li id="roadmap-v3-1"><strong>v3.1.0</strong><span>Expand Matter compatibility and support external sensing traffic from ESP32 peers.</span></li>
-          <li><strong>v3.2.0</strong><span>Bring ESPectre to Arduino projects through a supported SDK runtime.</span></li>
-          <li><strong>v3.3.0</strong><span>Recognize stationary presence, even when no movement is visible.</span></li>
+          <li id="roadmap-v3-1"><strong>v3.1.0</strong><span>Released: Matter works with Google Home, Apple Home, and Home Assistant, and sensors can take traffic from another ESP32 or a Docker service.</span></li>
+          <li><strong>v3.2.0</strong><span>In progress: bring ESPectre to Arduino projects through a supported SDK runtime.</span></li>
+          <li id="roadmap-v3-3"><strong>v3.3.0</strong><span>Recognize stationary presence, even when no movement is visible.</span></li>
           <li><strong>v3.4.0</strong><span>Research gesture control and breathing-related micro-motion.</span></li>
         </ol>
       </div>
@@ -134,7 +134,7 @@
       <article><span>01</span><div><h3>HE20 and HT40 sensing profiles</h3><p>Adapt both CSI formats to the detectors, compare their benefits and costs, and adopt one if it proves better.</p></div></article>
       <article><span>02</span><div><h3>Higher CSI rate</h3><p>Find the highest packet rate that stays stable without too much loss, delay, CPU, memory, or network load.</p></div></article>
       <article><span>03</span><div><h3>Longer and multi-scale windows</h3><p>Look at longer stretches of time to catch very small, slow movements, without slowing down normal detection.</p></div></article>
-      <article><span>04</span><div><h3>Stationary presence</h3><p>Test whether a room with a still person can be told apart from an empty room.</p></div></article>
+      <article><span>04</span><div><h3>Stationary presence</h3><p>Tell a room with a still person apart from an empty room. Planned for v3.3.0, once the detector passes its tests.</p></div></article>
       <article><span>05</span><div><h3>Breathing-related motion</h3><p>Study the tiny movements of breathing (not for medical use), once presence and longer windows work.</p></div></article>
       <article><span>06</span><div><h3>Brief gestures</h3><p>Record gesture data once the higher packet rate captures fast enough movements.</p></div></article>
     </div>

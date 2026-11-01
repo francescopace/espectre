@@ -82,7 +82,7 @@ At boot, the threshold starts from the selected profile's SDK default: High Accu
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` / `external` selection |
-| `csi_sample_spacing_select` | select | `CSI Packet Spacing` | Runtime `half_slot` / `distinct` sample spacing |
+| `csi_sample_spacing_select` | select | `CSI Packet Spacing` | Runtime `half_slot` / `distinct` packet spacing |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine; publishes the runtime state at startup |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Whether calibration is running (read-only) |
@@ -145,7 +145,7 @@ Movement Score produces a lot of history. To keep the recorder small, exclude `s
 To manage configuration and OTA updates, adopt the device in ESPHome Device Builder. The adopted configuration builds from the GitHub `main` branch and reports version `0.0.0-main`. To stay on a release, use a prebuilt image instead: download `espectre-esphome-<channel-or-version>-<chip>-ota.bin` from GitHub Releases and upload it:
 
 ```bash
-./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
+./espectre esphome flash --chip c6 --device espectre-<mac-suffix>.local --firmware espectre-esphome-3.1.0-esp32c6-ota.bin
 ```
 
 An older installation without the MAC suffix is still at `espectre.local` for this upload. Afterwards, use `espectre-<mac-suffix>.local`.

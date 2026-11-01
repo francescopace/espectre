@@ -4,51 +4,77 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.1.0] - work in progress
+## [3.1.0] - 2026-11-01 - Matter controller compatibility and external traffic sources
 
+ESPectre 3.1 makes Matter sensors work with more controllers and adds new ways to feed a sensor with traffic: another ESPectre device, multicast ping, or a standalone Docker service. It adds to the 3.0 API and SDK; the few changes existing code needs are listed under Upgrading from 3.0.0.
+
+### Highlights
+
+- Matter sensors are validated with Google Home, Apple Home, and Home Assistant on ESP32-S3: commissioning, occupancy updates, and an automation trigger. See [Matter controller compatibility](https://github.com/francescopace/espectre/blob/3.1.0/src/cpp/frontend/matter/README.md#matter-controller-compatibility).
+- Two-device sensing: `wifi_raw` can send its Null Data frames to another sensor in `external` mode, which measures them directly. See the [two-device placement guide](https://espectre.dev/guides/placement/#placement-pair).
+- Multicast ping is the new recommended external source. See [external sources](https://github.com/francescopace/espectre/blob/3.1.0/docs/CSI.md#external-sources).
+- A Docker image runs the traffic generator with a web UI, without Home Assistant OS. See the [Docker image guide](https://github.com/francescopace/espectre/blob/3.1.0/tools/traffic_generator_docker/README.md).
+- New `csi_sample_spacing` setting for congested channels.
+
+### Sensing and CSI
+
+- `wifi_raw` is stable on supported chips. It is not available on ESP32-C6; see [compatibility limits](https://github.com/francescopace/espectre/blob/3.1.0/docs/CSI.md#compatibility-limits).
+- `traffic_generator_target_mac` sets the `wifi_raw` destination. The default, `auto`, follows the associated AP across reconnects and BSSID pin changes. A unicast MAC sends direct MCS0 Null Data to another sensor in `external` mode on the same channel: HT20 on 2.4 GHz, and VHT20 on C5 at 5 GHz. The sender keeps LLTF sensing. Set it in ESPHome YAML, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, the SDK, `update_sensing`, or Monitor → Advanced sensing settings; see [traffic destination](https://github.com/francescopace/espectre/blob/3.1.0/docs/SDK.md#traffic-destination).
+- Discovery includes the optional station `mac_address`. The Monitor's Destination MAC menu offers Automatic (AP) and the sensors it finds, and keeps a configured destination that is not found.
+- `external` mode accepts direct non-QoS Null Data and unencrypted unicast ESP-NOW v1/v2 frames, subject to the usual CSI quality and capture-profile checks. Promiscuous mode stays off. A third-party Null Data sender at MCS0 must set HT20 bandwidth and a wildcard BSSID, and append two zero padding bytes; see [external sources](https://github.com/francescopace/espectre/blob/3.1.0/docs/CSI.md#external-sources). ESP32-C6 receives valid HT20 CSI from padded Null Data and unicast ESP-NOW. See the [hardware validation summary](https://github.com/francescopace/espectre/blob/3.1.0/docs/adr/2026-08-23-standardize-managed-csi-traffic-sources.md#external-radio-and-peer-sensing-validation).
+- `external` mode accepts ICMP Echo Requests on the configured multicast group, and the firmware answers them. That reply is the uplink UDP markers lack: without it, an empty room can show motion. The generator script, the Home Assistant app, and the Docker image can send Echo Requests to device addresses or to the group. The script and the app keep UDP as the default, so existing setups and `./espectre collect` are unchanged.
+- `csi_sample_spacing` sets how close admitted CSI packets can be. `half_slot`, the default, keeps them at least half a slot apart; `distinct` needs only distinct timestamps. On congested channels where packets arrive in back-to-back pairs, `distinct` lets the earlier packet fill the free slot before it. It applies to every traffic source. Set it in ESPHome YAML, the CSI Packet Spacing select in Home Assistant, `CONFIG_ESPECTRE_CSI_SAMPLE_SPACING_DISTINCT`, the SDK, `update_sensing`, or Monitor → Advanced sensing settings. Micro-ESPectre accepts the same rule.
+
+### Fixes
+
+- CSI admission no longer stalls after a long silence. The 32-bit Wi-Fi RX clock wraps every 71.6 minutes, so after more than 35.8 minutes without CSI, for example in `external` mode with no sender, new packets were rejected for up to 36 more minutes. Sensing now resumes about two seconds after traffic returns, also in Micro-ESPectre.
+- CSI occupancy drops to 0% once no CSI has arrived for one detector window, in diagnostics, the periodic log, and the Home Assistant CSI Temporal Occupancy entity. Before, a device whose traffic stopped kept its last value.
+- A closed or slow USB Serial/JTAG monitor no longer stalls sensing: the console drops whole log lines instead of waiting, and retries Improv responses. ESP32-C6 is no longer flooded by USB interrupts.
+- Monitor Demo mode applies the motion-on and motion-off reading counts to state changes and chart highlighting, and keeps these settings across tools.
+- `./espectre collect --detector high_accuracy` works again (#203).
+- `./espectre devices` finds devices on another VLAN behind an mDNS proxy, such as the UniFi gateway's (#205).
+- The SDK Wi-Fi example waits for traffic to leave the radio before it changes the station or scans, checks the `set_config()` result, and answers ping on the multicast group.
+
+### Matter
+
+- Basic Information reports a real `SoftwareVersion`, which grows with each release; it was 0. It also reports a `SerialNumber` derived from the chip's base MAC.
+- Occupancy Sensing adds `HoldTime` and `HoldTimeLimits`; without them, Google Home showed the sensor offline. Occupancy still clears 1 second after the detector reports idle. A controller can set up to 300 seconds, kept across reboots.
+- Test Event Triggers, which esp-matter enabled with a public key, are off.
+- Product builds can read onboarding data, the DAC, and the serial number from factory partitions. The partition table reserves `esp_secure_cert` and `fctry` without moving existing partitions, so updates keep fabrics and onboarding codes. See [building a certified product](https://github.com/francescopace/espectre/blob/3.1.0/src/cpp/frontend/matter/README.md#building-a-certified-product) and [Google Home with community images](https://github.com/francescopace/espectre/blob/3.1.0/src/cpp/frontend/matter/README.md#google-home-with-community-images).
+
+### Tools and integrations
+
+- `ghcr.io/francescopace/espectre-traffic-generator` runs the external traffic generator next to Home Assistant Container or without Home Assistant. Its web UI, protected by a sign-in token, sets the same options as the Home Assistant app, starts and stops traffic, and shows the send rate, send errors, and ping replies. It finds devices by mDNS or IPv4 address, shows their traffic diagnostics, and changes their traffic source and CSI sample spacing over Direct HTTP, one device or several at once. It sends ping to the multicast group by default. Images are published for `amd64` and `arm64`.
+- Home Assistant app 0.4.0: a **Traffic source** picker replaces the **External** and **Internal** buttons and lists every source the device offers, also for bulk changes (#191); **Previous internal source** keeps the old **Internal** behavior. After a bulk change, only failed or unconfirmed devices stay selected, so one click retries them (#193). A **Packet spacing** column switches devices between `half_slot` and `distinct`, and **Traffic type** selects ping or UDP.
+- The performance report lists selection and holdout separately, adds time-based coverage, raw and filtered recall, and per-recording quiet alarm rates, and hashes the model files. New model exports record their training data and settings.
+- The website's USB installer is built with esbuild instead of Rollup, which drops `deepmerge` and its unpatched advisory (GHSA-gcqx-w48m-w2h4).
 - Official firmware builds use ESPHome 2026.10.0, ESP-IDF 5.5.6, and MicroPython 1.29.0. ESPHome configurations still require 2026.7.0 or later.
 
-- The performance report lists selection and holdout separately, adds time-based coverage, raw and filtered recall, and per-recording quiet alarm rates, and hashes the model files. New model exports record their training data and settings.
+### SDK
 
-- Wi-Fi raw traffic is stable on supported chips. ESP32-C6 remains unsupported; see [compatibility limits](CSI.md#compatibility-limits).
+The additions are source-compatible, except as listed under Upgrading from 3.0.0:
 
-- Monitor Demo mode now applies the motion-on and motion-off reading counts to state transitions and chart highlighting, and retains these settings while navigating between tools.
+- `RuntimeFrontendController` adds `set_traffic_generator_target_mac()` and `set_csi_sample_spacing()`. `RuntimeConfig`, `RuntimeControlUpdate`, and `RuntimeCapabilities` gain matching fields, with validation and name helpers; see the [API reference](https://espectre.dev/sdk/api/).
+- `ICsiTrafficGenerator::set_target_mac()` has a default implementation that accepts only `auto`.
+- `FrontendCommandEngine::execute()` takes the destination and spacing callbacks as optional trailing parameters. `build_frontend_ha_discovery_message()` and `build_frontend_ha_discovery_messages()` take `supports_csi_sample_spacing` the same way.
+- `TemporalCsiSampler` takes the spacing rule as an optional third constructor argument and adds `set_spacing()` and `spacing()`. `temporal_minimum_sample_spacing_us()` has an overload with the rule.
+- The core SDK adds `WrappingTimestampOrder`, which holds the RX clock wrap rule.
+- `read_direct_station_mac_address()` and `PeerDiscoveryCandidate::mac_address` expose the discovery MAC.
+- Direct accepts `espressif/mdns` 1.12 to 1.14 instead of exactly 1.12.0, so it resolves alongside ESPHome's mDNS 1.14.0.
+- `RuntimeConfigError` and `EspectreDirectMethod` gain two values each.
+- Devices advertise `features.traffic_generator_target_mac` and `features.csi_sample_spacing`. Direct and MQTT share validation, state, and persistence for both settings.
 
-- `wifi_raw` accepts a destination through `traffic_generator_target_mac`. The default, `auto`, follows the associated AP after reconnects and BSSID pin changes. A unicast MAC sends direct MCS0 Null Data with two zero padding bytes to another sensor in `external` mode on the same channel: HT20 on 2.4 GHz, and VHT20 on C5 at 5 GHz. The transmitter keeps LLTF sensing. Update both peers together: earlier receivers accept only the unpadded 28-byte frame and reject the padded 30-byte form. No additional device role is required. Set it in ESPHome YAML, `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, `RuntimeConfig`, `RuntimeFrontendController::set_traffic_generator_target_mac()`, `update_sensing`, or Monitor → Advanced sensing settings. Direct and MQTT share validation, state, and persistence; devices advertise support with `features.traffic_generator_target_mac`.
+### Upgrading from 3.0.0
 
-- Discovery includes the optional station `mac_address` across frontends. The Monitor's Destination MAC menu offers Automatic (AP) and discovered sensors, while retaining the configured destination when it is not found. Its refresh button searches on demand, without caching results or offering manual MAC entry.
+- Add the new cases to exhaustive `switch` statements on `RuntimeConfigError` and `EspectreDirectMethod`.
+- New fields sit in the middle of `RuntimeConfig`, `EspectreDeviceInfo`, `EspectreCommand`, and `FrontendHaMqttSettings`. Positional brace initialization must follow the new order; designated initializers and member assignment are unaffected.
+- A custom `ICsiTrafficGenerator` must implement `set_target_mac()` to use a unicast `wifi_raw` destination. Without it, raw traffic to that destination does not start.
+- Scripts that call the Home Assistant app's `/api/action` must send `mode` instead of `action`.
+- Update both devices of a `wifi_raw` pair: 3.0.0 receivers ignore direct Null Data.
+- If an external UDP source shows motion in an empty room, switch it to ping.
+- SDK firmware that should answer ping on the multicast group needs `CONFIG_LWIP_MULTICAST_PING=y`; see the [recommended project configuration](https://github.com/francescopace/espectre/blob/3.1.0/docs/SDK.md#recommended-project-configuration).
 
-- The SDK additions are source-compatible. `ICsiTrafficGenerator::set_target_mac()` has a default implementation, and `FrontendCommandEngine::execute()` takes the raw destination callback as a new optional trailing parameter. `RuntimeConfigError` and `EspectreDirectMethod` gain one value each, so exhaustive `switch` statements need a new case. `read_direct_station_mac_address()` and `PeerDiscoveryCandidate::mac_address` expose the optional discovery MAC.
-
-- New `csi_sample_spacing` setting: `half_slot`, the default, keeps admitted CSI packets at least half a slot apart, and `distinct` needs only distinct timestamps. On congested channels where packets arrive in back-to-back pairs, `distinct` lets the earlier packet fill the free slot before it. It applies to every traffic source. Set it in ESPHome YAML, the "CSI Packet Spacing" select in ESPHome and Native Home Assistant discovery, `CONFIG_ESPECTRE_CSI_SAMPLE_SPACING_DISTINCT`, `RuntimeConfig`, `RuntimeFrontendController::set_csi_sample_spacing()`, `update_sensing`, or Monitor → Advanced sensing settings. Direct and MQTT share validation, state, and persistence; devices advertise support with `features.csi_sample_spacing`. The SDK additions are source-compatible: `TemporalCsiSampler` takes the rule as an optional third constructor argument and gains `set_spacing()` and `spacing()`, `temporal_minimum_sample_spacing_us()` gains an overload with the rule, `IEspectreRuntime::set_csi_sample_spacing()` has a default implementation, `FrontendCommandEngine::execute()` takes the spacing callback as a new optional trailing parameter, and `build_frontend_ha_discovery_message()` and `build_frontend_ha_discovery_messages()` take `supports_csi_sample_spacing` the same way. `RuntimeConfigError` and `EspectreDirectMethod` gain one value each. The Micro-ESPectre sampler accepts the same rule.
-
-- CSI occupancy, in diagnostics, the periodic log, and the Home Assistant CSI Temporal Occupancy entity, drops to 0% once no admitted CSI packet has arrived for one detector window. Before, a device whose traffic stopped kept reporting its last occupancy, for example 81% with no CSI at all. The detector window itself is unchanged; ESPHome, Native, Matter, and Micro-ESPectre apply the same rule.
-
-- CSI admission no longer stalls after a long silence. The 32-bit Wi-Fi RX clock wraps every 71.6 minutes, so after more than 35.8 minutes without admitted CSI, for example in external mode with no sender, every new packet looked late and was rejected for up to 36 more minutes. Now, in the capture-level duplicate filter and then in temporal admission, a run of such packets that keeps advancing for one second (one detector window by default) starts a new epoch, so sensing resumes about two seconds after traffic returns. Repeated packets inside the run do not restart it. The new `WrappingTimestampOrder` in the core SDK holds the shared rule, and Micro-ESPectre applies it to its RX timestamp filter too.
-
-- External traffic mode accepts ICMP Echo Requests on the configured multicast group, and ESPHome, Native, and Matter enable `CONFIG_LWIP_MULTICAST_PING` so the device answers them. Echo Requests are now the recommended external source: UDP markers get no reply, and without that uplink an empty room can show motion. See [external sources](CSI.md#external-sources). The shared traffic generator and the Home Assistant add-on (0.4.0) can send Echo Requests to device addresses or to the group, selected by `PROTOCOL` in the script and **Traffic type** in the add-on. UDP stays the default, so existing setups and `./espectre collect` are unchanged; collection already keeps the device transmitting through its CSI stream.
-
-- The Home Assistant app panel replaces the **External** and **Internal** buttons with a **Traffic source** picker that lists every source the device offers, including `dns`, `dns_tcp`, and `wifi_raw`, also for bulk changes. **Previous internal source** keeps the old **Internal** behavior. The `/api/action` request now takes `mode` instead of `action` (#191).
-
-- The Home Assistant app panel keeps only the devices that failed or have not confirmed a bulk change selected, so one click retries them, and clears a device's warning when it confirms later. Its messages no longer point to a Refresh button that does not exist (#193).
-
-- The Home Assistant app panel adds a **Sample spacing** column, which switches a device between `half_slot` and `distinct` through its CSI Packet Spacing select, like the Docker image.
-
-- Matter Basic Information now reports a real `SoftwareVersion`, encoded from the release identity so that later builds always have a higher number; it was 0 before. It also reports a `SerialNumber` derived from the chip's base MAC. Test Event Triggers, which esp-matter enabled with a public key, are off. A product build can read onboarding data, the DAC, and the serial number from factory partitions instead; the partition table reserves `esp_secure_cert` and `fctry` for this without moving any existing partition, so updates keep fabrics and onboarding codes. The Matter guide lists what the firmware provides and what an integrator must add for a certified product, and how to add community images to Google Home.
-- Matter Occupancy Sensing now has `HoldTime` and `HoldTimeLimits`. Without them, Google Home showed the sensor offline. Occupancy clears 1 second after the detector reports idle, as before; a controller can set up to 300 seconds, and the device keeps that value across reboots. Commissioning, occupancy updates, and an automation trigger are validated with Google Home, Apple Home, and Home Assistant on ESP32-S3; see [Matter controller compatibility](../src/cpp/frontend/matter/README.md#matter-controller-compatibility).
-
-- Matter firmware raises the main task stack from the 3584-byte ESP-IDF default to 4608 bytes. Startup peaks at about 3.6 KiB on ESP32-S3, so develop and preview snapshots after 3.0.0 restarted in a loop before commissioning. The stack is freed once startup finishes.
-
-- The new `ghcr.io/francescopace/espectre-traffic-generator` Docker image runs the external traffic generator without Home Assistant OS, for example next to Home Assistant Container. Its web UI, protected by a sign-in token, sets the same options as the Home Assistant app, starts and stops the traffic, and shows the send rate, send errors, and ping replies. It finds devices with mDNS or by IPv4 address, shows their traffic diagnostics, and switches their traffic source through Direct HTTP, one device or several at once, with every source the device supports. It also sets the CSI sample spacing on devices that offer it. It sends ping to the multicast group by default. Each release publishes `amd64` and `arm64` images, and `develop` and `main` publish `develop` and `preview` snapshots. See the [Docker image guide](../tools/traffic_generator_docker/README.md).
-
-- `./espectre collect --detector high_accuracy` works again. The CLI had been rejecting it with only `lightweight` listed as supported, although its help and the [CLI guide](CLI.md) still offered both (#203).
-
-- External traffic mode accepts direct non-QoS Null Data and unencrypted unicast ESP-NOW v1/v2 frames, subject to the existing CSI quality and capture-profile checks. C3-to-S3 acquisition is validated with both sources at HT20 MCS0, and with legacy OFDM/LLTF, with promiscuous mode disabled. Direct Null Data at MCS0 requires explicit transmitter HT20 bandwidth and a wildcard BSSID; the receiver keeps its standard HT20 profile. HT20 and VHT20 frames may carry exactly two zero padding bytes. ESP32-C6 needs them for valid CSI, and receives valid HT20 CSI from padded Null Data and unicast ESP-NOW.
-
-- The website's USB installer bundle is now built with esbuild instead of Rollup. This drops the `deepmerge` build dependency, which has an unpatched advisory (GHSA-gcqx-w48m-w2h4). The installer works as before.
-
-- `./espectre devices` finds devices on another VLAN behind an mDNS proxy, such as the UniFi gateway's. It now also browses from UDP port 5353 alongside the legacy-unicast query, which proxies do not relay, and resolves each service the way it was found. Without port 5353, for example on Windows, it uses legacy unicast only (#205).
-- The SDK Wi-Fi example waits for traffic to leave the radio before it changes the station or scans, checks the `set_config()` result, and answers ping on the multicast group.
+---
 
 ## [3.0.0] - 2026-10-07 - Wi-Fi sensing SDK, standalone firmware, and browser tools
 
