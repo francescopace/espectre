@@ -61,7 +61,7 @@ Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct ca
 
 You can pin the device to one access point. The pin is tied to the commissioned network: it is ignored on another SSID until you clear it. Changing it reconnects without a reboot, and a failed change restores the previous pin. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
 
-Set build-time defaults in menuconfig; see [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). Detector and traffic changes made through Direct survive a reboot. See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials).
+Set build-time defaults in menuconfig; see [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). Detector, traffic, and packet spacing changes made through Direct survive a reboot. See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials).
 
 ## Targets and validation
 

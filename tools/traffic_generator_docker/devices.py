@@ -365,7 +365,7 @@ class DeviceRegistry:
             if device is None:
                 return {**result, "status": "error", "message": "Device is no longer listed."}
             if not device.can_control or not device.spacing_supported:
-                return {**result, "status": "error", "message": "This device has no sample spacing setting."}
+                return {**result, "status": "error", "message": "This device has no packet spacing setting."}
             return self._apply(device, "csi_sample_spacing", spacing, result)
 
         with ThreadPoolExecutor(max_workers=REFRESH_WORKERS) as pool:

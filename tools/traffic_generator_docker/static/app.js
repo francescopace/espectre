@@ -14,7 +14,7 @@ const INTERNAL = "internal";
 const modeLabel = mode => mode === INTERNAL ? "Previous internal source" : MODE_LABELS[mode] || mode;
 const FIELDS = ["generator", "traffic_tx", "traffic_rx", "accepted", "occupancy", "rssi"];
 // How far apart admitted CSI packets must be; see docs/ALGORITHMS.md#temporal-admission.
-const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct"]];
+const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct timestamps"]];
 let devices = [], scanning = false, deviceBusy = false, pending = null, deviceMessage = "";
 const selected = new Set();
 const rowElements = new Map();
@@ -231,9 +231,9 @@ function showDevices(snapshot, force = false) {
     row.spacing.hidden = !device.spacing_supported;
     row.noSpacing.hidden = device.spacing_supported;
     // A saved address that never answered has unknown firmware, not one without the setting.
-    row.noSpacing.title = device.error ? "Unknown until the device answers" : "This firmware has no sample spacing setting";
+    row.noSpacing.title = device.error ? "Unknown until the device answers" : "This firmware has no packet spacing setting";
     if (force || document.activeElement !== row.spacing) row.spacing.value = device.sensing.csi_sample_spacing || "half_slot";
-    row.spacing.setAttribute("aria-label", `Sample spacing: ${device.name}`);
+    row.spacing.setAttribute("aria-label", `Packet spacing: ${device.name}`);
     if ($("devices").children[index] !== row.tr) $("devices").insertBefore(row.tr, $("devices").children[index] || null);
   });
   deviceControls();

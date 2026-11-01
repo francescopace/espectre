@@ -370,7 +370,7 @@ async def set_device_spacing(request):
         raise web.HTTPBadRequest(text="Expected device_ids and spacing.")
     device_ids, spacing = payload["device_ids"], payload["spacing"]
     if spacing not in SAMPLE_SPACINGS or not valid_device_ids(device_ids):
-        raise web.HTTPBadRequest(text=f"Select 1-{MAX_ACTION_DEVICES} unique devices and a supported sample spacing.")
+        raise web.HTTPBadRequest(text=f"Select 1-{MAX_ACTION_DEVICES} unique devices and a supported packet spacing.")
     controller = request.app[CONTROLLER]
     if controller.lock.locked():
         raise web.HTTPConflict(text="Another change is in progress.")

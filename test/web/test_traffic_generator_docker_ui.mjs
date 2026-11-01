@@ -258,7 +258,7 @@ it('offers each device only the sources it supports, and their union in bulk', a
     assert.equal($('bulk-mode').value, 'external');
 });
 
-it('changes one device sample spacing at once and hides it where the firmware lacks it', async () => {
+it('changes one device packet spacing at once and hides it where the firmware lacks it', async () => {
     const { $, calls, settle } = fixture({ signedIn: true,
         devices: [device('a'), device('b', 'ping', { spacing_supported: false }),
             device('c', 'ping', { spacing_supported: false, can_control: false, error: 'The device did not answer.' })] });
@@ -268,7 +268,7 @@ it('changes one device sample spacing at once and hides it where the firmware la
     assert.equal(cell(0).children[0].hidden, false);
     assert.equal(cell(1).children[0].hidden, true);
     assert.equal(cell(1).children[1].hidden, false);
-    assert.equal(cell(1).children[1].title, 'This firmware has no sample spacing setting');
+    assert.equal(cell(1).children[1].title, 'This firmware has no packet spacing setting');
     // A saved address that has not answered says so instead of blaming its firmware.
     assert.equal(cell(2).children[1].title, 'Unknown until the device answers');
 

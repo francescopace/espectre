@@ -17,7 +17,7 @@ const MODE_LABELS = {ping: "Ping", dns: "DNS", dns_tcp: "DNS over TCP", wifi_raw
 const INTERNAL = "internal";
 const modeLabel = mode => mode === INTERNAL ? "Previous internal source" : MODE_LABELS[mode] || mode;
 // How far apart admitted CSI packets must be; see docs/ALGORITHMS.md#temporal-admission.
-const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct"]];
+const SPACINGS = [["half_slot", "Half slot"], ["distinct", "Distinct timestamps"]];
 const base = new URL(location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`, location.origin);
 
 async function api(path, body) {
@@ -151,10 +151,10 @@ function render(force = false) {
     element.source.setAttribute("aria-label", `Traffic source: ${row.name}`);
     element.spacing.hidden = !row.can_set_spacing;
     element.noSpacing.hidden = row.can_set_spacing;
-    element.noSpacing.title = row.fields.spacing.entity_id ? "Sample spacing entity is unavailable" : "Sample spacing not exposed by this firmware";
+    element.noSpacing.title = row.fields.spacing.entity_id ? "Packet spacing entity is unavailable" : "Packet spacing not exposed by this firmware";
     if (row.can_set_spacing && (force || document.activeElement !== element.spacing)) element.spacing.value = row.fields.spacing.value;
     element.spacing.disabled = busy;
-    element.spacing.setAttribute("aria-label", `Sample spacing: ${row.name}`);
+    element.spacing.setAttribute("aria-label", `Packet spacing: ${row.name}`);
     sample(element.generator, row.fields.generator);
     sample(element.traffic, row.fields.traffic);
     sample(element.trafficRx, row.fields.traffic_rx);

@@ -365,7 +365,7 @@ class HomeAssistant:
     async def set_spacing(self, device_ids, spacing):
         """Select the CSI sample spacing on each device that exposes it."""
         def choose(_device_id, row):
-            return spacing, None if row["can_set_spacing"] else "This device has no sample spacing setting."
+            return spacing, None if row["can_set_spacing"] else "This device has no packet spacing setting."
         return await self.select(device_ids, "spacing", choose)
 
     async def select(self, device_ids, field, choose):

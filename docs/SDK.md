@@ -203,7 +203,7 @@ A few things the groups do not do:
 
 ## Shared sensing options
 
-Set these `RuntimeConfig` fields before setup. The defaults are those of a plain `RuntimeConfig{}`. To start from menuconfig, call `make_runtime_sensing_config_from_kconfig()` and override what you need. Kconfig choices match the C++ values: `CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_HT_VHT=y` means `CsiCapturePolicy::HT_VHT`.
+Set these `RuntimeConfig` fields before setup. The defaults are those of a plain `RuntimeConfig{}`. To start from menuconfig, call `make_runtime_sensing_config_from_kconfig()` and override what you need. The options are under **ESPectre Sensing**. Kconfig choices match the C++ values, such as `CONFIG_ESPECTRE_CSI_CAPTURE_PROFILE_HT_VHT=y` for `CsiCapturePolicy::HT_VHT`. The one exception is `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_EXTERNAL`, which means `TrafficGeneratorMode::EXTERNAL_HOST`.
 
 | `RuntimeConfig` field | Type and values | Default | Notes |
 |-----------------------|-----------------|---------|-------|
@@ -234,11 +234,11 @@ Set these `RuntimeConfig` fields before setup. The defaults are those of a plain
 
 Defaults and range checks are in [runtime_sensing_schema.h](../src/cpp/runtime/runtime_sensing_schema.h) and [runtime_config_utils.cpp](../src/cpp/runtime/runtime_config_utils.cpp). Motion hits are explained in [motion-hit filtering](ALGORITHMS.md#motion-hit-filtering).
 
-The transmit rate is a build option, not a field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` is `"0"` (automatic), `"6"`, or `"6.5"`, with the quotes. See [transmit rate](CSI.md#transmit-rate).
+The transmit rate is a build option, not a field: `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` is `"0"` (automatic), `"6"`, or `"6.5"`, with the quotes. It defaults to `"6.5"` on ESP32 and `"0"` on other chips. See [transmit rate](CSI.md#transmit-rate).
 
 Some settings can also change at runtime through the controller setters or the [sensing operations](API.md#sensing-update-and-calibration). Check `capabilities()` first. [Tuning essentials](TROUBLESHOOTING.md#tuning-essentials) explains when a change helps.
 
-By default nothing is saved, and your `RuntimeConfig` is applied on every boot. With `persist_runtime_overrides`, setter changes to the traffic mode, raw destination MAC, motion hits, and selectable detector are saved in the `espectre` NVS namespace. Saved values win over your configuration until `clear_persisted_overrides()` erases them. The threshold is never saved.
+By default nothing is saved, and your `RuntimeConfig` is applied on every boot. With `persist_runtime_overrides`, setter changes to the traffic mode, raw destination MAC, sample spacing, motion hits, and selectable detector are saved in the `espectre` NVS namespace. Saved values win over your configuration until `clear_persisted_overrides()` erases them. The threshold is never saved.
 
 ### Choosing a detection profile
 
@@ -248,7 +248,7 @@ Lightweight leaves more CPU and memory for your application and calibrates its t
 
 `traffic_generator_target_ip` is where `PING`, `DNS`, and `DNS_TCP` send packets. Leave it empty to use the Wi-Fi gateway. Otherwise use a unicast IPv4 address, such as `192.168.1.10`, of a host that answers that protocol; DNS needs a resolver on port 53. Hostnames, loopback, multicast, and reserved addresses are rejected. It can only be set before setup, or with `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_IP`.
 
-`traffic_generator_target_mac` is where `WIFI_RAW` sends Null Data frames. `auto` follows the access point the device is connected to, including after roaming. A unicast MAC sends to another ESPectre device on the same channel running in `EXTERNAL_HOST` mode, so you can place both ends of the sensing link where you want; see [two-device sensing](CSI.md#two-device-sensing). Change it at runtime with `set_traffic_generator_target_mac()`. Group, broadcast, zero, and the device's own MAC are rejected.
+`traffic_generator_target_mac` is where `WIFI_RAW` sends Null Data frames. `auto` follows the access point the device is connected to, including after roaming. A unicast MAC sends to another ESPectre device on the same channel running in `EXTERNAL_HOST` mode, so you can place both ends of the sensing link where you want; see [two-device sensing](CSI.md#two-device-sensing). Set it with `CONFIG_ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC`, or change it at runtime with `set_traffic_generator_target_mac()`. Group, broadcast, and zero MACs are rejected. The device's own MAC is rejected at runtime; set before setup, it stops raw traffic from starting.
 
 ## Runtime contract
 
@@ -299,7 +299,7 @@ Component Manager configures everything for you. To vendor the SDK, use the dire
 
 - As an ESP-IDF component: copy the SDK root to `components/espectre/`, add `espectre` to your `REQUIRES`, and enable groups in menuconfig.
 - As a core-only library: compile `ESPECTRE_CORE_SOURCES` with `ESPECTRE_SHARED_INCLUDE_DIRS`.
-- As a full runtime from source lists: also compile `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, link `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS`, and add the groups you need:
+- As a full runtime from source lists: also compile `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, link `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS`, require `esp_wifi`, `esp_event`, `esp_netif`, `esp_timer`, `nvs_flash`, `lwip`, `freertos`, `heap`, and `mbedtls`, and add the groups you need:
 
 | Group | Source list | Also needs |
 |-------|-------------|------------|

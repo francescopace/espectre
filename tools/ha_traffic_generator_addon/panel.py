@@ -174,7 +174,7 @@ async def action(request):
 async def spacing(request):
     device_ids, value = await device_change(
         request, "spacing", lambda value: value in SAMPLE_SPACINGS,
-        "Select 1–32 unique devices and a sample spacing.")
+        "Select 1–32 unique devices and a packet spacing.")
     return await run_exclusive(request, lambda: request.app[HA].set_spacing(device_ids, value))
 
 

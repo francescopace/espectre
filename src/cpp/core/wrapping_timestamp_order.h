@@ -14,13 +14,13 @@
 
 namespace espectre {
 
-/** Microseconds in half the 32-bit range: a larger forward delta reads as backward. */
+/** Half the 32-bit range, in timestamp units: a larger forward delta reads as backward. */
 constexpr uint32_t WRAPPING_TIMESTAMP_HALF_RANGE = 0x80000000U;
 
 /** How a timestamp relates to the last accepted one. */
 enum class WrappingTimestampOrderResult : uint8_t {
   FIRST = 0U,      ///< No earlier timestamp; this one starts the sequence.
-  FORWARD = 1U,    ///< Later than the last accepted one; see delta_us().
+  FORWARD = 1U,    ///< Later than the last accepted one; see delta().
   DUPLICATE = 2U,  ///< Equal to the last accepted one, or to the latest value of a backward run.
   BACKWARD = 3U,   ///< Earlier than the last accepted one; rejected.
   RESYNC = 4U,     ///< Restarts the sequence after a run of advancing backward values.

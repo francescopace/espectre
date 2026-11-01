@@ -470,7 +470,7 @@ it('offers each mode a selected device has, plus the previous internal source, i
     assert.deepEqual(writes(f).at(-1).body, { mode: 'wifi_raw', device_ids: ['sensor-0', 'sensor-1'] });
 });
 
-it('sets sample spacing without confirmation and keeps the selection for source changes', async () => {
+it('sets packet spacing without confirmation and keeps the selection for source changes', async () => {
     const f = fixture(2);
     await f.tick();
     const spacing = row => f.get('devices').children[row].children[9].children;

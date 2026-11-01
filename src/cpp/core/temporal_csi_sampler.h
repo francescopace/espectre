@@ -177,7 +177,8 @@ class TemporalCsiSampler {
   uint64_t excess_packets() const { return excess_packets_; }
   /**
    * Packets whose timestamp moved backwards. Backward timestamps that keep
-   * advancing for one window start a new epoch instead, as after a long silence.
+   * advancing for one window start a new epoch, as after a long silence; the
+   * packets of that run before the new epoch still count here, up to one window.
    */
   uint64_t out_of_order_packets() const { return out_of_order_packets_; }
   /** Packets older than one window when processed; needs `now_us`. */

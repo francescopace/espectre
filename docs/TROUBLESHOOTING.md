@@ -47,7 +47,7 @@ On Native boards that use the USB Serial/JTAG console, logs are best effort: whe
 1. If traffic or accepted packets are missing, see [No CSI or insufficient input](#no-csi-or-insufficient-input).
 2. If packets arrive but occupancy stays low, check [Bluetooth](#bluetooth-reduces-csi-occupancy), [LAN restrictions](#lan-traffic-blocked), and [roaming on mesh networks](#mesh-wi-fi-instability).
 3. Recheck [placement](SETUP.md#sensor-placement) before changing detector settings.
-4. On a busy channel, packets can arrive in back-to-back pairs after short gaps, and `csi_excess_pps` then stays close to `csi_missing_slots_pps`. Set `csi_sample_spacing` to `distinct` so the earlier packet of each pair can fill the empty slot.
+4. On a busy channel, packets can arrive in back-to-back pairs after short gaps, and `csi_excess_pps` then stays close to `csi_missing_slots_pps`. Set `csi_sample_spacing` to `distinct` so the earlier packet of each pair can fill the empty slot: use **Packet spacing** in Monitor → Advanced sensing settings, the CSI Packet Spacing entity in Home Assistant, or `csi_sample_spacing` in the ESPHome YAML. If occupancy does not rise within a minute, go back to `half_slot`. See [temporal admission](ALGORITHMS.md#temporal-admission).
 5. Once occupancy is stable, repeat the quiet-and-motion test.
 
 Keep `csi_target_pps` at its default of `100`. Changing it changes detector timing (see [detector timing](ALGORITHMS.md#detector-timing)). Lowering the threshold does not fix missing input.

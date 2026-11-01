@@ -234,7 +234,10 @@ class RuntimeFrontendController : private IRuntimeListener {
   bool set_traffic_generator_mode(TrafficGeneratorMode mode);
   /**
    * Set auto or a unicast raw destination, stored with lower-case hex digits.
-   * Rejects this station's MAC, restarts active raw traffic, and persists when enabled.
+   * While the runtime runs, rejects this station's MAC, restarts active raw
+   * traffic, and persists when enabled. Before setup, the MAC is only checked
+   * for format; if it names this station, raw traffic logs an error and does
+   * not start.
    */
   bool set_traffic_generator_target_mac(const std::string &target);
   /**
@@ -308,7 +311,8 @@ class RuntimeFrontendController : private IRuntimeListener {
   /**
    * Erase the sensing controls saved by earlier setter calls.
    *
-   * Removes the traffic generator mode, motion hits, and detector saved under
+   * Removes the traffic generator mode, raw destination MAC, CSI sample
+   * spacing, motion hits, and detector saved under
    * `RuntimeConfig::persist_runtime_overrides`, whether or not persistence is
    * enabled now, so the next `setup()` uses the configuration you pass. The
    * running session keeps its current values. Requires initialized NVS.
