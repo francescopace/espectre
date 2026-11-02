@@ -2100,7 +2100,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     caller = ci_jobs["dispatch-publication"]
     assert set(caller["needs"]) == {
         "audit-esphome", "audit-matter", "audit-native", "verify-sdk-component",
-        "build-traffic-generator-image",
+        "build-traffic-generator-image", "build-arduino",
     }
     image_build = ci_jobs["build-traffic-generator-image"]
     assert set(image_build["needs"]) == initial_checks
@@ -2154,6 +2154,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         "release": ["validate-run"],
         "publish-sdk": ["release"],
         "verify-sdk": ["publish-sdk"],
+        "publish-arduino": ["release"],
         "publish-coverage": ["release"],
         "publish-pages": ["release"],
         "dispatch-pages": ["publish-pages"],
@@ -2502,3 +2503,129 @@ def test_arduino_library_ships_only_the_sensing_sources_it_can_compile(tmp_path:
             if not packaged and (builder.CPP_ROOT / include).is_file():
                 unresolved.append(f"{source.relative_to(src)} -> {include}")
     assert not unresolved, f"SDK headers missing from the Arduino library: {unresolved}"
+
+
+def test_arduino_mirror_takes_ci_built_releases_and_develop_snapshots() -> None:
+    ci_jobs = yaml.load((WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+    cd_jobs = yaml.load((WORKFLOWS_DIR / "cd.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+    upload = next(
+        step for step in ci_jobs["build-arduino"]["steps"] if step.get("uses", "").startswith("actions/upload-artifact@")
+    )
+    mirror = cd_jobs["publish-arduino"]
+    assert mirror["needs"] == "release"
+    assert mirror["if"] == (
+        "fromJSON(needs.release.outputs.metadata).stable || "
+        "fromJSON(needs.release.outputs.metadata).channel == 'develop'"
+    )
+    assert mirror["permissions"] == {"contents": "read", "actions": "read"}
+    download = next(step for step in mirror["steps"] if step.get("uses", "").startswith("actions/download-artifact@"))
+    assert download["with"]["name"] == upload["with"]["name"]
+    assert download["with"]["run-id"] == "${{ fromJSON(needs.release.outputs.metadata).run_id }}"
+    publish = next(step for step in mirror["steps"] if "publish_arduino_mirror.py" in step.get("run", ""))
+    assert "StrictHostKeyChecking=yes" in publish["run"]
+    assert "ssh-keyscan" not in publish["run"]
+    assert 'if [ "$PUBLICATION" = "snapshot" ]; then\n  args+=(--snapshot)' in publish["run"]
+    recheck = next(step for step in mirror["steps"] if step.get("name", "").startswith("Recheck source commit"))
+    assert recheck["if"] == "fromJSON(needs.release.outputs.metadata).publication == 'snapshot'"
+    assert mirror["steps"].index(recheck) < mirror["steps"].index(publish)
+
+
+def _git(*args: str, cwd: Path | None = None) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def isolated_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep the developer's Git configuration, such as signing, out of the publisher."""
+    config = tmp_path / "gitconfig"
+    config.write_text("[init]\n\tdefaultBranch = trunk\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    remote = tmp_path / "espectre-arduino.git"
+    _git("init", "--quiet", "--bare", str(remote))
+    return remote
+
+
+def test_arduino_mirror_publishes_the_library_at_its_root(tmp_path: Path, isolated_git: Path) -> None:
+    builder = load_script("build_arduino_package")
+    publisher = load_script("publish_arduino_mirror")
+
+    def publish(version: str, snapshot: bool = False) -> str:
+        archive = builder.build_arduino_package(
+            argparse.Namespace(version=version, output_dir=str(tmp_path / "dist"), source_date_epoch=1_800_000_000)
+        )
+        return publisher.publish(argparse.Namespace(
+            archive=str(archive), version=version, snapshot=snapshot, remote=str(isolated_git),
+            source_repository="francescopace/espectre", source_sha="a" * 40,
+        ))
+
+    def mirror(*args: str) -> str:
+        return _git("--git-dir", str(isolated_git), *args)
+
+    snapshot = publish("3.1.0-6-gc300314", snapshot=True)
+    assert mirror("rev-parse", "refs/heads/develop") == snapshot
+    assert mirror("tag", "--list") == ""
+    assert "version=3.1.0-6-gc300314" in mirror("show", "develop:library.properties").splitlines()
+    assert mirror("log", "-1", "--format=%s", "develop") == "snapshot 3.1.0-6-gc300314"
+    assert publish("3.1.0-6-gc300314", snapshot=True) == snapshot
+    newer = publish("3.1.0-7-gdeadbee", snapshot=True)
+    assert mirror("rev-parse", "develop^") == snapshot
+    assert mirror("tag", "--list") == ""
+
+    first = publish("3.2.0")
+    assert mirror("rev-parse", "refs/heads/develop") == newer
+    assert mirror("rev-list", "--max-parents=0", "main") == first
+    assert _git("--git-dir", str(isolated_git), "rev-parse", "refs/heads/main") == first
+    assert _git("--git-dir", str(isolated_git), "rev-parse", "refs/tags/3.2.0^{commit}") == first
+    assert _git("--git-dir", str(isolated_git), "cat-file", "-t", "refs/tags/3.2.0") == "tag"
+    files = set(_git("--git-dir", str(isolated_git), "ls-tree", "--name-only", "3.2.0").splitlines())
+    assert {"library.properties", "README.md", "src", "examples", "LICENSE"} <= files
+    assert "ESPectre" not in files
+    properties = _git("--git-dir", str(isolated_git), "show", "3.2.0:library.properties")
+    assert "version=3.2.0" in properties.splitlines()
+    readme = _git("--git-dir", str(isolated_git), "show", "3.2.0:README.md").splitlines()
+    assert readme[0].startswith("# ") and readme[2].startswith("> This repository is generated from")
+    assert "francescopace/espectre@" + "a" * 40 in _git("--git-dir", str(isolated_git), "log", "-1", "--format=%B", "main")
+
+    assert publish("3.2.0") == first
+    assert _git("--git-dir", str(isolated_git), "rev-list", "--count", "main") == "1"
+
+    second = publish("3.2.1")
+    assert _git("--git-dir", str(isolated_git), "rev-parse", "main^") == first
+    assert _git("--git-dir", str(isolated_git), "rev-parse", "refs/tags/3.2.1^{commit}") == second
+
+
+def test_arduino_mirror_rejects_prereleases_and_changed_releases(tmp_path: Path, isolated_git: Path) -> None:
+    builder = load_script("build_arduino_package")
+    publisher = load_script("publish_arduino_mirror")
+    archive = builder.build_arduino_package(
+        argparse.Namespace(version="3.2.0", output_dir=str(tmp_path / "dist"), source_date_epoch=1_800_000_000)
+    )
+
+    def publish(version: str, path: Path = archive) -> str:
+        return publisher.publish(argparse.Namespace(
+            archive=str(path), version=version, snapshot=False, remote=str(isolated_git),
+            source_repository="francescopace/espectre", source_sha="b" * 40,
+        ))
+
+    with pytest.raises(ValueError, match="Only stable versions"):
+        publish("3.2.0-rc1")
+    with pytest.raises(ValueError, match="holds version 3.2.0"):
+        publish("3.2.1")
+    publish("3.2.0")
+
+    changed = tmp_path / "changed.zip"
+    with zipfile.ZipFile(archive) as source, zipfile.ZipFile(changed, "w") as target:
+        for item in source.infolist():
+            data = source.read(item)
+            if item.filename == "ESPectre/README.md":
+                data += b"\nChanged.\n"
+            target.writestr(item, data)
+    with pytest.raises(ValueError, match="different contents"):
+        publish("3.2.0", changed)
+
+    escaping = tmp_path / "escaping.zip"
+    with zipfile.ZipFile(escaping, "w") as target:
+        target.writestr("ESPectre/../outside.txt", "x")
+    with pytest.raises(ValueError, match="Unexpected path"):
+        publish("3.2.0", escaping)

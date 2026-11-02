@@ -134,7 +134,7 @@ Only pushes to `main` and `develop` publish snapshots (not pull requests, other 
 - `main` publishes `snapshot` and updates the website; `develop` publishes `snapshot-dev`. Both upload the SDK to staging, never to production.
 - CI's last job, `dispatch-publication`, waits for every build, test, audit, and SDK check, then starts `cd.yml` on the branch with the CI run ID, attempt, and full commit SHA. Nothing is published unless all of them pass; a failed CI leaves the published files and coverage badges unchanged.
 - In CD, `Validate Source Run` waits for that CI attempt and checks its repository, push event, branch, commit, result, SDK package, and dispatch job. `Create Release` depends only on it. If a newer commit has superseded the source, the release and everything after it are skipped.
-- After the release, the SDK upload to staging, the website, the coverage badges, and the traffic generator image run in parallel; SDK verification follows the upload. The SDK publisher uploads the CI's `registry-component` artifact through OIDC, after checking that the commit is still current, the archive matches its inventory, and the component belongs to that commit and channel.
+- After the release, the SDK upload to staging, the website, the coverage badges, the traffic generator image, and, for `develop`, the Arduino library run in parallel; SDK verification follows the upload. The SDK publisher uploads the CI's `registry-component` artifact through OIDC, after checking that the commit is still current, the archive matches its inventory, and the component belongs to that commit and channel.
 
 To retry a failed publication, use **Re-run failed jobs** on the CD run while the source CI artifacts are retained. Retry failed checks on the original CI run; its final dispatch supplies the new attempt. A publisher rejects an older attempt after CI has been rerun. The original branch and commit remain the publication source, and superseded commits are skipped. Push CI runs on these branches and on tags, and publication runs, finish without automatic cancellation by newer runs; pending runs may be superseded. Other CI runs retain automatic cancellation.
 
@@ -178,7 +178,7 @@ For a release tag (prereleases such as `3.0.0-rc3` included):
 1. CI builds firmware and SDK with the exact tag as version and, if every check passes, starts `cd.yml` on the tag with the CI run ID, attempt, and full commit SHA.
 2. `Validate Source Run` checks the CI attempt, SDK package, and dispatch job, and checks again that the tag is on `main`.
 3. `Create Release` publishes the artifacts, signed firmware manifests, compliance bundles, registry archive, and changelog notes on GitHub. Prerelease tags stay marked as prereleases.
-4. Then, in parallel: `Publish SDK` uploads the archive built by tag CI to the **production** registry (environment `sdk-registry-production`, official Espressif action, OIDC), the website is published, the coverage badges are attached to the release, and the traffic generator image is pushed.
+4. Then, in parallel: `Publish SDK` uploads the archive built by tag CI to the **production** registry (environment `sdk-registry-production`, official Espressif action, OIDC), the website is published, the coverage badges are attached to the release, the traffic generator image is pushed, and a stable release publishes the Arduino library.
 5. The SDK verification builds all twelve consumers against production, using the published registry and the original CI artifacts.
 
 Notes:
@@ -204,6 +204,18 @@ After publication, confirm that public installation succeeds and that the C3 har
 | `develop` snapshot | `develop` |
 
 A snapshot first checks that its commit is still the branch head. A release tag that already exists must have the same index digest, or the run fails; the same digest is a successful no-op. The job uses `GITHUB_TOKEN` with `packages: write`. It runs in the same environment as the SDK upload, `sdk-registry-staging` for snapshots and `sdk-registry-production` for releases, so the same ref rules and release approval apply. The first push creates the package as private: in the package settings on GitHub, make it public and confirm that it is linked to the repository.
+
+### Arduino library
+
+`Publish Arduino Library` copies the CI's `arduino-library` archive to [francescopace/espectre-arduino](https://github.com/francescopace/espectre-arduino), the repository that the Arduino Library Manager indexes. It does not rebuild the library. The Library Manager reads `library.properties` from the repository root and indexes every tag, whatever its name. A stable release therefore becomes one commit on `main` and one tag named after the version. A `develop` snapshot becomes a commit on the mirror's `develop` branch and no tag, after checking that its commit is still the branch head, so it never reaches the Library Manager. Prereleases and `main` snapshots are not mirrored. The mirror README adds a line that points readers back to this repository.
+
+A release version that the mirror already has must have the same contents, or the run fails; the same contents are a successful no-op. A snapshot with the same contents as the `develop` tip publishes nothing.
+
+Setup, once:
+
+1. Create an SSH key pair, add the public key to the mirror as a deploy key with write access, and save the private key as the `ARDUINO_MIRROR_DEPLOY_KEY` secret in the GitHub `arduino-library` environment. Allow release tags (`*.*.*`) and the `develop` branch in that environment; the job itself skips prereleases.
+2. The first snapshot creates `develop`, which GitHub makes the mirror's default branch. After the first stable release creates `main`, make `main` the default branch.
+3. After the first stable release tags the mirror, register `https://github.com/francescopace/espectre-arduino` with a pull request to [arduino/library-registry](https://github.com/arduino/library-registry). The Library Manager then picks up each new tag on its own.
 
 ### Website deployment
 

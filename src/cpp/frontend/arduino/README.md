@@ -12,7 +12,23 @@ Arduino support is in development for v3.2.0 and is not yet a supported release.
 
 ## Installation
 
-Releases do not include the library yet. CI builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
+When the Arduino Library Manager lists **ESPectre**, install it from there. With Arduino CLI, run:
+
+```bash
+arduino-cli lib install ESPectre
+```
+
+To try the development version, install the mirror's `develop` branch, which follows each `develop` build:
+
+```bash
+arduino-cli config set library.enable_unsafe_install true
+```
+
+```bash
+arduino-cli lib install --git-url https://github.com/francescopace/espectre-arduino.git#develop
+```
+
+Otherwise, install a ZIP archive. Each stable release tags [espectre-arduino](https://github.com/francescopace/espectre-arduino), where GitHub offers the library as a ZIP archive. CI also builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
 
 ```bash
 arduino-cli config set library.enable_unsafe_install true

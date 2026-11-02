@@ -16,7 +16,17 @@
 
 **Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
 
-**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32-S3 and ESP32-C5 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The other chips still need hardware checks, and the library is not supported until the exit criteria pass.
+**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32-S3 and ESP32-C5 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The other chips still need hardware checks, and the library is not supported until the exit criteria pass. Each `develop` build updates the `develop` branch of [espectre-arduino](https://github.com/francescopace/espectre-arduino), the repository for the Arduino Library Manager.
+
+**Remaining steps**:
+
+- [ ] Check calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6 hardware
+- [ ] Measure CSI occupancy on ESP32, where A-MPDU TX stops the fixed TX rate from applying
+- [ ] Mention the `espectre` component built into ESPHome 2026.10 in the setup guides
+- [ ] Mark the library as supported in the changelog, this roadmap, and the Arduino guide
+- [ ] Finalize the 3.2.0 changelog entry and tag the release
+- [ ] Make `main` the default branch of espectre-arduino after the release tags it
+- [ ] Register espectre-arduino in the Arduino library registry, after an `arduino-lint` check, and confirm that `arduino-cli lib install ESPectre` works
 
 **Scope**:
 

@@ -14,7 +14,7 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 - The `ESPectre` class has `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks, which run on the sketch's task inside `begin()`, `loop()`, and `end()`. `onMotion()` follows `motion()`, so it reports idle when sensing stops being ready. `runtime()` returns the full SDK controller.
 - Configuration starts from the SDK defaults. Settings changed at runtime are not saved unless `persist_runtime_overrides` is set. Logs follow the Core Debug Level, unless the sketch registers its own log sink before `begin()`.
 - The library includes sensing only, without MQTT, Direct HTTP, or provisioning. On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
-- CI builds the library and compiles its MotionDetection example with Arduino CLI and Arduino-ESP32 3.3.12 for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Releases do not include it yet; CI publishes it as the `arduino-library` workflow artifact.
+- CI builds the library and compiles its MotionDetection example with Arduino CLI and Arduino-ESP32 3.3.12 for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Stable releases publish it to [espectre-arduino](https://github.com/francescopace/espectre-arduino) for the Arduino Library Manager, and each `develop` build updates that repository's `develop` branch. CI also publishes it as the `arduino-library` workflow artifact.
 - On ESP32-S3 and ESP32-C5, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots work at about 100 CSI packets per second. The other chips still need hardware checks.
 
 ### SDK

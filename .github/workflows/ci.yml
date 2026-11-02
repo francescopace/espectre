@@ -883,7 +883,7 @@ jobs:
 
   dispatch-publication:
     name: Dispatch Publication
-    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component, build-traffic-generator-image]
+    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component, build-traffic-generator-image, build-arduino]
     if: >
       success() && github.event_name == 'push' && !github.event.deleted &&
       contains(fromJSON('["snapshot", "release"]'), needs.verify-sdk-component.outputs.publication)

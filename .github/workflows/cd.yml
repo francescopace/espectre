@@ -431,6 +431,69 @@ jobs:
       registry_url: ${{ fromJSON(needs.publish-sdk.outputs.metadata).registry_url }}
       source_run_id: ${{ fromJSON(needs.publish-sdk.outputs.metadata).run_id }}
 
+  publish-arduino:
+    name: Publish Arduino Library
+    needs: release
+    # The Library Manager indexes every tag, so only stable releases get one.
+    # Develop snapshots go to an untagged branch.
+    if: fromJSON(needs.release.outputs.metadata).stable || fromJSON(needs.release.outputs.metadata).channel == 'develop'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: arduino-library
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ fromJSON(needs.release.outputs.metadata).head_sha }}
+      - name: Download the library built and tested by CI
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ fromJSON(needs.release.outputs.metadata).run_id }}
+          name: arduino-library
+          path: .cache/arduino-library
+      - name: Recheck source commit before publishing the snapshot
+        if: fromJSON(needs.release.outputs.metadata).publication == 'snapshot'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SNAPSHOT_BRANCH: ${{ fromJSON(needs.release.outputs.metadata).head_branch }}
+          SNAPSHOT_SHA: ${{ fromJSON(needs.release.outputs.metadata).head_sha }}
+        with:
+          script: |
+            const branch = process.env.SNAPSHOT_BRANCH;
+            const expected = process.env.SNAPSHOT_SHA;
+            const response = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch
+            });
+            if (response.data.commit.sha !== expected) {
+              core.setFailed(`Refusing to publish a stale library for ${expected}; ${branch} is now ${response.data.commit.sha}.`);
+            }
+      - name: Publish to the Library Manager repository
+        env:
+          DEPLOY_KEY: ${{ secrets.ARDUINO_MIRROR_DEPLOY_KEY }}
+          GITHUB_HOST_KEY: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          VERSION: ${{ needs.release.outputs.version }}
+          PUBLICATION: ${{ fromJSON(needs.release.outputs.metadata).publication }}
+          SOURCE_SHA: ${{ fromJSON(needs.release.outputs.metadata).head_sha }}
+        run: |
+          test -n "$DEPLOY_KEY" || { echo "::error::ARDUINO_MIRROR_DEPLOY_KEY is not set."; exit 1; }
+          key="$RUNNER_TEMP/arduino-mirror-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          printf 'github.com %s\n' "$GITHUB_HOST_KEY" > "$RUNNER_TEMP/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
+          args=(--archive ".cache/arduino-library/espectre-arduino-$VERSION.zip" --version "$VERSION"
+                --remote git@github.com:francescopace/espectre-arduino.git
+                --source-repository "$GITHUB_REPOSITORY" --source-sha "$SOURCE_SHA")
+          if [ "$PUBLICATION" = "snapshot" ]; then
+            args+=(--snapshot)
+          fi
+          python3 .github/scripts/publish_arduino_mirror.py "${args[@]}"
+
   publish-coverage:
     name: Publish Coverage Badges
     needs: release
