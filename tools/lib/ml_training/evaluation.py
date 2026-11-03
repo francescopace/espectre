@@ -909,15 +909,6 @@ def _load_gate_feature_rows(path, label_name, feature_names, *,
     return rows
 
 
-def _evaluate_cached_feature_stream(center, scale, layers, rows):
-    """Return probabilities for one canonical runtime-tick replay stream."""
-    X = np.asarray(rows.get('X', np.empty((0, 0), dtype=np.float32)), dtype=np.float32)
-    if X.size == 0:
-        return np.zeros(0, dtype=np.float64), 0
-    probabilities = _batch_predict_probabilities(X, center, scale, layers)
-    return probabilities, int(len(X))
-
-
 def evaluate_cached_feature_split(center, scale, layers,
                                   static_presence_rows, motion_rows, threshold=0.5):
     """Evaluate a paired split from canonical runtime-tick feature rows."""
@@ -1079,22 +1070,6 @@ def _iter_paired_chip_replays(chips=None, roles=('selection',),
         yield (chip, static_path, motion_path, low_rssi)
 
 
-def _iter_paired_chip_packets(chips=None, roles=('selection',),
-                              allow_legacy_fallback=True):
-    """Yield role-isolated real pairs, or the legacy latest pair as fallback."""
-    for chip, static_path, motion_path, low_rssi in _iter_paired_chip_replays(
-        chips,
-        roles=roles,
-        allow_legacy_fallback=allow_legacy_fallback,
-    ):
-        yield (
-            chip,
-            _load_npz_packets_cached(static_path),
-            _load_npz_packets_cached(motion_path),
-            low_rssi,
-        )
-
-
 def evaluate_paired_gate(model, scaler, feature_names, threshold=0.5, chips=None,
                          roles=('selection',), allow_legacy_fallback=True,
                          progress=None, use_cached_features=True,
@@ -1247,12 +1222,6 @@ def _iter_quiet_gate_replays(roles=('selection', 'holdout')):
         if path.exists():
             chip = str(entry.get('chip', 'unknown')).upper()
             yield f"{chip}:{role}:{path.name}", path, bool(entry.get('long_recording', False))
-
-
-def _iter_quiet_gate_packets(roles=('selection', 'holdout')):
-    """Yield real empty recordings explicitly reserved for selection/holdout."""
-    for key, path, _long_recording in _iter_quiet_gate_replays(roles=roles):
-        yield key, _load_npz_packets_cached(path)
 
 
 def evaluate_idle_streaming(evaluator, packets, threshold=0.5):

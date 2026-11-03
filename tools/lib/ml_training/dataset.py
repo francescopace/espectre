@@ -41,7 +41,6 @@ from tools.lib.csi_features import (
 
 from .augmentation import (
     _build_sample_context_for_replay_rows,
-    _ensure_record_packets,
     _first_non_empty,
     _implementation_source_digest,
     _packet_augmentation_stream_provenance,
@@ -72,9 +71,6 @@ BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
 
 
 GENERATED_DATA_DIR = generated_data_dir()
-
-
-SRC_DIR = python_src_dir()
 
 
 REFERENCE_SRC_DIR = tools_lib_dir()
@@ -185,35 +181,6 @@ def timing_policy_weight(status, policy, warn_weight=DEFAULT_TIMING_WARN_WEIGHT)
     ):
         return float(warn_weight)
     return 1.0
-
-
-def apply_positive_chip_boost(sample_weights, sample_context, y, chip_boosts):
-    """
-    Boost motion samples for specific chips, then renormalize overall mean to 1.0.
-    """
-    if chip_boosts is None:
-        return sample_weights, {}
-    if sample_context is None or 'chip' not in sample_context:
-        return sample_weights, {}
-
-    weights = np.asarray(sample_weights, dtype=np.float32).copy()
-    chips = np.asarray(sample_context['chip']).astype(str)
-    labels = np.asarray(y)
-    summary = {}
-
-    for chip, factor in sorted(chip_boosts.items()):
-        mask = (chips == chip) & (labels == 1)
-        affected = int(np.sum(mask))
-        if affected == 0:
-            summary[chip] = {'factor': factor, 'affected': 0}
-            continue
-        weights[mask] *= np.float32(factor)
-        summary[chip] = {'factor': factor, 'affected': affected}
-
-    mean_weight = float(np.mean(weights))
-    if mean_weight > 1e-6:
-        weights /= np.float32(mean_weight)
-    return weights, summary
 
 
 def _parse_iso_timestamp(value):
@@ -685,65 +652,10 @@ def _load_training_file_records(environment_filter=None, excluded_chips=None,
     return records, stats
 
 
-def load_all_data(environment_filter=None, excluded_chips=None,
-                  allowed_labels=BINARY_TRAINING_LABELS,
-                  require_sync_metadata=False,
-                  dataset_roles=DEFAULT_TRAINING_ROLES,
-                  timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
-                  timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
-    """
-    Load all available CSI data from the data/ directory.
-
-    Reads label from npz file metadata (not folder structure).
-    Uses dataset_info.json only to determine if label is motion or idle.
-    Uses the normalized turbulence pipeline and attaches grouping metadata
-    (file, session/pair, environment when available).
-
-    Args:
-        environment_filter: Optional set/string of environment names to keep.
-        excluded_chips: Optional set/string of chip names to exclude.
-        allowed_labels: Iterable of lowercase labels to include.
-
-    Returns:
-        tuple: (all_packets, stats) where stats is a dict with dataset info
-    """
-    records, stats = _load_training_file_records(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        allowed_labels=allowed_labels,
-        require_sync_metadata=require_sync_metadata,
-        dataset_roles=dataset_roles,
-        timing_quality_policy=timing_quality_policy,
-        timing_warn_weight=timing_warn_weight,
-    )
-    all_packets = []
-    for record in records:
-        for idx, packet in enumerate(_ensure_record_packets(record)):
-            enriched = dict(packet)
-            enriched['is_motion'] = record['is_motion']
-            enriched['label_name'] = record['label_name']
-            enriched['source_file'] = record['path'].name
-            enriched['packet_index'] = idx
-            enriched['chip'] = record['chip']
-            enriched['collected_at'] = record['collected_at']
-            enriched['day_group'] = record['day_group']
-            enriched['pair_id'] = record['pair_id']
-            enriched['session_group'] = record['session_group']
-            enriched['lineage_group'] = record['lineage_group']
-            enriched['dataset_role'] = record['dataset_role']
-            enriched['synthetic'] = record['synthetic']
-            enriched['long_recording'] = record['long_recording']
-            enriched['environment_group'] = record['environment_group']
-            enriched['timing_quality_status'] = record['timing_quality_status']
-            enriched['timing_quality_bucket'] = record['timing_quality_bucket']
-            all_packets.append(enriched)
-    return all_packets, stats
-
-
-CONTEXT_INT_KEYS = ('packet_index', 'window_index', 'reset_index')
-
-
-CONTEXT_BOOL_KEYS = ('synthetic',)
+def load_training_stats():
+    """Return training dataset statistics from file metadata, without loading packets."""
+    _, stats = _load_training_file_records()
+    return stats
 
 
 def load_training_matrix(environment_filter=None, excluded_chips=None,

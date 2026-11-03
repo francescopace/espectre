@@ -9,9 +9,7 @@ the same recordings. Non-regression margins are only defensible when they sit
 above that dispersion: below it, the gate rejects candidates over the noise of
 weight initialisation rather than over behaviour a user would notice.
 
-Reads the JSON written by `train_ml_model.py --seed-search-until-improvement`
-(and the older `--experiment` reports, which nest their per-seed runs under
-`seed_finalists`/`seed_filter`).
+Reads the JSON written by `train_ml_model.py --seed-search-until-improvement`.
 
 Usage:
     python tools/analyze_seed_dispersion.py data/auto_generated/mlp_seed_search.json
@@ -50,12 +48,6 @@ def collect_runs(payload):
                             'paired': baseline})
         if runs:
             yield 'seed search', runs
-        return
-    for key in ('seed_finalists', 'seed_filter'):
-        for entry in payload.get(key) or []:
-            runs = [item for item in (entry.get('runs') or []) if item.get('paired')]
-            if runs:
-                yield f"{key}/{entry.get('name')}", runs
 
 
 def is_reserved_replay(key):
@@ -147,7 +139,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Measure per-replay metric dispersion across training seeds')
     parser.add_argument('report', type=Path,
-                        help='JSON written by --seed-search-until-improvement or --experiment')
+                        help='JSON written by --seed-search-until-improvement')
     parser.add_argument('--metric', choices=sorted(METRICS), default='fp_rate',
                         help='Paired-gate metric to analyse (default: fp_rate)')
     args = parser.parse_args()

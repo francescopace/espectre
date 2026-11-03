@@ -16,10 +16,9 @@ Training features:
   - Configurable FP penalty (--fp-weight) and feature normalization (--scaler)
 
 Usage:
-    python tools/train_ml_model.py                    # Train and export if paired gate passes
+    python tools/train_ml_model.py                    # Train and export if the deployment gates pass
     python tools/train_ml_model.py --no-export        # Evaluate without replacing runtime artifacts
     python tools/train_ml_model.py --info             # Show dataset info
-    python tools/train_ml_model.py --experiment       # Run the FP-first MLP topology campaign
     python tools/train_ml_model.py --fp-weight 1.75   # Penalize FP 1.75x more
     python tools/train_ml_model.py --scaler clipped_standard --no-export
                                                     # Robust clipping + z-score
@@ -57,7 +56,6 @@ from tools.lib.ml_training import feature_cache as feature_cache_module
 setup_paths()
 
 import argparse
-from pathlib import Path
 from tools.lib.csi_features import (
     ALL_FEATURES,
 )
@@ -67,10 +65,8 @@ from tools.lib.candidate_features import (
 from tools.lib.host_feature_trackers import (
     CHANNEL_SHAPE_BIN_US,
 )
-from tools.lib.high_accuracy_detector import (  # noqa: F401 (re-exported for tests)
+from tools.lib.high_accuracy_detector import (
     FEATURE_NAMES as EXPORTED_FEATURE_NAMES,
-    HighAccuracyDetector,
-    ProductionFeatureExtractor,
 )
 
 from tools.lib.ml_training.augmentation import (
@@ -111,19 +107,12 @@ from tools.lib.ml_training.preprocessing import (
 
 from tools.lib.ml_training.training import (
     DEFAULT_BATCH_SIZE,
-    DEFAULT_EXPERIMENT_OUTPUT,
     DEFAULT_FP_WEIGHT,
-    DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
     DEFAULT_SEED_SEARCH_OUTPUT,
     DEFAULT_CV_REPEATS,
     calculate_correlation_importance,
     cross_chip_validation,
     cross_environment_validation,
-    experiment_architectures,
-    experiment_feature_ablation,
-    experiment_fp_weights,
-    parse_architecture_sweep,
-    parse_fp_weight_sweep,
     parse_hidden_layers,
     print_correlation_table,
     set_cv_repeats,
@@ -140,21 +129,6 @@ def main():
     )
     parser.add_argument('--info', action='store_true', 
                        help='Show dataset information')
-    parser.add_argument('--experiment', action='store_true',
-                       help='Run the FP-first MLP topology campaign')
-    parser.add_argument('--experiment-output', type=Path, default=DEFAULT_EXPERIMENT_OUTPUT,
-                       help='JSON output path for --experiment results '
-                            f'(default: {DEFAULT_EXPERIMENT_OUTPUT})')
-    parser.add_argument('--experiment-architectures', type=parse_architecture_sweep, default=None,
-                       help='Semicolon-separated hidden-layer specs for --experiment, '
-                            'e.g. "16,8;24,12;32,16;24;24,12,6"')
-    parser.add_argument('--experiment-fp-weights', type=parse_fp_weight_sweep, default=None,
-                       metavar='WEIGHTS',
-                       help='Run a gated multi-seed campaign over comma-separated FP weights')
-    parser.add_argument('--fp-weight-experiment-output', type=Path,
-                       default=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
-                       help='JSON output path for --experiment-fp-weights '
-                            f'(default: {DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT})')
     parser.add_argument('--seed', type=int, default=None,
                        help='Training seed. When omitted, reuse the seed embedded '
                             'in the current exported model when available; '
@@ -239,7 +213,7 @@ def main():
                             'so the holdout remains sealed')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
-                            'also use with --shap / --ablation-feature diagnostics)')
+                            'also use with --shap diagnostics)')
     parser.add_argument('--force-promote', action='store_true',
                        help='Export runtime artifacts even when the deployment '
                             'safety gates fail or regress. Gates still run and '
@@ -271,11 +245,6 @@ def main():
                             '(default: 200 balanced held-out samples)')
     parser.add_argument('--correlation', action='store_true',
                        help='Calculate correlation of selected training features with motion label')
-    parser.add_argument('--ablation-feature', type=str, default=None,
-                       help='Compare the production baseline against one or more '
-                            'comma-separated independent removals; join names '
-                            'with + for one joint removal. Uses grouped CV and '
-                            'paired validation without exporting artifacts')
     parser.add_argument('--cross-environment', action='store_true',
                        help='Leave-one-environment-out generalization check: train on all '
                             'other named environments and evaluate on the held-out room. '
@@ -288,6 +257,35 @@ def main():
     if args.evaluate_gates and args.evaluate_selection:
         print("Error: --evaluate-gates and --evaluate-selection are mutually exclusive")
         return 1
+    # Each mode replaces the plain training run, so at most one may be active.
+    modes = [
+        flag for flag, active in (
+            ('--info', args.info),
+            ('--gain-stress-gate', args.gain_stress_gate),
+            ('--cross-environment', args.cross_environment),
+            ('--cross-chip', args.cross_chip),
+            ('--correlation', args.correlation),
+            ('--seed-search-until-improvement', args.seed_search_until_improvement > 0),
+            ('--shap', args.shap is not None),
+        ) if active
+    ]
+    if len(modes) > 1:
+        print(f"Error: {', '.join(modes[:-1])} and {modes[-1]} are mutually exclusive")
+        return 1
+    if modes and (args.evaluate_gates or args.evaluate_selection):
+        flag = '--evaluate-gates' if args.evaluate_gates else '--evaluate-selection'
+        print(f"Error: {flag} applies only to a single training run, not {modes[0]}")
+        return 1
+    if modes and args.force_promote:
+        print(f"Error: --force-promote applies only to a single training run, not {modes[0]}")
+        return 1
+    # Every mode except seed search leaves runtime artifacts unchanged.
+    read_only = (
+        args.no_export
+        or args.evaluate_gates
+        or args.evaluate_selection
+        or (bool(modes) and modes != ['--seed-search-until-improvement'])
+    )
     try:
         set_active_trajectory_bin_ms(args.trajectory_bin_ms)
     except ValueError as exc:
@@ -333,23 +331,7 @@ def main():
             return 1
         # Plain training exports runtime artifacts. Host-side seed searches use
         # in-memory gates and remain export-free until the feature is promoted.
-        will_export = (
-            args.seed_search_until_improvement == 0
-            and not (
-                args.no_export
-                or args.evaluate_gates
-                or args.evaluate_selection
-                or args.shap is not None
-                or args.ablation_feature
-                or args.correlation
-                or args.cross_environment
-                or args.cross_chip
-                or args.gain_stress_gate
-                or args.experiment
-                or args.experiment_fp_weights is not None
-                or args.info
-            )
-        )
+        will_export = not read_only and args.seed_search_until_improvement == 0
         unsupported = [
             name for name in selected_training_features
             if name not in CPP_FEATURE_IDS
@@ -373,21 +355,7 @@ def main():
         show_info()
         return 0
 
-    if (
-        feature_cache_module.ACTIVE_TRAJECTORY_BIN_US != CHANNEL_SHAPE_BIN_US
-        and not (
-            args.no_export
-            or args.evaluate_gates
-            or args.evaluate_selection
-            or args.shap is not None
-            or args.ablation_feature
-            or args.correlation
-            or args.cross_environment
-            or args.cross_chip
-            or args.experiment
-            or args.experiment_fp_weights is not None
-        )
-    ):
+    if feature_cache_module.ACTIVE_TRAJECTORY_BIN_US != CHANNEL_SHAPE_BIN_US and not read_only:
         print(
             "Error: a non-default --trajectory-bin-ms is experimental and "
             "requires a read-only flow such as --no-export or --evaluate-selection"
@@ -400,56 +368,26 @@ def main():
             "(runtime artifacts unchanged)"
         )
 
-    experiment_count = sum((
-        bool(args.experiment),
-        args.experiment_fp_weights is not None,
-    ))
-    if experiment_count > 1:
-        print("Error: experiment campaigns are mutually exclusive")
-        return 1
-
     if args.force_promote:
-        if args.no_export:
-            print("Error: --force-promote and --no-export are mutually exclusive")
+        if read_only:
+            print("Error: --force-promote cannot be combined with --no-export, "
+                  "--evaluate-gates, or --evaluate-selection")
             return 1
         if args.seed is None:
             print("Error: --force-promote requires an explicit --seed so the "
                   "bypassed candidate is deliberate and reproducible")
             return 1
-        if (args.seed_search_until_improvement > 0
-                or args.experiment
-                or args.experiment_fp_weights is not None
-                or args.gain_stress_gate
-                or args.cross_environment
-                or args.cross_chip
-                or args.shap is not None
-                or args.ablation_feature
-                or args.correlation):
-            print("Error: --force-promote applies only to a plain single-seed "
-                  "training run")
-            return 1
-    if args.augment and (
-        args.experiment
-        or args.experiment_fp_weights is not None
-        or args.gain_stress_gate
-        or args.correlation
-    ):
+    if args.augment and (args.gain_stress_gate or args.correlation):
         print(
             "Error: --augment applies only to production training, seed search, "
-            "grouped OOF SHAP, targeted ablation, and "
+            "grouped OOF SHAP, and "
             "cross-environment/cross-chip diagnostics"
         )
         return 1
 
     if args.gain_stress_gate:
-        if args.experiment or args.experiment_fp_weights is not None:
-            print("Error: --gain-stress-gate cannot be combined with experiment flows")
-            return 1
-        if args.seed_search_until_improvement > 0 or args.seed is not None:
-            print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed or seed-search")
-            return 1
-        if args.shap is not None or args.ablation_feature or args.correlation:
-            print("Error: --gain-stress-gate cannot be combined with --shap, --ablation-feature, or --correlation")
+        if args.seed is not None:
+            print("Error: --gain-stress-gate evaluates exported artifacts and cannot use --seed")
             return 1
         if any(name not in EXPORTED_FEATURE_NAMES for name in selected_training_features):
             print("Error: --gain-stress-gate evaluates exported artifacts and cannot use host-only --features")
@@ -464,18 +402,6 @@ def main():
 
     if args.cross_environment or args.cross_chip:
         mode = '--cross-environment' if args.cross_environment else '--cross-chip'
-        if args.cross_environment and args.cross_chip:
-            print("Error: --cross-environment and --cross-chip are mutually exclusive")
-            return 1
-        if args.experiment or args.experiment_fp_weights is not None:
-            print(f"Error: {mode} cannot be combined with experiment flows")
-            return 1
-        if args.shap is not None or args.ablation_feature or args.correlation:
-            print(f"Error: {mode} cannot be combined with --shap, --ablation-feature, or --correlation")
-            return 1
-        if args.seed_search_until_improvement > 0:
-            print(f"Error: {mode} cannot be combined with seed search")
-            return 1
         if args.environment is not None:
             print(f"Error: {mode} holds out one group at a time and "
                   "cannot be combined with --environment")
@@ -495,54 +421,6 @@ def main():
             augment=args.augment,
         )
 
-    if args.experiment:
-        return experiment_architectures(
-            scaler_mode=args.scaler,
-            batch_size=args.batch_size,
-            fp_weight=args.fp_weight,
-            feature_names=selected_training_features,
-            environment_filter=args.environment,
-            excluded_chips=args.exclude_chip,
-            architectures=args.experiment_architectures,
-            positive_chip_boost=None,
-            output_path=args.experiment_output,
-            use_cache=not args.no_cache,
-            timing_quality_policy=args.timing_quality_policy,
-            timing_warn_weight=args.timing_warn_weight,
-        )
-
-    if args.experiment_fp_weights is not None:
-        return experiment_fp_weights(
-            fp_weights=args.experiment_fp_weights,
-            scaler_mode=args.scaler,
-            batch_size=args.batch_size,
-            hidden_layers=args.hidden_layers,
-            feature_names=selected_training_features,
-            environment_filter=args.environment,
-            excluded_chips=args.exclude_chip,
-            positive_chip_boost=None,
-            output_path=args.fp_weight_experiment_output,
-            use_cache=not args.no_cache,
-            timing_quality_policy=args.timing_quality_policy,
-            timing_warn_weight=args.timing_warn_weight,
-        )
-
-    if args.ablation_feature:
-        return experiment_feature_ablation(
-            feature_name=args.ablation_feature,
-            seed=args.seed,
-            scaler_mode=args.scaler,
-            batch_size=args.batch_size,
-            fp_weight=args.fp_weight,
-            environment_filter=args.environment,
-            excluded_chips=args.exclude_chip,
-            positive_chip_boost=None,
-            use_cache=not args.no_cache,
-            augment=args.augment,
-            timing_quality_policy=args.timing_quality_policy,
-            timing_warn_weight=args.timing_warn_weight,
-        )
-    
     if args.correlation:
         correlations = calculate_correlation_importance(
             feature_names=selected_training_features,
@@ -556,9 +434,6 @@ def main():
         if args.seed is not None:
             print("Error: --seed and --seed-search-until-improvement are mutually exclusive")
             return 1
-        if args.shap is not None or args.ablation_feature:
-            print("Error: --seed-search-until-improvement cannot be combined with --shap or --ablation-feature")
-            return 1
         return train_until_improvement(
             max_trials=args.seed_search_until_improvement,
             fp_weight=args.fp_weight,
@@ -568,7 +443,6 @@ def main():
             batch_size=args.batch_size,
             environment_filter=args.environment,
             excluded_chips=args.exclude_chip,
-            positive_chip_boost=None,
             use_cache=not args.no_cache,
             augment=args.augment,
             timing_quality_policy=args.timing_quality_policy,
@@ -582,14 +456,12 @@ def main():
         seed=args.seed,
         feature_names=selected_training_features,
         feature_importance=args.shap is not None,
-        ablation=False,
         shap_samples=args.shap if args.shap is not None else 200,
         hidden_layers=args.hidden_layers,
         scaler_mode=args.scaler,
         batch_size=args.batch_size,
         environment_filter=args.environment,
         excluded_chips=args.exclude_chip,
-        positive_chip_boost=None,
         use_cache=not args.no_cache,
         augment=args.augment,
         timing_quality_policy=args.timing_quality_policy,

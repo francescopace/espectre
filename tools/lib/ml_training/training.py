@@ -52,10 +52,9 @@ from .dataset import (
     DEFAULT_TIMING_WARN_WEIGHT,
     GENERATED_DATA_DIR,
     REFERENCE_SRC_DIR,
-    apply_positive_chip_boost,
     format_duration,
     is_motion_label,
-    load_all_data,
+    load_training_stats,
     load_dataset_info,
     load_training_matrix,
     parse_chip_filter,
@@ -213,34 +212,7 @@ DEFAULT_FP_WEIGHT = 1.75
 DEFAULT_BATCH_SIZE = 1024
 
 
-DEFAULT_ARCHITECTURE_SWEEP = (
-    {'name': 'Legacy (16-8)', 'layers': [16, 8]},
-    {'name': 'Promoted default (24-12)', 'layers': [24, 12]},
-    {'name': 'Shallow (24)', 'layers': [24]},
-    {'name': 'Wider reference (32-16)', 'layers': [32, 16]},
-    {'name': 'Deep (24-12-6)', 'layers': [24, 12, 6]},
-)
-
-
-DEFAULT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_architecture_experiment.json'
-
-
-DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT = GENERATED_DATA_DIR / 'mlp_fp_weight_experiment.json'
-
-
 DEFAULT_SEED_SEARCH_OUTPUT = GENERATED_DATA_DIR / 'mlp_seed_search.json'
-
-
-DEFAULT_FP_WEIGHT_SWEEP = (1.0, 1.5, 1.75, 2.0, 2.5, 3.0)
-
-
-DEFAULT_EXPERIMENT_SCREENING_SEED = 20260519
-
-
-DEFAULT_EXPERIMENT_INITIAL_SEEDS = (20260518, 20260519, 20260520)
-
-
-DEFAULT_EXPERIMENT_FINAL_SEEDS = (20260518, 20260519, 20260520, 20260521, 20260522)
 
 
 DEFAULT_MAX_EPOCHS = 100
@@ -296,130 +268,6 @@ def parse_hidden_layers(value):
             "hidden layers must contain one or more positive integers"
         )
     return layers
-
-
-def format_hidden_layers(layers):
-    """Return hidden layers as a stable dash-separated string."""
-    return '-'.join(str(int(layer)) for layer in layers)
-
-
-def normalize_architecture_specs(architectures):
-    """Normalize architecture definitions into {name, layers} dicts."""
-    specs = []
-    seen = set()
-    for arch in architectures:
-        if isinstance(arch, dict):
-            layers = parse_hidden_layers(arch.get('layers'))
-            name = str(arch.get('name') or f"MLP ({format_hidden_layers(layers)})")
-        else:
-            layers = parse_hidden_layers(arch)
-            name = f"MLP ({format_hidden_layers(layers)})"
-        key = tuple(layers)
-        if key in seen:
-            continue
-        seen.add(key)
-        specs.append({
-            'name': name,
-            'layers': list(layers),
-        })
-    return specs
-
-
-def parse_architecture_sweep(value):
-    """Parse semicolon-separated hidden-layer specs for --experiment-architectures."""
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        return normalize_architecture_specs(value)
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    specs = []
-    for idx, chunk in enumerate(text.split(';'), start=1):
-        item = chunk.strip()
-        if not item:
-            continue
-        if '=' in item:
-            name, layer_text = item.split('=', 1)
-            layers = parse_hidden_layers(layer_text)
-            specs.append({'name': name.strip() or f"MLP #{idx}", 'layers': layers})
-        else:
-            layers = parse_hidden_layers(item)
-            specs.append({'name': f"MLP ({format_hidden_layers(layers)})", 'layers': layers})
-    if not specs:
-        raise argparse.ArgumentTypeError(
-            "experiment architectures must contain one or more layer specs, e.g. 16,8;24,12;32,16"
-        )
-    return normalize_architecture_specs(specs)
-
-
-def parse_fp_weight_sweep(value):
-    """Parse a comma-separated, positive FP-weight sweep."""
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        values = [float(item) for item in value]
-    else:
-        try:
-            values = [float(item.strip()) for item in str(value).split(',') if item.strip()]
-        except ValueError as exc:
-            raise argparse.ArgumentTypeError("FP weights must be comma-separated numbers") from exc
-    if not values or any(value <= 0.0 for value in values):
-        raise argparse.ArgumentTypeError("FP weights must contain one or more positive values")
-    return list(dict.fromkeys(values))
-
-
-def parse_positive_chip_boost(value):
-    """
-    Parse chip=multiplier pairs for motion-sample boosting.
-
-    Example:
-        ESP32=1.2,S3=1.1
-    """
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        boosts = {}
-        for chip, factor in value.items():
-            chip_name = str(chip).strip().upper()
-            factor_value = float(factor)
-            if not chip_name:
-                raise argparse.ArgumentTypeError("chip name cannot be empty in positive chip boost")
-            if factor_value <= 0.0:
-                raise argparse.ArgumentTypeError("positive chip boost factors must be > 0")
-            boosts[chip_name] = factor_value
-        return boosts or None
-    text = str(value).strip()
-    if not text:
-        return None
-
-    boosts = {}
-    for part in text.split(','):
-        item = part.strip()
-        if not item:
-            continue
-        if '=' not in item:
-            raise argparse.ArgumentTypeError(
-                "positive chip boost must use CHIP=FACTOR entries, e.g. ESP32=1.2"
-            )
-        chip, factor = item.split('=', 1)
-        chip = chip.strip().upper()
-        if not chip:
-            raise argparse.ArgumentTypeError("chip name cannot be empty in positive chip boost")
-        try:
-            factor_value = float(factor.strip())
-        except ValueError as exc:
-            raise argparse.ArgumentTypeError(
-                f"invalid boost factor for {chip!r}: {factor!r}"
-            ) from exc
-        if factor_value <= 0.0:
-            raise argparse.ArgumentTypeError(
-                "positive chip boost factors must be > 0"
-            )
-        boosts[chip] = factor_value
-    return boosts or None
 
 
 def build_model(hidden_layers=None, num_features=12, use_dropout=True, dropout_rate=0.2,
@@ -1422,177 +1270,6 @@ def print_feature_importance(importance, title="Feature Importance (SHAP)",
     print()
 
 
-def run_ablation_study(X, y, feature_names, sample_context=None, sample_weight=None,
-                       hidden_layers=None, fp_weight=DEFAULT_FP_WEIGHT,
-                       scaler_mode=DEFAULT_SCALER_MODE,
-                       batch_size=DEFAULT_BATCH_SIZE):
-    """
-    Run ablation study: train model removing one feature at a time.
-
-    This helps identify which features are truly important by measuring
-    the impact of removing each one. Features whose removal improves or
-    doesn't affect F1 are candidates for elimination.
-
-    Args:
-        X: Feature matrix (NOT normalized - scaler fit per fold)
-        y: Labels
-        feature_names: List of feature names
-        sample_context: Optional aligned metadata for grouped CV
-        sample_weight: Optional per-sample weights
-        hidden_layers: Model architecture
-        fp_weight: FP penalty weight
-        scaler_mode: Feature normalization mode
-        batch_size: Mini-batch size used during fold training
-
-    Returns:
-        list: Results for each ablation experiment
-    """
-    print("\n" + "="*80)
-    print("                         ABLATION STUDY")
-    print("="*80 + "\n")
-    print("Training models with one feature removed at a time to measure impact...\n")
-
-    if hidden_layers is None:
-        hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
-
-    groups = None
-    if sample_context is not None:
-        groups = sample_context.get(DEFAULT_PRIMARY_GROUP_KEY)
-
-    results = []
-
-    # Baseline (all features)
-    print(f"[1/{len(feature_names)+1}] Baseline (all {len(feature_names)} features)...")
-    with suppress_stderr():
-        static_presence_cv = cross_validate(
-            X, y,
-            hidden_layers=hidden_layers,
-            n_folds=DEFAULT_CV_FOLDS,
-            max_epochs=DEFAULT_MAX_EPOCHS,
-            fp_weight=fp_weight,
-            sample_weight=sample_weight,
-            groups=groups,
-            sample_context=sample_context,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        )
-    static_presence_f1 = static_presence_cv['f1_mean']
-    results.append({
-        'removed': 'None (baseline)',
-        'n_features': len(feature_names),
-        'f1_mean': static_presence_f1,
-        'f1_std': static_presence_cv['f1_std'],
-        'oof_f1': static_presence_cv['oof_f1'],
-        'recall_mean': static_presence_cv['recall_mean'],
-        'fp_rate_mean': static_presence_cv['fp_rate_mean'],
-        'delta_f1': 0.0,
-    })
-    print(
-        f"    F1: {static_presence_f1:.2f}% (+/- {static_presence_cv['f1_std']:.2f}%), "
-        f"blocked OOF={static_presence_cv['oof_f1']:.2f}%\n"
-    )
-
-    # Remove each feature one at a time
-    for i, feature_name in enumerate(feature_names):
-        print(f"[{i+2}/{len(feature_names)+1}] Removing '{feature_name}'...")
-
-        # Create X without this feature
-        X_ablated = np.delete(X, i, axis=1)
-
-        with suppress_stderr():
-            cv = cross_validate(
-                X_ablated, y,
-                hidden_layers=hidden_layers,
-                n_folds=DEFAULT_CV_FOLDS,
-                max_epochs=DEFAULT_MAX_EPOCHS,
-                fp_weight=fp_weight,
-                sample_weight=sample_weight,
-                groups=groups,
-                sample_context=sample_context,
-                scaler_mode=scaler_mode,
-                batch_size=batch_size,
-                block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-            )
-
-        f1 = cv['f1_mean']
-        delta = f1 - static_presence_f1
-
-        results.append({
-            'removed': feature_name,
-            'n_features': len(feature_names) - 1,
-            'f1_mean': f1,
-            'f1_std': cv['f1_std'],
-            'oof_f1': cv['oof_f1'],
-            'recall_mean': cv['recall_mean'],
-            'fp_rate_mean': cv['fp_rate_mean'],
-            'delta_f1': delta,
-        })
-
-        direction = "↑" if delta > 0.1 else "↓" if delta < -0.1 else "≈"
-        print(
-            f"    F1: {f1:.2f}% ({direction} {delta:+.2f}%), "
-            f"blocked OOF={cv['oof_f1']:.2f}%\n"
-        )
-
-    # Print summary table
-    print("\n" + "="*85)
-    print("                           ABLATION SUMMARY")
-    print("="*85 + "\n")
-
-    # Sort by delta (worst impact first = most important features)
-    sorted_results = sorted(results[1:], key=lambda r: r['delta_f1'])
-
-    print(f"{'Removed Feature':<24} {'F1 (CV)':>14} {'OOF F1':>10} {'Delta':>10} {'Recall':>10} {'FP Rate':>10} {'Note':<12}")
-    print("-"*85)
-
-    # Print baseline first
-    bl = results[0]
-    print(f"{'None (baseline)':<24} {bl['f1_mean']:>8.2f}% +/-{bl['f1_std']:.1f} "
-          f"{bl['oof_f1']:>9.2f}% {'---':>10} {bl['recall_mean']:>9.1f}% {bl['fp_rate_mean']:>9.1f}%")
-    print("-"*85)
-
-    important_features = []
-    removable_features = []
-
-    for r in sorted_results:
-        delta_str = f"{r['delta_f1']:+.2f}%"
-
-        note = ""
-        if r['delta_f1'] < -0.5:
-            note = "IMPORTANT"
-            important_features.append(r['removed'])
-        elif r['delta_f1'] > 0.1:
-            note = "removable"
-            removable_features.append(r['removed'])
-        elif abs(r['delta_f1']) <= 0.1:
-            note = "neutral"
-
-        print(f"{r['removed']:<24} {r['f1_mean']:>8.2f}% +/-{r['f1_std']:.1f} "
-              f"{r['oof_f1']:>9.2f}% {delta_str:>10} {r['recall_mean']:>9.1f}% {r['fp_rate_mean']:>9.1f}% {note:<12}")
-
-    print("-"*85)
-
-    # Recommendations
-    print("\nInterpretation:")
-    print("  - Delta < 0: Removing hurts performance (feature is important)")
-    print("  - Delta > 0: Removing helps performance (feature adds noise)")
-    print("  - Delta ≈ 0: Feature has minimal impact (candidate for removal)")
-
-    print("\nRecommendations:")
-    if important_features:
-        print(f"  KEEP (removing hurts F1 by >0.5%): {', '.join(important_features)}")
-    if removable_features:
-        print(f"  REMOVE (removing helps F1 by >0.1%): {', '.join(removable_features)}")
-
-    neutral = [r['removed'] for r in sorted_results if abs(r['delta_f1']) <= 0.1]
-    if neutral:
-        print(f"  NEUTRAL (minimal impact): {', '.join(neutral)}")
-
-    print()
-    return results
-
-
 def print_cv_summary(cv_results, title="Primary grouped CV"):
     """Print the robust evaluation summary used for model selection."""
     print(f"\n{title}:")
@@ -1692,7 +1369,7 @@ def show_info():
     print()
 
     # Load and analyze data
-    _, stats = load_all_data()
+    stats = load_training_stats()
 
     print(f"Chips available: {', '.join(stats['chips']) if stats['chips'] else 'None'}")
     print(f"Total packets: {stats['total']}")
@@ -1732,7 +1409,7 @@ def show_info():
 
 
 def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
-              feature_importance=False, ablation=False, shap_samples=200,
+              feature_importance=False, shap_samples=200,
               hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
               batch_size=DEFAULT_BATCH_SIZE, export_artifacts=True,
               evaluate_deployment=False,
@@ -1740,7 +1417,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               allow_legacy_gate_fallback=True,
               force_export=False,
               environment_filter=None, excluded_chips=None,
-              positive_chip_boost=None,
               use_cache=True, augment=False,
               timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
               timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
@@ -1754,7 +1430,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
               seed is generated and saved for reproducibility.
         feature_names: List of feature names to use. If None, uses DEFAULT_FEATURES.
         feature_importance: If True, calculate grouped out-of-fold SHAP importance.
-        ablation: If True, run ablation study instead of training.
         hidden_layers: Hidden layer widths. None uses DEFAULT_HIDDEN_LAYERS.
         scaler_mode: Feature normalization mode.
         batch_size: Mini-batch size used for training and CV.
@@ -1770,8 +1445,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                       results are printed; the bypass is reported loudly.
         environment_filter: Optional environment name(s) to keep.
         excluded_chips: Optional chip name(s) to exclude.
-        positive_chip_boost: Optional {CHIP: factor} boost applied to motion
-                             samples after feature extraction.
         use_cache: If True, reuse the cached feature matrix.
         augment: Optional augmentation component set. ``base`` keeps the
                  current validated recipe, while ``drift`` and ``burst-loss``
@@ -1792,7 +1465,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         return 1, seed, None
     environment_filter = parse_environment_filter(environment_filter)
     excluded_chips = parse_chip_filter(excluded_chips)
-    positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
     augment_components, feature_augmentation, packet_augmentation = resolve_training_augmentation(augment)
     if hidden_layers is None:
         hidden_layers = list(DEFAULT_HIDDEN_LAYERS)
@@ -1939,13 +1611,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         f"{DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE} windows per source file"
     )
 
-    boosted_weights, boost_summary = apply_positive_chip_boost(
-        sample_weights,
-        sample_context,
-        y,
-        positive_chip_boost,
-    )
-    sample_weights = boosted_weights
     if len(sample_weights) != len(X):
         print(
             f"Error: sample weights mismatch (weights={len(sample_weights)}, samples={len(X)})."
@@ -1966,30 +1631,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                 else ""
             )
         )
-    if positive_chip_boost is not None:
-        applied = [
-            f"{chip}x{info['factor']:.2f} ({info['affected']} motion windows)"
-            for chip, info in boost_summary.items()
-        ]
-        print(f"  Positive chip boost: {', '.join(applied) if applied else 'none'}")
-
-    # Run ablation study if requested
-    if ablation:
-        print(
-            "\nCV-only ablation is a screening diagnostic. "
-            "Validate any finalist with --ablation-feature before making a feature decision."
-        )
-        run_ablation_study(
-            X, y, actual_feature_names,
-            sample_context=sample_context,
-            sample_weight=sample_weights,
-            hidden_layers=hidden_layers,
-            fp_weight=fp_weight,
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-        )
-        return 0, seed, None
-
     if fp_weight != 1.0:
         print(f"\nFP weight: {fp_weight}x (penalizing false positives)")
     print(
@@ -2294,7 +1935,6 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         'timing_warn_weight': timing_warn_weight,
         'environment_filter': sorted(environment_filter) if environment_filter else None,
         'excluded_chips': sorted(excluded_chips) if excluded_chips else [],
-        'positive_chip_boost': positive_chip_boost,
     }
     with tempfile.TemporaryDirectory(prefix='espectre_model_export_') as staging:
         staging_dir = Path(staging)
@@ -2489,7 +2129,7 @@ def _search_candidate_key(cv_metrics, gate=None):
 def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_names=None,
                             hidden_layers=None, scaler_mode=DEFAULT_SCALER_MODE,
                             batch_size=DEFAULT_BATCH_SIZE, environment_filter=None,
-                            excluded_chips=None, positive_chip_boost=None,
+                            excluded_chips=None,
                             use_cache=True, augment=False,
                             timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
                             timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT,
@@ -2517,7 +2157,6 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
     host_only_search = any(name not in CPP_FEATURE_IDS for name in feature_names)
     in_memory_search = host_only_search or not export_artifacts
     excluded_chips = parse_chip_filter(excluded_chips)
-    positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
     augment_components, feature_augmentation, packet_augmentation = resolve_training_augmentation(augment)
     try:
         ensure_torch_available()
@@ -2553,11 +2192,6 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         print(f"Environment filter: {', '.join(sorted(parse_environment_filter(environment_filter)))}")
     if excluded_chips is not None:
         print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
-    if positive_chip_boost is not None:
-        print(
-            "Positive chip boost: "
-            + ', '.join(f"{chip}={factor:.2f}" for chip, factor in sorted(positive_chip_boost.items()))
-        )
 
     static_presence_seed = read_exported_seed()
     if static_presence_seed is None:
@@ -2568,13 +2202,11 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
         'fp_weight': fp_weight,
         'feature_names': feature_names,
         'feature_importance': False,
-        'ablation': False,
         'hidden_layers': hidden_layers,
         'scaler_mode': scaler_mode,
         'batch_size': batch_size,
         'environment_filter': environment_filter,
         'excluded_chips': excluded_chips,
-        'positive_chip_boost': positive_chip_boost,
         'use_cache': use_cache,
         'augment': augment_components,
         'timing_quality_policy': timing_quality_policy,
@@ -3001,325 +2633,6 @@ def _json_value(value):
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
-def slim_cv_result(cv_results):
-    """Keep only the CV fields needed by experiment payloads."""
-    session_report = cv_results.get('group_reports', {}).get('session_group', {})
-    chip_report = cv_results.get('group_reports', {}).get('chip', {})
-    return {
-        'f1_mean': float(cv_results['f1_mean']),
-        'f1_std': float(cv_results['f1_std']),
-        'oof_f1': float(cv_results['oof_f1']),
-        'recall_mean': float(cv_results['recall_mean']),
-        'fp_rate_mean': float(cv_results['fp_rate_mean']),
-        'worst_session_recall': float(session_report.get('worst_recall', {}).get('recall', 0.0)),
-        'worst_session_fp_rate': float(session_report.get('worst_fp_rate', {}).get('fp_rate', 0.0)),
-        'worst_chip_recall': float(chip_report.get('worst_recall', {}).get('recall', 0.0)),
-        'candidate_key': list(build_candidate_key(cv_results)),
-    }
-
-
-def architecture_stats(input_dim, hidden_layers):
-    """Return parameter, size, and FLOP estimates for an MLP."""
-    layer_sizes = [input_dim] + list(hidden_layers) + [1]
-    n_params = 0
-    flops = 0
-    for idx in range(len(layer_sizes) - 1):
-        n_params += layer_sizes[idx] * layer_sizes[idx + 1]
-        n_params += layer_sizes[idx + 1]
-        flops += layer_sizes[idx] * layer_sizes[idx + 1]
-    return {
-        'layer_sizes': layer_sizes,
-        'params': int(n_params),
-        'weight_kb': float(n_params * 4 / 1024),
-        'flops': int(flops),
-    }
-
-
-def architecture_campaign_rank_key(result):
-    """Sort safely passing runs by robust grouped-CV performance."""
-    robust_key = tuple(-value for value in build_candidate_key(result['cv']))
-    return (
-        -result['paired']['pass_count'],
-        result['paired'].get('total_effective_alarms', 0),
-        *robust_key,
-        result['paired']['max_fp_rate'],
-        -result['paired']['worst_chip_recall'],
-        -result['paired']['worst_chip_f1'],
-        result['params'],
-    )
-
-
-def aggregate_architecture_runs(name, runs):
-    """Aggregate multi-seed runs for one architecture."""
-    template = runs[0]
-    candidate_keys = np.asarray(
-        [build_candidate_key(run['cv']) for run in runs],
-        dtype=np.float64,
-    )
-    return {
-        'name': name,
-        'layers': list(template['layers']),
-        'architecture': template['architecture'],
-        'params': int(template['params']),
-        'weight_kb': float(template['weight_kb']),
-        'flops': int(template['flops']),
-        'seeds': [int(run['seed']) for run in runs],
-        'median_paired_pass_count': float(np.median([run['paired']['pass_count'] for run in runs])),
-        'median_paired_effective_alarms': float(np.median([
-            run['paired'].get('total_effective_alarms', 0) for run in runs
-        ])),
-        'median_paired_max_fp_rate': float(np.median([run['paired']['max_fp_rate'] for run in runs])),
-        'median_paired_worst_chip_recall': float(np.median([
-            run['paired']['worst_chip_recall'] for run in runs
-        ])),
-        'median_paired_worst_chip_f1': float(np.median([run['paired']['worst_chip_f1'] for run in runs])),
-        'median_oof_f1': float(np.median([run['cv']['oof_f1'] for run in runs])),
-        'median_cv_candidate_key': [
-            float(value) for value in np.median(candidate_keys, axis=0)
-        ],
-        'best_single_run': min(runs, key=architecture_campaign_rank_key),
-        'runs': runs,
-    }
-
-
-def aggregate_architecture_rank_key(summary):
-    """Sort key for aggregated architecture summaries (lower is better)."""
-    robust_key = tuple(-value for value in summary.get(
-        'median_cv_candidate_key',
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, summary['median_oof_f1'], 0.0),
-    ))
-    return (
-        -summary['median_paired_pass_count'],
-        summary.get('median_paired_effective_alarms', 0.0),
-        *robust_key,
-        summary['median_paired_max_fp_rate'],
-        -summary['median_paired_worst_chip_recall'],
-        -summary['median_paired_worst_chip_f1'],
-        summary['params'],
-    )
-
-
-def paired_non_regression(candidate, baseline):
-    """Treat paired validation as a non-regression constraint."""
-    return (
-        candidate['median_paired_pass_count'] >= baseline['median_paired_pass_count']
-        and candidate['median_paired_max_fp_rate'] <= baseline['median_paired_max_fp_rate'] + 1e-6
-        and candidate['median_paired_worst_chip_recall']
-        >= baseline['median_paired_worst_chip_recall'] - 0.25
-        and candidate['median_paired_worst_chip_f1']
-        >= baseline['median_paired_worst_chip_f1'] - 0.25
-    )
-
-
-def architecture_candidate_beats_baseline(candidate, baseline):
-    """Promote only stable paired improvements that do not regress validation."""
-    if candidate['name'] == baseline['name']:
-        return True
-    if not paired_non_regression(candidate, baseline):
-        return False
-    return aggregate_architecture_rank_key(candidate) < aggregate_architecture_rank_key(baseline)
-
-
-def evaluate_architecture_candidate(
-    name,
-    hidden_layers,
-    seed,
-    dataset,
-    scaler_mode,
-    batch_size,
-    fp_weight,
-    feature_augmentation=None,
-):
-    """Train and evaluate one architecture on CV and the paired gate."""
-    stats = architecture_stats(dataset['X'].shape[1], hidden_layers)
-    print(f"\n== {name} | seed {seed} ==")
-    print(
-        f"Architecture: {' -> '.join(map(str, stats['layer_sizes']))} | "
-        f"params={stats['params']} | weights={stats['weight_kb']:.1f} KB | flops={stats['flops']}"
-    )
-
-    with suppress_stderr():
-        cv = cross_validate(
-            dataset['X'],
-            dataset['y'],
-            hidden_layers=list(hidden_layers),
-            n_folds=DEFAULT_CV_FOLDS,
-            max_epochs=DEFAULT_MAX_EPOCHS,
-            fp_weight=fp_weight,
-            sample_weight=dataset['sample_weights'],
-            groups=dataset['groups'],
-            sample_context=dataset['sample_context'],
-            scaler_mode=scaler_mode,
-            batch_size=batch_size,
-            block_stride=DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-            block_group_key=DEFAULT_BLOCK_GROUP_KEY,
-            report_group_keys=DEFAULT_REPORT_GROUP_KEYS,
-            seed=seed,
-            shap_feature_names=dataset['feature_names'],
-            feature_augmentation=feature_augmentation,
-            X_aug=dataset.get('X_aug'),
-            y_aug=dataset.get('y_aug'),
-            groups_aug=dataset.get('groups_aug'),
-        )
-
-    scaler = build_preprocessor(scaler_mode)
-    fit_preprocessor(
-        scaler,
-        dataset['X'],
-        y=dataset['y'],
-        sample_context=dataset['sample_context'],
-    )
-    X_scaled = scaler.transform(dataset['X'])
-    y_train = dataset['y']
-    sample_weight = dataset['sample_weights']
-    X_scaled, y_train, sample_weight = _append_augmented_training_rows(
-        X_scaled,
-        y_train,
-        scaler,
-        dataset.get('X_aug'),
-        dataset.get('y_aug'),
-        dataset.get('groups_aug'),
-        dataset['groups'],
-        sample_weight=sample_weight,
-    )
-    feature_bounds = (
-        normalized_feature_bounds(scaler, dataset['feature_names'])
-        if feature_augmentation else None
-    )
-    with suppress_stderr():
-        model = train_model(
-            X_scaled,
-            y_train,
-            hidden_layers=list(hidden_layers),
-            max_epochs=DEFAULT_MAX_EPOCHS,
-            fp_weight=fp_weight,
-            sample_weight=sample_weight,
-            batch_size=batch_size,
-            seed=derive_seed(seed, 10_000),
-            feature_augmentation=feature_augmentation,
-            feature_bounds=feature_bounds,
-        )
-
-    sample = X_scaled[:1].astype(np.float32)
-    for _ in range(10):
-        predict_probabilities(model, sample)
-    n_bench = 1000
-    bench_start = perf_counter()
-    for _ in range(n_bench):
-        predict_probabilities(model, sample)
-    inference_us = (perf_counter() - bench_start) / n_bench * 1e6
-
-    paired = evaluate_paired_gate(model, scaler, dataset['feature_names'])
-    result = {
-        'name': name,
-        'seed': int(seed),
-        'fp_weight': float(fp_weight),
-        'layers': list(hidden_layers),
-        'architecture': ' -> '.join(map(str, stats['layer_sizes'])),
-        'params': int(stats['params']),
-        'weight_kb': float(stats['weight_kb']),
-        'flops': int(stats['flops']),
-        'inference_us': float(inference_us),
-        'cv': slim_cv_result(cv),
-        'paired': paired,
-    }
-    print(
-        f"{name} | OOF={result['cv']['oof_f1']:.1f}% | "
-        f"paired pass={paired['pass_count']} maxFP={paired['max_fp_rate']:.1f}% "
-        f"worstRecall={paired['worst_chip_recall']:.1f}% "
-        f"worstF1={paired['worst_chip_f1']:.1f}% | "
-        f"inf={inference_us:.1f} us"
-    )
-    return result
-
-
-def build_feature_ablation_dataset(dataset, feature_name):
-    """Return a dataset view with one or more ``+``-joined features removed."""
-    feature_names = list(dataset['feature_names'])
-    removed_features = [
-        name.strip() for name in str(feature_name).split('+') if name.strip()
-    ]
-    unknown = [name for name in removed_features if name not in feature_names]
-    if not removed_features or unknown:
-        raise ValueError(
-            f"Unknown ablation feature(s) '{', '.join(unknown or removed_features)}'. "
-            f"Available features: {', '.join(feature_names)}"
-        )
-    removed_indices = [feature_names.index(name) for name in removed_features]
-    candidate = dict(dataset)
-    candidate['X'] = np.delete(dataset['X'], removed_indices, axis=1)
-    if dataset.get('X_aug') is not None:
-        candidate['X_aug'] = np.delete(
-            dataset['X_aug'], removed_indices, axis=1
-        )
-    candidate['feature_names'] = [
-        name for idx, name in enumerate(feature_names)
-        if idx not in removed_indices
-    ]
-    return candidate
-
-
-def _print_feature_ablation_comparison(baseline, candidate):
-    """Print the CV and paired real-data deltas for a targeted feature ablation."""
-    rows = (
-        ('Blocked OOF F1', baseline['cv']['oof_f1'], candidate['cv']['oof_f1'], '%'),
-        ('Fold F1', baseline['cv']['f1_mean'], candidate['cv']['f1_mean'], '%'),
-        ('Fold recall', baseline['cv']['recall_mean'], candidate['cv']['recall_mean'], '%'),
-        ('Fold FP rate', baseline['cv']['fp_rate_mean'], candidate['cv']['fp_rate_mean'], '%'),
-        (
-            'Worst-session recall',
-            baseline['cv']['worst_session_recall'],
-            candidate['cv']['worst_session_recall'],
-            '%',
-        ),
-        (
-            'Worst-session FP rate',
-            baseline['cv']['worst_session_fp_rate'],
-            candidate['cv']['worst_session_fp_rate'],
-            '%',
-        ),
-        ('Paired mean F1', baseline['paired']['mean_f1'], candidate['paired']['mean_f1'], '%'),
-        ('Paired worst-chip F1', baseline['paired']['worst_chip_f1'], candidate['paired']['worst_chip_f1'], '%'),
-        ('Paired max FP rate', baseline['paired']['max_fp_rate'], candidate['paired']['max_fp_rate'], '%'),
-        (
-            'Paired worst-chip recall',
-            baseline['paired']['worst_chip_recall'],
-            candidate['paired']['worst_chip_recall'],
-            '%',
-        ),
-    )
-    print("\n" + "=" * 82)
-    print("  TARGETED FEATURE ABLATION COMPARISON")
-    print("=" * 82)
-    print(f"{'Metric':<29} {'Baseline':>14} {'Candidate':>14} {'Delta':>14}")
-    print("-" * 82)
-    for label, baseline_value, candidate_value, suffix in rows:
-        delta = candidate_value - baseline_value
-        if suffix:
-            print(
-                f"{label:<29} {baseline_value:>13.2f}{suffix} "
-                f"{candidate_value:>13.2f}{suffix} {delta:>+13.2f}{suffix}"
-            )
-        else:
-            print(
-                f"{label:<29} {int(baseline_value):>14d} "
-                f"{int(candidate_value):>14d} {int(delta):>+14d}"
-            )
-    print("-" * 82)
-
-
-def _feature_ablation_rank_key(result):
-    """Rank one targeted ablation result with paired metrics first."""
-    cv = result['cv']
-    return _paired_gate_key(result['paired']) + (
-        cv['worst_session_recall'],
-        cv['worst_chip_recall'],
-        -cv['worst_session_fp_rate'],
-        cv['oof_f1'],
-        cv['f1_mean'],
-    )
-
-
 def _non_regression_failure(replay, metric, candidate_value, baseline_value,
                             margin=0.0, eval_count=None):
     """Describe one blocking comparison, in the units the gate reasons about."""
@@ -3433,563 +2746,3 @@ def format_non_regression_failures(failures, indent='    '):
             )
         lines.append(f"{indent}{item['replay']} | {item['metric']}: {detail}")
     return '\n'.join(lines)
-
-
-def deployment_candidate_beats_baseline(candidate, baseline):
-    """Compare single-run candidates with safety first and robust CV leading."""
-    if not paired_result_non_regression(candidate['paired'], baseline['paired']):
-        return False
-    return compare_robust_cv(candidate['cv'], baseline['cv'])['passed']
-
-
-def experiment_feature_ablation(feature_name, seed=None,
-                                scaler_mode=DEFAULT_SCALER_MODE,
-                                batch_size=DEFAULT_BATCH_SIZE,
-                                fp_weight=DEFAULT_FP_WEIGHT,
-                                environment_filter=None,
-                                excluded_chips=None,
-                                positive_chip_boost=None,
-                                use_cache=True,
-                                augment=False,
-                                timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
-                                timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
-    """Compare the production baseline against feature removals without exporting."""
-    environment_filter = parse_environment_filter(environment_filter)
-    excluded_chips = parse_chip_filter(excluded_chips)
-    positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    removed_features = [
-        name.strip() for name in str(feature_name).split(',') if name.strip()
-    ]
-    if not removed_features:
-        print("Error: --ablation-feature requires at least one feature name")
-        return 1
-    if len(set(removed_features)) != len(removed_features):
-        print("Error: --ablation-feature contains duplicate names")
-        return 1
-    augment_components, feature_augmentation, packet_augmentation = (
-        resolve_training_augmentation(augment)
-    )
-    try:
-        ensure_torch_available()
-        seed = resolve_training_seed(seed, trailing_newline=True)
-        set_global_determinism(seed, torch_module=torch)
-    except (ImportError, RuntimeError, ValueError) as exc:
-        print(f"Error: {exc}")
-        return 1
-
-    print("\n" + "=" * 70)
-    print("  TARGETED FEATURE ABLATION")
-    print("=" * 70)
-    print(f"Removed features: {', '.join(removed_features)}")
-    print(f"Seed: {seed}")
-    print(
-        "Augmentation: "
-        + format_augmentation_config(
-            feature_augmentation,
-            packet_augmentation,
-            components=augment_components,
-        )
-    )
-    print("Artifacts: unchanged")
-
-    matrix, _ = load_training_matrix(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        feature_names=TRAINING_FEATURES,
-        use_cache=use_cache,
-        timing_quality_policy=timing_quality_policy,
-        timing_warn_weight=timing_warn_weight,
-    )
-    if not matrix['stats']['chips']:
-        print("Error: No datasets found in data/")
-        return 1
-
-    augmented_matrix = None
-    if packet_augmentation:
-        print("Loading packet-augmented training matrix...")
-        augmented_matrix, _ = load_training_matrix(
-            environment_filter=environment_filter,
-            excluded_chips=excluded_chips,
-            feature_names=TRAINING_FEATURES,
-            use_cache=use_cache,
-            packet_augmentation=packet_augmentation,
-            augmentation_seeds=training_packet_augmentation_seeds(
-                packet_augmentation
-            ),
-            timing_quality_policy=timing_quality_policy,
-            timing_warn_weight=timing_warn_weight,
-        )
-
-    sample_weights, _ = apply_positive_chip_boost(
-        matrix['sample_weights'],
-        matrix['sample_context'],
-        matrix['y'],
-        positive_chip_boost,
-    )
-    baseline_dataset = {
-        'X': np.asarray(matrix['X'], dtype=np.float32),
-        'y': np.asarray(matrix['y'], dtype=np.int8),
-        'feature_names': list(matrix['feature_names']),
-        'sample_context': matrix['sample_context'],
-        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
-        'groups': matrix['sample_context'][DEFAULT_PRIMARY_GROUP_KEY],
-    }
-    if augmented_matrix is not None:
-        baseline_dataset.update({
-            'X_aug': np.asarray(augmented_matrix['X'], dtype=np.float32),
-            'y_aug': np.asarray(augmented_matrix['y'], dtype=np.int8),
-            'groups_aug': augmented_matrix['sample_context'][
-                DEFAULT_PRIMARY_GROUP_KEY
-            ],
-        })
-
-    for removed_feature in removed_features:
-        requested = [
-            name.strip() for name in removed_feature.split('+') if name.strip()
-        ]
-        unknown = [
-            name for name in requested
-            if name not in baseline_dataset['feature_names']
-        ]
-        if not requested or unknown:
-            print(
-                "Error: unknown ablation feature(s) '"
-                + ', '.join(unknown or requested)
-                + "'. "
-                "Available features: "
-                + ', '.join(baseline_dataset['feature_names'])
-            )
-            return 1
-
-    baseline = evaluate_architecture_candidate(
-        'production baseline',
-        DEFAULT_HIDDEN_LAYERS,
-        seed,
-        baseline_dataset,
-        scaler_mode,
-        batch_size,
-        fp_weight,
-        feature_augmentation=feature_augmentation or None,
-    )
-    for removed_feature in removed_features:
-        candidate_dataset = build_feature_ablation_dataset(
-            baseline_dataset,
-            removed_feature,
-        )
-        candidate = evaluate_architecture_candidate(
-            f"Drop {removed_feature}",
-            DEFAULT_HIDDEN_LAYERS,
-            seed,
-            candidate_dataset,
-            scaler_mode,
-            batch_size,
-            fp_weight,
-            feature_augmentation=feature_augmentation or None,
-        )
-        _print_feature_ablation_comparison(baseline, candidate)
-        if deployment_candidate_beats_baseline(candidate, baseline):
-            print(
-                "Paired-first result: candidate ranks above the production "
-                "baseline for this seed."
-            )
-        else:
-            print(
-                "Paired-first result: candidate does not beat the production "
-                "baseline for this seed."
-            )
-    return 0
-
-
-def experiment_architectures(scaler_mode=DEFAULT_SCALER_MODE,
-                             batch_size=DEFAULT_BATCH_SIZE,
-                             fp_weight=DEFAULT_FP_WEIGHT,
-                             feature_names=None,
-                             environment_filter=None,
-                             excluded_chips=None,
-                             architectures=None,
-                             positive_chip_boost=None,
-                             output_path=DEFAULT_EXPERIMENT_OUTPUT,
-                             use_cache=True,
-                             timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
-                             timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
-    """Run the FP-first architecture campaign without changing artifacts."""
-    environment_filter = parse_environment_filter(environment_filter)
-    excluded_chips = parse_chip_filter(excluded_chips)
-    positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    feature_names = list(feature_names or TRAINING_FEATURES)
-    architectures = normalize_architecture_specs(architectures or DEFAULT_ARCHITECTURE_SWEEP)
-
-    static_presence_layers = tuple(DEFAULT_HIDDEN_LAYERS)
-    if static_presence_layers not in {tuple(spec['layers']) for spec in architectures}:
-        architectures.insert(0, {
-            'name': f"Current default ({format_hidden_layers(DEFAULT_HIDDEN_LAYERS)})",
-            'layers': list(DEFAULT_HIDDEN_LAYERS),
-        })
-    else:
-        architectures = sorted(
-            architectures,
-            key=lambda spec: tuple(spec['layers']) != static_presence_layers,
-        )
-    static_presence_name = next(
-        spec['name'] for spec in architectures if tuple(spec['layers']) == static_presence_layers
-    )
-    screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
-
-    try:
-        ensure_torch_available()
-        torch_device_label = describe_torch_device()
-    except ImportError as exc:
-        print(f"Error: Missing dependency - {exc}")
-        return 1
-    except (RuntimeError, ValueError) as exc:
-        print(f"Error: {exc}")
-        return 1
-
-    print("\n" + "=" * 70)
-    print("  FP-FIRST MLP ARCHITECTURE CAMPAIGN")
-    print("=" * 70)
-    print(f"Scaler: {scaler_mode}")
-    print(f"Batch size: {batch_size}")
-    print(f"Torch device: {torch_device_label}")
-    print(f"FP weight: {fp_weight}")
-    print(f"Feature set: {', '.join(feature_names)}")
-    print(f"Screening seed: {screening_seed}")
-    print(
-        "Architectures: "
-        + ', '.join(f"{spec['name']} [{format_hidden_layers(spec['layers'])}]" for spec in architectures)
-    )
-    if environment_filter is not None:
-        print(f"Environment filter: {', '.join(sorted(environment_filter))}")
-    if excluded_chips is not None:
-        print(f"Excluded chips: {', '.join(sorted(excluded_chips))}")
-    if positive_chip_boost is not None:
-        print(
-            "Positive chip boost: "
-            + ', '.join(f"{chip}={factor:.2f}" for chip, factor in sorted(positive_chip_boost.items()))
-        )
-
-    print("\nLoading training matrix...")
-    matrix, _ = load_training_matrix(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        feature_names=feature_names,
-        use_cache=use_cache,
-        timing_quality_policy=timing_quality_policy,
-        timing_warn_weight=timing_warn_weight,
-    )
-    stats = matrix['stats']
-    if not stats['chips']:
-        print("Error: No datasets found in data/")
-        return 1
-
-    print(f"  Chips: {', '.join(stats['chips'])}")
-    print(f"  Session groups: {len(stats.get('session_groups', []))}")
-    print(f"  Total: {stats['total']} packets")
-
-    X = matrix['X']
-    y = matrix['y']
-    feature_names = matrix['feature_names']
-    sample_context = matrix['sample_context']
-    sample_weights = matrix['sample_weights']
-    sample_weights, boost_summary = apply_positive_chip_boost(
-        sample_weights,
-        sample_context,
-        y,
-        positive_chip_boost,
-    )
-    dataset = {
-        'X': np.asarray(X, dtype=np.float32),
-        'y': np.asarray(y, dtype=np.int8),
-        'feature_names': list(feature_names),
-        'sample_context': sample_context,
-        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
-        'groups': sample_context[DEFAULT_PRIMARY_GROUP_KEY],
-        'boost_summary': boost_summary,
-    }
-    print(f"  Samples: {len(dataset['X'])}")
-    print(f"  Features: {len(dataset['feature_names'])}")
-    print(f"  Class balance: IDLE={np.sum(dataset['y']==0)}, MOTION={np.sum(dataset['y']==1)}")
-
-    results = {
-        'config': {
-            'scaler': scaler_mode,
-            'batch_size': batch_size,
-            'fp_weight': fp_weight,
-            'environment': sorted(environment_filter) if environment_filter else None,
-            'exclude_chip': sorted(excluded_chips) if excluded_chips else [],
-            'positive_chip_boost': positive_chip_boost,
-            'timing_quality_policy': timing_quality_policy,
-            'timing_warn_weight': float(timing_warn_weight),
-            'training_sample_contract': TRAINING_SAMPLE_CONTRACT,
-            'screening_seed': screening_seed,
-            'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
-            'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
-            'architectures': architectures,
-            'feature_names': list(feature_names),
-        },
-        'screening': [],
-        'seed_filter': [],
-        'seed_finalists': [],
-        'promotion': None,
-    }
-
-    print("\n== Single-seed screening ==")
-    screening_results = []
-    for spec in architectures:
-        run = evaluate_architecture_candidate(
-            spec['name'],
-            spec['layers'],
-            screening_seed,
-            dataset,
-            scaler_mode,
-            batch_size,
-            fp_weight,
-        )
-        screening_results.append(run)
-        results['screening'] = screening_results
-        write_json_results(output_path, results)
-
-    challengers = [
-        item for item in sorted(screening_results, key=architecture_campaign_rank_key)
-        if item['name'] != static_presence_name
-    ][:2]
-    finalists = [static_presence_name] + [item['name'] for item in challengers]
-    print(f"\nFinalists for 3-seed filter: {', '.join(finalists)}")
-
-    specs_by_name = {spec['name']: spec for spec in architectures}
-
-    print("\n== 3-seed robustness filter ==")
-    seed_filter = []
-    for name in finalists:
-        spec = specs_by_name[name]
-        runs = [
-            evaluate_architecture_candidate(
-                name,
-                spec['layers'],
-                seed,
-                dataset,
-                scaler_mode,
-                batch_size,
-                fp_weight,
-            )
-            for seed in DEFAULT_EXPERIMENT_INITIAL_SEEDS
-        ]
-        summary = aggregate_architecture_runs(name, runs)
-        seed_filter.append(summary)
-        results['seed_filter'] = seed_filter
-        write_json_results(output_path, results)
-        print(
-            f"{name} | median paired pass={summary['median_paired_pass_count']:.1f} | "
-            f"median maxFP={summary['median_paired_max_fp_rate']:.1f}% | "
-            f"median worstRecall={summary['median_paired_worst_chip_recall']:.1f}% | "
-            f"median worstF1={summary['median_paired_worst_chip_f1']:.1f}% | "
-            f"median OOF={summary['median_oof_f1']:.1f}%"
-        )
-
-    challenger_summaries = [
-        item for item in sorted(seed_filter, key=aggregate_architecture_rank_key)
-        if item['name'] != static_presence_name
-    ]
-    head_to_head = [static_presence_name]
-    if challenger_summaries:
-        head_to_head.append(challenger_summaries[0]['name'])
-    print(f"\n5-seed head-to-head: {', '.join(head_to_head)}")
-
-    print("\n== 5-seed final comparison ==")
-    seed_finalists = []
-    for name in head_to_head:
-        spec = specs_by_name[name]
-        runs = [
-            evaluate_architecture_candidate(
-                name,
-                spec['layers'],
-                seed,
-                dataset,
-                scaler_mode,
-                batch_size,
-                fp_weight,
-            )
-            for seed in DEFAULT_EXPERIMENT_FINAL_SEEDS
-        ]
-        summary = aggregate_architecture_runs(name, runs)
-        seed_finalists.append(summary)
-        results['seed_finalists'] = seed_finalists
-        write_json_results(output_path, results)
-        print(
-            f"{name} | median paired pass={summary['median_paired_pass_count']:.1f} | "
-            f"median maxFP={summary['median_paired_max_fp_rate']:.1f}% | "
-            f"median worstRecall={summary['median_paired_worst_chip_recall']:.1f}% | "
-            f"median worstF1={summary['median_paired_worst_chip_f1']:.1f}% | "
-            f"median OOF={summary['median_oof_f1']:.1f}%"
-        )
-
-    seed_finalists = sorted(seed_finalists, key=aggregate_architecture_rank_key)
-    static_presence_final = next(item for item in seed_finalists if item['name'] == static_presence_name)
-    winner = seed_finalists[0]
-    promote_candidate = (
-        winner['name'] != static_presence_name
-        and architecture_candidate_beats_baseline(winner, static_presence_final)
-    )
-    results['promotion'] = {
-        'winner': winner['name'],
-        'static_presence': static_presence_final['name'],
-        'decision': f"promote {winner['name']}" if promote_candidate else f"keep {static_presence_name}",
-        'clear_winner': bool(promote_candidate),
-        'summary': winner,
-        'static_presence_summary': static_presence_final,
-        'output_path': str(output_path),
-    }
-    write_json_results(output_path, results)
-
-    if not promote_candidate:
-        print(f"\nDecision: keep {static_presence_name}")
-        return 0
-
-    print(f"\nDecision: {winner['name']} beats {static_presence_name} on paired ranking")
-    return 0
-
-
-def experiment_fp_weights(fp_weights=None, scaler_mode=DEFAULT_SCALER_MODE,
-                          batch_size=DEFAULT_BATCH_SIZE, hidden_layers=None,
-                          feature_names=None,
-                          environment_filter=None, excluded_chips=None,
-                          positive_chip_boost=None,
-                          output_path=DEFAULT_FP_WEIGHT_EXPERIMENT_OUTPUT,
-                          use_cache=True,
-                          timing_quality_policy=DEFAULT_TIMING_QUALITY_POLICY,
-                          timing_warn_weight=DEFAULT_TIMING_WARN_WEIGHT):
-    """Run a gated, multi-seed FP-weight campaign."""
-    weights = parse_fp_weight_sweep(fp_weights or DEFAULT_FP_WEIGHT_SWEEP)
-    if DEFAULT_FP_WEIGHT not in weights:
-        weights.insert(0, DEFAULT_FP_WEIGHT)
-    else:
-        weights = [DEFAULT_FP_WEIGHT] + [value for value in weights if value != DEFAULT_FP_WEIGHT]
-    hidden_layers = list(hidden_layers or DEFAULT_HIDDEN_LAYERS)
-    feature_names = list(feature_names or TRAINING_FEATURES)
-    environment_filter = parse_environment_filter(environment_filter)
-    excluded_chips = parse_chip_filter(excluded_chips)
-    positive_chip_boost = parse_positive_chip_boost(positive_chip_boost)
-    screening_seed = read_exported_seed() or DEFAULT_EXPERIMENT_SCREENING_SEED
-
-    try:
-        ensure_torch_available()
-        torch_device_label = describe_torch_device()
-    except (ImportError, RuntimeError, ValueError) as exc:
-        print(f"Error: {exc}")
-        return 1
-
-    print("\n" + "=" * 70)
-    print("  FP-WEIGHT CAMPAIGN")
-    print("=" * 70)
-    print(f"Architecture: {format_hidden_layers(hidden_layers)}")
-    print(f"Scaler: {scaler_mode}")
-    print(f"Batch size: {batch_size}")
-    print(f"Torch device: {torch_device_label}")
-    print(f"Screening seed: {screening_seed}")
-    print(f"FP weights: {', '.join(map(str, weights))}")
-    print(f"Feature set: {', '.join(feature_names)}")
-    print("Artifacts: unchanged during evaluation")
-
-    matrix, _ = load_training_matrix(
-        environment_filter=environment_filter,
-        excluded_chips=excluded_chips,
-        feature_names=feature_names,
-        use_cache=use_cache,
-        timing_quality_policy=timing_quality_policy,
-        timing_warn_weight=timing_warn_weight,
-    )
-    if not matrix['stats']['chips']:
-        print("Error: No datasets found in data/")
-        return 1
-    sample_weights, _ = apply_positive_chip_boost(
-        matrix['sample_weights'], matrix['sample_context'], matrix['y'], positive_chip_boost,
-    )
-    dataset = {
-        'X': np.asarray(matrix['X'], dtype=np.float32),
-        'y': np.asarray(matrix['y'], dtype=np.int8),
-        'feature_names': list(matrix['feature_names']),
-        'sample_context': matrix['sample_context'],
-        'sample_weights': np.asarray(sample_weights, dtype=np.float32),
-        'groups': matrix['sample_context'][DEFAULT_PRIMARY_GROUP_KEY],
-    }
-
-    def evaluate(weight, seed):
-        return evaluate_architecture_candidate(
-            f"fp_weight={weight:g}", hidden_layers, seed, dataset,
-            scaler_mode, batch_size, weight,
-        )
-
-    results = {
-        'config': {
-            'weights': weights,
-            'baseline_weight': DEFAULT_FP_WEIGHT,
-            'hidden_layers': hidden_layers,
-            'scaler': scaler_mode,
-            'batch_size': batch_size,
-            'feature_names': list(feature_names),
-            'timing_quality_policy': timing_quality_policy,
-            'timing_warn_weight': float(timing_warn_weight),
-            'training_sample_contract': TRAINING_SAMPLE_CONTRACT,
-            'screening_seed': screening_seed,
-            'initial_seeds': list(DEFAULT_EXPERIMENT_INITIAL_SEEDS),
-            'final_seeds': list(DEFAULT_EXPERIMENT_FINAL_SEEDS),
-        },
-        'screening': [],
-        'seed_filter': [],
-        'seed_finalists': [],
-        'promotion': None,
-    }
-
-    print("\n== Single-seed screening ==")
-    for weight in weights:
-        results['screening'].append(evaluate(weight, screening_seed))
-        write_json_results(output_path, results)
-    baseline_name = f"fp_weight={DEFAULT_FP_WEIGHT:g}"
-    challengers = [
-        run for run in sorted(results['screening'], key=architecture_campaign_rank_key)
-        if run['name'] != baseline_name
-    ][:2]
-    finalist_weights = [DEFAULT_FP_WEIGHT] + [run['fp_weight'] for run in challengers]
-
-    print("\n== 3-seed robustness filter ==")
-    for weight in finalist_weights:
-        runs = [evaluate(weight, seed) for seed in DEFAULT_EXPERIMENT_INITIAL_SEEDS]
-        summary = aggregate_architecture_runs(f"fp_weight={weight:g}", runs)
-        summary['fp_weight'] = float(weight)
-        results['seed_filter'].append(summary)
-        write_json_results(output_path, results)
-
-    challengers = [
-        item for item in sorted(results['seed_filter'], key=aggregate_architecture_rank_key)
-        if item['name'] != baseline_name
-    ]
-    head_to_head = [DEFAULT_FP_WEIGHT]
-    if challengers:
-        head_to_head.append(challengers[0]['fp_weight'])
-
-    print("\n== 5-seed final comparison ==")
-    for weight in head_to_head:
-        runs = [evaluate(weight, seed) for seed in DEFAULT_EXPERIMENT_FINAL_SEEDS]
-        summary = aggregate_architecture_runs(f"fp_weight={weight:g}", runs)
-        summary['fp_weight'] = float(weight)
-        results['seed_finalists'].append(summary)
-        write_json_results(output_path, results)
-
-    finalists = sorted(results['seed_finalists'], key=aggregate_architecture_rank_key)
-    baseline = next(item for item in finalists if item['name'] == baseline_name)
-    winner = finalists[0]
-    promote_candidate = (
-        winner['name'] != baseline_name
-        and architecture_candidate_beats_baseline(winner, baseline)
-    )
-    results['promotion'] = {
-        'winner': winner['name'],
-        'baseline': baseline_name,
-        'decision': f"promote {winner['name']}" if promote_candidate else f"keep {baseline_name}",
-        'clear_winner': bool(promote_candidate),
-        'summary': winner,
-        'baseline_summary': baseline,
-    }
-    write_json_results(output_path, results)
-    print(f"\nDecision: {results['promotion']['decision']}")
-    return 0

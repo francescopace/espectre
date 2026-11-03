@@ -100,7 +100,7 @@ This inventory groups formulations, related runtime settings, and ablations by p
 | [Memory and accuracy trade-offs of channel-shape spread](#economic-chan_shape_spread-approximations) | Research | DS2 and slow EMA stay as host-only fallbacks; subband moved on to the ten-seed comparison. |
 | [Robustness of compact channel-shape spread](#economic-shape-spread-ten-seed-follow-up) | Production | Subband reduces memory; seed sensitivity and unseen-bedroom FP remain limitations. |
 | [Contribution and redundancy of subband inputs](#subband-importance-and-compactness-follow-up) | Research | Retain all seven subband-model inputs. |
-| [Feature ablations and model capacity](#expanded-corpus-capacity-and-feature-removals) | Rejected | Retain the eight inputs and `24-12` topology; larger networks and three targeted removals do not resolve the C5 and quiet failures. |
+| [Feature ablations and model capacity](#expanded-corpus-capacity-and-feature-removals) | Rejected | Retain the eight inputs and `24-12` topology; larger networks and three targeted removals do not resolve the C5 and quiet failures, and smaller networks raise worst-session FP. |
 | [Expanded-corpus Hampel and event persistence](#expanded-corpus-hampel-and-event-persistence) | Research | Retain Hampel; `4 / 4` improves C5 state continuity but leaves alarms, and stronger confirmation exceeds the responsiveness limit. |
 | [Corpus dependence](#expanded-corpus-c5-role-swap) | Limitation | Split changes measure coverage changes, not feature improvements. |
 | [Joint removal of spread and excess path](#six-feature-subband-ten-seed-follow-up) | Rejected | Seed selection does not remove quiet alarms or transfer regression. |
@@ -386,7 +386,19 @@ The first candidate occupancy gate was invalid because host column-cache identit
 
 The worst-lineage recall remained the new ESP32 hobby-room training pair in every variant. The quiet alarms occurred on the S3 living-room empty replay. Removing spread eliminated those alarms in this seed, but lost `6.03` points of normal C5 recall and worsened the CV recall and FP tails. Removing ZCR slightly improved thinned C5 recall, but regressed normal recall, OOF F1, and occupancy quiet safety. The larger model did not improve the C5 blind intervals on either seed and added occupancy quiet alarms on both
 
-**Decision:** Retain all eight features and the `24-12` topology. Low global SHAP and high correlation do not establish harmful redundancy; none of these removals improves the full comparison. The width experiment provides no evidence that increasing capacity alone solves the current failures, without ruling out every possible architecture or fitting recipe. Continue research on independent C5 training coverage and complementary motion evidence instead of launching a wider seed search over these rejected variants
+**Smaller networks:** A read of the exported weights (seed `1199541507`) found three nearly identical first-layer units and a second layer that acts as a two-state quiet/motion switch, so the network looked oversized. Smaller networks were then fitted on the 2026-10-06 corpus (catalog SHA-256 `ce84ae576cb6cc902d518f30cd30dfcb7b3981cbfb9e814ab6875c3e033876a2`, 61 training files, 34 lineage groups, 745,333 clean rows, and 611,354 train-only augmented rows) with the same scaling, FP weight, batch size, and full augmentation. Three-fold lineage-grouped CV scored 7,484 blocked windows at model seeds `20260518` to `20260522`. The table gives medians over the five seeds; no holdout was opened and no model was exported.
+
+| Hidden layers | Parameters | Worst-session FP | Worst-5 session FP | Worst-session recall | OOF F1 |
+| --- | --- | --- | --- | --- | --- |
+| `24-12` | `529` | `2.5%` | `1.3%` | `81.6%` | `98.6%` |
+| `16-8` | `289` | `4.3%` | `1.8%` | `80.5%` | `98.5%` |
+| `12-6` | `193` | `4.3%` | `1.8%` | `82.8%` | `98.5%` |
+| `16` | `161` | `5.5%` | `2.2%` | `80.5%` | `98.4%` |
+| `8` | `81` | `5.5%` | `2.3%` | `79.3%` | `98.4%` |
+
+`24-12` had the lower worst-session FP on all five seeds against `16-8` and on four of five against `12-6`. At seed `1199541507`, `16-8` also failed the selection per-recording non-regression check on the C3 hobby-room pair at 70% occupancy (`223` versus `226` of `228` evaluations). On out-of-fold windows at the same seed, the threshold still trades FP for recall on the hardest sessions, and the fitted temperature is only about `1.5`, so post-hoc calibration was not added. Redundant-looking weights do not mean the capacity can be removed: the hard quiet sessions need it during training.
+
+**Decision:** Retain all eight features and the `24-12` topology. Low global SHAP and high correlation do not establish harmful redundancy; none of these removals improves the full comparison. The width experiments provide no evidence that increasing capacity alone solves the current failures, and smaller networks raise worst-session FP, without ruling out every possible architecture or fitting recipe. Continue research on independent C5 training coverage and complementary motion evidence instead of launching a wider seed search over these rejected variants
 
 <a id="completed-corpus-subband-spread-removal"></a>
 

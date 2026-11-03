@@ -982,58 +982,6 @@ def test_cross_validate_shap_uses_clean_background_with_packet_augmentation(
     assert result["shap_samples"] == 3
 
 
-def test_feature_ablation_removes_column_from_clean_and_augmented_rows():
-    dataset = {
-        "X": np.arange(12, dtype=np.float32).reshape(4, 3),
-        "X_aug": np.arange(15, dtype=np.float32).reshape(5, 3),
-        "feature_names": ["first", "removed", "last"],
-    }
-
-    candidate = training.build_feature_ablation_dataset(dataset, "removed")
-
-    assert candidate["feature_names"] == ["first", "last"]
-    np.testing.assert_array_equal(candidate["X"], dataset["X"][:, [0, 2]])
-    np.testing.assert_array_equal(
-        candidate["X_aug"], dataset["X_aug"][:, [0, 2]]
-    )
-
-    joint = training.build_feature_ablation_dataset(dataset, "first+last")
-    assert joint["feature_names"] == ["removed"]
-    np.testing.assert_array_equal(joint["X"], dataset["X"][:, [1]])
-    np.testing.assert_array_equal(joint["X_aug"], dataset["X_aug"][:, [1]])
-
-
-def test_main_passes_production_augmentation_to_multi_feature_ablation(
-    monkeypatch,
-):
-    captured = {}
-
-    def fake_ablation(feature_name, **kwargs):
-        captured["feature_name"] = feature_name
-        captured.update(kwargs)
-        return 0
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "train_ml_model.py",
-            "--ablation-feature",
-            "chan_coh_subband_gap_median,chan_freq_coh_cv",
-            "--seed",
-            "1049082371",
-            "--augment",
-        ],
-    )
-    monkeypatch.setattr(training_cli, "experiment_feature_ablation", fake_ablation)
-
-    assert training_cli.main() == 0
-    assert captured["feature_name"] == (
-        "chan_coh_subband_gap_median,chan_freq_coh_cv"
-    )
-    assert captured["augment"] == ("base", "drift", "burst-loss")
-
-
 def test_host_only_seed_search_keeps_candidates_in_memory(monkeypatch):
     calls = []
     base_metrics = {

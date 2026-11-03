@@ -183,20 +183,21 @@ Mutable performance numbers belong in the [performance report](performance/READM
 
 ## Research and diagnostic workflows
 
-Architecture and false-positive-weight campaigns are read-only and write JSON reports:
+To compare another architecture, false-positive weight, or feature set with the current model, run a seed search with that setting and without export. It applies the same gates and comparison as a promotion:
 
 ```bash
-python tools/train_ml_model.py --augment --experiment
-python tools/train_ml_model.py --augment --experiment --experiment-architectures "16,8;24,12;32,16"
-python tools/train_ml_model.py --augment --experiment-fp-weights "1,1.5,2,2.5,3"
+python tools/train_ml_model.py --augment --hidden-layers 16,8 --seed-search-until-improvement 10 --no-export
+python tools/train_ml_model.py --augment --fp-weight 2.5 --seed-search-until-improvement 10 --no-export
+python tools/train_ml_model.py --augment --features NAME1,NAME2,... --seed-search-until-improvement 10 --no-export
 ```
 
-Feature diagnostics also leave runtime artifacts unchanged:
+To test one fixed seed instead, use `--evaluate-selection` with the same setting. To measure a feature removal, list the remaining features with `--features`.
+
+Feature diagnostics leave runtime artifacts unchanged:
 
 ```bash
 python tools/train_ml_model.py --correlation
 python tools/train_ml_model.py --augment --shap 500 --seed SEED --no-export
-python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REMOVAL --seed SEED
 ```
 
 Fit-recipe comparisons can change the normalization or average several fold assignments:
