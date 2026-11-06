@@ -29,6 +29,12 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     # Matter get it through `driver`, which ESPHome excludes from its builds.
     idf_component_optional_requires(PRIVATE esp_driver_usb_serial_jtag)
 
+    if(CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY)
+        # ESPHome excludes `driver`, so request the UART driver directly.
+        idf_component_optional_requires(PRIVATE esp_driver_uart)
+    endif()
+    espectre_link_emulator_csi_replay(${COMPONENT_LIB})
+
     if(CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE)
         target_link_options(
             ${COMPONENT_LIB}

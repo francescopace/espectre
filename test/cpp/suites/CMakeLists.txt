@@ -376,6 +376,11 @@ add_espectre_test(test_frontend_controls
     LIBRARIES espectre_frontend_esphome_testlib
 )
 
+add_espectre_test(test_emulator_csi_replay
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_emulator_csi_replay.cpp"
+    LIBRARIES espectre_frontend_emulator_replay_testlib
+)
+
 add_espectre_test(test_native_frontend_lifecycle
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_frontend_lifecycle.cpp"
     LIBRARIES espectre_frontend_native_testlib

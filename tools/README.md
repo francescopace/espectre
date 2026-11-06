@@ -38,6 +38,7 @@ The tools work with every supported chip. If a chip has no dataset or hardware r
 | `train_ml_model.py` | train, evaluate, and conditionally export the production ML model |
 | `generate_performance_report.py` | regenerate the aggregate detector performance report and run its parity checks |
 | `benchmark_firmware.py` | build, flash, monitor, and report representative live firmware cases |
+| `emulator/emulator_csi_replay.py` | replay recorded CSI into ESPHome test firmware running in esp-emu, and compare it with the Python detector |
 | `analyze_seed_dispersion.py` | measure replay-metric variation across training seeds |
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
@@ -187,6 +188,25 @@ The following rules are normative for `benchmark_firmware.py` and its owners und
 - Verify production runtime defaults before applying case-specific mutations. Reuse one canonical Lightweight image and select another supported detector through Direct instead of rebuilding it.
 
 Behavioral tests under `test/python/host/benchmark/test_benchmark_*.py` are the executable enforcement of this contract. Generated performance reports describe individual runs and are not contract owners.
+
+## Emulator CSI replay
+
+`emulator/emulator_csi_replay.py` runs a released ESPHome or Native image in [esp-emu](https://github.com/espressif/esp-emulator), Espressif's emulator, with no hardware. esp-emu models Wi-Fi but not CSI, so the firmware reads recorded CSI from UART1 instead of the radio.
+
+The replay is built into released images through `CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY`. It wraps the three ESP-IDF CSI calls at link time, so the SDK carries no replay code. It starts only when the factory MAC in eFuse begins with `02:45:53`. That MAC is locally administered, which a real chip's factory MAC never is, so on silicon the wrappers pass every call to ESP-IDF and never touch UART1. The tool gives esp-emu an eFuse image with that MAC.
+
+The tool then provisions Wi-Fi with Improv Serial, selects `external` traffic over Direct HTTP, and streams a registered pair: 60 seconds quiet, 60 seconds motion, and 45 seconds quiet. Each frame keeps its recorded timing. The tool sends it at the recorded callback time, and the firmware releases it at its recorded RX timestamp behind a 100 ms buffer, so an emulator stall does not burst into the callback queue. The replayed frames arrive as an external host's ping. Everything after the radio runs unchanged: the traffic filter, temporal sampler, calibration, detector, and Direct events.
+
+The same stream also runs through the Python detector. The run fails when the firmware raises a fault, misses calibration in the first quiet segment, reports motion in a quiet segment or misses it in the motion segment, or disagrees with Python on the calibrated threshold or the motion share of a segment. The report includes the firmware's queue and admission counters.
+
+```bash
+python .github/scripts/build_signed_firmware.py esphome --test-key --version 0.0.0-replay \
+  --config src/cpp/frontend/esphome/examples/espectre-c3.yaml --target esp32c3
+python tools/emulator/emulator_csi_replay.py --chip c3 --emulator esp-emu \
+  --firmware src/cpp/frontend/esphome/examples/.esphome/build/signed-esp32c3/build/firmware.factory.bin
+```
+
+CI replays the ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 images of both frontends with a pinned esp-emu release, four emulators at a time. esp-emu does not emulate ESP32 or ESP32-S2. Matter images are left out: their runtime starts only after Matter commissioning.
 
 ## Research-only detector experiments
 

@@ -26,6 +26,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LINK_CHECK_SOURCE = REPO_ROOT / ".github" / "sdk" / "optional_services_link_check.cpp"
 COMPONENT_NAME = "francescopace/espectre"
 SDK_SERVICE_PROFILES = ("frontend_support", "mqtt", "provisioning", "direct")
+# Compatibility builds beside the release toolchain pinned in espectre_cli.idf_container:
+# the minimum version the SDK manifest accepts and the newest major release.
+IDF_COMPATIBILITY_IMAGES = {
+    "5.5.3": "espressif/idf:v5.5.3@sha256:8ccd4d2ce413889c6c2bba57e986c670302094efb91c913c6091152e317a7805",
+    "6.1": "espressif/idf:v6.1@sha256:81893c71bb5e570088901f21def8684c25cd2a9020281bd01b843a7655edb18c",
+}
 
 
 def archive_files(data: bytes) -> dict[str, bytes]:
@@ -276,7 +282,8 @@ def build(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) ->
                    "-w", "/consumer/wifi_motion_detection"]
         if args.registry_url:
             command.extend(["-e", "IDF_COMPONENT_CACHE_HTTP_REQUESTS=0"])
-        command.extend([IDF_DOCKER_IMAGE, "idf.py", f"-DIDF_TARGET={args.target}", "build"])
+        image = IDF_COMPATIBILITY_IMAGES[args.idf_version] if args.idf_version else IDF_DOCKER_IMAGE
+        command.extend([image, "idf.py", f"-DIDF_TARGET={args.target}", "build"])
     else:
         command = ["idf.py", f"-DIDF_TARGET={args.target}", "build"]
     if args.registry_url:
@@ -301,6 +308,11 @@ def build(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) ->
     else:
         subprocess.run(command, cwd=project, check=True)
     verify_dependencies(project)
+    if args.idf_version:
+        lock = yaml.safe_load((project / "dependencies.lock").read_text(encoding="utf-8"))
+        resolved = str(lock["dependencies"]["idf"]["version"])
+        if resolved != args.idf_version and not resolved.startswith(f"{args.idf_version}."):
+            raise ValueError(f"The build did not use ESP-IDF {args.idf_version}")
     if args.registry_url:
         verify_install(project, inventory, files, args.target)
 
@@ -325,7 +337,11 @@ def main() -> None:
     parser.add_argument("--profile", choices=("minimal", *SDK_SERVICE_PROFILES, "all"),
                         default="minimal")
     parser.add_argument("--docker", action="store_true")
+    parser.add_argument("--idf-version", choices=tuple(IDF_COMPATIBILITY_IMAGES),
+                        help="Build with this ESP-IDF image instead of the release toolchain.")
     args = parser.parse_args()
+    if args.idf_version and (args.command != "build" or not args.docker):
+        parser.error("--idf-version requires build with --docker")
     if args.command == "fetch-example" and not args.registry_url:
         parser.error("fetch-example requires --registry-url")
     if args.example_dir and (args.command != "prepare" or not args.registry_url):

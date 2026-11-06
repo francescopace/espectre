@@ -10,4 +10,16 @@ config ESPECTRE_TINYUSB_PRIMARY_CONSOLE
         CDC console is not a reliable bidirectional application transport.
         Leave it disabled for UART and USB Serial/JTAG consoles.
 
+config ESPECTRE_EMULATOR_CSI_REPLAY
+    bool "Replay recorded CSI inside esp-emu"
+    depends on IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32C5 || IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32S3
+    default n
+    help
+        Link wrappers for the ESP-IDF CSI calls so CI can replay recorded CSI
+        from UART1 when the firmware runs in esp-emu, which models Wi-Fi but
+        not CSI. The replay starts only when the factory MAC in eFuse carries
+        the emulator marker, which silicon cannot have. On a real chip the
+        wrappers pass every call to ESP-IDF and never touch UART1. ESPHome
+        and Native link it; esp-emu does not emulate the other targets.
+
 endmenu

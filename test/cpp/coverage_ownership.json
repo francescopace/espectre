@@ -182,6 +182,14 @@
     },
     {
       "kind": "host_test",
+      "owners": ["test_emulator_csi_replay"],
+      "sources": [
+        "src/cpp/frontend/csi_replay_frame.cpp",
+        "src/cpp/frontend/emulator_csi_replay.cpp"
+      ]
+    },
+    {
+      "kind": "host_test",
       "owners": ["test_arduino_adapter"],
       "sources": ["src/cpp/runtime/esp_idf/espectre_sensor.cpp"]
     },

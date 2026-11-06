@@ -128,7 +128,11 @@ def test_firmware_audits_aggregate_target_sboms_by_frontend() -> None:
         for target in expected_targets:
             assert f"--expected-target {target}" in audit_job
 
-    assert {"audit-esphome", "audit-matter", "audit-native"} <= set(jobs["dispatch-publication"]["needs"])
+    # Publication waits for the replay, which runs only after every audit passes.
+    replay = jobs["emulator-replay"]
+    assert {"audit-esphome", "audit-matter", "audit-native"} <= set(replay["needs"])
+    assert replay.get("if", "success()") == "success()"
+    assert "emulator-replay" in jobs["dispatch-publication"]["needs"]
     assert jobs["verify-sdk-component"]["needs"] == "build-sdk"
     assert "verify-sdk-component" in jobs["dispatch-publication"]["needs"]
 
@@ -176,7 +180,7 @@ def test_python_coverage_gate_enforces_each_metric(
 
 def test_web_coverage_gate_uses_canonical_thresholds() -> None:
     workflow = (WORKFLOWS_DIR / "ci.yml").read_text(encoding="utf-8")
-    build_site = _workflow_job(workflow, "build-site")
+    build_site = _workflow_job(workflow, "test-site")
     action = BUILD_PAGES_ACTION.read_text(encoding="utf-8")
     runner = WEB_COVERAGE_RUNNER.read_text(encoding="utf-8")
     thresholds = json.loads(WEB_COVERAGE_THRESHOLDS.read_text(encoding="utf-8"))
@@ -1846,7 +1850,7 @@ def test_static_page_navigation_is_inserted_at_authored_offsets(
     # Form feed and U+2028 are line breaks for str.splitlines() but not for HTMLParser.
     content = (
         '<article data-page-toc data-page-path="guides">\n'
-        '<p>Lead\x0cwith   separators.</p>\n'
+        '<p>Lead\x0cwith  separators.</p>\n'
         '<section><h2 id="first" data-toc-label="Start">First.</h2></section>\n'
         '<h2 id="second">Second <em>part</em>:</h2>\n'
         '<h2 data-toc-exclude>Skipped</h2>\n'
@@ -2079,7 +2083,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     ci_config = yaml.load(ci, Loader=yaml.BaseLoader)
     ci_jobs = ci_config["jobs"]
     assert ci_config["on"]["push"] == {"branches": ["**"], "tags": ["**"]}
-    initial_checks = {"prepare", "build-site", "test-cpp", "test-python"}
+    initial_checks = {"prepare", "test-site", "test-cpp", "test-python"}
     for job in initial_checks:
         assert not ci_jobs[job].get("needs")
     for frontend in ("esphome", "native", "matter", "sdk"):
@@ -2090,16 +2094,24 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert ci_jobs["verify-sdk-component"]["needs"] == "build-sdk"
     assert ci_jobs["verify-sdk-component"]["with"]["publication"] == "${{ needs.build-sdk.outputs.publication }}"
     sdk_config = yaml.load(workflow_sources["sdk-component.yml"], Loader=yaml.BaseLoader)
-    assert sdk_config["on"]["workflow_call"]["outputs"]["publication"]["value"] == "${{ jobs.build.outputs.publication }}"
-    sdk_build = sdk_config["jobs"]["build"]
+    assert sdk_config["on"]["workflow_call"]["outputs"]["publication"]["value"] == "${{ jobs.verify.outputs.publication }}"
+    sdk_build = sdk_config["jobs"]["verify"]
     assert sdk_build["outputs"]["publication"] == "${{ inputs.publication }}"
     assert not sdk_build.get("needs")
     sdk_steps = sdk_build["steps"]
     consumer = next(step for step in sdk_steps if "verify_sdk_component.py prepare" in step.get("run", ""))
     assert '--registry-url "$REGISTRY_URL" --package-example' in consumer["run"]
+    # Compatibility builds use digest-pinned images and include the manifest's minimum ESP-IDF.
+    compatibility = load_script("verify_sdk_component").IDF_COMPATIBILITY_IMAGES
+    assert all(re.fullmatch(rf"espressif/idf:v{re.escape(version)}@sha256:[0-9a-f]{{64}}", image)
+               for version, image in compatibility.items())
+    matrix_idf = {entry["idf"] for entry in sdk_build["strategy"]["matrix"]["include"] if "idf" in entry}
+    assert matrix_idf <= set(compatibility)
+    idf_floor = yaml.safe_load((REPO_ROOT / "src/cpp/idf_component.yml").read_text(encoding="utf-8"))
+    assert idf_floor["dependencies"]["idf"]["version"].removeprefix(">=") in matrix_idf
     caller = ci_jobs["dispatch-publication"]
     assert set(caller["needs"]) == {
-        "audit-esphome", "audit-matter", "audit-native", "verify-sdk-component",
+        "emulator-replay", "verify-sdk-component",
         "build-traffic-generator-image", "build-arduino",
     }
     image_build = ci_jobs["build-traffic-generator-image"]

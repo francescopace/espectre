@@ -89,7 +89,10 @@ def build_esphome(key_path: Path, args, key) -> None:
         wrapper.write(
             f"packages:\n  base: !include {json.dumps(config.name)}\n"
             f"esphome:\n  build_path: {json.dumps(str(build_root))}\n"
-            "esp32:\n  framework:\n    advanced:\n      signed_ota_verification:\n"
+            "esp32:\n  framework:\n"
+            # Released images carry the CSI replay that CI runs in esp-emu; it stays inert on silicon.
+            "    sdkconfig_options:\n      CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY: y\n"
+            "    advanced:\n      signed_ota_verification:\n"
             f"        signing_scheme: {'ecdsa_v1' if args.legacy else 'rsa3072'}\n"
             f"        signing_key: {json.dumps(str(key_path))}\n")
         wrapper.flush()

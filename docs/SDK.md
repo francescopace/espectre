@@ -28,7 +28,7 @@ On 2026-10-21 the `wifi_motion_detection` example, with all optional services en
 | `v6.0.3` | Pass | Pass | Pass | Pass | Pass | Pass |
 | `v6.1` | Pass | Pass | Pass | Pass | Pass | Pass |
 
-These are build checks only; ESP-IDF 6.x has not been tested on hardware yet. See [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks) for what remains.
+CI also builds 5.5.3 on ESP32-C5 and 6.1 on ESP32-C6 on every push. These are build checks only; ESP-IDF 6.x has not been tested on hardware yet. See [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks) for what remains.
 
 ## Installation
 

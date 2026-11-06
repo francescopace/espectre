@@ -82,7 +82,7 @@ jobs:
             echo "sign=$sign"
           } >> "$GITHUB_OUTPUT"
 
-  build-site:
+  test-site:
     name: Website Unit Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -232,7 +232,7 @@ jobs:
           retention-days: 14
 
   build-esphome:
-    needs: [prepare, build-site, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build ESPHome ${{ matrix.chip }}
@@ -243,16 +243,22 @@ jobs:
       matrix:
         include:
           - chip: ESP32
+            target: esp32
             config: src/cpp/frontend/esphome/examples/espectre-esp32.yaml
           - chip: ESP32-S3
+            target: esp32s3
             config: src/cpp/frontend/esphome/examples/espectre-s3.yaml
           - chip: ESP32-S2
+            target: esp32s2
             config: src/cpp/frontend/esphome/examples/espectre-s2.yaml
           - chip: ESP32-C3
+            target: esp32c3
             config: src/cpp/frontend/esphome/examples/espectre-c3.yaml
           - chip: ESP32-C5
+            target: esp32c5
             config: src/cpp/frontend/esphome/examples/espectre-c5.yaml
           - chip: ESP32-C6
+            target: esp32c6
             config: src/cpp/frontend/esphome/examples/espectre-c6.yaml
     
     steps:
@@ -291,6 +297,15 @@ jobs:
           PREFIX="espectre-esphome-${{ needs.prepare.outputs.artifact_suffix }}"
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" ".cache/firmware/${PREFIX}-${CHIP}.bin"
           cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" ".cache/firmware/${PREFIX}-${CHIP}-ota.bin"
+
+      - name: Upload emulator replay image
+        if: success() && contains(fromJSON('["esp32c3", "esp32c5", "esp32c6", "esp32s3"]'), matrix.target)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          overwrite: true
+          name: replay-esphome-${{ matrix.target }}
+          path: .cache/firmware/espectre-esphome-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
+          retention-days: 1
 
       - name: Build ESPHome compliance artifacts
         env:
@@ -333,8 +348,106 @@ jobs:
           path: .cache/firmware/espectre-esphome-*
           retention-days: 7
 
+  # Released ESPHome and Native images run in esp-emu, which models
+  # Wi-Fi but not CSI. An eFuse marker turns on their built-in CSI replay;
+  # esp-emu does not emulate ESP32 or ESP32-S2.
+  emulator-replay:
+    # Runs after the audits so it never competes with builds for runners.
+    # Publication waits only for this job, so it must not run past a failed
+    # audit; it keeps the default success() condition.
+    needs: [audit-esphome, audit-native, audit-matter]
+    permissions:
+      contents: read
+    name: Emulator CSI replay ${{ matrix.frontend }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Bump together with EFUSE_DEFAULT_WORDS in tools/emulator/emulator_csi_replay.py.
+      ESP_EMU_VERSION: 0.51.0
+      ESP_EMU_SHA256: 2b9e157470edb8b03167996550292c6df8cc6716025ebad8927db950d7931417
+    strategy:
+      fail-fast: false
+      matrix:
+        frontend: [esphome, native]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install esp-emu
+        run: |
+          ARCHIVE="esp-emu-${ESP_EMU_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o "${RUNNER_TEMP}/${ARCHIVE}" \
+            "https://github.com/espressif/esp-emulator/releases/download/v${ESP_EMU_VERSION}/${ARCHIVE}"
+          echo "${ESP_EMU_SHA256}  ${RUNNER_TEMP}/${ARCHIVE}" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/${ARCHIVE}" -C "${RUNNER_TEMP}"
+          echo "ESP_EMU=${RUNNER_TEMP}/esp-emu-${ESP_EMU_VERSION}-x86_64-unknown-linux-gnu/esp-emu" >> "${GITHUB_ENV}"
+
+      - name: Download replay images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: replay-${{ matrix.frontend }}-*
+          path: .cache/replay
+          merge-multiple: true
+
+      # Each chip gets its own ports; the four emulators share the runner.
+      - name: Replay recorded CSI in esp-emu
+        env:
+          FRONTEND: ${{ matrix.frontend }}
+        run: |
+          mkdir -p .cache/reports/emulator
+          PIDS=()
+          INDEX=0
+          for CHIP in c3 c5 c6 s3; do
+            REPORT=".cache/reports/emulator/replay-${FRONTEND}-${CHIP}"
+            # Only this run's replay images are downloaded, one per chip.
+            FIRMWARE=$(compgen -G ".cache/replay/espectre-${FRONTEND}-*-esp32${CHIP}.bin" | head -n 1 || true)
+            if [ -n "${FIRMWARE}" ]; then
+              python tools/emulator/emulator_csi_replay.py --chip "${CHIP}" --firmware "${FIRMWARE}" \
+                --emulator "${ESP_EMU}" --uart-port $((5556 + INDEX)) --direct-port $((18690 + INDEX)) \
+                --log "${REPORT}.log" --json "${REPORT}.json" > "${REPORT}.out" 2>&1 &
+              PIDS+=($!)
+            else
+              echo "No replay image: the ${FRONTEND} build for esp32${CHIP} did not finish." > "${REPORT}.out"
+              PIDS+=("")
+            fi
+            INDEX=$((INDEX + 1))
+          done
+          STATUS=0
+          INDEX=0
+          for CHIP in c3 c5 c6 s3; do
+            PID="${PIDS[${INDEX}]}"
+            if [ -n "${PID}" ] && wait "${PID}"; then RESULT=passed; else RESULT=failed; STATUS=1; fi
+            echo "::group::${FRONTEND} ${CHIP} ${RESULT}"
+            cat ".cache/reports/emulator/replay-${FRONTEND}-${CHIP}.out"
+            echo "::endgroup::"
+            INDEX=$((INDEX + 1))
+          done
+          exit "${STATUS}"
+
+      - name: Upload emulator replay report
+        if: always() && hashFiles('.cache/reports/emulator/*') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          overwrite: true
+          include-hidden-files: true
+          name: emulator-replay-${{ matrix.frontend }}
+          path: .cache/reports/emulator/
+          retention-days: 7
+
   build-matter:
-    needs: [prepare, build-site, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build Matter ${{ matrix.chip }}
@@ -409,7 +522,7 @@ jobs:
           retention-days: 7
 
   build-native:
-    needs: [prepare, build-site, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build Native ${{ matrix.chip }}
@@ -464,6 +577,15 @@ jobs:
           NATIVE_OTA_CHANNEL: ${{ needs.prepare.outputs.ota_channel }}
           NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
+      - name: Upload emulator replay image
+        if: success() && contains(fromJSON('["esp32c3", "esp32c5", "esp32c6", "esp32s3"]'), matrix.target)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          overwrite: true
+          name: replay-native-${{ matrix.target }}
+          path: .cache/firmware/espectre-native-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
+          retention-days: 1
+
       - name: Stage native firmware audit input
         run: |
           mkdir -p .cache/audit-input
@@ -494,7 +616,7 @@ jobs:
 
   build-traffic-generator-image:
     name: Build Traffic Generator Image
-    needs: [prepare, build-site, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -553,7 +675,7 @@ jobs:
           retention-days: 7
 
   build-arduino:
-    needs: [prepare, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     permissions:
       contents: read
     name: Build Arduino ${{ matrix.chip }}
@@ -644,7 +766,7 @@ jobs:
 
   build-sdk:
     name: Build SDK Package
-    needs: [prepare, build-site, test-cpp, test-python]
+    needs: [prepare, test-site, test-cpp, test-python]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -883,7 +1005,7 @@ jobs:
 
   dispatch-publication:
     name: Dispatch Publication
-    needs: [audit-esphome, audit-matter, audit-native, verify-sdk-component, build-traffic-generator-image, build-arduino]
+    needs: [emulator-replay, verify-sdk-component, build-traffic-generator-image, build-arduino]
     if: >
       success() && github.event_name == 'push' && !github.event.deleted &&
       contains(fromJSON('["snapshot", "release"]'), needs.verify-sdk-component.outputs.publication)

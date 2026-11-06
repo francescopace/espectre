@@ -30,3 +30,5 @@ inline esp_err_t esp_read_mac(uint8_t* mac, esp_mac_type_t type) {
   }
   return g_esp_mac_mock.result;
 }
+
+inline esp_err_t esp_efuse_mac_get_default(uint8_t* mac) { return esp_read_mac(mac, ESP_MAC_WIFI_STA); }

@@ -27,6 +27,26 @@ set(ESPECTRE_FRONTEND_OTA_SOURCES
     "${ESPECTRE_FRONTEND_ROOT}/ota_service_https.cpp"
 )
 
+# Enabled by CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY; inert outside esp-emu.
+set(ESPECTRE_FRONTEND_EMULATOR_REPLAY_SOURCES
+    "${ESPECTRE_FRONTEND_ROOT}/csi_replay_frame.cpp"
+    "${ESPECTRE_FRONTEND_ROOT}/emulator_csi_replay.cpp"
+)
+
+set(ESPECTRE_FRONTEND_EMULATOR_REPLAY_LINK_OPTIONS
+    "LINKER:--wrap=esp_wifi_set_csi_config"
+    "LINKER:--wrap=esp_wifi_set_csi_rx_cb"
+    "LINKER:--wrap=esp_wifi_set_csi"
+)
+
+# Link the emulator CSI replay into a frontend component when Kconfig enables it.
+function(espectre_link_emulator_csi_replay component_lib)
+    if(CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY)
+        target_sources(${component_lib} PRIVATE ${ESPECTRE_FRONTEND_EMULATOR_REPLAY_SOURCES})
+        target_link_options(${component_lib} INTERFACE ${ESPECTRE_FRONTEND_EMULATOR_REPLAY_LINK_OPTIONS})
+    endif()
+endfunction()
+
 set(ESPECTRE_FRONTEND_COMMON_SOURCES
     "${ESPECTRE_FRONTEND_ROOT}/frontend_firmware_version.cpp"
     "${ESPECTRE_FRONTEND_ROOT}/primary_console.cpp"

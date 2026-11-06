@@ -20,6 +20,8 @@ Complete the local build prerequisites in [local build prerequisites](../../../.
 
 Improv Serial uses the main serial console. On ESP32-S2 that is TinyUSB CDC, enabled by `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` under **ESPectre Firmware** in menuconfig.
 
+On ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3, the defaults enable `ESPECTRE_EMULATOR_CSI_REPLAY`, which lets CI replay recorded CSI into the published image inside Espressif's emulator. It starts only when the factory MAC carries a marker that real chips cannot have; see [emulator CSI replay](../../../../tools/README.md#emulator-csi-replay).
+
 Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI loads after the shared defaults. CPU frequency is explicit for every supported chip: 240 MHz on ESP32, ESP32-S2, ESP32-S3, and ESP32-C5, and 160 MHz on ESP32-C3 and ESP32-C6. Add future chip-specific overrides to these files.
 
 ## Direct HTTP

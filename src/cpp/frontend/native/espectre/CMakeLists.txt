@@ -65,3 +65,5 @@ target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/privat
 target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_receive_action")
 
 target_link_options(${COMPONENT_LIB} INTERFACE ${ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_LINK_OPTIONS})
+
+espectre_link_emulator_csi_replay(${COMPONENT_LIB})

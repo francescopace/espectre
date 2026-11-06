@@ -154,6 +154,8 @@ If traffic flows but no CSI arrives at startup, the runtime tries one recovery s
 
 ESPectre captures CSI only while connected to an access point and never uses promiscuous mode. Use it only on networks you are allowed to use; having the Wi-Fi password is not consent to sensing.
 
+Released ESPHome and Native firmware also contains the CSI replay that CI runs in Espressif's emulator. It starts only when the factory MAC carries a marker that real chips cannot have, so on a device it stays off. See [emulator CSI replay](../tools/README.md#emulator-csi-replay).
+
 ### Capture profiles
 
 A capture profile decides which part of the Wi-Fi frame is measured. Set it at build time with `csi_capture_profile` in ESPHome YAML, the Kconfig option, or `RuntimeConfig::csi_capture_policy`. It cannot be changed at runtime. The read-only `csi_profile` diagnostic shows the profile in use.

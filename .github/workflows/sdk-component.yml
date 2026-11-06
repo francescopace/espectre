@@ -18,14 +18,18 @@ on:
     outputs:
       publication:
         description: Publication channel from the verified SDK package
-        value: ${{ jobs.build.outputs.publication }}
+        value: ${{ jobs.verify.outputs.publication }}
 
 permissions:
   contents: read
   actions: read
 
 jobs:
-  build:
+  # Builds the packaged SDK as an outside consumer would. Firmware builds already
+  # compile these sources on every target, so this matrix covers what only the
+  # package exercises: each optional service alone, the manifest dependency
+  # rules, one target per architecture, and the oldest and newest ESP-IDF.
+  verify:
     name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -35,18 +39,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: ESP32 Core, target: esp32, profile: minimal}
-          - {name: ESP32-S2 Core, target: esp32s2, profile: minimal}
-          - {name: ESP32-S3 Core, target: esp32s3, profile: minimal}
-          - {name: ESP32-C3 Core, target: esp32c3, profile: minimal}
-          - {name: ESP32-C5 Core, target: esp32c5, profile: minimal}
-          - {name: ESP32-C6 Core, target: esp32c6, profile: minimal}
-          - {name: ESP32-C3 Frontend, target: esp32c3, profile: frontend_support}
-          - {name: ESP32-C3 MQTT, target: esp32c3, profile: mqtt}
-          - {name: ESP32-C3 Provisioning, target: esp32c3, profile: provisioning}
-          - {name: ESP32-C3 Direct HTTP, target: esp32c3, profile: direct}
-          - {name: ESP32-C3 Full, target: esp32c3, profile: all}
-          - {name: ESP32-S2 Full, target: esp32s2, profile: all}
+          - {name: Core ESP32, target: esp32, profile: minimal}
+          - {name: Core ESP32-C5, target: esp32c5, profile: minimal}
+          - {name: Frontend ESP32-C3, target: esp32c3, profile: frontend_support}
+          - {name: MQTT ESP32-C3, target: esp32c3, profile: mqtt}
+          - {name: Provisioning ESP32-C3, target: esp32c3, profile: provisioning}
+          - {name: Direct HTTP ESP32-C3, target: esp32c3, profile: direct}
+          - {name: Full ESP32-C3, target: esp32c3, profile: all}
+          - {name: Full ESP32-C5 IDF 5.5.3, target: esp32c5, profile: all, idf: '5.5.3'}
+          - {name: Full ESP32-C6 IDF 6.1, target: esp32c6, profile: all, idf: '6.1'}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-sdk-packaging
@@ -67,15 +68,17 @@ jobs:
             --destination "$RUNNER_TEMP/sdk-consumer" \
             --target "$SDK_TARGET" --profile "$SDK_PROFILE" \
             --registry-url "$REGISTRY_URL" --package-example
-      - name: Build with ESP-IDF 5.5.6 and verify installation
+      - name: Build with ESP-IDF ${{ matrix.idf || 'release toolchain' }} and verify installation
         env:
           REGISTRY_URL: ${{ inputs.registry_url }}
           SDK_TARGET: ${{ matrix.target }}
+          SDK_IDF: ${{ matrix.idf }}
         run: |
           python .github/scripts/verify_sdk_component.py build --docker \
             --inventory .cache/registry/component-inventory.json \
             --destination "$RUNNER_TEMP/sdk-consumer" \
             --target "$SDK_TARGET" --registry-url "$REGISTRY_URL" \
+            ${SDK_IDF:+--idf-version "$SDK_IDF"} \
             > "$RUNNER_TEMP/sdk-build.log" 2>&1 \
             || { tail -n 100 "$RUNNER_TEMP/sdk-build.log"; exit 1; }
           tail -n 5 "$RUNNER_TEMP/sdk-build.log"
@@ -83,6 +86,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: registry-build-${{ inputs.registry_url != '' && 'registry' || 'local' }}-${{ matrix.target }}-${{ matrix.profile }}-${{ github.run_attempt }}
+          name: registry-build-${{ inputs.registry_url != '' && 'registry' || 'local' }}-${{ matrix.target }}-${{ matrix.profile }}-${{ matrix.idf || 'release' }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sdk-build.log
           retention-days: 7
