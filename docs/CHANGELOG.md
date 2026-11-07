@@ -26,6 +26,7 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 
 - CI runs the released ESPHome and Native images for ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 in esp-emu, Espressif's emulator, and replays recorded CSI into them over UART1 with the recorded timing. Calibration, motion detection, and Direct events must match the Python detector on the same stream. The replay starts only when the factory MAC carries a marker that real chips cannot have, so it stays off on devices. See [emulator CSI replay](../tools/README.md#emulator-csi-replay).
 - Official firmware builds use ESPHome 2026.10.1.
+- Matter firmware builds use esp-matter 1.6.1, which is based on Matter 1.6.1.
 - The Home Assistant traffic generator add-on (0.4.1) also recognizes the occupancy sensor of the `espectre` component built into ESPHome when it is named after its `csi_occupancy` key. Its guide shows the YAML that fills every panel column: the diagnostic sensors, a Refresh Diagnostics button, and a `wifi_signal` sensor. See the [add-on guide](../tools/ha_traffic_generator_addon/DOCS.md#the-esphome-espectre-component).
 
 ---
