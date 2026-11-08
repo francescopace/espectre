@@ -20,8 +20,10 @@
     "guide-placement": "documentation",
     "guide-troubleshooting": "documentation",
     "guide-home-assistant": "documentation",
+    "guide-esphome": "documentation",
     "guide-detectors": "documentation",
     "guide-micropython": "documentation",
+    "guide-arduino": "documentation",
     "guide-ml-data-collection": "documentation",
     "guide-future-wifi-sensing": "documentation",
     "sdk": "documentation",
@@ -238,11 +240,28 @@
       "staticPath": "/guides/home-assistant/"
     },
     {
+      "name": "guide-esphome",
+      "group": "guides",
+      "pathLabel": "ESPHome",
+      "title": "Use the ESPectre component built into ESPHome | ESPectre",
+      "description": "Add ESPectre motion sensing to an ESPHome YAML with the component built into ESPHome: options, entities, and current limits.",
+      "staticPath": "/guides/esphome/"
+    },
+    {
       "name": "guide-micropython",
       "group": "guides",
+      "pathLabel": "MicroPython",
       "title": "Run ESPectre on MicroPython | ESPectre",
       "description": "Detect motion on an ESP32 in MicroPython, using the Wi-Fi CSI support ESPectre added to MicroPython.",
       "staticPath": "/guides/micropython/"
+    },
+    {
+      "name": "guide-arduino",
+      "group": "guides",
+      "pathLabel": "Arduino",
+      "title": "Add ESPectre to an Arduino sketch | ESPectre",
+      "description": "Detect motion from Wi-Fi CSI in an Arduino-ESP32 sketch with the ESPectre library, while the sketch keeps control of Wi-Fi.",
+      "staticPath": "/guides/arduino/"
     },
     {
       "name": "guide-ml-data-collection",
@@ -263,6 +282,7 @@
     {
       "name": "guide-future-wifi-sensing",
       "group": "guides",
+      "pathLabel": "Future of Wi-Fi sensing",
       "title": "The future of Wi-Fi sensing | ESPectre",
       "description": "How IEEE 802.11bf adds sensing to the Wi-Fi standard, what it does not solve, and how ESPectre is ready for it.",
       "staticPath": "/guides/future-wifi-sensing/",

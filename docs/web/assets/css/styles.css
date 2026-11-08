@@ -3195,7 +3195,7 @@ body.modal-open { overflow: hidden; }
 .roadmap-release-sequence { margin: 0; padding: 18px 32px; list-style: none; background: var(--accent-soft); }
 .roadmap-release-sequence li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--accent-line); }
 .roadmap-release-sequence li:last-child { border-bottom: 0; }
-.roadmap-release-sequence strong { font-family: var(--font-mono); font-size: 12px; }
+.roadmap-release-sequence li > strong { font-family: var(--font-mono); font-size: 12px; }
 .roadmap-release-sequence span { color: var(--dim); font-size: 13.5px; line-height: 1.5; }
 .roadmap-chapter-points { margin: 26px 0 0; padding: 0; list-style: none; }
 .roadmap-chapter-points li { position: relative; padding: 12px 0 12px 18px; border-top: 1px solid var(--border); color: var(--dim); font-size: 13px; line-height: 1.5; }

@@ -219,7 +219,7 @@ The example YAML and normal Device Builder builds are not signed, and a device w
 
 ### The component built into ESPHome
 
-Since ESPHome 2026.10, `espectre` is also built into ESPHome, so a YAML needs no `external_components` entry. See the [ESPHome documentation](https://esphome.io/components/espectre/). It does not include the Direct API yet, so the [browser tools](https://espectre.dev/tools/), the CLI commands that talk to the device, and the Device settings link after Improv Serial need the external component below. Official images use the external component.
+Since ESPHome 2026.10, `espectre` is also built into ESPHome, so a YAML needs no `external_components` entry. See the [ESPHome documentation](https://esphome.io/components/espectre/) and the [website guide](https://espectre.dev/guides/esphome/), which compares the two components. It does not include the Direct API yet, so the [browser tools](https://espectre.dev/tools/), the CLI commands that talk to the device, and the Device settings link after Improv Serial need the external component below. Official images use the external component.
 
 ### As an ESPHome external component
 

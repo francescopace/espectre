@@ -8,7 +8,7 @@ Arduino support is in development for v3.2.0 and is not yet a supported release.
 
 - Arduino-ESP32 core 3.3 or later.
 - ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6.
-- A 2.4 GHz or 5 GHz access point that the board stays connected to.
+- A 2.4 GHz access point that the board stays connected to, or a 5 GHz one on ESP32-C5.
 
 ## Installation
 
@@ -50,7 +50,7 @@ The component includes the same class and the full SDK, with menuconfig, optiona
 
 ## Getting started
 
-Open **File > Examples > ESPectre > MotionDetection**, set your network in `arduino_secrets.h`, and upload it. Open the serial monitor at 115200 baud.
+Open **File > Examples > ESPectre > MotionDetection**, set your network in `arduino_secrets.h`, and upload it. Open the serial monitor at 115200 baud. On ESP32-S2, the USB port prints only while the monitor holds DTR on.
 
 ```cpp
 #include <WiFi.h>
@@ -98,9 +98,15 @@ ESPectre turns Wi-Fi power save off at every connection, because it reduces the 
 
 ESPectre sends a small stream of ping packets to the gateway to keep CSI flowing. See [traffic destination](https://espectre.dev/sdk/#traffic-destination) to choose another target.
 
+On a mesh network, pass the BSSID and channel of the nearest access point to `WiFi.begin()`. A board joined to a distant node gets weak CSI, and detection becomes unreliable.
+
+Arduino-ESP32 retries the first connection once, and later does not reconnect after some failures, such as a refused authentication. Reconnect from your sketch when `WiFi.status()` stays disconnected. ESPectre reconnects the board on its own only after it restarts the connection to apply its radio settings.
+
 ## Logging
 
 ESPectre logs follow the **Core Debug Level** setting, like the core's own messages. They are off by default. To send them elsewhere, register a [log sink](https://espectre.dev/sdk/#logging) before `begin()`.
+
+On ESP32-S2 with **USB CDC On Boot** enabled, these logs go to the UART0 pins, not to the USB port.
 
 ## Limitations
 

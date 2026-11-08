@@ -11,13 +11,13 @@
 
 When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes and reports motion in real time. No camera, no microphone, no wearable, and no dedicated radar hardware: just a supported ESP32 and the Wi-Fi network already in the room.
 
-**ESPectre** is an open-source platform that brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
+**ESPectre** is an open-source platform that brings together ready-to-flash firmware, an embeddable C++ SDK, an Arduino library, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
 
 [Flash from your browser](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
 ## Applications and integrations
 
-Use ESPectre to turn on lights or a display when someone walks in, adjust heating when a room is in use, or send an alert when there is movement where nobody should be. It works with Home Assistant (through ESPHome or MQTT), appears as a standard Matter occupancy sensor, offers a local HTTP API, and can be built into your own ESP32 firmware with the C++ SDK.
+Use ESPectre to turn on lights or a display when someone walks in, adjust heating when a room is in use, or send an alert when there is movement where nobody should be. It works with Home Assistant (through ESPHome or MQTT), appears as a standard Matter occupancy sensor, offers a local HTTP API, and can be built into your own ESP32 firmware with the C++ SDK or an Arduino-ESP32 sketch.
 
 Everything runs on the device: it measures the Wi-Fi channel (channel state information, or CSI) and reports motion and a movement score. Nothing needs to go to the cloud. One board covers one area, so plan on one board per room.
 
@@ -69,7 +69,7 @@ To build and flash from this repository, start with the [setup guide](docs/SETUP
 | **Install and operate** | Device setup, CLI workflows, and troubleshooting | [Setup guide](docs/SETUP.md), [CLI reference](docs/CLI.md), [Troubleshooting guide](docs/TROUBLESHOOTING.md) |
 | **Understand and integrate** | Runtime architecture, CSI acquisition, API, discovery, algorithms, and the C++ SDK | [Architecture overview](docs/ARCHITECTURE.md), [CSI guide](docs/CSI.md), [API reference](docs/API.md), [Discovery reference](docs/DISCOVERY.md), [Algorithms reference](docs/ALGORITHMS.md), [SDK guide](docs/SDK.md) |
 | **Research and direction** | Roadmap, architecture decisions, and release history | [Roadmap](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [Changelog](docs/CHANGELOG.md) |
-| **Frontend reference** | Guides for each firmware: ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
+| **Frontend reference** | Guides for each firmware, Micro-ESPectre, and the Arduino library | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md), [Arduino](src/cpp/frontend/arduino/README.md) |
 | **Contributing** | Contributions, release procedures, and project discussions | [Contributing guide](CONTRIBUTING.md), [Release guide](docs/RELEASING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
 
 ## Datasets, models, and validation

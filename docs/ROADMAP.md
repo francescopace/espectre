@@ -4,7 +4,7 @@
 
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
-| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime |
+| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime, and fully support the component built into ESPHome |
 | **v3.3.0** | Planned | Add stationary presence as a distinct sensing output |
 | **v3.4.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
 | **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
@@ -12,18 +12,22 @@
 | **v4.2.0** | Demand-gated | Add optional fleet, history, update, and alert workflows |
 | **v5.0.0** | Exploratory | Adopt IEEE 802.11bf or an equivalent sensing backend |
 
-## v3.2.0 - Arduino SDK runtime
+## v3.2.0 - Arduino SDK runtime and built-in ESPHome component
 
-**Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code.
+**Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code. Let ESPHome users get every ESPectre feature from the `espectre` component built into ESPHome, without an `external_components` entry.
 
-**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32-S3 and ESP32-C5 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The other chips still need hardware checks, and the library is not supported until the exit criteria pass. Each `develop` build updates the `develop` branch of [espectre-arduino](https://github.com/francescopace/espectre-arduino), the repository for the Arduino Library Manager.
+**Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The library is not supported until it installs from the Arduino Library Manager. Each `develop` build updates the `develop` branch of [espectre-arduino](https://github.com/francescopace/espectre-arduino), the repository for the Arduino Library Manager.
+
+Since ESPHome 2026.10, `espectre` is built into ESPHome.
 
 **Remaining steps**:
 
-- [ ] Check calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6 hardware
-- [ ] Measure CSI occupancy on ESP32, where A-MPDU TX stops the fixed TX rate from applying
+- [x] Check calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6 hardware
+- [x] Measure CSI occupancy on ESP32, where A-MPDU TX stops the fixed TX rate from applying
 - [x] Mention the `espectre` component built into ESPHome 2026.10 in the setup guides
 - [ ] Mark the library as supported in the changelog, this roadmap, and the Arduino guide
+- [ ] Check the browser tools, the CLI device commands, and the Device settings link after Improv Serial against the built-in component
+- [ ] Move official images and the ESPHome guide to the built-in component
 - [ ] Finalize the 3.2.0 changelog entry and tag the release
 - [ ] Make `main` the default branch of espectre-arduino after the release tags it
 - [ ] Register espectre-arduino in the Arduino library registry, after an `arduino-lint` check, and confirm that `arduino-cli lib install ESPectre` works
@@ -32,11 +36,12 @@
 
 - Add an Arduino-facing runtime adapter that reuses the SDK's runtime controller, the ESP-IDF runtime, and the shared detector
 - Keep Wi-Fi startup, reconnect policy, and product integration under the consuming sketch's control
-- Measure CSI on Arduino's prebuilt ESP-IDF configuration, which keeps A-MPDU on and has fewer RX buffers. On ESP32, A-MPDU TX also stops the default fixed TX rate from applying
+- Run on Arduino's prebuilt ESP-IDF configuration, which keeps A-MPDU on and has fewer RX buffers. On ESP32, A-MPDU TX stops the default fixed TX rate from applying
 - Reassess whether the runtime event mailbox should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
+- Bring the ESPHome component in this repository and the one built into ESPHome to the same features, so ESPHome users need only the built-in one
 
-**Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK.
+**Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK. An ESPHome YAML with only the built-in `espectre` component works with the browser tools and the CLI, and official images use it.
 
 ## v3.3.0 - Stationary presence detection
 

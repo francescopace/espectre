@@ -171,6 +171,8 @@ The repository has three complete firmware built on the public SDK. They are not
 | ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
+The [`espectre` component built into ESPHome](https://esphome.io/components/espectre/) uses the same SDK. Since ESPHome 2026.10, it installs `francescopace/espectre` from the ESP Component Registry, as any product would. Its [source](https://github.com/esphome/esphome/tree/dev/esphome/components/espectre) is a compact integration example.
+
 ## Public headers
 
 | Header | Use it for |

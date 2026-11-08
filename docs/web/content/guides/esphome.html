@@ -1,0 +1,125 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+  <span class="guide-tag">ESPHOME · 5 MIN READ</span>
+  <h1>Use the ESPectre component built into ESPHome</h1>
+  <p class="article-lead">ESPectre is part of ESPHome. Add motion sensing to any ESPHome YAML, with no external component.</p>
+  <figure>
+    <img src="/assets/images/guides/esphome-component-card.avif" alt="An ESP32 board connected to an abstract YAML configuration panel and a smart-home motion icon" width="1068" height="600" loading="eager">
+    <figcaption>The component turns an ESPHome configuration into a Wi-Fi motion sensor for your home.</figcaption>
+  </figure>
+
+  <details class="page-toc">
+    <summary>Sections</summary>
+    <nav aria-label="Guide sections"><strong>On this page</strong><a href="#esphome-choose">Which component</a><a href="#esphome-start">First configuration</a><a href="#esphome-options">Options</a><a href="#esphome-entities">Entities</a><a href="#esphome-radio">Radio settings</a><a href="#esphome-limits">Current limits</a></nav>
+  </details>
+
+  <h2 id="esphome-choose">Built-in or ESPectre component</h2>
+  <p>The built-in component and the ESPectre ESPHome component run the same SDK. They differ in what comes around it. This guide covers ESPHome 2026.11.</p>
+  <div class="table-wrap"><table>
+    <caption class="sr-only">Built-in ESPHome component compared with the ESPectre ESPHome component</caption>
+    <thead><tr><th scope="col"></th><th scope="col">Built into ESPHome</th><th scope="col">ESPectre component</th></tr></thead>
+    <tbody>
+      <tr><td>Install</td><td>Part of ESPHome</td><td>Official images, or <code>external_components</code> from GitHub</td></tr>
+      <tr><td>Entities</td><td>Only the ones you add, with the names you choose</td><td>A full set, ready for the Home Assistant dashboard</td></tr>
+      <tr><td>Browser tools and CLI</td><td>Not yet: no Direct API</td><td>Monitor, Device settings, and <code>./espectre</code></td></tr>
+      <tr><td>Updates</td><td>With each ESPHome release</td><td>With each ESPectre release, signed for official images</td></tr>
+    </tbody>
+  </table></div>
+  <p>Start with the built-in component when you already maintain an ESPHome configuration and want motion as one more entity. Use the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md" target="_blank" rel="noopener">ESPectre component</a> or an <a href="/guides/setup/">official image</a> for the browser tools.</p>
+
+  <h2 id="esphome-start">Your first configuration</h2>
+  <p>Add the hub and a motion sensor to a configuration that already sets up Wi-Fi:</p>
+  <pre class="code"><code>espectre:
+
+binary_sensor:
+  - platform: espectre
+    motion:
+      name: Motion</code></pre>
+  <p>The sensor calibrates after each connection, while the room is quiet. Keep the room still for the first half minute after the device joins Wi-Fi.</p>
+
+  <h2 id="esphome-options">Options</h2>
+  <p>All options go under <code>espectre:</code> and are optional. The defaults suit most rooms.</p>
+  <div class="table-wrap"><table>
+    <caption class="sr-only">Options of the espectre component</caption>
+    <thead><tr><th scope="col">Option</th><th scope="col">Values</th></tr></thead>
+    <tbody>
+      <tr><td><code>detection_algorithm</code></td><td><code>lightweight</code> (default) or <code>high_accuracy</code>. See <a href="/guides/detectors/">detection profiles</a>.</td></tr>
+      <tr><td><code>traffic_generator_mode</code></td><td><code>ping</code> (default), <code>dns</code>, <code>dns_tcp</code>, <code>wifi_raw</code>, or <code>external</code>. <code>wifi_raw</code> is not available on ESP32-C6.</td></tr>
+      <tr><td><code>traffic_generator_target_ip</code></td><td>A unicast IPv4 address for <code>ping</code>, <code>dns</code>, or <code>dns_tcp</code> traffic, instead of the gateway</td></tr>
+      <tr><td><code>traffic_generator_target_mac</code></td><td>A unicast MAC address for <code>wifi_raw</code> traffic, such as another ESPectre device</td></tr>
+      <tr><td><code>csi_traffic_multicast_group</code></td><td>The multicast group of an external traffic source, with <code>external</code> mode</td></tr>
+      <tr><td><code>motion_on_hits</code>, <code>motion_off_hits</code></td><td>How many detections in a row turn motion on or off, from 1 to 20</td></tr>
+      <tr><td><code>csi_target_pps</code></td><td>CSI packets per second to aim for, from 1 to 500</td></tr>
+      <tr><td><code>csi_sample_spacing</code></td><td><code>half_slot</code> (default) or <code>distinct</code>. On a busy channel, <code>distinct</code> keeps packets that arrive in back-to-back pairs.</td></tr>
+      <tr><td><code>window_size</code>, <code>evaluation_interval</code></td><td>The detection window, from 1 to 2 seconds, and how often it is evaluated, from 10&nbsp;ms to 10&nbsp;s</td></tr>
+      <tr><td><code>lowpass_filter</code>, <code>hampel_filter</code></td><td>Signal filters, each with <code>enabled</code>. The low-pass filter takes a <code>cutoff</code> from 5 to 20&nbsp;Hz; the Hampel filter takes a <code>window</code> from 3 to 11 and a <code>threshold</code> from 1 to 10.</td></tr>
+      <tr><td><code>csi_capture_profile</code></td><td><code>auto</code> (default), <code>lltf</code>, or <code>ht_vht</code>. Leave it on <code>auto</code> unless you are testing.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="esphome-entities">Entities</h2>
+  <p>The component creates only the entities you list. This configuration adds the ones most people want:</p>
+  <pre class="code"><code>binary_sensor:
+  - platform: espectre
+    motion:
+      name: Motion
+    calibrating:
+      name: Calibrating
+
+sensor:
+  - platform: espectre
+    movement:
+      name: Movement
+    diagnostics:
+      update_interval: 10s
+      csi_accepted_rate:
+        name: CSI Accepted Rate
+      csi_occupancy:
+        name: CSI Temporal Occupancy
+
+number:
+  - platform: espectre
+    threshold:
+      name: Threshold
+
+select:
+  - platform: espectre
+    detection_algorithm:
+      name: Detection Algorithm
+    traffic_generator_mode:
+      name: Traffic Mode
+
+switch:
+  - platform: espectre
+    sensing:
+      name: Sensing
+
+button:
+  - platform: espectre
+    name: Recalibrate</code></pre>
+  <ul class="checklist">
+    <li><strong>Controls</strong> apply at runtime, without a new build. Numbers also cover <code>motion_on_hits</code> and <code>motion_off_hits</code>, and the selects also cover <code>csi_sample_spacing</code>. The <strong>Sensing</strong> switch pauses sensing and is restored after a reboot.</li>
+    <li><strong>Diagnostics</strong> also include <code>generator_rate</code>, <code>traffic_tx_rate</code>, <code>traffic_rx_rate</code>, <code>csi_callback_rate</code>, <code>csi_missing_slot_rate</code>, and <code>csi_excess_rate</code>. They publish nothing until you set <code>update_interval</code> or call <code>component.update</code> on them.</li>
+    <li><strong>The traffic generator app</strong> fills its panel from these entities when they use the names it expects. See the <a href="/guides/home-assistant/">Home Assistant guide</a>.</li>
+  </ul>
+
+  <h2 id="esphome-radio">What the component changes in ESPHome</h2>
+  <p>CSI needs a steady stream of received packets, so the component adjusts the radio:</p>
+  <ul class="checklist">
+    <li>Wi-Fi power save is always off, also while the device is disconnected.</li>
+    <li>ESPHome's periodic roaming scans stop, because each one interrupts sensing. Losing the access point still triggers a normal reconnect.</li>
+    <li>Wi-Fi aggregation is off in both directions, because CSI needs one report per frame. This can lower Wi-Fi throughput for the whole firmware.</li>
+    <li>It needs ESP-IDF 5.5.3 or later, or Arduino 3.3.7 or later, on ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6.</li>
+  </ul>
+
+  <h2 id="esphome-limits">Current limits</h2>
+  <ul class="checklist">
+    <li>No Direct API yet, so Monitor, Device settings, Find devices, and the <code>./espectre</code> device commands cannot reach the board. Home Assistant covers the same checks through the entities: watch Movement against Threshold, the calibration state, and the traffic and CSI diagnostics, and tune the controls from there.</li>
+    <li>Raw CSI collection for datasets needs the Direct API, so it is not available either.</li>
+  </ul>
+  <p>For every option and platform, see the <a href="https://esphome.io/components/espectre/" target="_blank" rel="noopener">ESPHome documentation</a>.</p>
+
+</article>

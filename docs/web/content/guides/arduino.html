@@ -1,0 +1,89 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article guide-article" data-page-toc data-page-path="guides">
+  <span class="guide-tag">ARDUINO · 3 MIN READ</span>
+  <h1>Add ESPectre to an Arduino sketch</h1>
+  <p class="article-lead">Detect motion from Wi-Fi CSI in an Arduino-ESP32 sketch. Your sketch keeps control of Wi-Fi and of everything else it does.</p>
+  <figure>
+    <img src="/assets/images/guides/arduino-esp32-sketch-card.avif" alt="An ESP32 board connected to a laptop displaying the Arduino logo, sending a Wi-Fi CSI signal to a motion icon" width="1068" height="600" loading="eager">
+    <figcaption>The sketch starts the sensor and calls its loop. ESPectre turns the Wi-Fi signal into motion events.</figcaption>
+  </figure>
+
+  <details class="page-toc">
+    <summary>Sections</summary>
+    <nav aria-label="Guide sections"><strong>On this page</strong><a href="#arduino-runtime">On-device runtime</a><a href="#arduino-requirements">Requirements</a><a href="#arduino-install">Installation</a><a href="#arduino-start">First sketch</a><a href="#arduino-wifi">Wi-Fi</a><a href="#arduino-limits">Current limits</a></nav>
+  </details>
+
+  <h2 id="arduino-runtime">The full runtime, in a library</h2>
+  <p>Arduino-ESP32 is built on ESP-IDF, so the library runs the same runtime as the ESP-IDF SDK: CSI capture, calibration, detection, and the traffic that keeps CSI flowing. The <code>ESPectre</code> class wraps it with <code>begin()</code>, <code>loop()</code>, and callbacks that run on your sketch's task.</p>
+  <div class="pipeline">
+    <div><strong>Wi-Fi traffic</strong><span>pings to the gateway</span></div>
+    <div><strong>CSI capture</strong><span>ESP-IDF runtime</span></div>
+    <div><strong>Calibration</strong><span>after each connection</span></div>
+    <div><strong>Detection</strong><span>shared C++ detector</span></div>
+    <div><strong>Callbacks</strong><span>your sketch</span></div>
+  </div>
+
+  <h2 id="arduino-requirements">Requirements</h2>
+  <div class="table-wrap"><table>
+    <caption class="sr-only">Requirements for the ESPectre Arduino library</caption>
+    <thead><tr><th scope="col">Requirement</th><th scope="col">Current support</th></tr></thead>
+    <tbody>
+      <tr><td>Board</td><td>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6</td></tr>
+      <tr><td>Core</td><td>Arduino-ESP32 3.3 or later</td></tr>
+      <tr><td>Tools</td><td>Arduino IDE or Arduino CLI</td></tr>
+      <tr><td>Network</td><td>A 2.4&nbsp;GHz access point that the board stays connected to, or a 5&nbsp;GHz one on ESP32-C5</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="arduino-install">Installation</h2>
+  <p>From v3.2.0, install <strong>ESPectre</strong> from the Arduino Library Manager. With Arduino CLI:</p>
+  <pre class="code"><code>arduino-cli lib install ESPectre</code></pre>
+  <p>To try the development version, install the <code>develop</code> branch of <a href="https://github.com/francescopace/espectre-arduino" target="_blank" rel="noopener">espectre-arduino</a>, which follows every development build:</p>
+  <pre class="code"><code>arduino-cli config set library.enable_unsafe_install true
+arduino-cli lib install --git-url https://github.com/francescopace/espectre-arduino.git#develop</code></pre>
+  <div class="note">ESP-IDF projects that use Arduino as a component do not need this library. Add the SDK from the ESP Component Registry and use <code>espectre::ESPectre</code>; see the <a href="/sdk/">SDK guide</a>.</div>
+
+  <h2 id="arduino-start">Your first sketch</h2>
+  <p>Open <strong>File &gt; Examples &gt; ESPectre &gt; MotionDetection</strong>, set your network in <code>arduino_secrets.h</code>, and upload it. The core of the example is short:</p>
+  <pre class="code"><code>#include &lt;WiFi.h&gt;
+#include &lt;ESPectre.h&gt;
+
+ESPectre sensor;
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin("your-network", "your-password");
+  sensor.onMotion([](bool motion) { Serial.println(motion ? "Motion" : "Idle"); });
+  sensor.begin();
+}
+
+void loop() {
+  sensor.loop();
+  delay(10);
+}</code></pre>
+  <ol class="steps-list">
+    <li><h3>Start Wi-Fi, then the sensor</h3><p>Call <code>begin()</code> after <code>WiFi.begin()</code>. The connection does not have to be up yet.</p></li>
+    <li><h3>Call <code>loop()</code> every time</h3><p>Callbacks run inside <code>begin()</code>, <code>loop()</code>, and <code>end()</code>, so keep them short.</p></li>
+    <li><h3>Wait for calibration</h3><p>The sensor calibrates after each connection, while the room is quiet. Until then, <code>ready()</code> is false and no motion is reported.</p></li>
+  </ol>
+
+  <h2 id="arduino-wifi">Wi-Fi</h2>
+  <ul class="checklist">
+    <li>ESPectre turns Wi-Fi power save off at every connection. Do not call <code>WiFi.setSleep(true)</code> while sensing.</li>
+    <li>On a mesh network, pass the BSSID and channel of the nearest access point to <code>WiFi.begin()</code>. A board joined to a distant node gets weak CSI.</li>
+    <li>Arduino-ESP32 does not reconnect after some failures, such as a refused authentication. Reconnect from your sketch when <code>WiFi.status()</code> stays disconnected.</li>
+  </ul>
+
+  <h2 id="arduino-limits">Current limits</h2>
+  <ul class="checklist">
+    <li>The library covers sensing only. MQTT, Direct HTTP, and provisioning are not included, so the browser tools cannot reach the board.</li>
+    <li>On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.</li>
+    <li>The example uses most of the default 1.2&nbsp;MB app partition. Choose a larger partition scheme when your sketch adds other libraries.</li>
+  </ul>
+  <p>For the full API, configuration, logging, and board notes, see the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/arduino/README.md" target="_blank" rel="noopener">Arduino library reference</a>.</p>
+
+</article>

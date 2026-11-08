@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## [3.2.0] - work in progress
 
-ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino library is in development and not yet supported; the [roadmap](ROADMAP.md#v320---arduino-sdk-runtime) lists what it still needs.
+ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino library is in development and not yet supported; the [roadmap](ROADMAP.md#v320---arduino-sdk-runtime-and-built-in-esphome-component) lists what it still needs.
 
 ### Arduino
 
@@ -15,7 +15,7 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 - Configuration starts from the SDK defaults. Settings changed at runtime are not saved unless `persist_runtime_overrides` is set. Logs follow the Core Debug Level, unless the sketch registers its own log sink before `begin()`.
 - The library includes sensing only, without MQTT, Direct HTTP, or provisioning. On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
 - CI builds the library and compiles its MotionDetection example with Arduino CLI and Arduino-ESP32 3.3.12 for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Stable releases publish it to [espectre-arduino](https://github.com/francescopace/espectre-arduino) for the Arduino Library Manager, and each `develop` build updates that repository's `develop` branch. CI also publishes it as the `arduino-library` workflow artifact.
-- On ESP32-S3 and ESP32-C5, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots work at about 100 CSI packets per second. The other chips still need hardware checks.
+- On ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots work at about 100 CSI packets per second. Without the fixed transmit rate, ESP32 still reaches about 87% temporal occupancy next to the access point, about the same as ESP32-C3 and ESP32-C6.
 
 ### SDK
 
@@ -26,7 +26,8 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 
 - CI runs the released ESPHome and Native images for ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 in esp-emu, Espressif's emulator, and replays recorded CSI into them over UART1 with the recorded timing. Calibration, motion detection, and Direct events must match the Python detector on the same stream. The replay starts only when the factory MAC carries a marker that real chips cannot have, so it stays off on devices. See [emulator CSI replay](../tools/README.md#emulator-csi-replay).
 - Official firmware builds use ESPHome 2026.10.1.
-- The ESPHome guide covers the `espectre` component built into ESPHome 2026.10. It has no Direct API yet, so the browser tools and the CLI still need the external component. See [the component built into ESPHome](../src/cpp/frontend/esphome/README.md#the-component-built-into-esphome).
+- The ESPHome guide and a new [website guide](https://espectre.dev/guides/esphome/) cover the `espectre` component built into ESPHome, with the options and entities of ESPHome 2026.11. It has no Direct API yet, so the browser tools and the CLI still need the external component.
+- The website adds an [Arduino guide](https://espectre.dev/guides/arduino/), and the Guides page now lists every guide.
 - Matter firmware builds use esp-matter 1.6.1, which is based on Matter 1.6.1.
 - The Home Assistant traffic generator add-on (0.4.1) also recognizes the occupancy sensor of the `espectre` component built into ESPHome when it is named after its `csi_occupancy` key. Its guide shows the YAML that fills every panel column: the diagnostic sensors, a Refresh Diagnostics button, and a `wifi_signal` sensor. See the [add-on guide](../tools/ha_traffic_generator_addon/DOCS.md#the-esphome-espectre-component).
 
