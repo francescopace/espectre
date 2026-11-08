@@ -327,7 +327,7 @@ Each connection gets a `: heartbeat` comment every 10 seconds. Missed events are
 
 Records use CSI format V8: a 60-byte little-endian prefix per record and a 16-byte session ID that must stay the same for the whole connection. Order is preserved; records dropped by the device queue show up in the diagnostics counters. NPZ datasets store decoded arrays, so they do not depend on the record version.
 
-A stream send failure ends collection and closes the socket, including when the final HTTP chunk cannot be delivered. Check `diagnostics.raw_csi.send_backpressure_total` and `raw_drop_total` for device-side send failures and dropped records. The runtime then restores sensing as it does after a client disconnect.
+A stream send failure ends collection and closes the socket, including when the final HTTP chunk cannot be delivered. A send fails when it cannot complete within 3 seconds, which leaves room for one TCP retransmission. Check `diagnostics.raw_csi.send_backpressure_total` and `raw_drop_total` for device-side send failures and dropped records. The runtime then restores sensing as it does after a client disconnect.
 
 Packets with hardware errors are dropped before collection (see [capture quality](CSI.md#capture-quality)). If the source produces only invalid estimates, the stream can be empty; this is not a quiet room, and the runtime does not switch source. Hardware metadata is not stored in datasets.
 

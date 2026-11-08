@@ -22,7 +22,7 @@
 
 - [ ] Check calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots on ESP32, ESP32-S2, ESP32-C3, and ESP32-C6 hardware
 - [ ] Measure CSI occupancy on ESP32, where A-MPDU TX stops the fixed TX rate from applying
-- [ ] Mention the `espectre` component built into ESPHome 2026.10 in the setup guides
+- [x] Mention the `espectre` component built into ESPHome 2026.10 in the setup guides
 - [ ] Mark the library as supported in the changelog, this roadmap, and the Arduino guide
 - [ ] Finalize the 3.2.0 changelog entry and tag the release
 - [ ] Make `main` the default branch of espectre-arduino after the release tags it

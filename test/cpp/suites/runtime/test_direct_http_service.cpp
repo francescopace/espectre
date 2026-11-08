@@ -1005,6 +1005,11 @@ void test_empty_raw_session_closes_when_peer_disconnects() {
   TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
   service.loop();
   TEST_ASSERT_TRUE(service.raw_diagnostics().active);
+  // The raw socket outlives one TCP retransmission; other sockets keep 1 s.
+  timeval send_timeout{};
+  socklen_t send_timeout_len = sizeof(send_timeout);
+  TEST_ASSERT_EQUAL(0, getsockopt(sockets[0], SOL_SOCKET, SO_SNDTIMEO, &send_timeout, &send_timeout_len));
+  TEST_ASSERT_EQUAL(3, static_cast<int>(send_timeout.tv_sec));
   // An idle connected peer is not a failure, even when no CSI is available.
   service.loop();
   TEST_ASSERT_TRUE(service.raw_diagnostics().active);

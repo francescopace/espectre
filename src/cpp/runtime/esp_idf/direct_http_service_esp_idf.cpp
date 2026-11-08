@@ -44,6 +44,10 @@ constexpr uint64_t kMutationWindowUs = 60ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kEventHeartbeatUs = 10ULL * 1000ULL * 1000ULL;
 constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
 constexpr uint64_t kRequestWindowUs = 1000000U;
+// The raw stream must survive one TCP retransmission. lwIP waits 1.5 s before
+// its first resend, so the server-wide 1 s send timeout would close the stream
+// on a single lost segment.
+constexpr time_t kRawSendTimeoutSeconds = 3;
 constexpr const char *kHttp400 = "400 Bad Request";
 constexpr const char *kHttp403 = "403 Forbidden";
 constexpr const char *kHttp404 = "404 Not Found";
@@ -1360,6 +1364,9 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
         // Each batch is one send; do not hold it back for Nagle coalescing.
         const int nodelay = 1;
         (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+        timeval send_timeout{};
+        send_timeout.tv_sec = kRawSendTimeoutSeconds;
+        (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
         raw_session_.binary_bound = true;
         bound = true;
       }
