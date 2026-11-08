@@ -111,6 +111,8 @@ class WiFiLifecycleManager {
   void release_csi_receive_path_refresh_();
   esp_err_t init();
   esp_err_t handle_connected_(const esp_netif_ip_info_t &ip_info);
+  esp_err_t apply_missed_started_policy_(bool &station_restarted);
+  void disarm_late_policy_reconnect_();
   static esp_err_t apply_csi_wifi_policy(WifiBandPolicy band_policy);
   static void log_csi_runtime_state(const char *tag, WifiBandPolicy band_policy);
 
@@ -144,6 +146,7 @@ class WiFiLifecycleManager {
     esp_netif_ip_info_t ip_info{};
     esp_err_t result{ESP_OK};
     uint32_t refresh_generation{0U};
+    uint8_t reason{0U};
     bool roaming{false};
   };
 
@@ -168,6 +171,11 @@ class WiFiLifecycleManager {
   WifiBandPolicy band_policy_{WifiBandPolicy::BAND_2G};
   esp_err_t station_tx_rate_err_{ESP_OK};
   bool station_tx_rate_attempted_{false};
+  // A late policy restarted the station, so this manager owns its reconnect
+  // until the next GOT_IP.
+  bool late_policy_reconnect_armed_{false};
+  uint64_t late_policy_reconnect_delay_us_{0U};
+  uint64_t late_policy_reconnect_due_us_{0U};
   bool ready_{false};
   bool roaming_{false};
   bool retained_ip_pending_{false};

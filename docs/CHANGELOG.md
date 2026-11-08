@@ -33,6 +33,7 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 ### Fixes
 
 - CSI collection survives a lost TCP segment. A collection send could wait only 1 second, while lwIP waits 1.5 seconds before it resends, so a single loss on a busy channel closed the stream. Collection sends now wait up to 3 seconds; other Direct HTTP responses still wait 1 second (#203).
+- Sensing no longer leaves the device offline when the product starts Wi-Fi before the SDK and the station joins afterwards, as an Arduino sketch does. Applying the CSI radio policy to the joined station could drop it, and Arduino-ESP32 does not reconnect after that. The SDK now rejoins the station, and keeps retrying with growing pauses until it is back online when the access point refuses an attempt. Until then it calls `esp_wifi_connect()` itself, unless the product disconnects on purpose. ESPHome and Native register before Wi-Fi starts, so they never take this path.
 
 ---
 

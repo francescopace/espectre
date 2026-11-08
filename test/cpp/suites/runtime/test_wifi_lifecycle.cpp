@@ -311,11 +311,18 @@ void test_wifi_lifecycle_auto_band_uses_the_2g_policy_on_single_band_targets(voi
 
 // STA_START can fire before the handlers are registered. If no connected
 // station can be restored yet, the next real GOT_IP applies the missed policy.
-void test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed(void) {
+// An Arduino sketch starts the station before registration, and it joins
+// afterwards. Changing the radio policy on the associated station can drop the
+// association without reconnecting it, so the station restarts and CSI waits
+// for the fresh GOT_IP.
+void test_wifi_lifecycle_restarts_station_when_late_policy_changes_at_got_ip(void) {
   WiFiLifecycleManager manager;
+  int connected_calls = 0;
   g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
 
-  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
   // Deliberately no WIFI_EVENT_STA_START.
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_protocol_call_count);
 
@@ -328,7 +335,175 @@ void test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed(void) {
   TEST_ASSERT_EQUAL(WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
                     g_esp_wifi_mock.last_protocol_bitmap);
   TEST_ASSERT_TRUE(g_esp_wifi_mock.last_bandwidth == WIFI_BW_HT20);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_bandwidth_sequence <
+                   g_esp_wifi_mock.disconnect_sequences[0]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.disconnect_sequences[0] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_ps_call_count);
+
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+}
+
+// The access point may refuse the first authentication after the restart, and
+// the product may not retry a reconnect it did not start.
+void test_wifi_lifecycle_retries_late_policy_reconnect_until_got_ip(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  // The restart's own leave does not trigger a retry.
+  wifi_event_sta_disconnected_t disconnected{};
+  disconnected.reason = WIFI_REASON_ASSOC_LEAVE;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+
+  // The product gets the first chance to reconnect.
+  disconnected.reason = WIFI_REASON_AUTH_FAIL;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  esp_timer_mock::time_us += 2000000;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+
+  // An association in progress cancels a pending retry.
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, nullptr);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  esp_timer_mock::time_us += 2000000;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, connected_calls);
+
+  // Once connected, reconnects belong to the product again.
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  esp_timer_mock::time_us += 2000000;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+}
+
+// This manager broke a working association, so it keeps retrying until the
+// station rejoins, backing off so an access point that stays away is not polled.
+void test_wifi_lifecycle_backs_off_late_policy_reconnect_until_got_ip(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+
+  wifi_event_sta_disconnected_t disconnected{};
+  disconnected.reason = WIFI_REASON_AUTH_FAIL;
+  constexpr int64_t POLL_US = 100000;
+  constexpr int64_t GIVE_UP_US = 600000000;
+  // Returns how long the refused attempt waited for its retry.
+  const auto fail_and_measure_retry = [&]() -> int64_t {
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    const int connects = g_esp_wifi_mock.connect_call_count;
+    const int64_t failed_at = esp_timer_mock::time_us;
+    while (g_esp_wifi_mock.connect_call_count == connects &&
+           esp_timer_mock::time_us - failed_at < GIVE_UP_US) {
+      esp_timer_mock::time_us += POLL_US;
+      TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+    }
+    TEST_ASSERT_EQUAL(connects + 1, g_esp_wifi_mock.connect_call_count);
+    return esp_timer_mock::time_us - failed_at;
+  };
+
+  int64_t previous_wait = fail_and_measure_retry();
+  int growing = 0;
+  for (int i = 0; i < 20; ++i) {
+    const int64_t wait = fail_and_measure_retry();
+    TEST_ASSERT_TRUE(wait >= previous_wait);
+    if (wait > previous_wait + POLL_US) growing++;
+    previous_wait = wait;
+  }
+  TEST_ASSERT_TRUE(growing >= 2);
+  // The wait stops growing, so the retries never run out.
+  TEST_ASSERT_TRUE(fail_and_measure_retry() <= previous_wait + POLL_US);
+
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  const int connected_connects = g_esp_wifi_mock.connect_call_count;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnected);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  esp_timer_mock::time_us += GIVE_UP_US;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(connected_connects, g_esp_wifi_mock.connect_call_count);
+}
+
+// The product leaving on purpose cancels a retry that a refusal scheduled, but
+// a later refusal of the product's own reconnect still gets one.
+void test_wifi_lifecycle_assoc_leave_cancels_scheduled_late_policy_reconnect(void) {
+  WiFiLifecycleManager manager;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  const int restart_connects = g_esp_wifi_mock.connect_call_count;
+
+  wifi_event_sta_disconnected_t refused{};
+  refused.reason = WIFI_REASON_AUTH_FAIL;
+  wifi_event_sta_disconnected_t left{};
+  left.reason = WIFI_REASON_ASSOC_LEAVE;
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &refused);
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &left);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  esp_timer_mock::time_us += 600000000;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(restart_connects, g_esp_wifi_mock.connect_call_count);
+
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &refused);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  esp_timer_mock::time_us += 600000000;
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(restart_connects + 1, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_wifi_lifecycle_keeps_station_when_late_policy_matches_at_got_ip(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT20;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  ip_event_got_ip_t event{};
+  event.ip_info.ip.addr = 0x0101A8C0U;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, connected_calls);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_bandwidth_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
 }
 
 // A policy that was attempted and failed is a radio failure, not an ordering
@@ -1188,6 +1363,8 @@ void test_standalone_wifi_service_restores_roaming_without_got_ip(void) {
       transitions += "D";
     }));
 
+    // esp_wifi_start() emits STA_START after setup() registers the handlers.
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
     ip_event_got_ip_t ip{};
     ip.ip_info.ip.addr = 0x3701A8C0U;
     g_esp_netif_mock.ip_addr = ip.ip_info.ip.addr;
@@ -1228,6 +1405,8 @@ void test_standalone_wifi_service_retries_retained_ipv4_and_deduplicates_got_ip(
       config.manage_csi_lifecycle = managed;
       int connections = 0;
       TEST_ASSERT_EQUAL(ESP_OK, service.setup(config, [&]() { ++connections; }));
+      // esp_wifi_start() emits STA_START after setup() registers the handlers.
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
       ip_event_got_ip_t ip{};
       ip.ip_info.ip.addr = 0x3701A8C0U;
       ip.ip_info.netmask.addr = g_esp_netif_mock.netmask_addr;
@@ -1287,6 +1466,8 @@ void test_standalone_wifi_service_cancels_pending_roam_restore_on_disconnect(voi
     config.manage_csi_lifecycle = managed;
     int connections = 0;
     TEST_ASSERT_EQUAL(ESP_OK, service.setup(config, [&]() { ++connections; }));
+    // esp_wifi_start() emits STA_START after setup() registers the handlers.
+    esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
     ip_event_got_ip_t ip{};
     ip.ip_info.ip.addr = 0x3701A8C0U;
     esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip);
@@ -1321,6 +1502,8 @@ void test_standalone_wifi_service_reconnect_requires_valid_retained_ipv4(void) {
       config.manage_csi_lifecycle = managed;
       int connections = 0;
       TEST_ASSERT_EQUAL(ESP_OK, service.setup(config, [&]() { ++connections; }));
+      // esp_wifi_start() emits STA_START after setup() registers the handlers.
+      esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
       ip_event_got_ip_t ip{};
       ip.ip_info.ip.addr = 0x3701A8C0U;
       esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip);
@@ -1919,7 +2102,11 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_init_reports_bgn_configuration_failure);
   RUN_TEST(test_wifi_lifecycle_rejects_5g_on_single_band_targets);
   RUN_TEST(test_wifi_lifecycle_auto_band_uses_the_2g_policy_on_single_band_targets);
-  RUN_TEST(test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed);
+  RUN_TEST(test_wifi_lifecycle_restarts_station_when_late_policy_changes_at_got_ip);
+  RUN_TEST(test_wifi_lifecycle_retries_late_policy_reconnect_until_got_ip);
+  RUN_TEST(test_wifi_lifecycle_backs_off_late_policy_reconnect_until_got_ip);
+  RUN_TEST(test_wifi_lifecycle_assoc_leave_cancels_scheduled_late_policy_reconnect);
+  RUN_TEST(test_wifi_lifecycle_keeps_station_when_late_policy_matches_at_got_ip);
   RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);

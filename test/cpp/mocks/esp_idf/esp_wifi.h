@@ -124,6 +124,10 @@ typedef struct {
 #define WIFI_REASON_ROAMING 207
 #endif
 
+#ifndef WIFI_REASON_ASSOC_LEAVE
+#define WIFI_REASON_ASSOC_LEAVE 8
+#endif
+
 #ifndef WIFI_REASON_BEACON_TIMEOUT
 #define WIFI_REASON_BEACON_TIMEOUT 200
 #endif

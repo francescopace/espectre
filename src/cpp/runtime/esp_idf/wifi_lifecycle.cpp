@@ -15,6 +15,8 @@
 #include "wifi_band_helpers.h"
 #include "esp_timer.h"
 
+#include <algorithm>
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -34,6 +36,12 @@ namespace {
 std::atomic<uint32_t> wifi_driver_generation{0U};
 std::atomic<WiFiLifecycleManager *> csi_refresh_owner{nullptr};
 constexpr uint64_t CSI_RX_REFRESH_TIMEOUT_US = 30000000U;
+// Some access points refuse the first authentication after a station leaves,
+// and the product may not retry a reconnect it did not start. The first delay
+// leaves the product's own reconnect, if any, the first attempt; each failure
+// doubles it up to the cap, so an access point that stays away is not polled.
+constexpr uint64_t LATE_POLICY_RECONNECT_INITIAL_DELAY_US = 1000000U;
+constexpr uint64_t LATE_POLICY_RECONNECT_MAX_DELAY_US = 60000000U;
 #ifdef ESP_PLATFORM
 constexpr uint32_t WIFI_DRIVER_POWER_CYCLE_SETTLE_MS = 250U;
 #endif
@@ -380,6 +388,48 @@ esp_err_t WiFiLifecycleManager::reinitialize_stopped_station_driver(wifi_storage
   return ESP_OK;
 }
 
+// STA_START fired before the handlers were registered, so the policy was never
+// attempted and the station is already associated. Changing protocol or
+// bandwidth on an associated station can drop the association without
+// reconnecting it, so when a setting changes, restart the station and wait for
+// its fresh GOT_IP. A failed getter is indistinguishable from a setting that
+// changed. The forced transition guarantees that DISCONNECTED or GOT_IP
+// advances the deferred state instead of an event the setters need not emit.
+// This manager broke the association, so it also retries the reconnect until
+// GOT_IP; see process_pending_events().
+esp_err_t WiFiLifecycleManager::apply_missed_started_policy_(bool &station_restarted) {
+  station_restarted = false;
+  const bool policy_was_active = wifi_csi_policy_is_active_(band_policy_);
+  const esp_err_t late_err = apply_started_csi_policy(band_policy_);
+  started_policy_attempted_.store(true, std::memory_order_relaxed);
+  started_policy_err_.store(late_err, std::memory_order_relaxed);
+  started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
+  if (late_err != ESP_OK) return late_err;
+  started_policy_driver_generation_.store(
+      wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
+  if (policy_was_active) return ESP_OK;
+
+  const esp_err_t disconnect_err = esp_wifi_disconnect();
+  if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
+    return disconnect_err;
+  }
+  const esp_err_t connect_err = esp_wifi_connect();
+  if (connect_err != ESP_OK) return connect_err;
+  station_restarted = true;
+  late_policy_reconnect_armed_ = true;
+  late_policy_reconnect_delay_us_ = LATE_POLICY_RECONNECT_INITIAL_DELAY_US;
+  late_policy_reconnect_due_us_ = 0U;
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG,
+                "Waiting for fresh GOT_IP after restarting the station for the late Wi-Fi CSI policy");
+  return ESP_OK;
+}
+
+void WiFiLifecycleManager::disarm_late_policy_reconnect_() {
+  late_policy_reconnect_armed_ = false;
+  late_policy_reconnect_delay_us_ = 0U;
+  late_policy_reconnect_due_us_ = 0U;
+}
+
 // Configure WiFi for optimal CSI capture
 esp_err_t WiFiLifecycleManager::init() {
   if (ready_) {
@@ -387,22 +437,6 @@ esp_err_t WiFiLifecycleManager::init() {
   }
 
   ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Initializing Wi-Fi CSI lifecycle");
-  if (!started_policy_attempted_.load(std::memory_order_relaxed)) {
-    // STA_START fired before the handlers were registered, so the policy was
-    // never even attempted. Failing here consumed the GOT_IP event and left
-    // CSI off with nothing to retry until the next reconnect. The station is
-    // up by now, so applying it late is valid and strictly better than
-    // dropping the connection.
-    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
-    const esp_err_t late_err = apply_started_csi_policy(band_policy_);
-    started_policy_attempted_.store(true, std::memory_order_relaxed);
-    started_policy_err_.store(late_err, std::memory_order_relaxed);
-    started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
-    if (late_err == ESP_OK) {
-      started_policy_driver_generation_.store(
-          wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
-    }
-  }
 
   // A policy that was attempted and failed is a real radio failure, not an
   // ordering accident, so it propagates instead of being retried.
@@ -451,7 +485,8 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   band_policy_ = band_policy;
   station_tx_rate_attempted_ = false;
   station_tx_rate_err_ = ESP_OK;
-  
+  disarm_late_policy_reconnect_();
+
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
   started_policy_attempted_.store(false, std::memory_order_relaxed);
@@ -529,39 +564,13 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
       current_ip.ip.addr != 0U && esp_wifi_sta_get_ap_info(&current_ap) == ESP_OK;
   bool restore_current_station = has_current_station;
   if (has_current_station && !started_policy_attempted_.load(std::memory_order_relaxed)) {
-    const bool policy_was_active = wifi_csi_policy_is_active_(band_policy_);
-    const esp_err_t late_err = apply_started_csi_policy(band_policy_);
-    started_policy_attempted_.store(true, std::memory_order_relaxed);
-    started_policy_err_.store(late_err, std::memory_order_relaxed);
-    started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
-    if (late_err == ESP_OK) {
-      started_policy_driver_generation_.store(
-          wifi_driver_generation.load(std::memory_order_acquire), std::memory_order_relaxed);
-    }
+    bool station_restarted = false;
+    const esp_err_t late_err = apply_missed_started_policy_(station_restarted);
     if (late_err != ESP_OK) {
       unregister_handlers();
       return late_err;
     }
-
-    restore_current_station = policy_was_active;
-    if (!restore_current_station) {
-      // A failed getter is indistinguishable from a setting that changed.
-      // Force a complete station transition so either DISCONNECTED or a fresh
-      // GOT_IP advances the deferred state instead of waiting for an event
-      // that the policy setters are not required to emit.
-      const esp_err_t disconnect_err = esp_wifi_disconnect();
-      if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
-        unregister_handlers();
-        return disconnect_err;
-      }
-      const esp_err_t connect_err = esp_wifi_connect();
-      if (connect_err != ESP_OK) {
-        unregister_handlers();
-        return connect_err;
-      }
-      ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG,
-                    "Waiting for fresh GOT_IP after restarting the station for the late Wi-Fi CSI policy");
-    }
+    restore_current_station = !station_restarted;
   }
   if (restore_current_station &&
       !pending_events_.post_overwrite_oldest(
@@ -595,6 +604,7 @@ void WiFiLifecycleManager::unregister_handlers() {
   }
 
   pending_events_.clear();
+  disarm_late_policy_reconnect_();
   station_tx_rate_attempted_ = false;
   station_tx_rate_err_ = ESP_OK;
   csi_rx_refresh_callback_ = {};
@@ -631,6 +641,15 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
       continue;
     }
     if (event.type == PendingWifiEventType::DISCONNECTED) {
+      // ASSOC_LEAVE is the station leaving on request: this manager's own
+      // restart, or the product disconnecting on purpose. Neither asks for a
+      // reconnect, so it also cancels one that a refusal already scheduled.
+      if (event.reason == WIFI_REASON_ASSOC_LEAVE) {
+        late_policy_reconnect_due_us_ = 0U;
+      } else if (late_policy_reconnect_armed_) {
+        late_policy_reconnect_due_us_ =
+            static_cast<uint64_t>(esp_timer_get_time()) + late_policy_reconnect_delay_us_;
+      }
       roaming_ = event.roaming && (ready_ || roaming_ || retained_ip_pending_);
       retained_ip_pending_ = false;
       station_tx_rate_attempted_ = false;
@@ -644,6 +663,7 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     }
 
     if (event.type == PendingWifiEventType::ASSOCIATED) {
+      late_policy_reconnect_due_us_ = 0U;
       retained_ip_pending_ = ready_ || roaming_ || retained_ip_pending_;
       if (ready_ && disconnected_callback_) {
         disconnected_callback_();
@@ -675,6 +695,24 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
       if (err != ESP_OK) return err;
     }
   }
+  if (late_policy_reconnect_due_us_ != 0U &&
+      static_cast<uint64_t>(esp_timer_get_time()) >= late_policy_reconnect_due_us_) {
+    late_policy_reconnect_due_us_ = 0U;
+    late_policy_reconnect_delay_us_ =
+        std::min(late_policy_reconnect_delay_us_ * 2U, LATE_POLICY_RECONNECT_MAX_DELAY_US);
+    const esp_err_t connect_err = esp_wifi_connect();
+    if (connect_err == ESP_ERR_WIFI_CONN) {
+      // ESP-IDF documents this code as a broken station control block, but
+      // in practice also returns it while a connection is in progress, which
+      // here means the product is already reconnecting.
+      ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG,
+                    "Late Wi-Fi CSI policy reconnect skipped: station is busy (%s)",
+                    esp_err_to_name(connect_err));
+    } else if (connect_err != ESP_OK) {
+      ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Failed to retry the late Wi-Fi CSI policy reconnect: %s",
+                    esp_err_to_name(connect_err));
+    }
+  }
   if (csi_rx_refresh_deadline_us_ != 0U && static_cast<uint64_t>(esp_timer_get_time()) >= csi_rx_refresh_deadline_us_) {
     wifi_csi_rx_refresh_callback_t callback = std::move(csi_rx_refresh_callback_);
     cancel_csi_receive_path_refresh();
@@ -691,8 +729,18 @@ esp_err_t WiFiLifecycleManager::handle_connected_(const esp_netif_ip_info_t &ip_
   if (duplicate) return ESP_OK;
 
   ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
+  if (!started_policy_attempted_.load(std::memory_order_relaxed)) {
+    // The product started the station before registration and it joined
+    // afterwards, as an Arduino sketch does when it calls WiFi.begin() first.
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
+    bool station_restarted = false;
+    const esp_err_t late_err = apply_missed_started_policy_(station_restarted);
+    if (late_err != ESP_OK) return late_err;
+    if (station_restarted) return ESP_OK;
+  }
   const esp_err_t err = init();
   if (err != ESP_OK) return err;
+  disarm_late_policy_reconnect_();
   active_ip_info_ = ip_info;
   roaming_ = false;
   retained_ip_pending_ = false;
@@ -877,7 +925,8 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
     const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
     PendingWifiEvent pending{PendingWifiEventType::DISCONNECTED, {}};
-    pending.roaming = event != nullptr && event->reason == WIFI_REASON_ROAMING;
+    pending.reason = event != nullptr ? event->reason : 0U;
+    pending.roaming = pending.reason == WIFI_REASON_ROAMING;
     if (!manager->pending_events_.post_overwrite_oldest(pending)) {
       ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
     }
