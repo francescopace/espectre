@@ -102,6 +102,12 @@
         const methods = new Set((capabilities.operations || []).map((item) => item?.name).filter(Boolean));
         const sections = new Set(capabilities.resources || []);
         monitor.commands = methods;
+        // Firmware before 3.2.0 does not list the fields, and accepts every field its other flags imply.
+        const sensingFields = (capabilities.operations || [])
+            .find((item) => item?.name === 'update_sensing')?.fields;
+        monitor.sensingFields = Array.isArray(sensingFields)
+            ? new Set(sensingFields.filter((field) => typeof field === 'string'))
+            : null;
         monitor.commandCatalogReady = true;
         return {
             supports_wifi_status: sections.has('wifi'),
@@ -125,6 +131,11 @@
 
     function directSupportsCommand(name) {
         return Boolean(directClient?.capabilities?.operations?.some((item) => item?.name === name));
+    }
+
+    function directSupportsSensingField(field) {
+        return directSupportsCommand('update_sensing')
+            && (!monitor.sensingFields || monitor.sensingFields.has(field));
     }
 
     function applyDirectConfig(config) {
@@ -749,7 +760,7 @@
             syncDirectEndpointInputs(target.display);
             if (!await refreshDirectDevice({ client })) return;
             if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live'
-                && directSupportsCommand('update_sensing')
+                && directSupportsSensingField('enabled')
                 && session.snapshots.get('sensing')?.enabled !== true) {
                 await client.request('patch', 'sensing', { enabled: true });
             }

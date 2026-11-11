@@ -350,9 +350,11 @@
         const detector = document.getElementById('sense-detector')?.value;
         const trafficMode = document.getElementById('sense-generator-mode')?.value;
         $$('[data-device-command]').forEach((panel) => {
+            const field = panel.dataset.sensingField;
             const supported = conn.mode === 'demo'
                 || !monitor.commandCatalogReady
-                || monitor.commands.has(panel.dataset.deviceCommand);
+                || (monitor.commands.has(panel.dataset.deviceCommand)
+                    && (!field || !monitor.sensingFields || monitor.sensingFields.has(field)));
             const lightweightOnly = panel.dataset.deviceCommand === 'recalibrate' && detector !== 'lightweight';
             const trafficModeMismatch = panel.dataset.trafficMode && panel.dataset.trafficMode !== trafficMode;
             panel.hidden = !supported || lightweightOnly || !!trafficModeMismatch;
@@ -736,7 +738,7 @@
         }
         if (conn.mode === 'direct' && directClient?.connected) {
             try {
-                if (directSupportsCommand('update_sensing')) {
+                if (directSupportsSensingField('enabled')) {
                     await directClient.request('patch', 'sensing', { enabled: true });
                 }
                 setDeviceView('live');
@@ -919,6 +921,7 @@
             monitor.commands = new Set([
                 'update_sensing', 'recalibrate', 'read_diagnostics', 'update_device'
             ]);
+            monitor.sensingFields = null;
             monitor.commandCatalogReady = true;
             demoSysinfoSnapshot = {
                 chip: 'esp32-c5',
@@ -1045,6 +1048,7 @@
     function resetMonitorSession() {
         cancelRawTrafficDiscovery();
         monitor.commands.clear();
+        monitor.sensingFields = null;
         monitor.commandCatalogReady = false;
         setCalibrationBusy(false);
         stopDiagnosticsPolling();

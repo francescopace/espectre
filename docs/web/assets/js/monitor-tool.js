@@ -41,6 +41,7 @@
         readyTracked: false,
         commands: new Set(),
         commandCatalogReady: false,
+        sensingFields: null,
         switchingTransport: false,
         diagTimer: null,
         diagIntervalMs: 0,

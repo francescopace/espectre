@@ -198,6 +198,29 @@ describe('tool reliability analytics', () => {
 });
 
 describe('Monitor traffic source availability', () => {
+    it('shows a sensing control only when the device accepts its field', () => {
+        const runtime = loadDeviceHttpRuntime();
+        const panels = ['threshold', 'detector', 'traffic_generator_mode'].map((field) => ({
+            dataset: { deviceCommand: 'update_sensing', sensingField: field },
+            hidden: false, querySelectorAll: () => []
+        }));
+        runtime.context.document.getElementById = () => null;
+        runtime.context.$$ = (selector) => selector === '[data-device-command]' ? panels : [];
+        runtime.run("conn.mode = 'direct'; conn.status = 'connected'");
+        runtime.context.directCapabilitiesSnapshot({
+            operations: [{ name: 'update_sensing', fields: ['traffic_generator_mode'] }], resources: ['sensing']
+        });
+        runtime.context.syncSensingControls();
+        assert.deepEqual(panels.map((panel) => panel.hidden), [true, true, false]);
+
+        // Firmware that lists no fields accepts them all.
+        runtime.context.directCapabilitiesSnapshot({
+            operations: [{ name: 'update_sensing' }], resources: ['sensing']
+        });
+        runtime.context.syncSensingControls();
+        assert.deepEqual(panels.map((panel) => panel.hidden), [false, false, false]);
+    });
+
     it('offers packet spacing only when advertised, for every traffic source', async () => {
         const runtime = loadDeviceHttpRuntime();
         const caps = { operations: [{ name: 'update_sensing' }], resources: ['sensing'] };
