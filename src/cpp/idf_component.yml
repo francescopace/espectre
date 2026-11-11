@@ -1,4 +1,4 @@
-version: "3.0.0"
+version: "3.1.0"
 description: "ESPectre SDK for Wi-Fi motion detection on ESP32 devices."
 license: "GPL-3.0-only"
 url: "https://espectre.dev/"
