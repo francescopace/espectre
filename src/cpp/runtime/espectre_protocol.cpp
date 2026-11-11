@@ -210,7 +210,8 @@ template <typename Route>
 void append_operation_descriptor(std::string *out,
                                  bool *first,
                                  const Route &route,
-                                 const char *name = nullptr) {
+                                 const char *name = nullptr,
+                                 const std::string &fields_json = {}) {
   if (out == nullptr || first == nullptr) {
     return;
   }
@@ -224,7 +225,32 @@ void append_operation_descriptor(std::string *out,
   append_json_string(out, route.http_method);
   out->append(",\"path\":");
   append_json_string(out, route.path);
+  if (!fields_json.empty()) {
+    out->append(",\"fields\":");
+    out->append(fields_json);
+  }
   out->append("}");
+}
+
+// The sensing fields `update_sensing` accepts, which the engine checks with the same capabilities.
+std::string sensing_fields_json(const EspectreCapabilityProfile &capabilities) {
+  using Method = EspectreDirectMethod;
+  std::string out{"["};
+  const auto add = [&out](bool writable, const char *field) {
+    if (!writable) return;
+    if (out.size() > 1U) out += ',';
+    append_json_string(&out, field);
+  };
+  add(capabilities.sensing_enabled_writable, "enabled");
+  add(capabilities.supports(Method::SET_THRESHOLD), "threshold");
+  add(capabilities.supports(Method::SET_MOTION_HITS), "motion_on_hits");
+  add(capabilities.supports(Method::SET_MOTION_HITS), "motion_off_hits");
+  add(capabilities.supports(Method::SET_DETECTOR), "detector");
+  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE), "traffic_generator_mode");
+  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC), "traffic_generator_target_mac");
+  add(capabilities.supports(Method::SET_CSI_SAMPLE_SPACING), "csi_sample_spacing");
+  out += ']';
+  return out;
 }
 
 void append_capability_commands(std::string *out,
@@ -242,8 +268,10 @@ void append_capability_commands(std::string *out,
         std::strcmp(route.command, "read_diagnostics") == 0;
     if ((route.kind == EspectreApiRouteKind::OPERATION || correlated_diagnostics) &&
         api_route_supported(route, capabilities)) {
+      const bool sensing_update = std::strcmp(route.command, "update_sensing") == 0;
       append_operation_descriptor(out, &first, route,
-                                  correlated_diagnostics ? route.command : nullptr);
+                                  correlated_diagnostics ? route.command : nullptr,
+                                  sensing_update ? sensing_fields_json(capabilities) : std::string{});
     }
   }
   if (capabilities.extension != nullptr && validate_protocol_extension(*capabilities.extension)) {

@@ -21,6 +21,9 @@ ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino librar
 
 - `espectre_sdk.h` adds `espectre::ESPectre`, the same sensor, for ESP-IDF projects that use Arduino as a component. See [Arduino-style sensor](SDK.md#arduino-style-sensor).
 - `log_sink_registered()` reports whether a log sink is registered.
+- A component can add Direct HTTP to a firmware whose runtime another component owns. `RuntimeGuestAccess` gives it a read-only view of the controller, and `RuntimeDirectHttpBridge::setup_guest()` sends every sensing change to the owner through a `RuntimeControlSink` instead of applying it. See the integration details in the [API reference](https://espectre.dev/sdk/api/).
+- `RuntimeFrontendController::set_observer()` adds a second event sink next to the `setup()` listener.
+- The `update_sensing` operation in `capabilities` lists the sensing `fields` the device accepts. Firmware before 3.2.0 lists none, which means every field its other flags allow.
 
 ### Tools and integrations
 

@@ -82,7 +82,7 @@ Mutations return a result object:
 | --- | --- | --- |
 | `protocol_version` | string | Application contract version, currently `1.0` |
 | `resources` | array of strings | Resource names accepted by `GET`, without the base path |
-| `operations` | array of objects | Supported operations as `{name, method, path}` |
+| `operations` | array of objects | Supported operations as `{name, method, path}`. `update_sensing` also has `fields`, the sensing fields the device accepts |
 | `events` | array of strings | Event names published by this frontend |
 | `features.csi` | boolean | Whether `GET /csi` is available |
 | `features.traffic_generator_target_mac` | boolean, optional | Whether `update_sensing` accepts a raw destination MAC; absent means unsupported |
@@ -234,6 +234,8 @@ Operations reject unknown fields. Routes described as taking no parameters accep
 | `traffic_generator_mode` | `ping`, `dns`, `dns_tcp`, `wifi_raw` (see [compatibility limits](CSI.md#compatibility-limits)), or `external` |
 | `traffic_generator_target_mac` | `auto` or a nonzero, colon-separated unicast MAC; requires `features.traffic_generator_target_mac` |
 | `csi_sample_spacing` | `half_slot` or `distinct`; requires `features.csi_sample_spacing` |
+
+A device accepts only the fields that its `update_sensing` operation lists in `capabilities`, and refuses any other as `unsupported`. Firmware before 3.2.0 does not list them; it accepts every field except the two that need a feature flag.
 
 All fields are checked before anything changes: either the whole request applies or none of it does. If the device itself fails while applying, for example when it cannot save a setting, the fields applied so far stay applied and the device publishes `sensing` with the resulting state. Success returns HTTP `200` and publishes `sensing`.
 

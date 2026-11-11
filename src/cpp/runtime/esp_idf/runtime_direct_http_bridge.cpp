@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -20,6 +21,7 @@
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_diagnostics_protocol.h"
 #include "runtime/runtime_time.h"
+#include "runtime_guest_access.h"
 #include "wifi_lifecycle.h"
 
 #if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
@@ -74,6 +76,21 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
                                          RuntimeFrontendController *runtime,
                                          const RuntimeDirectHttpBridgeConfig &config,
                                          ConfigChangedCallback config_changed) {
+  return setup_(service, runtime, config, std::move(config_changed), nullptr);
+}
+
+bool RuntimeDirectHttpBridge::setup_guest(IDirectHttpService *service,
+                                               const RuntimeDirectHttpBridgeConfig &config,
+                                               RuntimeControlSink sink,
+                                               ConfigChangedCallback config_changed) {
+  return setup_(service, RuntimeGuestAccess::mutable_runtime_(), config, std::move(config_changed), &sink);
+}
+
+bool RuntimeDirectHttpBridge::setup_(IDirectHttpService *service,
+                                          RuntimeFrontendController *runtime,
+                                          const RuntimeDirectHttpBridgeConfig &config,
+                                          ConfigChangedCallback config_changed,
+                                          const RuntimeControlSink *sink) {
   shutdown();
   if (service == nullptr || runtime == nullptr || !runtime->is_setup_complete() || config.frontend.empty() ||
       config.device_id == 0U || config.port == 0U) {
@@ -83,6 +100,15 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
   runtime_ = runtime;
   config_ = config;
   config_changed_ = std::move(config_changed);
+  guest_ = sink != nullptr;
+  sink_ = guest_ ? *sink : runtime_sink_();
+  if (guest_ && sink_.recalibrate) {
+    // The runtime refuses a second calibration, and the owner could not report that.
+    FrontendRecalibrateCallback owner_recalibrate = std::move(sink_.recalibrate);
+    sink_.recalibrate = [this, owner_recalibrate](std::string *message) {
+      return !runtime_->is_calibrating() && owner_recalibrate(message);
+    };
+  }
   refresh_peer_candidate_();
 
   DirectHttpServiceConfig service_config = DirectHttpServiceConfig::for_first_party_portals();
@@ -114,6 +140,8 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
     service_ = nullptr;
     runtime_ = nullptr;
     config_changed_ = {};
+    guest_ = false;
+    sink_ = {};
     event_client_count_.store(0U, std::memory_order_relaxed);
     deferred_requests_enabled_ = false;
     return false;
@@ -127,6 +155,7 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
 
 void RuntimeDirectHttpBridge::loop() {
   if (service_ == nullptr) return;
+  flush_queued_changes_();
   if (service_->running()) {
     raw_session_controller_.ensure_runtime_consistency();
     if (config_.peer_discovery != nullptr && config_.peer_discovery->active()) {
@@ -152,6 +181,87 @@ void RuntimeDirectHttpBridge::shutdown() {
   event_client_count_.store(0U, std::memory_order_relaxed);
   deferred_requests_enabled_ = false;
   wifi_response_pending_ = false;
+  guest_ = false;
+  sink_ = {};
+  queued_changes_ = FrontendCommandChange::NONE;
+  queued_responses_.clear();
+}
+
+// Without an owner, the bridge is the writer of the runtime it was given.
+RuntimeControlSink RuntimeDirectHttpBridge::runtime_sink_() {
+  RuntimeControlSink sink;
+  sink.threshold = [this](float value, std::string *) { return runtime_->set_threshold(value); };
+  sink.motion_hits = [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits(on, off); };
+  sink.traffic_generator_mode = [this](TrafficGeneratorMode mode, std::string *) {
+    return runtime_->set_traffic_generator_mode(mode);
+  };
+  sink.detection_algorithm = [this](DetectionAlgorithm algorithm, std::string *) {
+    return runtime_->set_detection_algorithm(algorithm);
+  };
+  sink.recalibrate = [this](std::string *) { return runtime_->trigger_recalibration(); };
+  sink.sensing_enabled = [this](bool enabled, std::string *message) {
+    runtime_->set_services_armed(enabled);
+    const bool applied = runtime_->services_armed() == enabled;
+    if (!applied && message != nullptr) {
+      *message = "sensing state could not be changed";
+    }
+    return applied;
+  };
+  sink.traffic_generator_target_mac = [this](const std::string &target, std::string *) {
+    return runtime_->set_traffic_generator_target_mac(target);
+  };
+  sink.csi_sample_spacing = [this](TemporalCsiSpacing spacing, std::string *) {
+    return runtime_->set_csi_sample_spacing(spacing);
+  };
+  return sink;
+}
+
+// Whether the runtime shows what `command` asked for, read as `sensing` reports it.
+bool RuntimeDirectHttpBridge::owner_applied_(const EspectreCommand &command) const {
+  if (command.command == "recalibrate") return runtime_->is_calibrating();
+  if (command.command != "update_sensing") return true;
+  const RuntimeConfig &config = runtime_->config();
+  return (!command.has_detector ||
+          config.detection_algorithm == parse_detection_algorithm(command.detector.c_str())) &&
+         (!command.has_threshold || std::fabs(runtime_->snapshot().threshold - command.threshold) < 0.0001f) &&
+         (!command.has_motion_hits || (config.motion_on_hits == command.motion_on_hits &&
+                                       config.motion_off_hits == command.motion_off_hits)) &&
+         (!command.has_traffic_generator_mode ||
+          config.traffic_generator_mode ==
+              parse_traffic_generator_mode(command.traffic_generator_mode.c_str())) &&
+         (!command.has_traffic_generator_target_mac ||
+          config.traffic_generator_target_mac ==
+              canonical_traffic_generator_target_mac(command.traffic_generator_target_mac)) &&
+         (!command.has_csi_sample_spacing ||
+          config.csi_sample_spacing == parse_csi_sample_spacing(command.csi_sample_spacing.c_str())) &&
+         (!command.has_sensing_enabled || runtime_->services_armed() == command.sensing_enabled);
+}
+
+// A queued sink leaves the change to the owner's loop, which has run once
+// between two bridge loops; only now does the runtime show what was reached.
+void RuntimeDirectHttpBridge::flush_queued_changes_() {
+  if (queued_changes_ != FrontendCommandChange::NONE) {
+    const FrontendCommandChange changes = queued_changes_;
+    queued_changes_ = FrontendCommandChange::NONE;
+    (void) publish_changes(changes);
+    notify_config_changed_();
+  }
+  if (queued_responses_.empty()) return;
+  std::vector<QueuedResponse> responses;
+  responses.swap(queued_responses_);
+  for (QueuedResponse &queued : responses) {
+    // The owner only logs a change its runtime refused, so the answer comes from the runtime.
+    if (queued.accepted && !owner_applied_(queued.command)) {
+      EspectreDeviceConfig device;
+      device.device_id = config_.device_id;
+      const bool recalibrate = queued.command.command == "recalibrate";
+      queued.response = espectre_command_result_payload(device, queued.command, false,
+                                                        recalibrate ? "busy" : "unavailable",
+                                                        recalibrate ? "recalibration rejected"
+                                                                    : "the device did not apply the change");
+    }
+    (void) service_->complete_deferred_response(queued.request_token, std::move(queued.response));
+  }
 }
 
 bool RuntimeDirectHttpBridge::running() const { return service_ != nullptr && service_->running(); }
@@ -203,7 +313,7 @@ bool RuntimeDirectHttpBridge::publish_changes(FrontendCommandChange changes) {
   return published;
 }
 
-std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &request) {
+std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &request, QueuedResponse *queued) {
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   EspectreCommand command;
@@ -217,6 +327,10 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
   if (command.command == "read_diagnostics" && !validate_diagnostic_fields(command.diagnostic_fields, ESPECTRE_DIAGNOSTIC_PROFILE_BRIDGE)) {
     return espectre_command_result_payload(device, command, false, "invalid_params",
                                            "diagnostic field is not available on this frontend");
+  }
+  // The owner may have stopped its runtime, for example to restart it after a fault.
+  if (!runtime_->is_setup_complete() && !frontend_command_allowed_during_raw_collection(command.command)) {
+    return espectre_command_result_payload(device, command, false, "unavailable", "sensing runtime is not running");
   }
   if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION &&
       !frontend_command_allowed_during_raw_collection(command.command)) {
@@ -242,37 +356,33 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
         return std::string{};
       },
       config_.device_label_setter,
-      [this](float value, std::string *) { return runtime_->set_threshold(value); },
-      [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits(on, off); },
-      [this](TrafficGeneratorMode mode, std::string *) { return runtime_->set_traffic_generator_mode(mode); },
-      [this](DetectionAlgorithm algorithm, std::string *) {
-        return runtime_->set_detection_algorithm(algorithm);
-      },
-      [this](std::string *) { return runtime_->trigger_recalibration(); },
+      sink_.threshold,
+      sink_.motion_hits,
+      sink_.traffic_generator_mode,
+      sink_.detection_algorithm,
+      sink_.recalibrate,
       [this](const EspectreCommand &wifi, std::string *message) {
         return handle_wifi_control_(wifi, message);
       },
       {},
-      [this](bool enabled, std::string *message) {
-        runtime_->set_services_armed(enabled);
-        const bool applied = runtime_->services_armed() == enabled;
-        if (!applied && message != nullptr) {
-          *message = "sensing state could not be changed";
-        }
-        return applied;
-      },
+      sink_.sensing_enabled,
       [this](const RuntimeControlUpdate &update, std::string *message) {
         return runtime_->validate_control_update(update, message);
       },
-      [this](const std::string &target, std::string *) {
-        return runtime_->set_traffic_generator_target_mac(target);
-      },
-      [this](TemporalCsiSpacing spacing, std::string *) {
-        return runtime_->set_csi_sample_spacing(spacing);
-      });
+      sink_.traffic_generator_target_mac,
+      sink_.csi_sample_spacing);
   if (result.changes != FrontendCommandChange::NONE) {
-    (void) publish_changes(result.changes);
-    notify_config_changed_();
+    if (guest_ && sink_.queued) {
+      queued_changes_ = queued_changes_ | result.changes;
+      if (queued != nullptr) {
+        queued->waits_for_owner = true;
+        queued->accepted = result.accepted;
+        queued->command = command;
+      }
+    } else {
+      (void) publish_changes(result.changes);
+      notify_config_changed_();
+    }
   }
   if (!result.accepted) {
     return espectre_command_result_payload(device,
@@ -296,7 +406,8 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
 IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferred_request_(
     uint64_t request_token,
     const DirectRequest &request) {
-  if (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid") {
+  const bool wifi_pin_offered = !guest_ || config_.wifi_bssid_pin_setter;
+  if (wifi_pin_offered && (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid")) {
     EspectreDeviceConfig device;
     device.device_id = config_.device_id;
     EspectreCommand command;
@@ -344,7 +455,15 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
     };
   }
   if (request.command != "devices") {
-    return {false, handle_request_(request), {}};
+    QueuedResponse queued;
+    std::string response = handle_request_(request, &queued);
+    if (queued.waits_for_owner && deferred_requests_enabled_) {
+      queued.request_token = request_token;
+      queued.response = std::move(response);
+      queued_responses_.push_back(std::move(queued));
+      return {true, {}, {}};
+    }
+    return {false, std::move(response), {}};
   }
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
@@ -383,17 +502,35 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
   return {true, {}, {}};
 }
 
+// A control exists only with a callback for it; a guest has the ones its owner gave.
+RuntimeCapabilities RuntimeDirectHttpBridge::control_capabilities_() const {
+  RuntimeCapabilities capabilities = runtime_->capabilities();
+  capabilities.supports_runtime_threshold_updates =
+      capabilities.supports_runtime_threshold_updates && sink_.threshold;
+  capabilities.supports_runtime_motion_hits_updates =
+      capabilities.supports_runtime_motion_hits_updates && sink_.motion_hits;
+  capabilities.supports_runtime_detector_selection =
+      capabilities.supports_runtime_detector_selection && sink_.detection_algorithm;
+  capabilities.supports_manual_recalibration = capabilities.supports_manual_recalibration && sink_.recalibrate;
+  capabilities.supports_traffic_control = capabilities.supports_traffic_control && sink_.traffic_generator_mode;
+  capabilities.supports_traffic_target_mac =
+      capabilities.supports_traffic_target_mac && sink_.traffic_generator_target_mac;
+  capabilities.supports_csi_sample_spacing = capabilities.supports_csi_sample_spacing && sink_.csi_sample_spacing;
+  return capabilities;
+}
+
 EspectreCapabilityProfile RuntimeDirectHttpBridge::capability_profile_() const {
   EspectreCapabilityProfile profile;
   if (runtime_ == nullptr) return profile;
-  const RuntimeCapabilities &runtime_capabilities = runtime_->capabilities();
+  const RuntimeCapabilities runtime_capabilities = control_capabilities_();
+  const bool wifi_control = !guest_ || config_.wifi_bssid_pin_setter;
   using Method = EspectreDirectMethod;
   profile.set(Method::CAPABILITIES);
   profile.set(Method::INFO);
   profile.set(Method::STATUS);
   profile.set(Method::CONFIG);
   profile.set(Method::DIAGNOSTICS, runtime_capabilities.supports_extended_diagnostics);
-  profile.set(Method::SET_SENSING);
+  profile.sensing_enabled_writable = static_cast<bool>(sink_.sensing_enabled);
   profile.set(Method::SET_DEVICE_LABEL, static_cast<bool>(config_.device_label_setter));
   profile.set(Method::SET_THRESHOLD, runtime_capabilities.supports_runtime_threshold_updates);
   profile.set(Method::SET_MOTION_HITS, runtime_capabilities.supports_runtime_motion_hits_updates);
@@ -402,10 +539,17 @@ EspectreCapabilityProfile RuntimeDirectHttpBridge::capability_profile_() const {
   profile.set(Method::SET_TRAFFIC_GENERATOR_MODE, runtime_capabilities.supports_traffic_control);
   profile.set(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC, runtime_capabilities.supports_traffic_target_mac);
   profile.set(Method::SET_CSI_SAMPLE_SPACING, runtime_capabilities.supports_csi_sample_spacing);
-  profile.set(Method::WIFI_ACCESS_POINTS);
-  profile.set(Method::SCAN_WIFI_ACCESS_POINTS);
-  profile.set(Method::SET_WIFI_BSSID);
-  profile.set(Method::CLEAR_WIFI_BSSID);
+  // SET_SENSING also gates the `update_sensing` route, so it is on exactly while the route lists a field.
+  profile.set(Method::SET_SENSING,
+              profile.sensing_enabled_writable || profile.supports(Method::SET_THRESHOLD) ||
+                  profile.supports(Method::SET_MOTION_HITS) || profile.supports(Method::SET_DETECTOR) ||
+                  profile.supports(Method::SET_TRAFFIC_GENERATOR_MODE) ||
+                  profile.supports(Method::SET_TRAFFIC_GENERATOR_TARGET_MAC) ||
+                  profile.supports(Method::SET_CSI_SAMPLE_SPACING));
+  profile.set(Method::WIFI_ACCESS_POINTS, wifi_control);
+  profile.set(Method::SCAN_WIFI_ACCESS_POINTS, wifi_control);
+  profile.set(Method::SET_WIFI_BSSID, wifi_control);
+  profile.set(Method::CLEAR_WIFI_BSSID, wifi_control);
   const bool raw_csi = config_.raw_csi && runtime_capabilities.supports_raw_csi;
   profile.set(Method::START_RAW_STREAM, raw_csi);
   profile.set(Method::STOP_RAW_STREAM, raw_csi);
@@ -616,7 +760,7 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
 }
 
 std::string RuntimeDirectHttpBridge::capabilities_payload_() const {
-  const RuntimeCapabilities &capabilities = runtime_->capabilities();
+  const RuntimeCapabilities capabilities = control_capabilities_();
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   EspectreDeviceInfo info;

@@ -125,4 +125,5 @@
 #include "runtime/esp_idf/device_identity.h"
 #include "runtime/esp_idf/espectre_sensor.h"
 #include "runtime/esp_idf/runtime_frontend_controller.h"
+#include "runtime/esp_idf/runtime_guest_access.h"
 #include "runtime/esp_idf/runtime_sensing_kconfig.h"

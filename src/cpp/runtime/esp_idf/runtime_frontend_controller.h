@@ -139,6 +139,22 @@ class RuntimeFrontendController : private IRuntimeListener {
    */
   bool setup(IRuntimeListener *listener);
   /**
+   * Add a second event sink next to the `setup()` listener.
+   *
+   * The observer receives every callback the listener receives, after it and
+   * from the same task. It stays registered across `shutdown()` and a later
+   * `setup()`, so code that does not own the controller can follow the
+   * runtime through restarts. Setup failures are reported to the listener
+   * only. Treat the callbacks as read-only notifications: apply control
+   * changes through the owner of the controller, not from an observer.
+   *
+   * @param observer Event sink, or `nullptr` to remove the current one. Not
+   *        owned; remove it before it is destroyed.
+   * @return false, leaving the current observer in place, when a different
+   *         observer is already registered.
+   */
+  bool set_observer(IRuntimeListener *observer);
+  /**
    * Advance runtime work and deliver pending listener callbacks.
    *
    * Call it continuously from your loop task. Safe before setup; after
@@ -336,6 +352,8 @@ class RuntimeFrontendController : private IRuntimeListener {
   void adopt_effective_detector_(DetectionAlgorithm algorithm);
   void begin_callback_();
   void end_callback_();
+  template <typename Call>
+  void notify_(Call &&call);
   void apply_deferred_shutdown_();
   void shutdown_(bool notify_listener);
 
@@ -349,6 +367,7 @@ class RuntimeFrontendController : private IRuntimeListener {
   std::unique_ptr<RuntimeTrafficSources> traffic_sources_;
   std::unique_ptr<IEspectreRuntime> runtime_;
   IRuntimeListener *listener_{nullptr};
+  IRuntimeListener *observer_{nullptr};
   bool setup_complete_{false};
   // The session's threshold came from RUNTIME_THRESHOLD_DETECTOR_DEFAULT and no
   // setter has replaced it, so shutdown() returns the staged value to it.

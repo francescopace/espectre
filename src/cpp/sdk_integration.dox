@@ -172,6 +172,16 @@ SDK transport adapters should pass parsed requests through `FrontendCommandEngin
 
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
+@subsection integration_guest_bridge Serving a runtime that another component owns
+
+One component owns the `RuntimeFrontendController`. When a second component adds Direct HTTP to that firmware, it must not write to the runtime behind the owner's back: the owner would publish stale state and save nothing.
+
+- `RuntimeGuestAccess::runtime()` gives the second component a read-only view of the controller, and `RuntimeGuestAccess::set_observer()` delivers the listener events to it as well. Neither can change the runtime.
+- `RuntimeDirectHttpBridge::setup_guest()` starts the bridge on that runtime. It applies no sensing change itself: each one goes to the `RuntimeControlSink` you pass, whose callbacks hand the validated value to the owner. A control without a callback is not advertised.
+- Set `RuntimeControlSink::queued` when the owner applies changes in its own loop. The bridge then answers the request and republishes `sensing` from its next `loop()`, so both show the state the owner reached. A change the runtime does not show by then is answered as `unavailable`, and a recalibration that did not start as `busy`. This needs a Direct service with deferred responses and an owner that loops once between two bridge loops.
+- Raw CSI collection is the one operation the bridge still drives itself. While it runs, the owner sees a runtime that is not ready, as it does during calibration.
+- Changes are refused as `unavailable` while the owner has its runtime shut down.
+
 @section integration_protocol_extensions Protocol extensions
 
 All command parameters use `EspectreCommandValidator`: the parser checks JSON syntax and request structure, then invokes the callback registered on the SDK or application route. The callback receives decoded `JsonObjectField` values, validates parameters, and fills the command before dispatch. It must not change device state. For extension commands, `extension_parameters` initially contains the whole request from `parse_espectre_command()`, or the parameter object from `parse_espectre_command_request()`; the validator may replace it with normalized JSON built from the decoded fields. The SDK validator checks parameter types and ranges, including thresholds in `0–1` and motion hit counts in `1–20`.

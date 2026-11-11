@@ -236,6 +236,11 @@ struct EspectreCapabilityProfile {
   std::array<bool, static_cast<size_t>(EspectreEvent::COUNT)> events{{true, true, true, true, true}};
   /** Optional frontend-owned catalog, shared with its transport parsers. */
   const EspectreProtocolExtension *extension{nullptr};
+  /**
+   * Whether `update_sensing` accepts `enabled`. On by default; turn it off
+   * when `SET_SENSING` is advertised only for the other sensing fields.
+   */
+  bool sensing_enabled_writable{true};
 
   /** Whether a capability is advertised. */
   bool supports(EspectreDirectMethod method) const {

@@ -96,6 +96,7 @@
       "owners": ["test_runtime_frontend_controller", "test_runtime_helpers"],
       "sources": [
         "src/cpp/runtime/esp_idf/runtime_frontend_controller.cpp",
+        "src/cpp/runtime/esp_idf/runtime_guest_access.cpp",
         "src/cpp/runtime/esp_idf/runtime_detector_store.cpp",
         "src/cpp/runtime/esp_idf/runtime_motion_hits_store.cpp",
         "src/cpp/runtime/esp_idf/runtime_traffic_mode_store.cpp",

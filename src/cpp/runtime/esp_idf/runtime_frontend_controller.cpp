@@ -15,6 +15,7 @@
 #include "runtime/runtime_config_utils.h"
 #include "runtime/runtime_time.h"
 #include "runtime_detector_store.h"
+#include "runtime_guest_access.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime_performance_diagnostics.h"
 #include "runtime_traffic_mode_store.h"
@@ -43,8 +44,28 @@ struct RuntimeTrafficSources {
 
 RuntimeFrontendController::RuntimeFrontendController() = default;
 
+// The observer follows the listener inside one callback bracket, so a shutdown
+// requested by either is still deferred until both have returned.
+template <typename Call>
+void RuntimeFrontendController::notify_(Call &&call) {
+  if (listener_ == nullptr && observer_ == nullptr) {
+    return;
+  }
+  begin_callback_();
+  if (listener_ != nullptr) {
+    call(*listener_);
+  }
+  if (observer_ != nullptr) {
+    call(*observer_);
+  }
+  end_callback_();
+}
+
 // The listener may already be partly destroyed, so scope exit sends no callback.
-RuntimeFrontendController::~RuntimeFrontendController() { shutdown_(false); }
+RuntimeFrontendController::~RuntimeFrontendController() {
+  shutdown_(false);
+  RuntimeGuestAccess::release_(this);
+}
 
 const SelectedSubcarriers &RuntimeFrontendController::subcarriers() const { return SELECTED_SUBCARRIERS; }
 
@@ -111,8 +132,17 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   last_sensing_ready_ = snapshot_.ready_to_publish;
   capabilities_ = runtime_->get_capabilities();
   setup_complete_ = true;
+  RuntimeGuestAccess::offer_(this);
   apply_deferred_shutdown_();
   return setup_complete_;
+}
+
+bool RuntimeFrontendController::set_observer(IRuntimeListener *observer) {
+  if (observer != nullptr && observer_ != nullptr && observer_ != observer) {
+    return false;
+  }
+  observer_ = observer;
+  return true;
 }
 
 bool RuntimeFrontendController::traffic_allows_radio_work() const {
@@ -149,11 +179,7 @@ void RuntimeFrontendController::loop() {
     cache_snapshot_(runtime_->get_snapshot());
     if (snapshot_.ready_to_publish != last_sensing_ready_) {
       last_sensing_ready_ = snapshot_.ready_to_publish;
-      if (listener_ != nullptr) {
-        begin_callback_();
-        listener_->on_sensing_readiness_changed(snapshot_);
-        end_callback_();
-      }
+      notify_([this](IRuntimeListener &sink) { sink.on_sensing_readiness_changed(snapshot_); });
     }
   }
   apply_deferred_shutdown_();
@@ -184,10 +210,8 @@ void RuntimeFrontendController::shutdown_(bool notify_listener) {
   snapshot_.ready_to_publish = false;
   last_sensing_ready_ = false;
   // Close the availability edge the listener saw; shutdown is already underway.
-  if (notify_listener && was_ready && listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_sensing_readiness_changed(snapshot_);
-    end_callback_();
+  if (notify_listener && was_ready) {
+    notify_([this](IRuntimeListener &sink) { sink.on_sensing_readiness_changed(snapshot_); });
   }
   listener_ = nullptr;
   shutdown_requested_ = false;
@@ -507,80 +531,48 @@ void RuntimeFrontendController::apply_deferred_shutdown_() {
 
 void RuntimeFrontendController::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_motion_state_changed(snapshot);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_motion_state_changed(snapshot); });
 }
 
 void RuntimeFrontendController::on_periodic_update(const RuntimeSnapshot &snapshot,
                                                    uint32_t csi_accepted) {
   cache_snapshot_(snapshot);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_periodic_update(snapshot, csi_accepted);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_periodic_update(snapshot, csi_accepted); });
 }
 
 void RuntimeFrontendController::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
   adopt_effective_threshold_(snapshot.threshold);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_threshold_changed(snapshot);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_threshold_changed(snapshot); });
 }
 
 void RuntimeFrontendController::on_detector_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
   adopt_effective_detector_(parse_detection_algorithm(snapshot.detector_name));
   adopt_effective_threshold_(snapshot.threshold);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_detector_changed(snapshot);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_detector_changed(snapshot); });
 }
 
 void RuntimeFrontendController::on_calibration_started(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_calibration_started(snapshot);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_calibration_started(snapshot); });
 }
 
 void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &snapshot,
                                                         bool success) {
   cache_snapshot_(snapshot);
   adopt_effective_threshold_(snapshot.threshold);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_calibration_finished(snapshot, success);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_calibration_finished(snapshot, success); });
 }
 
 void RuntimeFrontendController::on_live_telemetry(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
   adopt_effective_threshold_(snapshot.threshold);
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_live_telemetry(snapshot);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_live_telemetry(snapshot); });
 }
 
 void RuntimeFrontendController::on_runtime_fault(const char *message) {
-  if (listener_ != nullptr) {
-    begin_callback_();
-    listener_->on_runtime_fault(message);
-    end_callback_();
-  }
+  notify_([&](IRuntimeListener &sink) { sink.on_runtime_fault(message); });
 }
 
 }  // namespace espectre

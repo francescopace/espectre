@@ -13,6 +13,7 @@
 #include "frontend_runtime_shim.h"
 #include "runtime_config_utils.h"
 #include "runtime_frontend_controller.h"
+#include "runtime_guest_access.h"
 #include "runtime_performance_diagnostics.h"
 #include "frontend_bootstrap_helpers.h"
 #include "device_config_store.h"
@@ -918,9 +919,82 @@ void test_runtime_frontend_controller_switches_detector_and_resets_threshold(voi
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 }
 
+void test_controller_observer_follows_the_listener_across_runtime_restarts(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  DummyRuntimeListener observer;
+  DummyRuntimeListener second_observer;
+  TEST_ASSERT_TRUE(controller.set_observer(&observer));
+  TEST_ASSERT_FALSE(controller.set_observer(&second_observer));
+  TEST_ASSERT_TRUE(controller.set_observer(&observer));
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  frontend_runtime_shim::state.snapshot.ready_to_publish = true;
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  controller.loop();
+  TEST_ASSERT_EQUAL(1, listener.readiness_count);
+  TEST_ASSERT_EQUAL(1, observer.readiness_count);
+  TEST_ASSERT_EQUAL(listener.threshold_count, observer.threshold_count);
+  TEST_ASSERT_TRUE(observer.last_ready);
+
+  // The owner restarts its runtime; the observer needs no new registration.
+  controller.shutdown();
+  TEST_ASSERT_EQUAL(2, observer.readiness_count);
+  TEST_ASSERT_FALSE(observer.last_ready);
+  frontend_runtime_shim::state.snapshot.ready_to_publish = false;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  frontend_runtime_shim::state.snapshot.ready_to_publish = true;
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  controller.loop();
+  TEST_ASSERT_EQUAL(3, observer.readiness_count);
+
+  // A shutdown requested by the listener still reaches the observer first.
+  listener.controller = &controller;
+  listener.shutdown_on_readiness = true;
+  frontend_runtime_shim::state.snapshot.ready_to_publish = false;
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  controller.loop();
+  TEST_ASSERT_EQUAL(4, observer.readiness_count);
+  TEST_ASSERT_FALSE(controller.is_setup_complete());
+
+  TEST_ASSERT_TRUE(controller.set_observer(nullptr));
+  TEST_ASSERT_TRUE(controller.set_observer(&second_observer));
+}
+
+void test_guest_access_exposes_the_first_set_up_runtime_until_it_is_destroyed(void) {
+  TEST_ASSERT_NULL(RuntimeGuestAccess::runtime());
+  DummyRuntimeListener observer;
+  TEST_ASSERT_FALSE(RuntimeGuestAccess::set_observer(&observer));
+  {
+    RuntimeFrontendController owner;
+    TEST_ASSERT_NULL(RuntimeGuestAccess::runtime());
+    TEST_ASSERT_TRUE(owner.setup(nullptr));
+    TEST_ASSERT_TRUE(RuntimeGuestAccess::runtime() == &owner);
+
+    RuntimeFrontendController other;
+    TEST_ASSERT_TRUE(other.setup(nullptr));
+    TEST_ASSERT_TRUE(RuntimeGuestAccess::runtime() == &owner);
+
+    // The view outlives a restart of the owner's runtime.
+    owner.shutdown();
+    TEST_ASSERT_TRUE(RuntimeGuestAccess::runtime() == &owner);
+    TEST_ASSERT_FALSE(RuntimeGuestAccess::runtime()->is_setup_complete());
+
+    TEST_ASSERT_TRUE(RuntimeGuestAccess::set_observer(&observer));
+    TEST_ASSERT_TRUE(owner.setup(nullptr));
+    frontend_runtime_shim::state.snapshot.ready_to_publish = true;
+    frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+    owner.loop();
+    TEST_ASSERT_EQUAL(1, observer.readiness_count);
+  }
+  TEST_ASSERT_NULL(RuntimeGuestAccess::runtime());
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_controller_notifies_readiness_edges_once_and_defers_callback_shutdown);
+  RUN_TEST(test_controller_observer_follows_the_listener_across_runtime_restarts);
+  RUN_TEST(test_guest_access_exposes_the_first_set_up_runtime_until_it_is_destroyed);
   RUN_TEST(test_frontend_bootstrap_loads_defaults_and_preserves_runtime_identity);
   RUN_TEST(test_frontend_bootstrap_accepts_optional_defaults_and_validates_wifi_options);
   RUN_TEST(test_frontend_bootstrap_sets_up_wifi_and_propagates_start_failure);

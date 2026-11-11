@@ -102,6 +102,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime_base.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/nvs_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_guest_access.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"

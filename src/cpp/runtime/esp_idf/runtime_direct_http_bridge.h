@@ -23,6 +23,7 @@
 #include "runtime_frontend_controller.h"
 
 #include <atomic>
+#include <vector>
 
 namespace espectre {
 
@@ -74,6 +75,42 @@ struct RuntimeDirectHttpBridgeConfig {
   std::function<float()> loop_time_ms_getter{};
 };
 
+/**
+ * Sensing changes handed to the owner of the runtime instead of applied by
+ * the bridge; see RuntimeDirectHttpBridge::setup_guest().
+ *
+ * Each callback receives a value the bridge has already validated against the
+ * runtime, and returns whether the owner took it. A control whose callback is
+ * omitted is not advertised and its changes are refused as unsupported.
+ */
+struct RuntimeControlSink {
+  /** Apply a threshold on the 0..1 scale. */
+  FrontendThresholdCallback threshold;
+  /** Apply the motion hit counts. */
+  FrontendMotionHitsCallback motion_hits;
+  /** Switch the active detector. */
+  FrontendDetectorCallback detection_algorithm;
+  /** Switch the traffic generator mode. */
+  FrontendTrafficGeneratorModeCallback traffic_generator_mode;
+  /** Set the raw traffic destination. */
+  FrontendTrafficTargetMacCallback traffic_generator_target_mac;
+  /** Set the CSI sample spacing rule. */
+  FrontendCsiSampleSpacingCallback csi_sample_spacing;
+  /** Pause or resume sensing. */
+  FrontendSensingControlCallback sensing_enabled;
+  /** Start a recalibration. */
+  FrontendRecalibrateCallback recalibrate;
+  /**
+   * Set when the callbacks only queue the change and the owner applies it in
+   * its own loop, before the bridge's next `loop()`. The bridge then answers
+   * the request and republishes `sensing` from that next `loop()`, so both
+   * report the state the owner reached. A change the runtime does not show
+   * by then is answered as `unavailable`, and a recalibration that did not
+   * start as `busy`.
+   */
+  bool queued{false};
+};
+
 /** Apply or clear the ESP-IDF station BSSID pin through a Wi-Fi state-machine restart. */
 bool apply_wifi_bssid_pin(const std::string &bssid,
                           std::string *message,
@@ -99,6 +136,28 @@ class RuntimeDirectHttpBridge {
              RuntimeFrontendController *runtime,
              const RuntimeDirectHttpBridgeConfig &config,
              ConfigChangedCallback config_changed = {});
+  /**
+   * Start `service` next to a runtime that another component owns.
+   *
+   * The bridge finds the runtime through RuntimeGuestAccess and only reads
+   * it. Sensing changes go to `sink`, so the owner stays the single writer and
+   * keeps its own entities and saved settings right. Raw CSI collection is
+   * the one runtime operation the bridge still drives itself. The Wi-Fi access
+   * point scan and BSSID pin are offered only with
+   * `RuntimeDirectHttpBridgeConfig::wifi_bssid_pin_setter`, because the owner
+   * manages the station.
+   *
+   * @param service Direct HTTP service to start. Not owned.
+   * @param config What the bridge reports about the device, and its hooks.
+   * @param sink Where sensing changes go.
+   * @param config_changed Called after a sensing change has been handed over
+   *        and, for a queued sink, applied.
+   * @return false without a set-up runtime, or as `setup()` does.
+   */
+  bool setup_guest(IDirectHttpService *service,
+                   const RuntimeDirectHttpBridgeConfig &config,
+                   RuntimeControlSink sink,
+                   ConfigChangedCallback config_changed = {});
   /** Pump the service, raw collection, and peer discovery. Call it from the owner loop. */
   void loop();
   /** Stop raw collection, peer discovery, and the service. */
@@ -117,7 +176,25 @@ class RuntimeDirectHttpBridge {
  private:
   IDirectHttpService::DeferredRequestResult handle_deferred_request_(uint64_t request_token,
                                                                      const DirectRequest &request);
-  std::string handle_request_(const DirectRequest &request);
+  // A request whose answer waits for the owner's loop.
+  struct QueuedResponse {
+    uint64_t request_token{0U};
+    std::string response;
+    // What the owner was asked for, checked against the runtime before answering.
+    EspectreCommand command;
+    bool accepted{false};
+    bool waits_for_owner{false};
+  };
+  std::string handle_request_(const DirectRequest &request, QueuedResponse *queued = nullptr);
+  bool setup_(IDirectHttpService *service,
+              RuntimeFrontendController *runtime,
+              const RuntimeDirectHttpBridgeConfig &config,
+              ConfigChangedCallback config_changed,
+              const RuntimeControlSink *sink);
+  void flush_queued_changes_();
+  RuntimeControlSink runtime_sink_();
+  bool owner_applied_(const EspectreCommand &command) const;
+  RuntimeCapabilities control_capabilities_() const;
   EspectreCapabilityProfile capability_profile_() const;
   std::string device_label_() const;
   DirectWifiSnapshot wifi_snapshot_() const;
@@ -141,6 +218,13 @@ class RuntimeDirectHttpBridge {
   std::atomic<size_t> event_client_count_{0U};
   bool deferred_requests_enabled_{false};
   bool wifi_response_pending_{false};
+  // Guest mode: the runtime belongs to another component.
+  bool guest_{false};
+  // Applies sensing changes: the owner's callbacks for a guest, the runtime setters otherwise.
+  RuntimeControlSink sink_{};
+  // Changes a queued sink took in the last loop(), reported from the next one.
+  FrontendCommandChange queued_changes_{FrontendCommandChange::NONE};
+  std::vector<QueuedResponse> queued_responses_;
 };
 
 }  // namespace espectre

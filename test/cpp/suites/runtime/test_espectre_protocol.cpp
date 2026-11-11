@@ -435,6 +435,20 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"update_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"kind\"") == std::string::npos);
+
+  // The sensing operation lists the fields it accepts, so a client can hide the other controls.
+  EspectreCapabilityProfile sensing;
+  sensing.set(EspectreDirectMethod::SET_SENSING);
+  sensing.set(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE);
+  sensing.sensing_enabled_writable = false;
+  TEST_ASSERT_TRUE(espectre_capabilities_payload(config, info, sensing)
+                       .find("\"fields\":[\"traffic_generator_mode\"]") != std::string::npos);
+  sensing.sensing_enabled_writable = true;
+  sensing.set(EspectreDirectMethod::SET_MOTION_HITS);
+  TEST_ASSERT_TRUE(
+      espectre_capabilities_payload(config, info, sensing)
+          .find("\"fields\":[\"enabled\",\"motion_on_hits\",\"motion_off_hits\",\"traffic_generator_mode\"]") !=
+      std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"access\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"params\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"result\"") == std::string::npos);
