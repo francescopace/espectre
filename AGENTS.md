@@ -5,14 +5,14 @@
 - Write code, comments, documentation, filenames, and commit messages in English. Use the Oxford comma in project documentation and user-facing text.
 - Treat `src/cpp/` as production firmware, `src/python/micro_espectre/` as the MicroPython device path, `src/python/espectre_cli/` as host CLI code, and `tools/` as host-side analysis and maintenance code.
 - Update the existing topic owner by default. Create a new Markdown document only when the user requests a persistent record or repository policy requires a new ADR or review record.
-- Specialized rules live in `.github/AGENTS.md`, `src/cpp/AGENTS.md`, `src/python/AGENTS.md`, `test/AGENTS.md`, `docs/AGENTS.md`, `docs/web/AGENTS.md`, and `tools/AGENTS.md`.
+- Before changing files in a subtree, read its `AGENTS.md`: `.github/AGENTS.md`, `src/cpp/AGENTS.md`, `src/python/AGENTS.md`, `test/AGENTS.md`, `docs/AGENTS.md`, `docs/web/AGENTS.md`, and `tools/AGENTS.md`.
 
 ## Context Discipline
 
 - On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
 - Read large files (over about 500 lines or 40 KB) in targeted ranges located by search, and keep command output bounded. Avoid unbounded dumps and repeated reads of settled material.
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
-- For broad reviews, group files by subsystem and finish one group before loading the next. Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
+- Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
 - Prefer concise test output, such as `-q --tb=short` for pytest. Redirect verbose build, test, benchmark, and hardware output to a temporary log. Report the exit status and summary on success; on failure, inspect a bounded diagnostic tail and expand or rerun only where needed.
 - Never run an unbounded serial monitor in the foreground. Use a fixed duration, an event filter, or a temporary log, and read only the relevant interval.
 
@@ -59,7 +59,7 @@ CI also reports Cppcheck findings for `src/cpp/` and `test/cpp/`, and ESLint fin
 
 - Prefer the repository `./espectre` wrapper for local workflows. Use the repository virtual environment for direct Python commands when available; the wrapper uses `.venv` automatically.
 - ESP-IDF frontend builds require the ESP-IDF environment that provides `idf.py`.
-- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`. Do not add `Co-Authored-By` or other AI attribution trailers. Include roadmap and changelog updates in the commit that does the work, not in a separate commit.
+- Use Conventional Commits with an imperative, concrete, lower-case subject of at most 72 characters. Commits intended for contribution require a valid `Signed-off-by` trailer; prefer `git commit -s`. Do not add AI attribution trailers such as `Co-Authored-By: Claude`. A human co-author trailer is fine when the maintainer asks for it. Include roadmap and changelog updates in the commit that does the work, not in a separate commit.
 - Use `develop` as the default PR target; `main` is release-only. Do not bypass branch protection, push directly to `main`, force-push protected branches, or merge with failing required checks.
 - Keep pull requests free of merge commits, update their branches by rebasing, and integrate them with Rebase and merge. Do not use merge commits or squash merges.
 - Use `--force-with-lease` only on a pull request source branch when a user-authorized rebase or amendment requires rewriting published commits.

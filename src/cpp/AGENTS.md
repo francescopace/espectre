@@ -2,9 +2,9 @@
 
 ## Architecture And Placement
 
-- Use ESP-IDF for firmware code, not Arduino. Write `C++`17: the code must also build as `C++`20 (ESPHome) and `C++`23 (the ESP-IDF default).
+- Write firmware against ESP-IDF APIs, not the Arduino core. `frontend/arduino/` only packages the SDK as an Arduino library. Write `C++`17: the code must also build as `C++`20 (ESPHome) and `C++`23 (the ESP-IDF default).
 - Keep shared `core` and `runtime` code frontend-agnostic.
-- Follow ESPHome component conventions only inside `frontend/esphome/`. Do not assume ESPHome-specific patterns apply to Matter, Native, or shared runtime code.
+- Follow ESPHome component conventions only inside `frontend/esphome/`. Do not assume ESPHome-specific patterns apply to Matter, Native, Arduino, or shared runtime code.
 - Use `ESPECTRE_LOGD`, `ESPECTRE_LOGI`, `ESPECTRE_LOGW`, and `ESPECTRE_LOGE` in shared `core` and `runtime` code so frontends own the logging backend. Frontend-specific ESP-IDF code may use `ESP_LOG*` directly. Do not add blocking work in firmware `loop()` paths or callbacks.
 - Keep Wi-Fi event handlers and CSI callbacks log-free: record state with `PendingEvent` (`runtime/pending_event.h`) and act in `loop()`. Logging from the `sys_evt` task once overflowed its stack.
 - Place algorithms and the CSI format in `core/`, platform-agnostic contracts in `runtime/`, ESP-IDF, FreeRTOS, or lwIP code in `runtime/esp_idf/`, and single-frontend code in `frontend/<name>/`.
@@ -20,7 +20,7 @@
 ## Published SDK Surface
 
 - Treat everything reachable from `espectre_sdk.h` as the published SDK surface.
-- Keep the ESPectre Protocol, its JSON, diagnostic fields, and transport contracts in `espectre_protocol_sdk.h`, optional ESP-IDF integration services in `espectre_services_sdk.h`, and the MQTT backend in `espectre_mqtt_sdk.h`. Their public methods and configuration types are supported SDK contracts. Keep the sensing facade free of protocol and optional platform service headers.
+- Keep detectors and temporal sampling for applications that capture CSI themselves in `espectre_core_sdk.h`, the ESPectre Protocol, its JSON, diagnostic fields, and transport contracts in `espectre_protocol_sdk.h`, optional ESP-IDF integration services in `espectre_services_sdk.h`, and the MQTT backend in `espectre_mqtt_sdk.h`. Their public methods and configuration types are supported SDK contracts. Keep the sensing facade free of protocol and optional platform service headers.
 - First-party frontends must use public SDK headers and support `ESPECTRE_SDK_ROOT` to build against an extracted SDK bundle. Keep firmware-only sources, including Improv Serial, in the frontend source lists.
 - Adding a public type requires updating the facade include and the `Doxyfile` INPUT list in the same change. `test/python/contracts/test_sdk_surface_invariants.py` checks the public surface, and SDK reference generation verifies that every supported header appears in the generated XML. Keep `docs/SDK.md` focused on installation and integration; detailed contracts belong in public header comments and `sdk_integration.dox`.
 - Forward declarations are acceptable, but every public definition must still arrive through the facade. A type an integrator can name in a signature but cannot construct is a broken surface.
@@ -32,7 +32,7 @@ After changing the published surface, run:
 
 ```bash
 .venv/bin/pytest test/python/contracts/test_sdk_surface_invariants.py -q --tb=short
-python3 .github/scripts/generate_sdk_api.py
+.venv/bin/python .github/scripts/generate_sdk_api.py
 ```
 
 `generate_sdk_api.py` requires Doxygen 1.18.0, the same version CI installs.
@@ -50,9 +50,8 @@ python3 .github/scripts/generate_sdk_api.py
 
 ## Review Rules
 
-- Review first-party `C++` for correctness, ownership, performance, duplication, and frontend consistency.
 - Put homogeneous shared behavior in the lowest layer that owns it, keep orchestration out of `core`, and model intentional frontend differences as explicit capabilities.
-- Compare ESPHome, Native, and Matter defaults, validation, lifecycle, events, reset behavior, error handling, and capabilities only where the reviewed behavior crosses those frontends.
+- Compare ESPHome, Native, and Matter defaults, validation, lifecycle, events, reset behavior, error handling, and capabilities only where the reviewed behavior crosses those frontends. The Arduino library adds only its `ESPectre.h` entry header, so review its `ESPectre` sensor with the SDK in `runtime/esp_idf/`.
 - Inspect CSI callbacks, runtime loops, and inference paths for blocking work, allocation, copying, per-element division or modulo, repeated I/O, excessive stack use, oversized buffers, and debug-only work active in release paths.
 - Check stale state, incomplete reset, readiness gates, bounds and clamps, null handling, lifecycle ordering, and recovery paths.
 - Test shared behavior at the shared layer. Keep frontend-specific tests focused on adapter behavior and declared capability differences.
@@ -60,5 +59,5 @@ python3 .github/scripts/generate_sdk_api.py
 
 ## Licensing
 
-- Keep `core`, `runtime`, and the Native and Matter frontends free of GPL-only dependencies. Use permissively licensed components such as Apache-2.0, MIT, or BSD so those layers remain distributable under both licensing tracks.
+- Keep `core`, `runtime`, and the Native, Matter, and Arduino frontends free of GPL-only dependencies. Use permissively licensed components such as Apache-2.0, MIT, or BSD so those layers remain distributable under both licensing tracks.
 - Only `frontend/esphome/` may depend on GPLv3 ESPHome components.

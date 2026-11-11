@@ -3,7 +3,7 @@
 ## Source And Generation
 
 - Edit shared fragments under `content/`; do not directly edit generated `index.html` pages in public route directories.
-- Run `.venv/bin/python .github/scripts/build_static_pages.py` after changing shared fragments, and inspect the generated diff only for the affected routes.
+- Run `.venv/bin/python .github/scripts/build_static_pages.py` after changing shared fragments, and inspect the generated output only for the affected routes.
 - Update `routes.json` when public routes change; `sitemap.xml` is a generated deployment artifact.
 
 ## Testing And Review
