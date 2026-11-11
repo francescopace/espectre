@@ -33,6 +33,8 @@ Contributions are accepted so they can be distributed under both licensing track
 
 ## Third-party components
 
-A commercial license may cover eligible ESPectre first-party material, including the shared `core` and `runtime` layers and the `Native` or `Matter` frontends. It does not replace third-party license terms, grant rights to third-party trademarks or media, or cover the GPL-only `ESPHome` frontend.
+A commercial license may cover eligible ESPectre first-party material, including the shared `core` and `runtime` layers and the `Native`, `Matter`, or `Arduino` frontends. It does not replace third-party license terms, grant rights to third-party trademarks or media, or cover the GPL-only `ESPHome` frontend.
+
+The Arduino core for ESP32 is licensed under LGPL-2.1. If you distribute proprietary firmware built on it, its notice, source, and relinking obligations remain yours; a commercial ESPectre license does not remove them.
 
 See the [third-party notices](THIRD_PARTY_NOTICES.md) for the complete attribution and dependency record. Published firmware builds include an SPDX SBOM, a notice summary, and the license files for their exact components, grouped in `firmware-compliance-<channel-or-version>.zip` on GitHub Releases and alongside the corresponding image on the ESPectre website.

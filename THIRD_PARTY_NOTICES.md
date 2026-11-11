@@ -13,6 +13,7 @@ ESPectre firmware can be built with the following frameworks and components. The
 | Espressif esp_tinyusb and TinyUSB | Native and ESPHome ESP32-S2 USB CDC console; downloaded through the frontend manifests | Apache-2.0 (Espressif integration) and MIT (TinyUSB) | Compatible; preserve both license texts |
 | Improv Wi-Fi SDK for C++ | Shared Improv Serial framing for Native and Matter | Apache-2.0 | Compatible; the Native and Matter frontend manifests pin `improv/improv` from the ESP Component Registry |
 | esp-matter and Matter SDK | Matter frontend | Apache-2.0 | Compatible; preserve `NOTICE`, and do not imply Matter certification or trademark rights |
+| Arduino core for ESP32 | Platform for sketches that use the Arduino library; installed by the Arduino IDE or CLI, not shipped with the library | LGPL-2.1 | Compatible; the firmware distributor must meet the LGPL notice, source, and relinking obligations for the core |
 | ESPHome C++ runtime | ESPHome frontend | GPL-3.0-only | Not included in the commercial track; ESPHome firmware is GPLv3-only |
 | ESPHome Python tooling | ESPHome code generation and build tooling | MIT | Build-time only |
 
