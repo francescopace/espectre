@@ -2,6 +2,8 @@
 
 The ESPHome frontend turns ESPectre into a YAML component with Home Assistant entities. This guide covers Wi-Fi setup, entities, adoption, and builds. For installation, placement, and the first detection check, start with the [setup guide](../../../../docs/SETUP.md).
 
+This guide describes the external component, the one a YAML loads from this repository through `external_components`. It is deprecated and will be removed in ESPectre 3.3. ESPHome now has its own `espectre` component; see [moving to the built-in component](#moving-to-the-built-in-component).
+
 ## Getting started
 
 After flashing, configure Wi-Fi with one of these provisioning paths:
@@ -219,7 +221,56 @@ The example YAML and normal Device Builder builds are not signed, and a device w
 
 ### The component built into ESPHome
 
-Since ESPHome 2026.10, `espectre` is also built into ESPHome, so a YAML needs no `external_components` entry. See the [ESPHome documentation](https://esphome.io/components/espectre/) and the [website guide](https://espectre.dev/guides/esphome/), which compares the two components. It does not include the Direct API yet, so the [browser tools](https://espectre.dev/tools/), the CLI commands that talk to the device, and the Device settings link after Improv Serial need the external component below. Official images use the external component.
+Since ESPHome 2026.10, `espectre` is also built into ESPHome, so a YAML needs no `external_components` entry for sensing. See the [ESPHome documentation](https://esphome.io/components/espectre/) and the [website guide](https://espectre.dev/guides/esphome/), which compares the two components. Official images use the external component until ESPectre 3.3.
+
+The built-in component has no Direct API. The `espectre_direct` add-on in this repository adds it, so the [browser tools](https://espectre.dev/tools/) and the CLI commands that talk to the device work:
+
+```yaml
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      path: src/cpp/frontend/esphome/components
+    components: [espectre_direct]
+
+espectre:
+
+espectre_direct:
+  sdk:
+    version: "3.2.0"
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `port` | `62587` | Port of the Direct API |
+| `raw_csi` | `true` | Offer CSI collection |
+| `sdk` | none | SDK to build with, as `version` or as `path` to a directory named `francescopace__espectre`. Set it while ESPHome pins an SDK older than 3.2.0 |
+
+The add-on serves the device and sensing resources, live events, CSI collection, and discovery. It never changes sensing itself: it hands each change to the built-in component, which applies it, updates its entity, and saves it. The device accepts a change only where the built-in component takes it:
+
+| ESPHome | Changes through the Direct API |
+|---------|-------------------------------|
+| 2026.10 | Recalibration and the traffic source |
+| 2026.11 and later | Also threshold, motion hits, detection profile, packet spacing, and the sensing switch, each when its entity type is in the YAML |
+
+The device name, the access point pin, the Wi-Fi settings, and MQTT are not available through the add-on. Manage them in the YAML.
+
+### Moving to the built-in component
+
+Move when your ESPHome is 2026.11 or later; earlier versions take fewer changes through the Direct API. Remove `espectre` from `external_components`, add `espectre_direct` if you use the browser tools or the CLI, and declare the entities as platforms:
+
+| External component, under `espectre:` | Built-in component |
+|----------------------------------------|--------------------|
+| `movement_sensor` | `sensor` platform, `movement` |
+| `motion_sensor`, `calibration_active_sensor` | `binary_sensor` platform, `motion` and `calibrating` |
+| `threshold_number`, `motion_on_hits_number`, `motion_off_hits_number` | `number` platform, `threshold`, `motion_on_hits`, and `motion_off_hits` |
+| `detector_select`, `traffic_generator_mode_select`, `csi_sample_spacing_select` | `select` platform, `detection_algorithm`, `traffic_generator_mode`, and `csi_sample_spacing` |
+| `sensing_switch` | `switch` platform, `sensing` |
+| `recalibrate_button` | `button` platform |
+| The rate, occupancy, and Wi-Fi sensors | `sensor` platform, `diagnostics` |
+| `direct_api` | The `espectre_direct` add-on |
+
+Some sensing options change name: `segmentation_window_size_ms` becomes `window_size`, `evaluation_interval_ms` becomes `evaluation_interval`, and the filter options become the `lowpass_filter` and `hampel_filter` blocks. The built-in diagnostics have no admitted, filtered, stale, or out-of-order rate, and no Wi-Fi channel. The [ESPHome documentation](https://esphome.io/components/espectre/) lists every option and platform.
 
 ### As an ESPHome external component
 

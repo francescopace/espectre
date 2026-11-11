@@ -4,8 +4,8 @@
 
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
-| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime, and fully support the component built into ESPHome |
-| **v3.3.0** | Planned | Add stationary presence as a distinct sensing output |
+| **v3.2.0** | In progress | Bring ESPectre to Arduino projects through a supported SDK runtime, and serve the ESPectre Direct API next to the component built into ESPHome |
+| **v3.3.0** | Planned | Add stationary presence as a distinct sensing output, and move official ESPHome images to the built-in component |
 | **v3.4.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
 | **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
 | **v4.1.0** | Planned | Add an optional, self-hostable relay for remote access |
@@ -14,11 +14,11 @@
 
 ## v3.2.0 - Arduino SDK runtime and built-in ESPHome component
 
-**Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code. Let ESPHome users get every ESPectre feature from the `espectre` component built into ESPHome, without an `external_components` entry.
+**Product outcome**: let Arduino-ESP32 developers add ESPectre to their sketches, while keeping control of Wi-Fi and their own code. Let an add-on serve the ESPectre Direct API next to the `espectre` component built into ESPHome, so that component can replace the external component in 3.3.
 
 **Status**: the [Arduino library](../src/cpp/frontend/arduino/README.md) builds in CI for every chip. On ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 hardware, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots behave as in the ESP-IDF SDK. The library is not supported until it installs from the Arduino Library Manager. Each `develop` build updates the `develop` branch of [espectre-arduino](https://github.com/francescopace/espectre-arduino), the repository for the Arduino Library Manager.
 
-Since ESPHome 2026.10, `espectre` is built into ESPHome.
+Since ESPHome 2026.10, `espectre` is built into ESPHome. The `espectre_direct` add-on serves the Direct API on its runtime and hands every sensing change to it. On an ESP32-S3 with ESPHome 2026.10.2, discovery, motion events, raw CSI collection, recalibration, and the traffic mode work. The built-in component takes the other sensing controls from ESPHome 2026.11, where they were checked in esp-emu on ESP32-C3.
 
 **Remaining steps**:
 
@@ -26,8 +26,10 @@ Since ESPHome 2026.10, `espectre` is built into ESPHome.
 - [x] Measure CSI occupancy on ESP32, where A-MPDU TX stops the fixed TX rate from applying
 - [x] Mention the `espectre` component built into ESPHome 2026.10 in the setup guides
 - [ ] Mark the library as supported in the changelog, this roadmap, and the Arduino guide
-- [ ] Check the browser tools, the CLI device commands, and the Device settings link after Improv Serial against the built-in component
-- [ ] Move official images and the ESPHome guide to the built-in component
+- [x] Let the SDK serve Direct HTTP on a runtime that another component owns, without writing to it
+- [x] Check the `espectre_direct` add-on with the built-in component on ESP32-S3 hardware and in esp-emu
+- [x] Describe the `espectre_direct` add-on in the ESPHome guide
+- [x] Deprecate the external component, with a build warning and a migration table
 - [ ] Finalize the 3.2.0 changelog entry and tag the release
 - [ ] Make `main` the default branch of espectre-arduino after the release tags it
 - [ ] Register espectre-arduino in the Arduino library registry, after an `arduino-lint` check, and confirm that `arduino-cli lib install ESPectre` works
@@ -39,13 +41,15 @@ Since ESPHome 2026.10, `espectre` is built into ESPHome.
 - Run on Arduino's prebuilt ESP-IDF configuration, which keeps A-MPDU on and has fewer RX buffers. On ESP32, A-MPDU TX stops the default fixed TX rate from applying
 - Reassess whether the runtime event mailbox should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
-- Bring the ESPHome component in this repository and the one built into ESPHome to the same features, so ESPHome users need only the built-in one
+- Serve the Direct API next to the component built into ESPHome through an add-on, which leaves every sensing change to that component. Official images keep the external component until 3.3
 
-**Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK. An ESPHome YAML with only the built-in `espectre` component works with the browser tools and the CLI, and official images use it.
+**Exit criteria**: a new Arduino project can install, build, and run the SDK on every selected chip with Arduino CLI, and sensing, events, resets, and Wi-Fi reconnects behave as in the ESP-IDF SDK. An ESPHome YAML with the built-in `espectre` component and the `espectre_direct` add-on works with the browser tools and the CLI on hardware.
 
 ## v3.3.0 - Stationary presence detection
 
 **Product outcome**: tell a room with someone sitting still apart from an empty room, as a new result separate from motion. No identification, counting, or precise location.
+
+It also moves official ESPHome images to the `espectre` component built into ESPHome, with the `espectre_direct` add-on for the Direct API, and removes the external component.
 
 **Commitment**: stationary presence is planned work, not an open research question. The detector still ships only after it passes the gates below and in the [research pipeline](#research-pipeline).
 
@@ -55,8 +59,9 @@ Since ESPHome 2026.10, `espectre` is built into ESPHome.
 - Validate stationary presence across representative hardware and environments using paired same-session evidence
 - Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
+- Build official ESPHome images on an ESPHome release whose built-in component takes every sensing control, which starts with 2026.11, and remove the external component once those images match it in the browser tools and the CLI
 
-**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If a candidate misses a gate, record why in the [feature analysis](FEATURES.md) and move to the next one; the release waits until one passes.
+**Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If a candidate misses a gate, record why in the [feature analysis](FEATURES.md) and move to the next one; the release waits until one passes. Official ESPHome images use the built-in component, and the browser tools and the CLI work with them as they do with 3.2 images.
 
 ## v3.4.0 - Gesture and micro-motion research
 
@@ -184,7 +189,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **November 1, 2026**
+Last update: **November 11, 2026**
 
 For discussion and proposed changes:
 

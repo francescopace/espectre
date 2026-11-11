@@ -13,6 +13,7 @@ from .sensing_schema import RUNTIME_SCHEMA as _RUNTIME_SCHEMA
 
 from pathlib import Path
 import ipaddress
+import logging
 import os
 import re
 
@@ -457,6 +458,23 @@ def _traffic_generator_modes():
     return modes
 
 
+_LOGGER = logging.getLogger(__name__)
+
+_DEPRECATION_GUIDE = (
+    "https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md"
+    "#moving-to-the-built-in-component"
+)
+
+
+def _warn_deprecated():
+    _LOGGER.warning(
+        "The ESPectre external component is deprecated and will be removed in "
+        "ESPectre 3.3. From ESPHome 2026.11, use the espectre component built into ESPHome with the "
+        "espectre_direct add-on: %s",
+        _DEPRECATION_GUIDE,
+    )
+
+
 def _validate_capture_profile(config):
     if config[CONF_TRAFFIC_GENERATOR_MODE] not in _traffic_generator_modes():
         raise cv.Invalid("wifi_raw is not supported on ESP32-C6; use ping, dns, dns_tcp, or external")
@@ -519,6 +537,8 @@ def _frontend_ref_version() -> str | None:
 
 
 async def to_code(config):
+    # Once per build, not on every validation pass of an editor.
+    _warn_deprecated()
     # Kconfig runs before the component CMake body in the parent IDF process.
     os.environ.setdefault("ESPECTRE_SDK_ROOT", str(_COMPONENT_ROOT.parents[3]))
 

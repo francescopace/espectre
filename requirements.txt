@@ -1,10 +1,10 @@
 # Python dependencies for ESPectre
 
 # ESPHome build workflow
-esphome==2026.10.1
-aioesphomeapi==46.12.0  # required by ESPHome 2026.10.1
-esptool==5.4.0          # required by ESPHome 2026.10.1
-# ESPHome 2026.10.1 pins; firmware and release catalog signatures
+esphome==2026.10.2
+aioesphomeapi==46.12.0  # required by ESPHome 2026.10.2
+esptool==5.4.0          # required by ESPHome 2026.10.2
+# ESPHome 2026.10.2 pins; firmware and release catalog signatures
 cryptography==50.0.2; platform_system != "Darwin" or platform_machine != "x86_64"
 cryptography==48.0.1; platform_system == "Darwin" and platform_machine == "x86_64"
 mpremote==1.29.0        # CLI wrapper coverage in Python tests
@@ -13,10 +13,10 @@ pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests
 -r tools/ha_traffic_generator_addon/requirements.txt  # Home Assistant panel and internal API client
-paho-mqtt==1.6.1        # required by ESPHome 2026.10.1 (avoid 2.x)
-click==8.5.0            # required by ESPHome 2026.10.1
-requests==2.34.2        # required by ESPHome 2026.10.1
-zeroconf==0.151.5       # required by ESPHome 2026.10.1; used for host device discovery
+paho-mqtt==1.6.1        # required by ESPHome 2026.10.2 (avoid 2.x)
+click==8.5.0            # required by ESPHome 2026.10.2
+requests==2.34.2        # required by ESPHome 2026.10.2
+zeroconf==0.151.5       # required by ESPHome 2026.10.2; used for host device discovery
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.4    # environment variables support
 PyYAML==6.0.3           # YAML parsing
