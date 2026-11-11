@@ -87,7 +87,7 @@ CSI callbacks validate and normalize frames before enqueueing them. The runtime 
 | ESPHome | Map YAML and entities to the shared runtime and Direct bridge; provide the external-component packaging root | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Native | Compose Direct, MQTT, provisioning, Home Assistant discovery, and frontend OTA adapters around the shared runtime | [Native guide](../src/cpp/frontend/native/README.md) |
 | Matter | Map runtime occupancy into Matter and expose the shared Direct bridge for detector controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
-| Arduino | Package the sensing SDK, including the `ESPectre` sensor from `runtime/esp_idf/`, as an Arduino library for sketches that own Wi-Fi; in development | [Arduino guide](../src/cpp/frontend/arduino/README.md) |
+| Arduino | Package the sensing SDK, including the `ESPectre` sensor from `runtime/esp_idf/`, as an Arduino library for sketches that own Wi-Fi | [Arduino guide](../src/cpp/frontend/arduino/README.md) |
 
 - Frontends use only the public SDK headers. Native, Matter, and ESPHome list their own sources in `src/cpp/frontend/espectre_frontend_sources.cmake`, separate from the SDK. The Arduino library adds only its `ESPectre.h` entry header; the sensor ships in the SDK.
 - Micro-ESPectre links only the core and traffic code; MicroPython handles capture, calibration, and events.

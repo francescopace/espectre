@@ -14,7 +14,7 @@
   <p>Every request, even from command-line tools, needs an allowed <code>Origin</code> header. Published firmware accepts <code>https://espectre.dev</code>.</p>
   <pre class="code"><code>curl -H 'Origin: https://espectre.dev' \
   http://espectre-&lt;device-id&gt;.local:62587/espectre/v1/capabilities</code></pre>
-  <p>First read <code>capabilities</code>: <code>protocol_version</code>, <code>resources</code>, <code>operations</code>, and <code>events</code> tell you what the device supports. Newer <code>v1</code> firmware may add fields, so ignore the ones you don't know.</p>
+  <p>First read <code>capabilities</code>: <code>protocol_version</code>, <code>resources</code>, <code>operations</code>, and <code>events</code> tell you what the device supports. From 3.2.0, the <code>update_sensing</code> operation also lists the sensing <code>fields</code> the device accepts. Newer <code>v1</code> firmware may add fields, so ignore the ones you don't know.</p>
 
   <h2 id="read-resources" data-toc-label="Resources">Read resources</h2>
   <p>A successful <code>GET</code> returns the resource itself. Not every firmware has every resource, so check <code>capabilities</code> first.</p>

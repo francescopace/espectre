@@ -4,42 +4,62 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.2.0] - work in progress
+## [3.2.0] - 2026-11-11 - Arduino library and Direct API for the ESPHome built-in component
 
-ESPectre 3.2 brings motion sensing to Arduino-ESP32 sketches. The Arduino library is in development and not yet supported; the [roadmap](ROADMAP.md#v320---arduino-sdk-runtime-and-built-in-esphome-component) lists what it still needs.
+ESPectre 3.2 adds an Arduino library, and brings the website tools and the CLI to the `espectre` component built into ESPHome. Code written for 3.1 builds without changes.
+
+### Highlights
+
+- A new Arduino library adds motion sensing to Arduino-ESP32 sketches. See the [Arduino guide](https://github.com/francescopace/espectre/blob/3.2.0/src/cpp/frontend/arduino/README.md).
+- The `espectre_direct` add-on brings the website tools and the CLI to the `espectre` component built into ESPHome. See [the component built into ESPHome](https://github.com/francescopace/espectre/blob/3.2.0/src/cpp/frontend/esphome/README.md#the-component-built-into-esphome).
+- The ESPHome external component is deprecated and will be removed in 3.3.
 
 ### Arduino
 
-- A new Arduino library adds motion sensing to a sketch, which keeps control of Wi-Fi. See the [Arduino guide](../src/cpp/frontend/arduino/README.md).
-- The `ESPectre` class has `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks, which run on the sketch's task inside `begin()`, `loop()`, and `end()`. `onMotion()` follows `motion()`, so it reports idle when sensing stops being ready. `runtime()` returns the full SDK controller.
-- Configuration starts from the SDK defaults. Settings changed at runtime are not saved unless `persist_runtime_overrides` is set. Logs follow the Core Debug Level, unless the sketch registers its own log sink before `begin()`.
-- The library includes sensing only, without MQTT, Direct HTTP, or provisioning. On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
-- CI builds the library and compiles its MotionDetection example with Arduino CLI and Arduino-ESP32 3.3.12 for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Stable releases publish it to [espectre-arduino](https://github.com/francescopace/espectre-arduino) for the Arduino Library Manager, and each `develop` build updates that repository's `develop` branch. CI also publishes it as the `arduino-library` workflow artifact.
-- On ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, calibration, motion events, Wi-Fi reconnects, sensing restarts, and reboots work at about 100 CSI packets per second. Without the fixed transmit rate, ESP32 still reaches about 87% temporal occupancy next to the access point, about the same as ESP32-C3 and ESP32-C6.
+- The `ESPectre` class has `begin()`, `loop()`, `ready()`, `motion()`, and the `onMotion()`, `onReady()`, and `onFault()` callbacks, which run on the sketch's task. `runtime()` returns the full SDK controller.
+- The sketch keeps control of Wi-Fi. The library does sensing only, without MQTT, Direct HTTP, or provisioning.
+- It works on ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, at about 100 CSI packets per second.
+- On ESP32 the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled. ESP32 still reaches about 87% temporal occupancy next to the access point.
+- Settings changed at runtime are not saved unless `persist_runtime_overrides` is set.
+- Releases publish the library to [espectre-arduino](https://github.com/francescopace/espectre-arduino).
 
-### SDK
+### ESPHome
 
-- `espectre_sdk.h` adds `espectre::ESPectre`, the same sensor, for ESP-IDF projects that use Arduino as a component. See [Arduino-style sensor](SDK.md#arduino-style-sensor).
-- `log_sink_registered()` reports whether a log sink is registered.
-- A component can add Direct HTTP to a firmware whose runtime another component owns. `RuntimeGuestAccess` gives it a read-only view of the controller, and `RuntimeDirectHttpBridge::setup_guest()` sends every sensing change to the owner through a `RuntimeControlSink` instead of applying it. See the integration details in the [API reference](https://espectre.dev/sdk/api/).
-- `RuntimeFrontendController::set_observer()` adds a second event sink next to the `setup()` listener.
-- The `update_sensing` operation in `capabilities` lists the sensing `fields` the device accepts. Monitor shows only the controls for those fields. Firmware before 3.2.0 lists none, which means every field its other flags allow.
+- `espectre_direct` serves the Direct API next to the built-in `espectre` component: device and sensing resources, live events, CSI collection, and discovery. The built-in component applies and saves every sensing change.
+- With ESPHome 2026.10 it can recalibrate and set the traffic mode. Threshold, motion hits, detector, sample spacing, and the sensing switch need ESPHome 2026.11.
+- The external component is deprecated and prints a build warning. Official images keep it until 3.3. See [moving to the built-in component](https://github.com/francescopace/espectre/blob/3.2.0/src/cpp/frontend/esphome/README.md#moving-to-the-built-in-component).
+- The ESPHome guide and a new [website guide](https://espectre.dev/guides/esphome/) cover the built-in component.
+- Official firmware builds use ESPHome 2026.10.2.
 
 ### Tools and integrations
 
-- CI runs the released ESPHome and Native images for ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 in esp-emu, Espressif's emulator, and replays recorded CSI into them over UART1 with the recorded timing. Calibration, motion detection, and Direct events must match the Python detector on the same stream. The replay starts only when the factory MAC carries a marker that real chips cannot have, so it stays off on devices. See [emulator CSI replay](../tools/README.md#emulator-csi-replay).
-- Official firmware builds use ESPHome 2026.10.2.
-- The ESPHome guide and a new [website guide](https://espectre.dev/guides/esphome/) cover the `espectre` component built into ESPHome, with the options and entities of ESPHome 2026.11. It has no Direct API, so official images keep the external component.
-- A new `espectre_direct` ESPHome component serves the ESPectre Direct API next to the `espectre` component built into ESPHome: device and sensing resources, live events, CSI collection, and discovery. It hands every sensing change to the built-in component, which applies it, updates its entities, and saves it. With ESPHome 2026.10 the changes are recalibration and the traffic mode; threshold, motion hits, detector, sample spacing, and the sensing switch need ESPHome 2026.11. It needs SDK 3.2.0, set with its `sdk` option. Official images move to it in 3.3.
-- The external component is deprecated and will be removed in 3.3. A build that uses it prints a warning. See [moving to the built-in component](../src/cpp/frontend/esphome/README.md#moving-to-the-built-in-component).
-- The website adds an [Arduino guide](https://espectre.dev/guides/arduino/), and the Guides page now lists every guide.
-- Matter firmware builds use esp-matter 1.6.1, which is based on Matter 1.6.1.
-- The Home Assistant traffic generator add-on (0.4.1) also recognizes the occupancy sensor of the `espectre` component built into ESPHome when it is named after its `csi_occupancy` key. Its guide shows the YAML that fills every panel column: the diagnostic sensors, a Refresh Diagnostics button, and a `wifi_signal` sensor. See the [add-on guide](../tools/ha_traffic_generator_addon/DOCS.md#the-esphome-espectre-component).
+- Monitor shows only the sensing controls that the device accepts.
+- The Home Assistant traffic generator add-on (0.4.1) recognizes the occupancy sensor of the built-in ESPHome component when it is named after its `csi_occupancy` key. See the [add-on guide](https://github.com/francescopace/espectre/blob/3.2.0/tools/ha_traffic_generator_addon/DOCS.md#the-esphome-espectre-component).
+- The website adds an [Arduino guide](https://espectre.dev/guides/arduino/), and the Guides page lists every guide.
+- Matter firmware builds use esp-matter 1.6.1.
+- CI runs the released ESPHome and Native images for ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 in esp-emu with recorded CSI, and checks them against the Python detector. See [emulator CSI replay](https://github.com/francescopace/espectre/blob/3.2.0/tools/README.md#emulator-csi-replay).
 
 ### Fixes
 
-- CSI collection survives a lost TCP segment. A collection send could wait only 1 second, while lwIP waits 1.5 seconds before it resends, so a single loss on a busy channel closed the stream. Collection sends now wait up to 3 seconds; other Direct HTTP responses still wait 1 second (#203).
-- Sensing no longer leaves the device offline when the product starts Wi-Fi before the SDK and the station joins afterwards, as an Arduino sketch does. Applying the CSI radio policy to the joined station could drop it, and Arduino-ESP32 does not reconnect after that. The SDK now rejoins the station, and keeps retrying with growing pauses until it is back online when the access point refuses an attempt. Until then it calls `esp_wifi_connect()` itself, unless the product disconnects on purpose. ESPHome and Native register before Wi-Fi starts, so they never take this path.
+- CSI collection no longer stops when one TCP segment is lost on a busy channel (#203).
+- A product that starts Wi-Fi before the SDK, as an Arduino sketch does, no longer stays offline after the SDK applies its radio settings. The SDK rejoins the station and retries until it is back online.
+
+### SDK
+
+The additions are source-compatible:
+
+- `espectre::ESPectre` is the Arduino-style sensor for ESP-IDF projects that use Arduino as a component. See [Arduino-style sensor](https://github.com/francescopace/espectre/blob/3.2.0/docs/SDK.md#arduino-style-sensor).
+- `RuntimeGuestAccess` and `RuntimeDirectHttpBridge::setup_guest()` let a second component serve Direct HTTP on a runtime it does not own. Sensing changes go to the owner through a `RuntimeControlSink`. See the [API reference](https://espectre.dev/sdk/api/).
+- `RuntimeFrontendController::set_observer()` adds a second event listener.
+- `log_sink_registered()` reports whether a log sink is registered.
+- In `capabilities`, the `update_sensing` operation lists the sensing `fields` the device accepts. Firmware before 3.2.0 does not list them.
+
+### Upgrading from 3.1.0
+
+- No code changes are needed.
+- ESPHome configurations with the external component keep working, with a deprecation warning.
+- A client that rejects unknown fields must accept `fields` in `capabilities`.
+- When a product starts Wi-Fi before the SDK, the SDK may now call `esp_wifi_connect()` itself until the station is back online.
 
 ---
 

@@ -159,7 +159,7 @@ Both callbacks must be thread-safe and must not block: they can run on your task
 
 It suits Arduino-style code, including ESP-IDF projects that use Arduino as a component. Its configuration starts from the SDK defaults and does not restore saved controls. Register a [log sink](#logging) before `begin()` as usual. Without one, `begin()` uses the Arduino core's log output when the build can see it.
 
-Arduino IDE and Arduino CLI sketches cannot use the component. They install the [Arduino library](../src/cpp/frontend/arduino/README.md), which ships the same sensing sources, names the class `ESPectre` through its `ESPectre.h` entry header, and sends logs to the Arduino core; it is in development.
+Arduino IDE and Arduino CLI sketches cannot use the component. They install the [Arduino library](../src/cpp/frontend/arduino/README.md), which ships the same sensing sources, names the class `ESPectre` through its `ESPectre.h` entry header, and sends logs to the Arduino core.
 
 ### Reference firmware
 

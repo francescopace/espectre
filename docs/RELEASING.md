@@ -55,7 +55,7 @@ Install the packaging dependencies from `requirements.txt` and Doxygen 1.18.0, a
 
 ```sh
 python .github/scripts/build_sdk_package.py \
-  --channel release --version 3.1.0 --release-tag 3.1.0 \
+  --channel release --version 3.2.0 --release-tag 3.2.0 \
   --commit "$(git rev-parse HEAD)" --output-dir .cache/sdk \
   --component-output-dir .cache/registry/espectre
 ```
@@ -199,8 +199,8 @@ After publication, confirm that public installation succeeds and that the C3 har
 
 | Publication | Tags |
 |-------------|------|
-| Stable release | the version, such as `3.1.0`, and `latest` |
-| Prerelease | the version, such as `3.1.0-rc1` |
+| Stable release | the version, such as `3.2.0`, and `latest` |
+| Prerelease | the version, such as `3.2.0-rc1` |
 | `main` snapshot | `preview` |
 | `develop` snapshot | `develop` |
 

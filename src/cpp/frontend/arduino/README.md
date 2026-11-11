@@ -2,8 +2,6 @@
 
 The ESPectre Arduino library detects motion from Wi-Fi channel state information (CSI) in an Arduino-ESP32 sketch. Your sketch keeps control of Wi-Fi and of everything else it does.
 
-Arduino support is in development for v3.2.0 and is not yet a supported release.
-
 ## Requirements
 
 - Arduino-ESP32 core 3.3 or later.
