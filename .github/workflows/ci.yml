@@ -755,6 +755,20 @@ jobs:
             --fqbn "esp32:esp32:${{ matrix.board }}" \
             "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/MotionDetection"
 
+      - name: Compile the display examples
+        if: matrix.board == 'esp32s3'
+        run: |
+          arduino-cli lib install --no-deps \
+            "Adafruit BusIO@1.17.4" \
+            "Adafruit GFX Library@1.12.6" \
+            "Adafruit ST7735 and ST7789 Library@1.11.0"
+          arduino-cli compile --warnings default \
+            --fqbn esp32:esp32:adafruit_feather_esp32s3_reversetft \
+            "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/FeatherReverseTFT"
+          arduino-cli compile --warnings default \
+            --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc \
+            "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/WaveshareTouchLCD147"
+
       - name: Upload Arduino library
         if: success() && github.event_name == 'push' && matrix.board == 'esp32'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

@@ -21,6 +21,7 @@ ESPectre 3.2 adds an Arduino library, and brings the website tools and the CLI t
 - It works on ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, at about 100 CSI packets per second.
 - On ESP32 the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled. ESP32 still reaches about 87% temporal occupancy next to the access point.
 - Settings changed at runtime are not saved unless `persist_runtime_overrides` is set.
+- The `FeatherReverseTFT` and `WaveshareTouchLCD147` examples show the connection, calibration progress, motion state, movement score, and threshold on the Adafruit Feather ESP32-S3 Reverse TFT and the Waveshare ESP32-S3-Touch-LCD-1.47. The first was inspired by John Edgar Park's demo. See the [display demos](https://github.com/francescopace/espectre/blob/3.2.0/src/cpp/frontend/arduino/README.md#display-demos).
 - Releases publish the library to [espectre-arduino](https://github.com/francescopace/espectre-arduino).
 
 ### ESPHome

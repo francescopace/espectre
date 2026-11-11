@@ -74,6 +74,37 @@ Call `begin()` after `WiFi.begin()`. The connection does not have to be up yet. 
 
 The sensor calibrates after each connection. `ready()` is false until then, and `motion()` stays false while sensing is not ready. If motion is detected when sensing stops being ready, `onMotion()` reports idle first.
 
+## Display demos
+
+Two examples show sensing on a board with a display: the connection, the calibration progress, the motion state, the movement score, and the threshold.
+
+Only these examples need the **Adafruit ST7735 and ST7789 Library**, which also installs Adafruit GFX. Install it from the Library Manager, or with Arduino CLI:
+
+```bash
+arduino-cli lib install "Adafruit ST7735 and ST7789 Library"
+```
+
+Open the example from **File > Examples > ESPectre**, set your network in `arduino_secrets.h`, and upload it. Keep the room quiet while the display shows **Calibrating**, then move.
+
+| Display | NeoPixel | Meaning |
+|---------|----------|---------|
+| **Connecting** | Blue | The board is joining your network |
+| **Calibrating** | Blue | The sensor is calibrating. The default detector also shows its progress |
+| **Waiting** | Blue | The board is connected, but results are not ready yet |
+| **Idle** | Green | No motion, with the movement score and threshold |
+| **Motion** | Red | Motion, with the movement score and threshold |
+| **Error** | Blinking yellow | A fault. The serial monitor prints the full message |
+
+### Adafruit Feather ESP32-S3 Reverse TFT
+
+The **FeatherReverseTFT** example uses the display and NeoPixel of the [Adafruit Feather ESP32-S3 Reverse TFT](https://www.adafruit.com/product/5691). It was inspired by [John Edgar Park's demo](https://github.com/jedgarpark/espectre/tree/995601b30953441531b4e90217bca990013a6036/arduino_espectre) for the same board. Choose **Tools > Board > Adafruit Feather ESP32-S3 Reverse TFT**. The NeoPixel uses the Arduino-ESP32 core.
+
+CI compiles this example, but it has not been tested on the board yet. The Waveshare example below runs the same display code and has been.
+
+### Waveshare ESP32-S3-Touch-LCD-1.47
+
+The **WaveshareTouchLCD147** example uses the display of the [Waveshare ESP32-S3-Touch-LCD-1.47](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.47). The board has no status LED, and the example does not use the touch panel. Choose **Tools > Board > ESP32S3 Dev Module**, and set **USB CDC On Boot** to **Enabled** to read the serial output. The display pins are at the top of the sketch.
+
 ## API
 
 | Member | Purpose |
@@ -113,7 +144,7 @@ These apply to the Arduino library, not to the ESP-IDF component.
 - The library includes sensing only. MQTT, Direct HTTP, and provisioning are not included.
 - The `traffic.tx_packets_total` and `traffic.rx_packets_total` diagnostics stay at zero.
 - On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
-- The example uses 70–88% of the default 1.2 MB app partition, the most on ESP32-C5 and ESP32-C6. Choose a larger **Partition Scheme** when your sketch adds other libraries.
+- The MotionDetection example uses 70–88% of the default 1.2 MB app partition, the most on ESP32-C5 and ESP32-C6. Choose a larger **Partition Scheme** when your sketch adds other libraries.
 
 ## Licensing
 

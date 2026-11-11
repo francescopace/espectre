@@ -2495,7 +2495,14 @@ def test_arduino_library_ships_only_the_sensing_sources_it_can_compile(tmp_path:
     assert properties["architectures"] == "esp32"
     for include in properties["includes"].split(","):
         assert (src / include).is_file()
-    assert (library / "examples" / "MotionDetection" / "MotionDetection.ino").is_file()
+    examples_root = builder.ARDUINO_ROOT / "examples"
+    sketches = sorted(examples_root.glob("*/*.ino"))
+    assert sketches
+    for sketch in sketches:
+        # Arduino opens a sketch only when its folder and main file share a name.
+        assert sketch.stem == sketch.parent.name
+        for source in sketch.parent.iterdir():
+            assert (library / "examples" / source.relative_to(examples_root)).is_file()
     assert sdk_builder.detect_sdk_version(src / "runtime" / "espectre_sdk_version.h") == "3.2.0-rc1"
 
     groups = builder.cmake_source_groups()
