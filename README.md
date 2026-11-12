@@ -1,5 +1,3 @@
-[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](https://github.com/francescopace/espectre/blob/main/LICENSE)
-[![SoC](https://img.shields.io/badge/SoC-ESP32-orange.svg)](https://www.espressif.com/en/products/socs)
 [![ESP-IDF component](https://img.shields.io/badge/ESP--IDF-component-E7352C?logo=espressif)](https://components.espressif.com/components/francescopace/espectre)
 [![Arduino library](https://img.shields.io/badge/Arduino-library-00878F?logo=arduino)](https://www.ardu-badge.com/ESPectre)
 [![C++ coverage](https://badgen.net/https/github.com/francescopace/espectre/releases/download/snapshot/coverage-cpp-runtime.json?cache=300)](https://github.com/francescopace/espectre/actions/workflows/ci.yml?query=branch%3Amain)
