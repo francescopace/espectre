@@ -179,6 +179,8 @@ describe('tool reliability analytics', () => {
             toolInitializers: { 'tool-game': 'initGame' }, initializedToolRoutes: new Set(),
             loadStaticContent: async () => true,
             loadScriptOnce: async () => { throw new TypeError('private URL'); },
+            cfgRefreshDevice: async () => { context.refreshes += 1; },
+            refreshes: 0,
             events: []
         });
         vm.runInContext('const track = (name, params) => events.push({ name, params });', context);
@@ -190,9 +192,14 @@ describe('tool reliability analytics', () => {
         await assert.rejects(context.prepareRouteContent('tool-game'));
         assert.equal(context.events.at(-1).params.stage, 'initialization');
         context.window.initGame = () => {};
+        assert.equal(context.refreshes, 0, 'A page that failed to load does not refresh the device');
         assert.equal(await context.prepareRouteContent('tool-game'), true);
         assert.equal(context.events.length, 2);
         assert.ok(context.initializedToolRoutes.has('tool-game'));
+        // A page that loads after the device connected missed its snapshots.
+        assert.equal(context.refreshes, 1);
+        assert.equal(await context.prepareRouteContent('tool-game'), true);
+        assert.equal(context.refreshes, 1);
         assert.doesNotMatch(JSON.stringify(context.events), /private URL|game-tool\.js/);
     });
 });

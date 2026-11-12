@@ -482,6 +482,8 @@
         if (conn.mode === 'demo' && demoSysinfoSnapshot) {
             applySysinfo(demoSysinfoSnapshot);
         }
+        // A device connected earlier applied its snapshots before this page was in the document.
+        void cfgRefreshDevice();
         return true;
     }
 
