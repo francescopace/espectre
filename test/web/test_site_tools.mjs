@@ -391,9 +391,13 @@ function rawTargetFields(runtime) {
         setAttribute(name, value) { this.attributes[name] = value; }
     };
     refresh.classList = { toggle(name, enabled) { if (enabled) refresh.classes.add(name); else refresh.classes.delete(name); } };
-    const fields = { 'sense-raw-target': select, 'sense-raw-target-refresh': refresh };
+    const manual = { value: '', hidden: true, attributes: {}, focused: false,
+        setAttribute(name, value) { this.attributes[name] = value; },
+        focus() { this.focused = true; }
+    };
+    const fields = { 'sense-raw-target': select, 'sense-raw-target-refresh': refresh, 'sense-raw-target-manual': manual };
     runtime.context.document.getElementById = (id) => fields[id] || null;
-    return { select, refresh };
+    return { select, refresh, manual };
 }
 
 describe('device HTTP request budgets', () => {
@@ -413,13 +417,13 @@ describe('device HTTP request budgets', () => {
         runtime.run(`route = 'tool-monitor'; conn.deviceId = '${self.device_id}'`);
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: destination.mac_address });
         assert.equal(select.value, '02:aa:bb:cc:dd:ee');
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee', 'manual']);
         assert.equal(calls.length, 0);
         await runtime.context.monitorRefreshRawTrafficTargets();
         assert.equal(calls.length, 1);
         assert.deepEqual(calls[0].slice(0, 2), ['get', 'devices']);
         assert.equal(calls[0][3].retryTransportErrors, false);
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee', 'manual']);
         assert.equal(select.value, '02:aa:bb:cc:dd:ee');
         assert.equal(refresh.disabled, false);
         assert.deepEqual(toasts, []);
@@ -430,12 +434,12 @@ describe('device HTTP request budgets', () => {
         assert.match(toasts[0], /No other ESPectre sensor/);
         assert.equal(select.value, '02:aa:bb:cc:dd:ee');
         runtime.context.cancelRawTrafficDiscovery();
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee', 'manual']);
         assert.equal(select.value, '02:aa:bb:cc:dd:ee');
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
         runtime.context.cancelRawTrafficDiscovery();
         assert.equal(select.value, 'auto');
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', 'manual']);
         assert.equal(calls.length, 2);
     });
 
@@ -451,10 +455,51 @@ describe('device HTTP request budgets', () => {
         assert.equal(await runtime.context.monitorChangeRawTarget(), true);
         assert.equal(calls[0][2].traffic_generator_target_mac, '02:aa:bb:cc:dd:ee');
         assert.equal(select.value, '02:aa:bb:cc:dd:ee');
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:aa:bb:cc:dd:ee', 'manual']);
         runtime.run("conn.deviceId = 'another-device'");
         runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
-        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', 'manual']);
+    });
+
+    it('saves a typed MAC in the device format and rejects addresses no device can answer from', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const { select, manual } = rawTargetFields(runtime);
+        const calls = [];
+        runtime.setClient({ connected: true, request: async (...args) => { calls.push(args); return {}; } });
+        runtime.context.toast = () => {};
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: 'auto' });
+        assert.equal(manual.hidden, true);
+        select.value = 'manual';
+        assert.equal(await runtime.context.monitorChangeRawTarget(), false);
+        assert.equal(manual.hidden, false);
+        assert.equal(manual.focused, true);
+        // Neither a device snapshot nor hiding the page closes the field while the user is typing.
+        runtime.context.applyRawTrafficSettings({ traffic_generator_target_mac: '02:11:22:33:44:55' });
+        manual.value = '02:aa';
+        runtime.context.cancelRawTrafficDiscovery({ keepManual: true });
+        assert.equal(select.value, 'manual');
+        assert.equal(manual.value, '02:aa');
+        assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', '02:11:22:33:44:55', 'manual']);
+        runtime.context.cancelRawTrafficDiscovery();
+        assert.equal(select.value, '02:11:22:33:44:55');
+        assert.equal(manual.hidden, true);
+        select.value = 'manual';
+        await runtime.context.monitorChangeRawTarget();
+        for (const rejected of ['02:aa:bb:cc:dd', '02:aa:bb:cc:dd:zz', '01:00:5e:00:00:01', 'ff:ff:ff:ff:ff:ff', '00:00:00:00:00:00']) {
+            manual.value = rejected;
+            assert.equal(await runtime.context.monitorChangeRawTarget(), false, rejected);
+            assert.equal(manual.attributes['aria-invalid'], 'true', rejected);
+        }
+        assert.equal(calls.length, 0);
+        manual.value = ' 02-AA-BB-CC-DD-EE ';
+        assert.equal(await runtime.context.monitorChangeRawTarget(), true);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0][2].traffic_generator_target_mac, '02:aa:bb:cc:dd:ee');
+        assert.equal(select.value, '02:aa:bb:cc:dd:ee');
+        assert.equal(manual.hidden, true);
+        assert.equal(manual.value, '');
+        assert.equal(manual.attributes['aria-invalid'], 'false');
     });
 
     it('deduplicates active searches and ignores results after cancellation or a device change', async () => {
@@ -478,7 +523,7 @@ describe('device HTTP request budgets', () => {
             if (end === 'hidden') runtime.context.document.hidden = true;
             requests[0].resolve(result([peer({ mac_address: '02:aa:bb:cc:dd:ee' })]));
             await pending;
-            assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto']);
+            assert.deepEqual(Array.from(select.options, (option) => option.value), ['auto', 'manual']);
             assert.equal(select.value, 'auto');
             assert.equal(refresh.attributes['aria-busy'], 'false');
             assert.deepEqual(toasts, []);

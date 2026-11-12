@@ -873,7 +873,7 @@
         syncDiagnosticsPolling();
         if (document.hidden) {
             cancelWifiScan();
-            cancelRawTrafficDiscovery();
+            cancelRawTrafficDiscovery({ keepManual: true });
         }
     });
     window.addEventListener('pagehide', (event) => {

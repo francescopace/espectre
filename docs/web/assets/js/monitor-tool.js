@@ -16,6 +16,8 @@
     const MONITOR_CALIBRATION_FALLBACK_MS = 45 * 1000;
     const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
     const MONITOR_DEMO_CALIBRATION_MS = 2500;
+    // Menu entry that reveals the typed MAC field; never sent to the device.
+    const RAW_TARGET_MANUAL = 'manual';
 
     function monitorChartMaxPoints() {
         return Math.max(2, Math.ceil(MONITOR_CHART_WINDOW_MS / evaluationIntervalMs()) + 2);
@@ -447,6 +449,22 @@
             refresh.classList.toggle('is-scanning', scanning);
             refresh.setAttribute('aria-busy', String(scanning));
         }
+        const manual = document.getElementById('sense-raw-target-manual');
+        if (manual) {
+            manual.hidden = document.getElementById('sense-raw-target')?.value !== RAW_TARGET_MANUAL;
+            if (manual.hidden) {
+                manual.value = '';
+                manual.setAttribute('aria-invalid', 'false');
+            }
+        }
+    }
+
+    // The device rejects its own MAC; group and zero addresses can never answer.
+    function normalizeRawTargetMac(text) {
+        const octets = String(text).trim().toLowerCase().split(/[:-]/);
+        if (octets.length !== 6 || octets.some((octet) => !/^[0-9a-f]{2}$/.test(octet))) return null;
+        if (parseInt(octets[0], 16) & 1 || octets.every((octet) => octet === '00')) return null;
+        return octets.join(':');
     }
 
     function rawTrafficTargetValue() {
@@ -471,18 +489,25 @@
                 options.push(option);
             }
         }
-        if (!options.some((option) => option.value === target)) options.push(new Option(target, target));
+        // While a MAC is being typed, the saved destination stays listed.
+        const kept = target === RAW_TARGET_MANUAL ? select.dataset.configuredTarget : target;
+        if (kept && !options.some((option) => option.value === kept)) options.push(new Option(kept, kept));
+        options.push(new Option('Enter a MAC address…', RAW_TARGET_MANUAL));
         select.replaceChildren(...options);
         select.value = target;
         syncRawTrafficTargetControls();
     }
 
-    function cancelRawTrafficDiscovery({ clear = true } = {}) {
+    function cancelRawTrafficDiscovery({ clear = true, keepManual = false } = {}) {
         monitor.rawTargetDiscovery?.abort();
         monitor.rawTargetDiscovery = null;
         if (clear) {
             const select = document.getElementById('sense-raw-target');
-            if (select) {
+            // Hiding the page must not drop a MAC the user left to copy from another tab.
+            const typing = keepManual && select?.value === RAW_TARGET_MANUAL;
+            if (select && typing) {
+                renderRawTrafficTargets([]);
+            } else if (select) {
                 select.dataset.dirty = '';
                 renderRawTrafficTargets([], select.dataset.configuredTarget || 'auto');
             }
@@ -553,9 +578,25 @@
 
     async function monitorChangeRawTarget() {
         const select = document.getElementById('sense-raw-target');
-        const target = select.value;
-        if (!target) return false;
+        const selection = select.value;
+        if (!selection) return false;
         select.dataset.dirty = 'true';
+        syncRawTrafficTargetControls();
+        const manual = document.getElementById('sense-raw-target-manual');
+        let target = selection;
+        if (selection === RAW_TARGET_MANUAL) {
+            if (!manual?.value.trim()) {
+                manual?.focus();
+                return false;
+            }
+            target = normalizeRawTargetMac(manual.value);
+            if (!target) {
+                manual.setAttribute('aria-invalid', 'true');
+                toast('Enter a device MAC address, such as 02:11:22:33:44:55.');
+                return false;
+            }
+            manual.setAttribute('aria-invalid', 'false');
+        }
         const client = directClient;
         const deviceId = conn.deviceId;
         const mode = conn.mode;
@@ -569,7 +610,7 @@
             if (!sameSession()) return false;
             if (ok && mode === 'demo') demoSysinfoSnapshot.traffic_generator_target_mac = target;
             if (ok) select.dataset.configuredTarget = target;
-            if (ok && select.value === target) {
+            if (ok && select.value === selection) {
                 select.dataset.dirty = '';
                 renderRawTrafficTargets(undefined, target);
             }
@@ -649,6 +690,7 @@
         });
         document.getElementById('sense-sample-spacing').addEventListener('change', monitorChangeSampleSpacing);
         document.getElementById('sense-raw-target').addEventListener('change', monitorChangeRawTarget);
+        document.getElementById('sense-raw-target-manual').addEventListener('change', monitorChangeRawTarget);
         document.getElementById('sense-raw-target-refresh').addEventListener('click', monitorRefreshRawTrafficTargets);
         window.addEventListener('resize', monitorResizeChart);
     }
