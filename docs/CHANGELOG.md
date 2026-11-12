@@ -15,6 +15,7 @@ ESPectre 3.3 adds stationary presence as a result separate from motion, and move
 
 ### Tools and integrations
 
+- Device settings shows the connected access point on devices that cannot pin one, such as ESPHome.
 - `tools/analyze_stationary_presence.py` measures false and missed presence on paired recordings of an empty room and a still person from the same session. See the [analysis tools](../tools/README.md).
 
 ---

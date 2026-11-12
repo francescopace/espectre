@@ -831,6 +831,8 @@
                 bssid.add(new Option(`${currentWifiBssid} · pinned`, currentWifiBssid));
             }
             if (bssid) bssid.value = currentWifiBssid;
+            // Shown where the device cannot pin an access point.
+            set('cfg-access-point', currentWifiBssid || 'Unknown');
         }
         if (snapshot.mqtt_host) {
             set('cfg-mqtt-scheme', snapshot.mqtt_scheme);

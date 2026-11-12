@@ -718,6 +718,37 @@ describe('device HTTP request budgets', () => {
         assert.equal(reads.length, 7);
     });
 
+    it('shows the connected access point where the device cannot pin one', () => {
+        const field = toolContent.configure.match(
+            /data-capability-unavailable="([^"]+)"[^>]*>(?:(?!<\/div>).)*<input[^>]*\bid="cfg-access-point"[^>]*\breadonly/s
+        );
+        assert.ok(field, 'The access point is a read-only field tied to a missing capability');
+        const wrapper = { dataset: { capabilityUnavailable: field[1] }, hidden: true };
+        const input = { tagName: 'INPUT', value: '' };
+        const other = () => ({
+            tagName: 'INPUT', value: '', dataset: {}, options: [], add() {},
+            classList: { toggle() {} }, setAttribute() {},
+        });
+        const context = vm.createContext({
+            window: { addEventListener() {} }, HTMLElement: class {}, customElements: { get: () => true },
+            Option: class { constructor(text, value) { this.text = text; this.value = value; } },
+            document: { getElementById: (id) => id === 'cfg-access-point' ? input : other() },
+            $: other,
+            $$: (selector) => selector === '[data-capability-unavailable]' ? [wrapper] : [],
+            toast() {}, track() {}, syncFirmwareUpdateNotice() {}, evaluateConfigVerification() {},
+        });
+        runSiteScript('docs/web/assets/js/device-session.js', context);
+        context.applySensingSnapshot = () => {};
+        context.renderConnection = () => {};
+
+        context.applySysinfo({ supports_wifi_bssid: false, wifi_bssid: 'aa:bb:cc:dd:ee:ff' });
+        assert.equal(wrapper.hidden, false);
+        assert.equal(input.value, 'AA:BB:CC:DD:EE:FF');
+
+        context.applySysinfo({ supports_wifi_bssid: true, wifi_bssid: 'aa:bb:cc:dd:ee:ff' });
+        assert.equal(wrapper.hidden, true);
+    });
+
     it('prevents an obsolete refresh from continuing after reconnection', async () => {
         const runtime = loadDeviceHttpRuntime();
         const reads = [];
