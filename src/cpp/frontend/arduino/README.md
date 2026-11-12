@@ -1,6 +1,6 @@
-# ESPectre Arduino library
-
 [![Arduino Library Manager](https://www.ardu-badge.com/badge/ESPectre.svg)](https://www.ardu-badge.com/ESPectre)
+
+# ESPectre Arduino library
 
 Turn an ESP32 into a Wi-Fi motion sensor from an Arduino sketch. When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes, known as channel state information (CSI), and reports motion to your sketch. No camera, no radar, and no extra hardware: just the board and the Wi-Fi network already in the room.
 

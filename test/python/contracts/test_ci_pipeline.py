@@ -2603,7 +2603,9 @@ def test_arduino_mirror_publishes_the_library_at_its_root(tmp_path: Path, isolat
     properties = _git("--git-dir", str(isolated_git), "show", "3.2.0:library.properties")
     assert "version=3.2.0" in properties.splitlines()
     readme = _git("--git-dir", str(isolated_git), "show", "3.2.0:README.md").splitlines()
-    assert readme[0].startswith("# ") and readme[2].startswith("> This repository is generated from")
+    heading = next(index for index, line in enumerate(readme) if line.startswith("# "))
+    assert all(not line or line.startswith("[![") for line in readme[:heading])
+    assert readme[heading + 2].startswith("> This repository is generated from")
     assert "francescopace/espectre@" + "a" * 40 in _git("--git-dir", str(isolated_git), "log", "-1", "--format=%B", "main")
 
     assert publish("3.2.0") == first

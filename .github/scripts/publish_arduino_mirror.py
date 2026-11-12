@@ -75,15 +75,16 @@ def library_version(library: Path) -> str:
 
 def mirror_readme(source: str, source_repository: str) -> str:
     """Point readers of the mirror back to the source repository."""
-    heading, separator, body = source.partition("\n")
-    if not heading.startswith("# ") or not separator:
-        raise ValueError("The library README must start with a level-one heading")
+    lines = source.split("\n")
+    heading = next((index for index, line in enumerate(lines) if line and not line.startswith("[![")), None)
+    if heading is None or not lines[heading].startswith("# ") or heading == len(lines) - 1:
+        raise ValueError("The library README must start with a level-one heading, after any badges")
     url = f"https://github.com/{source_repository}"
     notice = (
         f"This repository is generated from [{source_repository}]({url}). "
         "Report issues and send pull requests there."
     )
-    return f"{heading}\n\n> {notice}\n{body}"
+    return "\n".join([*lines[: heading + 1], "", f"> {notice}", *lines[heading + 1 :]])
 
 
 def sync_worktree(library: Path, worktree: Path, source_repository: str) -> None:
