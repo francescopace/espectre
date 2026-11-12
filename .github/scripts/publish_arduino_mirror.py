@@ -81,7 +81,7 @@ def mirror_readme(source: str, source_repository: str) -> str:
     url = f"https://github.com/{source_repository}"
     notice = (
         f"This repository is generated from [{source_repository}]({url}). "
-        f"Report issues and send pull requests to [{source_repository}]({url})."
+        "Report issues and send pull requests there."
     )
     return f"{heading}\n\n> {notice}\n{body}"
 

@@ -1,6 +1,10 @@
 # ESPectre Arduino library
 
-The ESPectre Arduino library detects motion from Wi-Fi channel state information (CSI) in an Arduino-ESP32 sketch. Your sketch keeps control of Wi-Fi and of everything else it does.
+[![Arduino Library Manager](https://www.ardu-badge.com/badge/ESPectre.svg)](https://www.ardu-badge.com/ESPectre)
+
+Turn an ESP32 into a Wi-Fi motion sensor from an Arduino sketch. When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes, known as channel state information (CSI), and reports motion to your sketch. No camera, no radar, and no extra hardware: just the board and the Wi-Fi network already in the room.
+
+Your sketch keeps control of Wi-Fi and of everything else it does.
 
 ## Requirements
 
@@ -10,41 +14,13 @@ The ESPectre Arduino library detects motion from Wi-Fi channel state information
 
 ## Installation
 
-When the Arduino Library Manager lists **ESPectre**, install it from there. With Arduino CLI, run:
+In the Arduino IDE, open **Sketch > Include Library > Manage Libraries**, search for **ESPectre**, and install it. With Arduino CLI, run:
 
 ```bash
 arduino-cli lib install ESPectre
 ```
 
-To try the development version, install the mirror's `develop` branch, which follows each `develop` build:
-
-```bash
-arduino-cli config set library.enable_unsafe_install true
-```
-
-```bash
-arduino-cli lib install --git-url https://github.com/francescopace/espectre-arduino.git#develop
-```
-
-Otherwise, install a ZIP archive. Each stable release tags [espectre-arduino](https://github.com/francescopace/espectre-arduino), where GitHub offers the library as a ZIP archive. CI also builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
-
-```bash
-arduino-cli config set library.enable_unsafe_install true
-```
-
-```bash
-arduino-cli lib install --zip-path espectre-arduino-<version>.zip
-```
-
-### ESP-IDF with Arduino as a component
-
-ESP-IDF projects that use Arduino as a component do not need this library. Add the SDK from the ESP Component Registry, include `espectre_sdk.h`, and use `espectre::ESPectre`:
-
-```bash
-idf.py add-dependency "francescopace/espectre"
-```
-
-The component includes the same class and the full SDK, with menuconfig, optional services, and the traffic diagnostics. Register a [log sink](https://espectre.dev/sdk/#logging) to see ESPectre logs. See the [SDK guide](https://espectre.dev/sdk/#arduino-style-sensor) for the details.
+For the development version, a ZIP archive, or an ESP-IDF project, see [other ways to install](#other-ways-to-install).
 
 ## Getting started
 
@@ -73,6 +49,8 @@ void loop() {
 Call `begin()` after `WiFi.begin()`. The connection does not have to be up yet. Call `loop()` from every Arduino loop. Callbacks run inside `begin()`, `loop()`, and `end()`, so keep them short.
 
 The sensor calibrates after each connection. `ready()` is false until then, and `motion()` stays false while sensing is not ready. If motion is detected when sensing stops being ready, `onMotion()` reports idle first.
+
+Keep the room quiet while the sensor calibrates, then move. See the [placement guide](https://espectre.dev/guides/placement/) for where to put the board.
 
 ## Display demos
 
@@ -145,6 +123,42 @@ These apply to the Arduino library, not to the ESP-IDF component.
 - The `traffic.tx_packets_total` and `traffic.rx_packets_total` diagnostics stay at zero.
 - On ESP32, the fixed transmit rate does not apply, because Arduino builds ESP-IDF with A-MPDU enabled.
 - The MotionDetection example uses 70–88% of the default 1.2 MB app partition, the most on ESP32-C5 and ESP32-C6. Choose a larger **Partition Scheme** when your sketch adds other libraries.
+
+## Other ways to install
+
+### Development version
+
+The `develop` branch of [espectre-arduino](https://github.com/francescopace/espectre-arduino) follows each development build. Install it with Arduino CLI:
+
+```bash
+arduino-cli config set library.enable_unsafe_install true
+```
+
+```bash
+arduino-cli lib install --git-url https://github.com/francescopace/espectre-arduino.git#develop
+```
+
+### ZIP archive
+
+Each stable release tags [espectre-arduino](https://github.com/francescopace/espectre-arduino), where GitHub offers the library as a ZIP archive. CI also builds `espectre-arduino-<version>.zip` as the `arduino-library` workflow artifact. In the Arduino IDE, choose **Sketch > Include Library > Add .ZIP Library**. With Arduino CLI, run:
+
+```bash
+arduino-cli config set library.enable_unsafe_install true
+```
+
+```bash
+arduino-cli lib install --zip-path espectre-arduino-<version>.zip
+```
+
+### ESP-IDF with Arduino as a component
+
+ESP-IDF projects that use Arduino as a component do not need this library. Add the SDK from the ESP Component Registry, include `espectre_sdk.h`, and use `espectre::ESPectre`:
+
+```bash
+idf.py add-dependency "francescopace/espectre"
+```
+
+The component includes the same class and the full SDK, with menuconfig, optional services, and the traffic diagnostics. Register a [log sink](https://espectre.dev/sdk/#logging) to see ESPectre logs. See the [SDK guide](https://espectre.dev/sdk/#arduino-style-sensor) for the details.
 
 ## Licensing
 
