@@ -807,10 +807,14 @@ jobs:
             await core.summary.addLink('Website deployment', response.data.html_url).write();
             const deadline = Date.now() + 23 * 60 * 1000;
             while (Date.now() < deadline) {
-              const { data: run } = await github.rest.actions.getWorkflowRun({
+              // A freshly dispatched run can answer 404 until the API can read it.
+              const run = await github.rest.actions.getWorkflowRun({
                 ...context.repo, run_id: runId,
+              }).then(({ data }) => data, error => {
+                if (error.status === 404) return null;
+                throw error;
               });
-              if (run.status === 'completed') {
+              if (run?.status === 'completed') {
                 if (run.conclusion !== 'success') {
                   throw new Error(`Website deployment ${runId}: ${run.conclusion}. See ${run.html_url}`);
                 }
