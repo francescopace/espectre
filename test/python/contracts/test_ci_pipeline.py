@@ -1066,8 +1066,11 @@ def test_sdk_idf_and_mqtt_compatibility(idf_version, supported, external_mqtt, m
     dependencies = manifest["dependencies"]
     assert SimpleSpec(dependencies["idf"]["version"]).match(Version(idf_version)) is supported
     mqtt = dependencies["espressif/mqtt"]
-    # ESPHome pins this exact release; a newer requirement would conflict.
-    assert mqtt["version"] == "1.0.0"
+    # ESPHome pins 1.0.0; a range that excludes it would conflict.
+    mqtt_versions = SimpleSpec(mqtt["version"])
+    assert mqtt_versions.match(Version("1.0.0"))
+    assert mqtt_versions.match(Version("1.1.0"))
+    assert not mqtt_versions.match(Version("2.0.0"))
     assert mqtt["registry_url"] == "https://components.espressif.com"
     monkeypatch.setattr(if_parser, "get_idf_version", lambda: idf_version)
     monkeypatch.setitem(if_parser.KCONFIG_CONTEXT.get().sdkconfig, "ESPECTRE_SDK_ENABLE_MQTT", mqtt_enabled)

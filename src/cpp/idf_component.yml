@@ -30,7 +30,8 @@ dependencies:
     # ESP32-C5 LLTF capture requires lltf_bit_mode, introduced in 5.5.3.
     version: ">=5.5.3"
   espressif/mqtt:
-    version: "1.0.0"
+    # ESPHome pins 1.0.0 on ESP-IDF 6; keep it inside the range.
+    version: ">=1.0.0,<2.0.0"
     registry_url: "https://components.espressif.com"
     require: public
     rules:
@@ -38,7 +39,7 @@ dependencies:
       - if: "$CONFIG{ESPECTRE_SDK_ENABLE_MQTT} == True"
   espressif/mdns:
     # Direct uses private mDNS APIs; widen only after Direct build checks.
-    version: ">=1.12.0,<1.15.0"
+    version: ">=1.12.0,<1.16.0"
     registry_url: "https://components.espressif.com"
     rules:
       - if: "$CONFIG{ESPECTRE_SDK_ENABLE_DIRECT} == True"
