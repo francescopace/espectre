@@ -27,7 +27,7 @@ The registered targets are grouped by the layer they exercise:
 - Core: `test_utils`, `test_core_helpers`, `test_hampel_filter`, `test_lightweight_detector`, and `test_high_accuracy_detector`
 - Runtime: `test_traffic_generator`, `test_traffic_generator_s2`, `test_traffic_generator_ampdu`, `test_traffic_generator_auto`, `test_traffic_generator_s2_auto`, `test_traffic_generator_c5_auto`, `test_traffic_generator_c5_fixed`, `test_traffic_generator_c5_prev_idf`, `test_traffic_generator_c5_next_idf`, `test_runtime_helpers`, `test_frontend_sysinfo_helpers`, `test_periodic_sensing_status_logger`, `test_device_identity`, `test_device_identity_psa`, `test_ota_service_https`, `test_runtime_frontend_controller`, `test_sdk_surface`, `test_runtime_detector_switch`, `test_wifi_lifecycle`, `test_wifi_lifecycle_s2`, `test_wifi_lifecycle_auto`, `test_wifi_lifecycle_ampdu`, `test_wifi_lifecycle_6m`, `test_wifi_lifecycle_dual_band`, `test_pending_event`, `test_wifi_provisioning_service`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_pipeline`, `test_csi_frame_identity`, `test_csi_frame_identity_c5`, `test_csi_traffic_service`, and `test_udp_listener`
 - Integration with real CSI: `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, `test_empty_rooms`, and `test_packet_rate_adaptation`
-- Frontend: `test_sensor_publisher`, `test_frontend_controls`, `test_native_frontend_lifecycle`, `test_native_direct_frontend`, `test_native_mqtt_frontend`, `test_home_assistant_mqtt_frontend`, `test_native_frontend_ota`, `test_recovery_button_service`, and `test_matter_frontend`
+- Frontend: `test_native_frontend_lifecycle`, `test_native_direct_frontend`, `test_native_mqtt_frontend`, `test_home_assistant_mqtt_frontend`, `test_native_frontend_ota`, `test_recovery_button_service`, and `test_matter_frontend`
 
 The authoritative list is `test/cpp/suites/CMakeLists.txt`; the list above is for reading.
 
@@ -53,7 +53,7 @@ Each source file has one main test suite, listed in `coverage_ownership.json`; a
 | `src/cpp/core/high_accuracy_detector.*` and generated weights | `test_high_accuracy_detector` | `test_motion_detection`, `test_long_recordings`, and `test_empty_rooms` |
 | Shared runtime contracts, policies, configuration, CSI pipeline, and protocol | The matching `test_runtime_*`, `test_device_config_store`, `test_espectre_protocol`, `test_csi_*`, or service suite | `test_packet_rate_adaptation` for quantified cadence behavior |
 | Published SDK facade | `test_sdk_surface` | Python `test_sdk_surface_invariants.py` checks facade and documentation registration |
-| ESPHome, Native, and Matter adapters | The matching frontend suite; shared controls stay in `test_frontend_controls` | Full firmware builds validate SDK-specific integration |
+| Native and Matter adapters | The matching frontend suite | Full firmware builds validate SDK-specific integration, and the ESPHome add-on |
 
 Add new regression tests to the owning suite. Create a new suite only for a new subsystem, or an integration with its own setup and failure modes.
 
@@ -131,7 +131,6 @@ Production code under test lives outside `test/cpp/`:
 
 - `src/cpp/core/` for reusable detection logic
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current runtime orchestration
-- `src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
 
 Traffic and UDP-listener tests use the in-memory fakes in `support/csi_traffic_fakes.h`. Tests must never open real UDP sockets; the real network code is checked by the firmware builds.

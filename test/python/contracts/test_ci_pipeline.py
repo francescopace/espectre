@@ -1179,13 +1179,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert "git:" not in native_manifest
     assert "espressif/mdns:" in native_manifest
 
-    for relative_path in (
-        "src/cpp/frontend/native/espectre/idf_component.yml",
-        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
-    ):
-        frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        assert "espressif/esp_tinyusb:" in frontend_manifest
-        assert '- if: "target == esp32s2"' in frontend_manifest
+    assert "espressif/esp_tinyusb:" in native_manifest
+    assert '- if: "target == esp32s2"' in native_manifest
 
     matter_manifest = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "espectre" / "idf_component.yml"
@@ -1195,11 +1190,9 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert "espressif/mdns:" in matter_manifest
     assert "espressif/esp_tinyusb:" not in matter_manifest
     assert "esp32s2" not in matter_manifest
-    for relative_path in (
-        "src/cpp/frontend/matter/app/main/idf_component.yml",
-        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
-    ):
-        assert "improv" not in (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    assert "improv" not in (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "main" / "idf_component.yml"
+    ).read_text(encoding="utf-8")
     assert not (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults.esp32s2"
     ).exists()

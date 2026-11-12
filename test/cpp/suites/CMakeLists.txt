@@ -188,7 +188,7 @@ add_espectre_test(test_ota_service_https
 
 add_espectre_test(test_runtime_frontend_controller
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_frontend_controller.cpp"
-    LIBRARIES espectre_frontend_esphome_testlib
+    LIBRARIES espectre_frontend_matter_testlib
 )
 
 add_espectre_test(test_runtime_direct_http_bridge
@@ -370,16 +370,6 @@ add_espectre_dataset_cases(test_long_recordings long)
 add_espectre_dataset_cases(test_low_rssi weak)
 add_espectre_dataset_cases(test_empty_rooms empty)
 add_espectre_dataset_cases(test_packet_rate_adaptation packet_rate)
-
-add_espectre_test(test_sensor_publisher
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_sensor_publisher.cpp"
-    LIBRARIES espectre_frontend_esphome_testlib
-)
-
-add_espectre_test(test_frontend_controls
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_frontend_controls.cpp"
-    LIBRARIES espectre_frontend_esphome_testlib
-)
 
 add_espectre_test(test_emulator_csi_replay
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_emulator_csi_replay.cpp"

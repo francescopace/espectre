@@ -13,23 +13,23 @@
 
   <details class="page-toc">
     <summary>Sections</summary>
-    <nav aria-label="Guide sections"><strong>On this page</strong><a href="#esphome-choose">Which component</a><a href="#esphome-start">First configuration</a><a href="#esphome-options">Options</a><a href="#esphome-entities">Entities</a><a href="#esphome-radio">Radio settings</a><a href="#esphome-limits">Current limits</a></nav>
+    <nav aria-label="Guide sections"><strong>On this page</strong><a href="#esphome-choose">Where to start</a><a href="#esphome-start">First configuration</a><a href="#esphome-options">Options</a><a href="#esphome-entities">Entities</a><a href="#esphome-radio">Radio settings</a><a href="#esphome-limits">Current limits</a></nav>
   </details>
 
-  <h2 id="esphome-choose">Built-in or external component</h2>
-  <p>The built-in component and the external component, the one in the ESPectre repository, run the same SDK. They differ in what comes around it. This guide covers ESPHome 2026.11.</p>
+  <h2 id="esphome-choose">Your own YAML or an official image</h2>
+  <p>ESPectre's official ESPHome images run the same built-in component. They differ in what comes around it. This guide covers ESPHome 2026.11.</p>
   <div class="table-wrap"><table>
-    <caption class="sr-only">Built-in component compared with the external component</caption>
-    <thead><tr><th scope="col"></th><th scope="col">Built into ESPHome</th><th scope="col">External component</th></tr></thead>
+    <caption class="sr-only">Your own YAML compared with an official image</caption>
+    <thead><tr><th scope="col"></th><th scope="col">Your own YAML</th><th scope="col">Official image</th></tr></thead>
     <tbody>
-      <tr><td>Install</td><td>Part of ESPHome</td><td>Official images, or <code>external_components</code> from GitHub</td></tr>
+      <tr><td>Install</td><td>Part of ESPHome</td><td>Flash from the browser, or build an example from GitHub</td></tr>
       <tr><td>Entities</td><td>Only the ones you add, with the names you choose</td><td>A full set, ready for the Home Assistant dashboard</td></tr>
       <tr><td>Browser tools and CLI</td><td>With the <code>espectre_direct</code> add-on</td><td>Monitor, Device settings, and <code>./espectre</code></td></tr>
-      <tr><td>Updates</td><td>With each ESPHome release</td><td>With each ESPectre release, signed for official images</td></tr>
+      <tr><td>Updates</td><td>With each ESPHome release</td><td>With each ESPectre release, signed</td></tr>
     </tbody>
   </table></div>
-  <p>Start with the built-in component when you already maintain an ESPHome configuration and want motion as one more entity. Use the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md" target="_blank" rel="noopener">external component</a> or an <a href="/guides/setup/">official image</a> for the browser tools.</p>
-  <p>The external component is deprecated and will be removed in ESPectre 3.3, when official images move to the built-in one. The <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#moving-to-the-built-in-component" target="_blank" rel="noopener">ESPHome guide</a> shows how to move a configuration and how to add the browser tools with <code>espectre_direct</code>.</p>
+  <p>Start with your own YAML when you already maintain an ESPHome configuration and want motion as one more entity. Use an <a href="/guides/setup/">official image</a> for a ready-made sensor with the browser tools.</p>
+  <p>Earlier ESPectre releases loaded an external component from the ESPectre repository, and ESPectre 3.3 removes it. The <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#moving-from-the-external-component" target="_blank" rel="noopener">ESPHome guide</a> shows how to move a configuration and how to add the browser tools with <code>espectre_direct</code>.</p>
 
   <h2 id="esphome-start">Your first configuration</h2>
   <p>Add the hub and a motion sensor to a configuration that already sets up Wi-Fi:</p>
@@ -118,8 +118,8 @@ button:
 
   <h2 id="esphome-limits">Current limits</h2>
   <ul class="checklist">
-    <li>The built-in component has no Direct API of its own. Add the <code>espectre_direct</code> add-on for Monitor, Find devices, CSI collection, and the <code>./espectre</code> device commands; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#the-component-built-into-esphome" target="_blank" rel="noopener">ESPHome guide</a> shows how.</li>
-    <li>With ESPHome 2026.10, the add-on changes only the traffic source and starts a recalibration. Threshold, motion hits, detection profile, packet spacing, and the sensing switch need ESPHome 2026.11. The device name, the access point pin, the Wi-Fi settings, and MQTT stay in your YAML.</li>
+    <li>The built-in component has no Direct API of its own. Add the <code>espectre_direct</code> add-on for Monitor, Find devices, CSI collection, and the <code>./espectre</code> device commands; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#the-direct-api-add-on" target="_blank" rel="noopener">ESPHome guide</a> shows how.</li>
+    <li>The add-on changes a control only when its entity is in your YAML. The device name, the access point pin, the <code>wifi_raw</code> destination, the Wi-Fi settings, and MQTT stay in your YAML.</li>
   </ul>
   <p>For every option and platform, see the <a href="https://esphome.io/components/espectre/" target="_blank" rel="noopener">ESPHome documentation</a>.</p>
 

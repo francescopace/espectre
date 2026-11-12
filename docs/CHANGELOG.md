@@ -10,6 +10,10 @@ ESPectre 3.3 adds stationary presence as a result separate from motion, and move
 
 ### ESPHome
 
+- Official images and the examples use the `espectre` component built into ESPHome, with the `espectre_direct` add-on for the Direct API. They need ESPHome 2026.11 or later.
+- The external component is removed. To update a YAML that loads it, see [moving from the external component](../src/cpp/frontend/esphome/README.md#moving-from-the-external-component).
+- The entities of the examples keep their names. `CSI Admitted Rate`, `CSI Filtered Rate`, `CSI Stale Rate`, `CSI Out-of-order Rate`, and `WiFi Channel` are gone.
+- On ESPHome, Device settings no longer renames the device or pins an access point, and Monitor no longer sets the `wifi_raw` destination. All three stay in the YAML.
 - `espectre_direct` accepts any SDK directory as `sdk.path`, including a repository checkout.
 
 ### SDK

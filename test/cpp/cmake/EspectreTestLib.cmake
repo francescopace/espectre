@@ -228,29 +228,6 @@ target_compile_definitions(espectre_runtime_dual_band_testlib
         CONFIG_SOC_WIFI_SUPPORT_5G=1
 )
 
-add_library(espectre_frontend_esphome_testlib STATIC
-    ${ESPECTRE_FRONTEND_ESPHOME_SOURCES}
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_http_service_esp_idf.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_direct_http_bridge.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
-)
-target_compile_definitions(espectre_frontend_esphome_testlib
-    PUBLIC
-        USE_WIFI=1
-    PRIVATE
-        ESPECTRE_HOST_WIFI_CONTROL_TEST=1
-)
-target_link_libraries(espectre_frontend_esphome_testlib
-    PUBLIC
-        espectre_runtime_testlib
-        espectre_native_mdns_bootstrap_testlib
-        espectre_test_mocks
-)
-target_include_directories(espectre_frontend_esphome_testlib
-    PUBLIC
-        "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre"
-)
-
 add_library(espectre_arduino_adapter_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/espectre_sensor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
@@ -315,7 +292,6 @@ foreach(target_name
         espectre_mqtt_transport_testlib
         espectre_frontend_ota_protocol_testlib
         espectre_ota_https_testlib
-        espectre_frontend_esphome_testlib
         espectre_frontend_native_testlib
         espectre_frontend_matter_testlib)
     espectre_apply_coverage("${target_name}")

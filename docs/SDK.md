@@ -168,7 +168,7 @@ The repository has three complete firmware built on the public SDK. They are not
 | Firmware | What it shows | Guide |
 |----------|---------------|-------|
 | Native | Standalone ESP-IDF application with Direct HTTP, optional MQTT, and Home Assistant MQTT Discovery | [Native guide](../src/cpp/frontend/native/README.md) |
-| ESPHome | ESPHome component that maps YAML configuration and Home Assistant entities to the runtime | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
+| ESPHome | The `espectre` component built into ESPHome, with the `espectre_direct` add-on that serves the Direct API next to it | [ESPHome guide](../src/cpp/frontend/esphome/README.md) |
 | Matter | Matter occupancy sensor with commissioning and a Direct HTTP bridge for sensing controls | [Matter guide](../src/cpp/frontend/matter/README.md) |
 
 The [`espectre` component built into ESPHome](https://esphome.io/components/espectre/) uses the same SDK. Since ESPHome 2026.10, it installs `francescopace/espectre` from the ESP Component Registry, as any product would. Its [source](https://github.com/esphome/esphome/tree/dev/esphome/components/espectre) is a compact integration example.

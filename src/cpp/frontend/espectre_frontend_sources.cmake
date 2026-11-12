@@ -52,21 +52,6 @@ set(ESPECTRE_FRONTEND_COMMON_SOURCES
     "${ESPECTRE_FRONTEND_ROOT}/primary_console.cpp"
 )
 
-set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
-    ${ESPECTRE_FRONTEND_COMMON_SOURCES}
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/esphome_log_sink.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/recalibrate_button.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/sensing_switch.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/detector_select.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/diagnostics_button.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/espectre.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/motion_hits_number.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/sensor_publisher.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/threshold_number.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/sample_spacing_select.cpp"
-    "${ESPECTRE_FRONTEND_ROOT}/esphome/components/espectre/traffic_mode_select.cpp"
-)
-
 set(ESPECTRE_FRONTEND_MATTER_SOURCES
     ${ESPECTRE_FRONTEND_COMMON_SOURCES}
     "${ESPECTRE_FRONTEND_ROOT}/matter/espectre/matter_frontend.cpp"

@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from firmware_signing import ESP32_SECRET, RSA_SECRET, REPO_ROOT, factory_app, private_key_from_secret, verify_app
 
 NATIVE_APP = REPO_ROOT / "src/cpp/frontend/native/app"
-ESPHOME_EXAMPLES = REPO_ROOT / "src/cpp/frontend/esphome/examples"
+ESPHOME_REPLAY_COMPONENT = REPO_ROOT / "src/cpp/frontend/esphome/espectre_emulator_csi_replay"
 
 
 def validate_sdkconfig(path: Path, *, legacy: bool) -> None:
@@ -91,7 +91,13 @@ def build_esphome(key_path: Path, args, key) -> None:
             f"esphome:\n  build_path: {json.dumps(str(build_root))}\n"
             "esp32:\n  framework:\n"
             # Released images carry the CSI replay that CI runs in esp-emu; it stays inert on silicon.
+            # ESPHome and the SDK have no replay code, so it is linked as a component of its own.
+            "    components:\n      - name: espectre_emulator_csi_replay\n"
+            f"        path: {json.dumps(str(ESPHOME_REPLAY_COMPONENT))}\n"
             "    sdkconfig_options:\n      CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY: y\n"
+            # ESPHome stamps its own version in the image descriptor; published images carry ours.
+            "      CONFIG_APP_PROJECT_VER_FROM_CONFIG: y\n"
+            f"      CONFIG_APP_PROJECT_VER: {json.dumps(args.version)}\n"
             "    advanced:\n      signed_ota_verification:\n"
             f"        signing_scheme: {'ecdsa_v1' if args.legacy else 'rsa3072'}\n"
             f"        signing_key: {json.dumps(str(key_path))}\n")

@@ -164,25 +164,6 @@
     },
     {
       "kind": "host_test",
-      "owners": ["test_sensor_publisher", "test_frontend_controls"],
-      "sources": [
-        "src/cpp/frontend/frontend_firmware_version.cpp",
-        "src/cpp/frontend/primary_console.cpp",
-        "src/cpp/frontend/esphome/components/espectre/esphome_log_sink.cpp",
-        "src/cpp/frontend/esphome/components/espectre/recalibrate_button.cpp",
-        "src/cpp/frontend/esphome/components/espectre/sensing_switch.cpp",
-        "src/cpp/frontend/esphome/components/espectre/detector_select.cpp",
-        "src/cpp/frontend/esphome/components/espectre/diagnostics_button.cpp",
-        "src/cpp/frontend/esphome/components/espectre/espectre.cpp",
-        "src/cpp/frontend/esphome/components/espectre/motion_hits_number.cpp",
-        "src/cpp/frontend/esphome/components/espectre/sensor_publisher.cpp",
-        "src/cpp/frontend/esphome/components/espectre/threshold_number.cpp",
-        "src/cpp/frontend/esphome/components/espectre/sample_spacing_select.cpp",
-        "src/cpp/frontend/esphome/components/espectre/traffic_mode_select.cpp"
-      ]
-    },
-    {
-      "kind": "host_test",
       "owners": ["test_emulator_csi_replay"],
       "sources": [
         "src/cpp/frontend/csi_replay_frame.cpp",
@@ -209,6 +190,8 @@
         "test_recovery_button_service"
       ],
       "sources": [
+        "src/cpp/frontend/frontend_firmware_version.cpp",
+        "src/cpp/frontend/primary_console.cpp",
         "src/cpp/frontend/native/espectre/home_assistant_mqtt_frontend.cpp",
         "src/cpp/frontend/native/espectre/native_command_bindings.cpp",
         "src/cpp/frontend/native/espectre/native_direct_frontend.cpp",

@@ -1,4 +1,5 @@
-# ESPectre component source for published and adopted configurations.
+# ESPectre Direct API add-on source for published and adopted configurations.
+# Sensing comes from the espectre component built into ESPHome.
 substitutions:
   project_version: 0.0.0-main
 
@@ -8,7 +9,7 @@ external_components:
       url: https://github.com/francescopace/espectre
       ref: main
       path: src/cpp/frontend/esphome/components
-    components: [ espectre ]
+    components: [ espectre_direct ]
     refresh: always
 
 dashboard_import:

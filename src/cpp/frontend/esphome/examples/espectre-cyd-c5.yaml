@@ -25,29 +25,19 @@ substitutions:
 packages:
   base: !include espectre-c5.yaml
 
-# ESPectre entity IDs used by the display lambda and the touch buttons.
+# The display lambda and the touch buttons use the entity IDs that the base
+# config takes from espectre-entities.yaml: espectre_movement_score,
+# espectre_motion_detected, espectre_threshold, espectre_calibration_active,
+# and espectre_recalibrate.
 #
 # IMPORTANT (shared SPI bus safety):
-# ALL espectre entity callbacks can fire from NON-main-loop tasks. Driving the
-# SPI display from any of those races the XPT2046 touchscreen, which polls the
-# SAME SPI bus from the main loop:
+# The XPT2046 touchscreen polls the same SPI bus as the display from the main
+# loop. A redraw that races it fails with:
 #   spi_master: Cannot acquire bus when a polling transaction is in progress
 #   assert failed: spi_device_release_bus -> reboot  (observed twice)
-# Therefore NO espectre automation may call component.update on the display.
+# Therefore no entity automation calls component.update on the display.
 # All redraws happen in the 1s `interval` below (main-loop context); the
 # graph lambda de-duplicates curve points, so nothing is lost.
-espectre:
-  id: espectre_csi
-  movement_sensor:
-    id: espectre_movement_score
-  motion_sensor:
-    id: espectre_motion_detected
-  threshold_number:
-    id: espectre_threshold
-  calibration_active_sensor:
-    id: espectre_calibration_active
-  recalibrate_button:
-    id: espectre_recalibrate
 
 # Primary display refresh (main-loop context, safe to share the SPI bus with
 # the touchscreen). Curve points are only appended when a new Movement value

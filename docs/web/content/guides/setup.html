@@ -78,7 +78,7 @@ python -m pip install -r requirements.txt</code></pre>
         <pre class="code"><code>./espectre esphome build --chip c3 --clean
 ./espectre esphome flash --chip c3
 ./espectre esphome monitor --chip c3</code></pre>
-        <p>To use your own YAML, add <code>--config path/to/espectre.yaml</code> to all three commands. The CLI keeps your device settings and uses the external component from your checkout:</p>
+        <p>To use your own YAML, add <code>--config path/to/espectre.yaml</code> to all three commands. The CLI keeps your device settings and builds with the code from your checkout:</p>
         <pre class="code"><code>./espectre esphome build --chip c3 --config path/to/espectre.yaml --clean
 ./espectre esphome flash --chip c3 --config path/to/espectre.yaml
 ./espectre esphome monitor --chip c3 --config path/to/espectre.yaml</code></pre>

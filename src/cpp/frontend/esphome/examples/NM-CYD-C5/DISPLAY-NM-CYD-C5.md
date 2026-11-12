@@ -4,15 +4,15 @@
 
 ## 1. What the ESPectre component exposes
 
-The ESPHome component (`src/cpp/frontend/esphome/components/espectre/`) auto-creates its core entities with defaults; the example only needs to give them IDs. The ones used by the display and touch buttons:
+The base configuration declares the entities of the `espectre` component built into ESPHome in `espectre-entities.yaml`, each with an ID. The ones used by the display and touch buttons:
 
 | # | Data / State | Entity | Update cadence |
 |---|---|---|---|
-| 1 | **Movement score** (detector metric) | `movement_sensor` (sensor) | Every `evaluation_interval_ms` (default 250 ms → 4 Hz) |
-| 2 | **Motion state** (IDLE / MOTION, with on/off hit hysteresis) | `motion_sensor` (binary_sensor) | On state change |
-| 3 | **Movement Threshold** (normalized, 0.0–1.0, step 0.01; auto-selected at startup, runtime-adjustable) | `threshold_number` (number) | On calibration complete / manual change |
-| 4 | **Calibration state** | `calibration_active_sensor` (binary_sensor) | On trigger / completion |
-| 5 | **Recalibrate trigger** | `recalibrate_button` (button) | On press |
+| 1 | **Movement score** (detector metric) | `espectre_movement_score` (sensor) | Every `evaluation_interval` (250 ms in the examples → 4 Hz) |
+| 2 | **Motion state** (IDLE / MOTION, with on/off hit hysteresis) | `espectre_motion_detected` (binary_sensor) | On state change |
+| 3 | **Movement Threshold** (normalized, 0.0–1.0, step 0.01; auto-selected at startup, runtime-adjustable) | `espectre_threshold` (number) | On calibration complete / manual change |
+| 4 | **Calibration state** | `espectre_calibration_active` (binary_sensor) | On trigger / completion |
+| 5 | **Recalibrate trigger** | `espectre_recalibrate` (button) | On press |
 
 **Conclusion**: these entities cover everything needed for the requested features — **curve (1) + threshold line (3) + threshold adjustment (3) + calibration (4/5)**. The full loop is possible without touching C++ component code.
 
@@ -57,9 +57,9 @@ The approach mirrors `examples/espectre-s3-touch-lcd.yaml` (Waveshare S3 1.47" d
 
 | Touch button | Action |
 |---|---|
-| `THR −0.05` | `threshold_number` call −0.05, takes effect immediately (clamped 0.0–1.0) |
+| `THR −0.05` | `espectre_threshold` call −0.05, takes effect immediately (clamped 0.0–1.0) |
 | `THR +0.05` | same, +0.05 |
-| `⟳ CALIBRATE` | `button.press` on `recalibrate_button` → recalibration (about 10 s of valid input; keep the room still). `calibration_active_sensor` turns on during calibration and off when done |
+| `⟳ CALIBRATE` | `button.press` on `espectre_recalibrate` → recalibration (about 10 s of valid input; keep the room still). `espectre_calibration_active` turns on during calibration and off when done |
 
 Refresh: the display uses `update_interval: never`, and one 1-second `interval` on the main loop redraws everything. ESPectre entity callbacks can run on other tasks, so **none of them may call `component.update` on the display**: that would collide with the touchscreen's SPI polling on the same bus and reboot the device with `spi_master: Cannot acquire bus when a polling transaction is in progress`. The graph skips duplicate points, so the fixed rate loses nothing; button presses show up on the next redraw.
 

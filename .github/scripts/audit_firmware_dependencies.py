@@ -224,8 +224,9 @@ def write_reports(directory: Path, frontend: str, errors: list[str], unknown: li
     if failure:
         return
     results, rules = [], {}
-    manifest = ("src/cpp/frontend/esphome/components/espectre/idf_component.yml"
-                if frontend == "esphome" else f"src/cpp/frontend/{frontend}/espectre/idf_component.yml")
+    # ESPHome images take their components from the ESPHome release pinned in requirements.txt.
+    manifest = ("requirements.txt" if frontend == "esphome"
+                else f"src/cpp/frontend/{frontend}/espectre/idf_component.yml")
     for finding in result["findings"]:
         cve = finding["cve_id"]
         rule_id = f"{cve}/{finding['pkg_name']}"
