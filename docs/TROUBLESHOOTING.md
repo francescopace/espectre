@@ -13,6 +13,7 @@ Most problems can be fixed from the browser: the [troubleshooting guide](https:/
 - [Calibration stalls or startup quality is poor](#calibration-stalls-or-startup-quality-is-poor)
 - [Tuning essentials](#tuning-essentials)
 - [Device not reachable](#device-not-reachable)
+- [Diagnostic report](#diagnostic-report)
 
 ## Check the sensing input
 
@@ -132,3 +133,13 @@ From the browser, follow [device not reachable](https://espectre.dev/guides/trou
 You can connect with the device IP, its name, its 16-character ID, or the last 6 characters of the ID. Names and short IDs rely on mDNS. If discovery fails, run `./espectre devices`, enter the IP, or look it up in your router's DHCP list. See [browser bootstrap](DISCOVERY.md#browser-bootstrap) for how discovery works.
 
 Once connected, go back to [Check the sensing input](#check-the-sensing-input).
+
+## Diagnostic report
+
+When opening an issue or asking for troubleshooting support, generate a redacted diagnostic report. The CLI automatically sanitizes private network identifiers (SSID, BSSID, MAC addresses, and IPv4 addresses):
+
+```bash
+./espectre report --target 192.168.1.50 -o diagnostic_report.md
+```
+
+You can attach or paste the generated `diagnostic_report.md` into your GitHub issue.

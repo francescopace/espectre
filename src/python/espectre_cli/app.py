@@ -25,6 +25,7 @@ from .common import (
 )
 from .device_discovery import DISCOVERY_TIMEOUT_S, SUPPORTED_DISCOVERY_FRONTENDS, run_devices_command
 from .device_control import DEFAULT_DIRECT_ORIGIN, run_direct_request_command, run_improv_provision_command
+from .diagnostic_report import run_diagnostic_report_command
 from .esphome import run_esphome_command
 from .host import collect_csi_data
 from .idf import run_idf_command, run_idf_doctor
@@ -273,6 +274,67 @@ def _add_version_parser(subparsers) -> None:
     version_parser.set_defaults(handler=print_version)
 
 
+def _add_report_parser(subparsers) -> None:
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Generate a privacy-redacted diagnostic bundle for troubleshooting and bug reports",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    report_parser.add_argument(
+        "--target",
+        "-t",
+        dest="target",
+        help="Device hostname, IPv4 address, or HTTP Direct endpoint",
+    )
+    report_parser.add_argument(
+        "--endpoint",
+        help=argparse.SUPPRESS,
+    )
+    report_parser.add_argument(
+        "--file",
+        help="Path to an existing unredacted JSON diagnostic snapshot file to redact instead of connecting to a device",
+    )
+    report_parser.add_argument(
+        "--frontend",
+        choices=SUPPORTED_DISCOVERY_FRONTENDS,
+        help="Limit automatic discovery to one Direct frontend (default: discover any)",
+    )
+    report_parser.add_argument(
+        "--chip",
+        choices=CHIP_CHOICES,
+        help="Limit automatic discovery to one chip family",
+    )
+    report_parser.add_argument(
+        "--output",
+        "-o",
+        help="Optional destination path to write the formatted report (default: stdout)",
+    )
+    report_parser.add_argument(
+        "--format",
+        choices=("markdown", "json", "text"),
+        default="markdown",
+        help="Report output format (default: markdown)",
+    )
+    report_parser.add_argument(
+        "--origin",
+        default=DEFAULT_DIRECT_ORIGIN,
+        help=f"Allowed Origin header for Direct HTTP requests (default: {DEFAULT_DIRECT_ORIGIN})",
+    )
+    report_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=8.0,
+        help="Request timeout in seconds (default: 8.0)",
+    )
+    report_parser.add_argument(
+        "--discovery-timeout",
+        type=float,
+        default=DISCOVERY_TIMEOUT_S,
+        help=f"mDNS browse duration when no target is supplied (default: {DISCOVERY_TIMEOUT_S})",
+    )
+    report_parser.set_defaults(handler=run_diagnostic_report_command)
+
+
 def _add_idf_build_backend_arguments(parser) -> None:
     """Add the build backend policy shared by every ESP-IDF firmware path."""
     parser.add_argument(
@@ -479,6 +541,8 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--start-delay', '15', '--target', '192.168.1.50')}",
             f"  {cli_command('about')}",
             f"  {cli_command('version')}",
+            f"  {cli_command('report', '--target', '192.168.1.50')}",
+            f"  {cli_command('report', '--file', 'diagnostics.json', '--format', 'markdown')}",
             f"  {cli_command('doctor')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3')}",
@@ -505,6 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_monitor_parser(subparsers)
     _add_about_parser(subparsers)
     _add_version_parser(subparsers)
+    _add_report_parser(subparsers)
     _add_doctor_parser(subparsers)
     _add_esphome_namespace(subparsers)
     _add_idf_namespace(subparsers, "native")

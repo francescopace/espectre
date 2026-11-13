@@ -96,6 +96,7 @@ The virtual environment is `.venv/`, and each frontend keeps its own build direc
 | `devices` | Find ESPectre devices on the local network |
 | `provision` | Set up Wi-Fi on Native or ESPHome over USB (Improv Serial) |
 | `direct` | Send one Direct HTTP request to a device |
+| `report` | Generate a privacy-redacted diagnostic bundle for troubleshooting and bug reports |
 | `collect` | Watch live CSI or record a dataset |
 | `doctor` | Check the local ESP-IDF environment |
 | `mqtt` | Open the interactive MQTT shell |
@@ -254,6 +255,23 @@ To go back to automatic selection, keeping the SSID and password, run the comman
 ```
 
 See [Wi-Fi scan and BSSID selection](API.md#wi-fi-scan-and-bssid-selection) for the requests and responses.
+
+### `report`
+
+`report` queries a device over Direct HTTP, gathers runtime diagnostics, sensing status, Wi-Fi connectivity, and health records, automatically redacts private identifiers (SSID, BSSID, MAC addresses, and IPv4 host octets), and outputs a sanitized bundle formatted for GitHub issues:
+
+```bash
+# Generate a Markdown report for a device
+./espectre report --target 192.168.1.50
+
+# Save formatted report to a file
+./espectre report --target 192.168.1.50 -o diagnostic_report.md
+
+# Redact an existing unredacted JSON snapshot offline
+./espectre report --file unredacted_snapshot.json --format json
+```
+
+Use `--format markdown` (default), `--format json`, or `--format text` to select the desired output format.
 
 ### `collect`
 
