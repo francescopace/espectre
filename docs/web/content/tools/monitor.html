@@ -122,6 +122,34 @@
           <div class="stat"><div class="stat-label">Loop time</div><div class="stat-value js-mon-loop">—</div></div>
         </div>
         <p class="tool-note js-mon-diag-status" role="status" hidden></p>
+        <div class="diag-report-panel">
+          <div class="diag-report-card">
+            <div class="diag-report-desc">
+              <strong>Diagnostic report</strong>
+              <p id="diag-report-hint">Sample key rates for 30&nbsp;s and bundle sanitized device state for bug reports.</p>
+            </div>
+            <button type="button" class="btn-secondary btn-sm js-mon-report-start" aria-describedby="diag-report-hint">Generate report</button>
+          </div>
+          <div class="diag-report-progress js-mon-report-progress" hidden>
+            <div class="diag-report-progress-head">
+              <span class="diag-report-status js-mon-report-status" role="status" aria-live="polite">Sampling diagnostics (0/30s)…</span>
+              <button type="button" class="btn-ghost btn-sm js-mon-report-cancel" aria-label="Cancel diagnostic report sampling">Cancel</button>
+            </div>
+            <div class="diag-report-track js-mon-report-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Diagnostic sampling progress">
+              <div class="diag-report-bar js-mon-report-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="diag-report-result js-mon-report-result" hidden>
+            <div class="diag-report-result-header">
+              <span class="diag-report-result-title">Privacy-redacted report</span>
+              <div class="diag-report-actions">
+                <button type="button" class="btn-secondary btn-sm js-mon-report-copy">Copy fenced JSON</button>
+                <button type="button" class="btn-secondary btn-sm js-mon-report-download">Download JSON</button>
+              </div>
+            </div>
+            <pre class="diag-report-preview js-mon-report-preview" tabindex="0" role="region" aria-label="Diagnostic report preview"></pre>
+          </div>
+        </div>
       </details>
     </section>
   </div>

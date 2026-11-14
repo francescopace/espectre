@@ -2206,6 +2206,99 @@ body.modal-open { overflow: hidden; }
 .device-live-diagnostics > summary small { margin-left: auto; color: var(--dim); font-size: 11.5px; }
 .device-live-diagnostics .diag-grid { padding: 0 18px 18px; }
 .device-live-diagnostics .tool-note { margin: 0; padding: 0 18px 18px; }
+.diag-report-panel {
+  border-top: 1px solid var(--border);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diag-report-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+}
+.diag-report-card strong {
+  display: block;
+  font-size: 12px;
+}
+.diag-report-card p {
+  margin: 2px 0 0;
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.diag-report-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+}
+.diag-report-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.diag-report-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-soft, rgba(0, 0, 0, 0.06));
+  border-radius: 999px;
+  overflow: hidden;
+}
+.diag-report-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.diag-report-status {
+  font-size: 12px;
+  color: var(--text);
+}
+.diag-report-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diag-report-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.diag-report-result-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.diag-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diag-report-preview {
+  margin: 0;
+  padding: 12px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  background: var(--surface-soft, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre;
+}
 /* Theremin */
 
 .theremin-stage {
@@ -3928,6 +4021,9 @@ body.modal-open { overflow: hidden; }
   .live-controls-grid { grid-template-columns: minmax(0, 1fr); }
   .live-control-wide { grid-column: auto; }
   .live-calibration { align-items: stretch; flex-direction: column; }
+  .diag-report-card { align-items: stretch; flex-direction: column; }
+  .diag-report-result-header { align-items: stretch; flex-direction: column; }
+  .diag-report-actions { flex-direction: column; }
   .device-live-diagnostics > summary { align-items: flex-start; flex-direction: column; gap: 4px; position: relative; }
   .device-live-diagnostics > summary small { margin-left: 0; padding-right: 24px; }
   .device-live-diagnostics > summary::after { position: absolute; right: 18px; top: 18px; }
@@ -3949,7 +4045,8 @@ body.modal-open { overflow: hidden; }
   .scrolly-caption,
   .scrolly-nav span,
   .scrolly-cue,
-  .scrolly-skip { transition: none; }
+  .scrolly-skip,
+  .diag-report-bar { transition: none; }
   .scene-ui-dot,
   .pulse,
   .spinner,

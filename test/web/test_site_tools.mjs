@@ -873,6 +873,167 @@ describe('device HTTP request budgets', () => {
     });
 });
 
+describe('Web Monitor diagnostic report', () => {
+    it('calculates min, median, and max for sampled rate values', () => {
+        const runtime = loadDeviceHttpRuntime();
+        const calc = runtime.context.calculateRateStats;
+        assert.deepEqual({ ...calc([10, 20, 30, 40, 50]) }, { min: 10, median: 30, max: 50 });
+        assert.deepEqual({ ...calc([10, 20, 30, 40]) }, { min: 10, median: 25, max: 40 });
+        assert.deepEqual({ ...calc([5]) }, { min: 5, median: 5, max: 5 });
+        assert.deepEqual({ ...calc([]) }, { min: null, median: null, max: null });
+        assert.deepEqual({ ...calc([null, undefined, NaN]) }, { min: null, median: null, max: null });
+    });
+
+    it('redacts sensitive identifiers while preserving multicast, loopback, and broadcast', () => {
+        const runtime = loadDeviceHttpRuntime();
+        const redact = runtime.context.redactDiagnosticReport;
+        const payload = {
+            device: {
+                name: 'Living Room ESP32',
+                label: 'Living Room',
+                hostname: 'espectre-livingroom',
+                device_id: '30aea4070a240001',
+            },
+            wifi: {
+                ssid: 'Home_IoT_5G',
+                passphrase: 'SuperPassphrase',
+                private_key: 'MyPrivateKey',
+                sta_ip: '192.168.1.105',
+                sta_mac: '30:ae:a4:07:0a:24',
+                gateway_ip: '192.168.1.1',
+                bssid: 'aa:bb:cc:dd:ee:ff',
+                credentials: { username: 'admin', password: 'SecretPassword' },
+                password: 'SecretPassword',
+                password_configured: true,
+                multicast_ip: '239.255.255.250',
+                multicast_mac: '01:00:5e:00:00:01',
+                broadcast_ip: '255.255.255.255',
+                broadcast_mac: 'ff:ff:ff:ff:ff:ff',
+                loopback_ip: '127.0.0.1',
+                apply_message: 'Device Living Room ESP32 connected to Home_IoT_5G at 192.168.1.105 via espectre-livingroom.local'
+            }
+        };
+
+        const result = redact(payload);
+        assert.equal(result.device.name, '<redacted_name>');
+        assert.equal(result.device.label, '<redacted_label>');
+        assert.equal(result.device.hostname, '<redacted_hostname>');
+        assert.equal(result.device.device_id, '30ae...0001');
+
+        assert.equal(result.wifi.ssid, '<redacted_ssid>');
+        assert.equal(result.wifi.passphrase, '[REDACTED]');
+        assert.equal(result.wifi.private_key, '[REDACTED]');
+        assert.equal(result.wifi.credentials, undefined);
+        assert.equal(result.wifi.password, '[REDACTED]');
+        assert.equal(result.wifi.password_configured, true);
+        assert.equal(result.wifi.sta_ip, '192.168.x.x');
+        assert.equal(result.wifi.sta_mac, '30:ae:**:**:**:**');
+        assert.equal(result.wifi.gateway_ip, '192.168.x.x');
+        assert.equal(result.wifi.bssid, 'aa:bb:**:**:**:**');
+
+        assert.equal(result.wifi.broadcast_ip, '255.255.255.255');
+        assert.equal(result.wifi.broadcast_mac, 'ff:ff:ff:ff:ff:ff');
+        assert.equal(result.wifi.multicast_ip, '239.255.255.250');
+        assert.equal(result.wifi.multicast_mac, '01:00:5e:00:00:01');
+        assert.equal(result.wifi.loopback_ip, '127.0.0.1');
+
+        assert.equal(
+            result.wifi.apply_message,
+            'Device <redacted_name> connected to <redacted_ssid> at 192.168.x.x via <redacted_hostname>.local'
+        );
+    });
+
+    it('samples diagnostics rates, gathers resources, and exposes copy/download actions', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const elements = new Map();
+        const element = (selector) => {
+            if (!elements.has(selector)) {
+                elements.set(selector, {
+                    textContent: '',
+                    style: {},
+                    hidden: false,
+                    disabled: false,
+                    attributes: new Map(),
+                    setAttribute(name, val) { this.attributes.set(name, String(val)); },
+                    getAttribute(name) { return this.attributes.get(name); },
+                    focus() { this.focused = true; }
+                });
+            }
+            return elements.get(selector);
+        };
+        const prev$ = runtime.context.$;
+        runtime.context.$ = (selector) => {
+            if (selector.startsWith('.js-mon-diag-report') || selector.startsWith('.js-mon-report')) {
+                return element(selector);
+            }
+            return prev$(selector);
+        };
+
+        const diagnosticsData = {
+            csi_occupancy: 0.85,
+            csi_accepted_pps: 98.5,
+            csi_filtered_pps: 1.2,
+            csi_hw_error_pps: 0.0
+        };
+
+        const requests = [];
+        runtime.setClient({
+            connected: true,
+            request: async (method, resource, params) => {
+                requests.push([method, resource, params]);
+                if (resource === 'diagnostics') return diagnosticsData;
+                if (resource === 'device') return { name: 'Sensor 1', device_id: '1122334455667788' };
+                if (resource === 'wifi') return { ssid: 'LabWiFi', sta_ip: '10.0.0.45', sta_mac: '12:34:56:78:9a:bc' };
+                return {};
+            }
+        });
+
+        runtime.run("route = 'tool-monitor'");
+        runtime.context.recordMonitorFault({ message: 'Synthetic fault', code: 42 });
+
+        const reportPromise = runtime.context.monitorStartDiagnosticReport({
+            sampleDurationSec: 1,
+            sampleIntervalMs: 1000
+        });
+
+        assert.equal(element('.js-mon-report-start').disabled, true);
+        assert.equal(element('.js-mon-report-progress').hidden, false);
+
+        await runtime.nextTimer();
+        const report = await reportPromise;
+
+        assert.equal(element('.js-mon-report-progress').hidden, true);
+        assert.equal(element('.js-mon-report-result').hidden, false);
+        assert.equal(element('.js-mon-report-start').disabled, false);
+        assert.equal(element('.js-mon-report-track').getAttribute('aria-valuenow'), '100');
+        assert.equal(element('.js-mon-report-copy').focused, true);
+
+        const json = element('.js-mon-report-preview').textContent;
+        assert.ok(json.length > 0);
+
+        assert.equal(report.sampling.duration_seconds, 1);
+        assert.equal(report.sampling.rates.csi_accepted_pps.min, 98.5);
+        assert.equal(report.sampling.rates.csi_accepted_pps.max, 98.5);
+        assert.equal(report.device.name, '<redacted_name>');
+        assert.equal(report.wifi.ssid, '<redacted_ssid>');
+        assert.equal(report.wifi.sta_ip, '10.0.x.x');
+        assert.equal(report.fault_events.length, 1);
+        assert.equal(report.fault_events[0].fault.message, 'Synthetic fault');
+
+        const pendingPromise = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 5, sampleIntervalMs: 1000 });
+        assert.equal(element('.js-mon-report-progress').hidden, false);
+        runtime.context.monitorCancelDiagnosticReport();
+        assert.equal(element('.js-mon-report-progress').hidden, true);
+        assert.equal(element('.js-mon-report-start').disabled, false);
+        const cancelled = await pendingPromise;
+        assert.equal(cancelled, null);
+
+        runtime.context.resetMonitorReportView();
+        assert.equal(element('.js-mon-report-result').hidden, true);
+        assert.equal(element('.js-mon-report-preview').textContent, '');
+    });
+});
+
 let ImprovSerial;
 let ESPLoader;
 let Transport;
