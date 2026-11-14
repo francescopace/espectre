@@ -199,7 +199,10 @@
             return;
         }
         if (name === 'ota') applyOtaStatus(data);
-        if (name === 'fault') toast(data.message || 'The device reported a runtime fault.');
+        if (name === 'fault') {
+            if (typeof recordMonitorFault === 'function') recordMonitorFault(data);
+            toast(data.message || 'The device reported a runtime fault.');
+        }
     }
 
     const directResourceSessions = new WeakMap();
