@@ -7,9 +7,9 @@
     "test": "node --test '../../test/web/*.mjs'"
   },
   "dependencies": {
+    "@improv-wifi/serial-sdk": "3.0.0",
     "ansi_up": "6.0.6",
     "esptool-js": "0.7.1",
-    "improv-wifi-serial-sdk": "2.8.1",
     "qrcodejs": "1.0.0"
   },
   "devDependencies": {

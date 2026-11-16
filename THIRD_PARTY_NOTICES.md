@@ -44,7 +44,7 @@ The production site stages pinned browser assets and the runtime dependencies in
 | esptool-js | 0.7.1 | Apache-2.0 |
 | atob-lite | 2.0.0 | MIT |
 | pako | 2.2.0 | MIT and Zlib |
-| improv-wifi-serial-sdk | 2.8.0 | Apache-2.0 |
+| @improv-wifi/serial-sdk | 3.0.0 | Apache-2.0 |
 | qrcodejs | 1.0.0 | MIT |
 | ansi_up | 6.0.6 | MIT |
 

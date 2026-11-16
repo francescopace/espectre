@@ -35,7 +35,7 @@ def stage_vendor() -> None:
         cwd=WEB_ROOT,
         check=True,
     )
-    serial_destination = VENDOR_ROOT / "espectre-web-serial-0.7.1-2.8.1"
+    serial_destination = VENDOR_ROOT / "espectre-web-serial-0.7.1-3.0.0"
     copy_file(WEB_ROOT / "build" / "headless-web-serial.js", serial_destination / "headless.js")
     copy_file(NODE_MODULES / "esptool-js" / "LICENSE", serial_destination / "LICENSE.esptool-js")
     copy_file(
@@ -47,7 +47,7 @@ def stage_vendor() -> None:
         serial_destination / "LICENSE.pako",
     )
     copy_file(
-        NODE_MODULES / "improv-wifi-serial-sdk" / "LICENSE",
+        NODE_MODULES / "@improv-wifi" / "serial-sdk" / "LICENSE",
         serial_destination / "LICENSE.improv-wifi-serial-sdk",
     )
 

@@ -14,7 +14,7 @@ import { verifyCatalog, verifyArtifact, authenticateDownload } from '../../docs/
 import { AnsiUp } from '../../docs/web/node_modules/ansi_up/ansi_up.js';
 import { build } from '../../docs/web/node_modules/esbuild/lib/main.js';
 import serialConfig from '../../docs/web/esbuild.config.mjs';
-import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/improv-wifi-serial-sdk/dist/const.js';
+import { SERIAL_PACKET_HEADER, ImprovSerialMessageType, ImprovSerialCurrentState } from '../../docs/web/node_modules/@improv-wifi/serial-sdk/dist/const.js';
 import { read, routeManifest, runSiteScript, toolContent } from './fixtures/site_test_helpers.mjs';
 import { peer, result } from './fixtures/peer_discovery_fixture.mjs';
 
