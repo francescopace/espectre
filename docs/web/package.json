@@ -9,7 +9,7 @@
   "dependencies": {
     "ansi_up": "6.0.6",
     "esptool-js": "0.7.1",
-    "improv-wifi-serial-sdk": "2.8.1",
+    "improv-wifi-serial-sdk": "2.10.0",
     "qrcodejs": "1.0.0"
   },
   "devDependencies": {
