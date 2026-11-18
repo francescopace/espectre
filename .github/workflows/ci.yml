@@ -363,8 +363,8 @@ jobs:
     timeout-minutes: 30
     env:
       # Bump together with EFUSE_DEFAULT_WORDS in tools/emulator/emulator_csi_replay.py.
-      ESP_EMU_VERSION: 0.51.0
-      ESP_EMU_SHA256: 2b9e157470edb8b03167996550292c6df8cc6716025ebad8927db950d7931417
+      ESP_EMU_VERSION: 1.1.0
+      ESP_EMU_SHA256: bcb940dcf48aa6a1b62dbdc4abc37f05431710f4040d9e2504723a5ea4fd5de9
     strategy:
       fail-fast: false
       matrix:

@@ -95,7 +95,7 @@ PROVISIONING_RETRY_S = 20.0
 # src/cpp/frontend/csi_replay_frame.h). Its locally administered bit keeps it
 # off every real chip.
 REPLAY_FACTORY_MAC = bytes((0x02, 0x45, 0x53, 0x50, 0x00, 0x01))
-# Non-MAC words of esp-emu 0.51.0's default eFuse, by word index in its
+# Non-MAC words of esp-emu 1.1.0's default eFuse, by word index in its
 # QEMU-compatible image (BLK0 6 words, BLK1 6, BLK2 8, BLK3 8, keys, BLK10).
 # They carry the wafer revision and calibration version the default boots as.
 # Re-read them with espefuse when ESP_EMU_VERSION in .github/workflows/ci.yml changes.
