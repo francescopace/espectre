@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ESPectre 3.3 adds stationary presence as a result separate from motion, and moves official ESPHome images to the `espectre` component built into ESPHome.
 
+### ESPHome
+
+- The firmware build uses ESPHome 2026.11.0, up from 2026.10.2.
+
 ### SDK
 
 - Direct accepts `espressif/mdns` 1.12 to 1.15, so it resolves alongside the mDNS 1.15.0 that ESPHome 2026.11 pins.
