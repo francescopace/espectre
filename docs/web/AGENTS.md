@@ -4,6 +4,7 @@
 
 - Edit shared fragments under `content/`; do not directly edit generated `index.html` pages in public route directories.
 - Run `.venv/bin/python .github/scripts/build_static_pages.py` after changing shared fragments, and inspect the generated output only for the affected routes.
+- When a versioned site asset changes, refresh its cache hash with `.venv/bin/python .github/scripts/web_asset_versions.py` before rebuilding the pages. See [sources and generated pages](README.md#sources-and-generated-pages).
 - Update `routes.json` when public routes change; `sitemap.xml` is a generated deployment artifact.
 
 ## Testing And Review

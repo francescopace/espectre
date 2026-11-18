@@ -31,6 +31,7 @@
 After changing the published surface, run:
 
 ```bash
+./test/cpp/run_all_tests.sh -R '^test_sdk_surface$'
 .venv/bin/pytest test/python/contracts/test_sdk_surface_invariants.py -q --tb=short
 .venv/bin/python .github/scripts/generate_sdk_api.py
 ```

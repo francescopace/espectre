@@ -5,14 +5,14 @@
 - Write code, comments, documentation, filenames, and commit messages in English. Use the Oxford comma in project documentation and user-facing text.
 - Treat `src/cpp/` as production firmware, `src/python/micro_espectre/` as the MicroPython device path, `src/python/espectre_cli/` as host CLI code, and `tools/` as host-side analysis and maintenance code.
 - Update the existing topic owner by default. Create a new Markdown document only when the user requests a persistent record or repository policy requires a new ADR or review record.
-- Before changing files in a subtree, read its `AGENTS.md`: `.github/AGENTS.md`, `src/cpp/AGENTS.md`, `src/python/AGENTS.md`, `test/AGENTS.md`, `docs/AGENTS.md`, `docs/web/AGENTS.md`, and `tools/AGENTS.md`.
+- Before reviewing or changing files, read each `AGENTS.md` on the path from the repository root to the directories in scope.
 
 ## Context Discipline
 
 - On a dirty worktree, inspect diffs only for paths in scope; never dump the entire diff as an exploratory step.
 - Read large files (over about 500 lines or 40 KB) in targeted ranges located by search, and keep command output bounded. Avoid unbounded dumps and repeated reads of settled material.
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
-- Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
+- During a review, use read-only Git commands such as `git status`, `git diff`, and `git log` as needed. Expand the review into implementation, hardware diagnosis, release work, or changes to Git or GitHub state (including commits, rebases, and pushes) only when the user explicitly requests that work.
 - Prefer concise test output, such as `-q --tb=short` for pytest. Redirect verbose build, test, benchmark, and hardware output to a temporary log. Report the exit status and summary on success; on failure, inspect a bounded diagnostic tail and expand or rerun only where needed.
 - Never run an unbounded serial monitor in the foreground. Use a fixed duration, an event filter, or a temporary log, and read only the relevant interval.
 
