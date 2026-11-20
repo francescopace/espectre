@@ -280,8 +280,16 @@ add_espectre_test(test_direct_http_service
 
 add_espectre_test(test_mqtt_transport_esp_idf
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_mqtt_transport_esp_idf.cpp"
-    LIBRARIES espectre_mqtt_transport_testlib
+    LIBRARIES espectre_runtime_testlib espectre_test_mocks
 )
+add_espectre_test(test_mqtt_transport_esp_idf_no_bundle
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_mqtt_transport_esp_idf.cpp"
+    LIBRARIES espectre_runtime_testlib espectre_test_mocks
+)
+foreach(target IN ITEMS test_mqtt_transport_esp_idf test_mqtt_transport_esp_idf_no_bundle)
+    target_sources(${target} PRIVATE "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mqtt_transport_esp_idf.cpp")
+endforeach()
+target_compile_definitions(test_mqtt_transport_esp_idf PRIVATE CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=1)
 
 add_espectre_test(test_pending_event
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_pending_event.cpp"

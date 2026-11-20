@@ -30,8 +30,8 @@ dependencies:
     # ESP32-C5 LLTF capture requires lltf_bit_mode, introduced in 5.5.3.
     version: ">=5.5.3"
   espressif/mqtt:
-    # ESPHome pins 1.0.0 on ESP-IDF 6; keep it inside the range.
-    version: ">=1.0.0,<2.0.0"
+    # 1.1.0 uses intptr_t without including stdint.h on ESP32-C5.
+    version: "1.0.0"
     registry_url: "https://components.espressif.com"
     require: public
     rules:

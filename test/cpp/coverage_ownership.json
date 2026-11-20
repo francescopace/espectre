@@ -145,7 +145,7 @@
     },
     {
       "kind": "host_test",
-      "owners": ["test_mqtt_transport_esp_idf"],
+      "owners": ["test_mqtt_transport_esp_idf", "test_mqtt_transport_esp_idf_no_bundle"],
       "sources": ["src/cpp/runtime/esp_idf/mqtt_transport_esp_idf.cpp"]
     },
     {

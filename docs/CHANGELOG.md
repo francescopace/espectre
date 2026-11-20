@@ -4,9 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.3.0] - work in progress
+## [3.2.1] - work in progress
 
-ESPectre 3.3 adds stationary presence as a result separate from motion, and moves official ESPHome images to the `espectre` component built into ESPHome.
+ESPectre 3.2.1 lets the Direct API use the same mDNS dependency as ESPHome 2026.11 and adds CI coverage for ESP-IDF 6.1.1 and Arduino-ESP32 4.0.0.
 
 ### ESPHome
 
@@ -14,8 +14,10 @@ ESPectre 3.3 adds stationary presence as a result separate from motion, and move
 
 ### SDK
 
-- Direct accepts `espressif/mdns` 1.12 to 1.15, so it resolves alongside the mDNS 1.15.0 that ESPHome 2026.11 pins.
-- On ESP-IDF 6, MQTT accepts any `espressif/mqtt` 1.x instead of exactly 1.0.0, so ESP-IDF projects get the fixes in 1.1.0.
+- Direct now accepts `espressif/mdns` versions `>=1.12.0,<1.16.0`, including the 1.15.0 release pinned by ESPHome 2026.11.
+- CI builds the SDK with all optional services on ESP32-C6 using ESP-IDF 6.1.1. It also compiles the Arduino `MotionDetection` example on all six supported chips with Arduino-ESP32 3.3.12 and 4.0.0.
+- On ESP-IDF 6, the SDK pins `espressif/mqtt` to 1.0.0 because 1.1.0 fails to compile on ESP32-C5 with ESP-IDF 6.1.1.
+- The MQTT transport builds with the ESP-IDF certificate bundle disabled. In that configuration, `mqtt://` works and `mqtts://` reports that the bundle is required.
 
 ### Tools and integrations
 
