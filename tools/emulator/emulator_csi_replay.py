@@ -88,6 +88,7 @@ DIRECT_DEVICE_PORT = 62587
 DIRECT_TIMEOUT_S = 30.0
 # esp-emu's soft AP exists only inside the emulator.
 EMULATOR_WIFI_SSID = "espectre-replay"
+EMULATOR_SUBNET = "10.73.0.0/24"
 PROVISIONING_TIMEOUT_S = 120.0
 # Seconds between Improv Wi-Fi settings retries while the station joins.
 PROVISIONING_RETRY_S = 20.0
@@ -95,7 +96,7 @@ PROVISIONING_RETRY_S = 20.0
 # src/cpp/frontend/csi_replay_frame.h). Its locally administered bit keeps it
 # off every real chip.
 REPLAY_FACTORY_MAC = bytes((0x02, 0x45, 0x53, 0x50, 0x00, 0x01))
-# Non-MAC words of esp-emu 1.1.0's default eFuse, by word index in its
+# Non-MAC words of esp-emu 1.2.0's default eFuse, by word index in its
 # QEMU-compatible image (BLK0 6 words, BLK1 6, BLK2 8, BLK3 8, keys, BLK10).
 # They carry the wafer revision and calibration version the default boots as.
 # Re-read them with espefuse when ESP_EMU_VERSION in .github/workflows/ci.yml changes.
@@ -103,7 +104,7 @@ EFUSE_DEFAULT_WORDS = {
     "c3": {9: 0x000C0000, 16: 0x00000001},
     "c5": {5: 0x00001200, 8: 0x00000110},
     "c6": {9: 0x080C0000},
-    "s3": {16: 0x00000001},
+    "s3": {16: 0x00000001, 19: 0x000000C8},
 }
 EFUSE_WORDS = 84
 EFUSE_FACTORY_MAC_WORD = 6
@@ -125,6 +126,7 @@ class StreamPacket:
     rx_ts_us: int  # recorded MAC timestamp on the continuous timeline
     rssi_dbm: int
     csi: np.ndarray
+    noise_floor_dbm: int
 
 
 @dataclass
@@ -170,9 +172,11 @@ def build_stream(chip: str) -> tuple[list[StreamPacket], list[Segment]]:
         if ticks[rows[-1]] < (seconds - 1) * 1_000_000:
             raise ValueError(f"{file_name} is shorter than the {seconds} s {name} segment")
         rssi = np.asarray(arrays["rssi_dbm"], dtype=np.int16)
+        noise = arrays.get("noise_floor_dbm")
         for row in rows:
             packets.append(StreamPacket(index, stream_base + int(ticks[row]), rx_base + int(rx_rel[row]),
-                                        int(rssi[row]), csi[row]))
+                                        int(rssi[row]), csi[row],
+                                        int(noise[row]) if noise is not None else -95))
         segments.append(Segment(name, stream_base / 1e6, (stream_base + int(ticks[rows[-1]])) / 1e6))
         stream_base += int(ticks[rows[-1]]) + NOMINAL_GAP_US
         rx_base += int(rx_rel[rows[-1]]) + NOMINAL_GAP_US
@@ -249,7 +253,7 @@ def write_replay_efuse(chip: str, path: Path) -> None:
     path.write_bytes(b"".join(word.to_bytes(4, "little") for word in words))
 
 
-def improv_wifi_settings() -> tuple[str, bytes]:
+def improv_wifi_settings(ssid: str = EMULATOR_WIFI_SSID) -> tuple[str, bytes]:
     """Pick a soft AP password whose Improv Wi-Fi settings frame is plain ASCII.
 
     esp-emu forwards stdin to the console as text, which mangles bytes above
@@ -259,7 +263,7 @@ def improv_wifi_settings() -> tuple[str, bytes]:
     for length in range(1, 4):
         for suffix in itertools.product(string.ascii_lowercase, repeat=length):
             password = "replay-" + "".join(suffix)
-            frame = encode_improv_rpc(ImprovCommand.WIFI_SETTINGS, (EMULATOR_WIFI_SSID, password))
+            frame = encode_improv_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
             if max(frame) < 0x80 and frame.count(b"\n") == 1 and b"\r" not in frame:
                 return password, frame
     raise RuntimeError("no ASCII-only Improv Wi-Fi settings frame")
@@ -344,6 +348,11 @@ def _record_events(events: list[DirectEvent], offset_s: float, run: FirmwareRun)
             run.faults.append(str(data.get("message")))
 
 
+def user_network(port: int) -> str:
+    """Forward Direct HTTP on loopback and keep the emulated station on a fixed subnet."""
+    return f"user,net={EMULATOR_SUBNET},hostfwd=tcp:127.0.0.1:{port}-:{DIRECT_DEVICE_PORT}"
+
+
 def run_firmware(args: argparse.Namespace, packets: list[StreamPacket]) -> FirmwareRun:
     """Boot the firmware in esp-emu, provision it, stream the scenario, and collect Direct events."""
     duration_s = int(packets[-1].stream_us / 1e6 + PROVISIONING_TIMEOUT_S) + 120
@@ -354,16 +363,16 @@ def run_firmware(args: argparse.Namespace, packets: list[StreamPacket]) -> Firmw
                "--efuse", str(efuse), "--timeout", f"{duration_s}s",
                "--wifi-ssid", EMULATOR_WIFI_SSID, "--wifi-password", password,
                "--uart1-tcp", f"127.0.0.1:{args.uart_port}",
-               "--net", f"user,hostfwd=tcp::{args.direct_port}-:{DIRECT_DEVICE_PORT}"]
+               "--net", user_network(args.direct_port)]
     run = FirmwareRun()
     client = DirectClient(f"http://127.0.0.1:{args.direct_port}/espectre/v1", timeout=DIRECT_TIMEOUT_S)
     with open(args.log, "wb") as log, subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as emulator:
         console = EmulatorConsole(emulator, log)
         try:
-            uart = _wait_for(lambda: socket.create_connection(("127.0.0.1", args.uart_port), timeout=2), 30)
+            uart = wait_for(lambda: socket.create_connection(("127.0.0.1", args.uart_port), timeout=2), 30)
             provision_wifi(console, wifi_frame)
-            _wait_for(lambda: client.request("get", "health", timeout=2.0)["status"] == "ok" or None, 60,
+            wait_for(lambda: client.request("get", "health", timeout=2.0)["status"] == "ok" or None, 60,
                       interval_s=2.0)
             # Replayed frames arrive as an external host's ping, so no ICMP identifier is needed.
             client.request("patch", "sensing", {"traffic_generator_mode": "external"})
@@ -399,7 +408,7 @@ def run_firmware(args: argparse.Namespace, packets: list[StreamPacket]) -> Firmw
     return run
 
 
-def _wait_for(probe, timeout_s: float, interval_s: float = 0.25):
+def wait_for(probe, timeout_s: float, interval_s: float = 0.25):
     deadline = time.monotonic() + timeout_s
     while True:
         try:

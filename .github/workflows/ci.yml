@@ -298,13 +298,24 @@ jobs:
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" ".cache/firmware/${PREFIX}-${CHIP}.bin"
           cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" ".cache/firmware/${PREFIX}-${CHIP}-ota.bin"
 
+      - name: Compile the S3 LED example for the emulator
+        if: matrix.target == 'esp32s3'
+        env:
+          ESPHOME_BUILD_PATH: ${{ runner.temp }}/ws2812-build
+          ESPECTRE_GIT_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          esphome -s component_source local compile src/cpp/frontend/esphome/examples/espectre-s3-led.yaml
+          cp "${ESPHOME_BUILD_PATH}/espectre/build/firmware.factory.bin" .cache/firmware/led-example-esp32s3.bin
+
       - name: Upload emulator replay image
         if: success() && contains(fromJSON('["esp32c3", "esp32c5", "esp32c6", "esp32s3"]'), matrix.target)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           overwrite: true
           name: replay-esphome-${{ matrix.target }}
-          path: .cache/firmware/espectre-esphome-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
+          path: |
+            .cache/firmware/espectre-esphome-${{ needs.prepare.outputs.artifact_suffix }}-${{ matrix.target }}.bin
+            .cache/firmware/led-example-${{ matrix.target }}.bin
           retention-days: 1
 
       - name: Build ESPHome compliance artifacts
@@ -348,9 +359,8 @@ jobs:
           path: .cache/firmware/espectre-esphome-*
           retention-days: 7
 
-  # Released ESPHome and Native images run in esp-emu, which models
-  # Wi-Fi but not CSI. An eFuse marker turns on their built-in CSI replay;
-  # esp-emu does not emulate ESP32 or ESP32-S2.
+  # An eFuse marker enables timestamped UART replay in ESPHome and Native.
+  # esp-emu supports the C3, C5, C6, and S3 images in this matrix.
   emulator-replay:
     # Runs after the audits so it never competes with builds for runners.
     # Publication waits only for this job, so it must not run past a failed
@@ -363,8 +373,8 @@ jobs:
     timeout-minutes: 30
     env:
       # Bump together with EFUSE_DEFAULT_WORDS in tools/emulator/emulator_csi_replay.py.
-      ESP_EMU_VERSION: 1.1.0
-      ESP_EMU_SHA256: bcb940dcf48aa6a1b62dbdc4abc37f05431710f4040d9e2504723a5ea4fd5de9
+      ESP_EMU_VERSION: 1.2.0
+      ESP_EMU_SHA256: 560236344fd69dc8d74bc862c79aea01f7a69ac626ae3f54b1b0946bbce078c1
     strategy:
       fail-fast: false
       matrix:
@@ -435,6 +445,30 @@ jobs:
             INDEX=$((INDEX + 1))
           done
           exit "${STATUS}"
+
+      - name: Verify Native C6 Wi-Fi rollback with the co-simulation clock
+        if: matrix.frontend == 'native'
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/cosim_tcp.py" \
+            "https://raw.githubusercontent.com/espressif/esp-emulator/v${ESP_EMU_VERSION}/tools/cosim_tcp.py"
+          echo "994efe25821405cc51bf050b1500478a783dfc08da6454c3b4956758d8702347  ${RUNNER_TEMP}/cosim_tcp.py" | sha256sum -c -
+          PYTHONPATH="${RUNNER_TEMP}" python tools/emulator/emulator_integration.py rollback \
+            --emulator "${ESP_EMU}" --firmware .cache/replay/espectre-native-*-esp32c6.bin \
+            --log .cache/reports/emulator/rollback.log | tee .cache/reports/emulator/rollback.json
+        shell: bash
+
+      - name: Verify ESPHome S3 motion and idle colors on the emulated WS2812
+        if: matrix.frontend == 'esphome'
+        run: |
+          KIT="esp-emu-${ESP_EMU_VERSION}-examples"
+          curl -fsSL -o "${RUNNER_TEMP}/${KIT}.tar.gz" \
+            "https://github.com/espressif/esp-emulator/releases/download/v${ESP_EMU_VERSION}/${KIT}.tar.gz"
+          echo "2951a0f7596a2e622cd9c1f034d68fc21549da2614467bde0f4e52115d75fbcb  ${RUNNER_TEMP}/${KIT}.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/${KIT}.tar.gz" -C "${RUNNER_TEMP}" "${KIT}/ws2812/ws2812.wasm"
+          python tools/emulator/emulator_integration.py led --emulator "${ESP_EMU}" \
+            --firmware .cache/replay/led-example-esp32s3.bin --ws2812 "${RUNNER_TEMP}/${KIT}/ws2812/ws2812.wasm" \
+            --log .cache/reports/emulator/led.log | tee .cache/reports/emulator/led.json
+        shell: bash
 
       - name: Upload emulator replay report
         if: always() && hashFiles('.cache/reports/emulator/*') != ''

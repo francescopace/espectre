@@ -2,7 +2,7 @@
  * ESPectre - Emulator CSI Replay
  *
  * Delivers recorded CSI from UART1 to the firmware's CSI callback when the
- * firmware runs in esp-emu, which models Wi-Fi but not CSI.
+ * firmware runs in esp-emu with the timestamped UART replay fixture.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

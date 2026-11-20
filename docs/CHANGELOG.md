@@ -23,6 +23,8 @@ Automated builds now cover ESP-IDF 6.1.1 and Arduino-ESP32 4.0.0.
 
 ### Tools and integrations
 
+- CI uses esp-emu 1.2.0 on an explicit subnet. Eight Native and ESPHome images retain timestamped UART replay for detector parity. New firmware tests check Wi-Fi rollback on ESP32-C6 with the emulated clock and read the ESPHome example’s red motion and green idle states from a WS2812 model on ESP32-S3.
+
 - Device settings shows the connected access point's BSSID on devices that report it read-only, including ESPHome with Direct.
 - Monitor accepts a manually entered unicast destination MAC for raw Wi-Fi traffic on the same channel. The target can be a sensor outside discovery or another Wi-Fi device.
 - Opening Monitor after connecting now shows the device's current detection mode, packet spacing, and raw destination settings without a page reload.
