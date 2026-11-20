@@ -42,9 +42,11 @@ Per-chip settings live in `app/sdkconfig.defaults.<idf_target>`, which the CLI l
 
 An uncommissioned device opens a 300-second window with BLE discovery. Removing the last fabric stops ESPectre services and schedules a restart after two seconds to restore BLE. The device reuses its persisted onboarding codes; the restart is canceled if a fabric exists when the timer expires. Pairing and fabric-management screens depend on the controller.
 
-Improv Serial supports firmware discovery and retrieval of Matter codes, but does not accept Wi-Fi provisioning commands. Matter owns network commissioning. Serial logs report commissioning completion or fail-safe expiration.
+Improv Serial supports firmware discovery and retrieval of Matter codes, but does not accept Wi-Fi provisioning commands. The Matter controller commissions the device. Serial logs report commissioning completion or fail-safe expiration.
 
-## Exposed Matter surface
+<a id="exposed-matter-surface"></a>
+
+## Matter occupancy attributes
 
 | Feature | Matter mapping | Type | Access |
 |---------|----------------|------|--------|
@@ -57,7 +59,7 @@ Matter exposes read-only occupancy, which means motion: a person sitting still c
 
 Direct provides sensing controls, diagnostics, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI collection. See the [API reference](../../../../docs/API.md) for the resource contract and the [discovery reference](../../../../docs/DISCOVERY.md) for discovery.
 
-Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
+Matter manages Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
 
 You can pin the device to one access point. The pin is tied to the commissioned network: it is ignored on another SSID until you clear it. Changing it reconnects without a reboot, and a failed change restores the previous pin. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
 
@@ -122,7 +124,7 @@ Other people in the home need to be members of the same project. Apple Home asks
 
 ## Commissioning and runtime ownership
 
-`esp-matter` owns Wi-Fi, commissioning, and fabrics. ESPectre defers runtime allocation until a fabric exists, keeping heap available for commissioning. CSI, Direct HTTP, and ESPectre discovery start after commissioning, with a 10-second grace for a newly commissioned device. An already commissioned boot skips that grace.
+`esp-matter` manages Wi-Fi, commissioning, and fabrics. ESPectre defers runtime allocation until a fabric exists, keeping heap available for commissioning. CSI, Direct HTTP, and ESPectre discovery start after commissioning, with a 10-second grace for a newly commissioned device. An already commissioned boot skips that grace.
 
 Commissioning and fabric events are passed to the ESPectre loop; the CHIP task never reconfigures the sensing runtime directly. Occupancy changes are scheduled onto the CHIP work queue. Direct serialization runs after CSI processing, and discovery shares the Matter-owned mDNS responder. See [app_main.cpp](app/main/app_main.cpp) for the startup sequence and [SDK threading](../../../../docs/SDK.md#threading) for the shared runtime contract.
 

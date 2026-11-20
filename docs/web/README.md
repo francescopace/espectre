@@ -34,7 +34,7 @@ Edit fragments and shared sources, not the generated `index.html` files in route
 
 The changelog build uses Python Markdown from `requirements.txt` and writes both `content/changelog.html` and `/changelog/index.html`. Edit `docs/CHANGELOG.md`; both generated files stay untracked. Release headings have stable `release-<version>` anchors, with dots replaced by hyphens, and work in progress is labelled Unreleased. Relative documentation links resolve against their release tag, or `develop` for unreleased notes. The roadmap links to this page. The authored `/guides/ml-data-collection/` guide covers recording and contributing datasets; `docs/ML_DATA_COLLECTION.md` remains the detailed reference.
 
-After changing first-party assets, refresh their cache hashes and rebuild the pages:
+CI checks the committed HTML with `python3 .github/scripts/web_asset_versions.py --check-current`. After changing first-party assets, refresh their cache hashes and rebuild the pages:
 
 ```bash
 .venv/bin/python .github/scripts/web_asset_versions.py

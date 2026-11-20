@@ -45,7 +45,7 @@ Shared code uses the portable sink contract in `core/espectre_log.h`. The fronte
 
 ### `src/cpp/runtime/`
 
-`runtime` owns the execution environment around the shared detectors:
+The runtime provides these services for the shared detectors:
 
 - CSI ingestion, normalization, and temporal admission before detector input
 - AGC-active sensing path
@@ -64,7 +64,7 @@ The ESP-IDF implementation in `src/cpp/runtime/esp_idf/` runs sensing and raw co
 
 ### Shared Wi-Fi and CSI lifecycle
 
-`WiFiLifecycleManager` owns the shared CSI radio policy and coordinates association changes with traffic and capture startup. `csi_traffic_service` owns traffic selection, lifecycle, and counters through the portable `ICsiTrafficGenerator` and `ICsiTrafficIngress` boundaries. ESP-IDF adapters implement transmission and UDP ingress.
+`WiFiLifecycleManager` applies the shared CSI radio policy and coordinates association changes with traffic and capture startup. `csi_traffic_service` selects, starts, and stops traffic generators and tracks traffic through the portable `ICsiTrafficGenerator` and `ICsiTrafficIngress` interfaces. ESP-IDF adapters implement transmission and UDP ingress.
 
 CSI callbacks validate and normalize frames before enqueueing them. The runtime loop admits samples and runs the detector; raw collection uses a separate bounded queue and HTTP worker. The [CSI guide](CSI.md) describes the radio lifecycle, source selection, capture validation, and normalization. [detector timing](ALGORITHMS.md#detector-timing) defines temporal admission.
 
@@ -115,7 +115,7 @@ The ESPectre Protocol is the message format shared by the frontends and tools. T
 ## Related references
 
 - Deployment and frontend selection: [setup guide](SETUP.md)
-- Supported SDK surface: [SDK guide](SDK.md)
+- Supported SDK interfaces: [SDK guide](SDK.md)
 - CSI acquisition and traffic: [CSI guide](CSI.md)
 - Detector behavior and troubleshooting: [algorithms reference](ALGORITHMS.md) and the [troubleshooting guide](TROUBLESHOOTING.md)
 - Measured detector results: [performance report](performance/README.md)

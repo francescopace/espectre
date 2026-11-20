@@ -56,7 +56,7 @@ After changing the published surface, run:
 - Inspect CSI callbacks, runtime loops, and inference paths for blocking work, allocation, copying, per-element division or modulo, repeated I/O, excessive stack use, oversized buffers, and debug-only work active in release paths.
 - Check stale state, incomplete reset, readiness gates, bounds and clamps, null handling, lifecycle ordering, and recovery paths.
 - Test shared behavior at the shared layer. Keep frontend-specific tests focused on adapter behavior and declared capability differences.
-- When the user requests a persistent review record, store it under `docs/review/` with stable finding IDs, severity, precise locations, and one progress checklist. Keep review completion separate from finding resolution.
+- For a requested persistent review, follow the [documentation rules for durable records](../../docs/AGENTS.md#durable-records).
 
 ## Licensing
 

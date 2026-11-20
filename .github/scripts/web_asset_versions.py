@@ -12,7 +12,7 @@ Stamp committed HTML after asset edits:
 
     python3 .github/scripts/web_asset_versions.py
 
-CI and local tests use `--check-current` so a stale hash fails closed.
+CI runs `--check-current` to verify hashes in committed HTML without rewriting it.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """

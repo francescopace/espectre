@@ -38,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Verify the source CI run and completed checks
         id: source
@@ -50,8 +51,10 @@ jobs:
 
       - name: Revalidate the release tag and main ancestry
         if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --no-tags origin main
+          git -c 'credential.helper=!gh auth git-credential' fetch --no-tags origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           python3 .github/scripts/validate_release.py --tag "$GITHUB_REF_NAME"
 
@@ -72,6 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ fromJSON(needs.validate-run.outputs.metadata).head_sha }}
 
       - name: Set up Python
@@ -362,6 +366,8 @@ jobs:
     steps:
       # SDK sources come only from the validated CI artifact.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup-sdk-packaging
       - name: Download the component built and tested by CI
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -446,6 +452,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ fromJSON(needs.release.outputs.metadata).head_sha }}
       - name: Download the library built and tested by CI
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

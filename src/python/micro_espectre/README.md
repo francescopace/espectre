@@ -72,7 +72,7 @@ The transmit rate follows the shared `CONFIG_ESPECTRE_WIFI_TX_RATE_MBPS` setting
 
 Micro uses automatic band selection when MicroPython supports it, and 2.4 GHz otherwise. It captures `vht20` on a 5 GHz ESP32-C5 link and `ht20` everywhere else. Classic ESP32 payloads are reordered to the centered layout before detection; see [normalization](../../../docs/CSI.md#normalization).
 
-`CSI_BUFFER_SIZE` sets the number of native ring records. `CSI_CAPTURE_MAX_DATA_LEN` sets their fixed stride: the default `256` bytes accommodates doubled HT20 payloads. A `128`-byte stride is suitable only when every captured frame fits the canonical payload; larger frames are truncated before normalization. Normalization and temporal admission then prepare the detector input as described in [detector timing](../../../docs/ALGORITHMS.md#detector-timing).
+`CSI_BUFFER_SIZE` sets the number of native ring records. `CSI_CAPTURE_MAX_DATA_LEN` sets their fixed stride: the default `256` bytes accommodates doubled HT20 payloads. A `128`-byte stride is suitable only when every captured frame fits in 128 bytes. Larger frames are truncated before normalization. Normalization and temporal admission then prepare the detector input as described in [detector timing](../../../docs/ALGORITHMS.md#detector-timing).
 
 Counters:
 
@@ -89,7 +89,9 @@ The diagnostics fields `csi_hw_error_total` and `csi_hw_error_pps` use the dedic
 
 When no frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, Micro first rearms CSI. If the stall persists, it stops Direct, reconnects Wi-Fi, creates a fresh capture ring, recalibrates, and republishes discovery. This recovery is implemented in [runtime_main.py](runtime_main.py) and [wifi_bootstrap.py](wifi_bootstrap.py).
 
-## Direct HTTP surface
+<a id="direct-http-surface"></a>
+
+## Supported Direct HTTP operations
 
 Micro-ESPectre provides read-only status and diagnostics, motion events, and manual recalibration. Open Monitor using the device IP or `espectre-<device-id>.local`, or discover the endpoint with:
 
@@ -112,13 +114,13 @@ Published firmware requires an `Origin` header and accepts only `https://espectr
 | Command | Purpose |
 | --- | --- |
 | `./espectre micro build [--chip <esp32\|c3\|s2\|s3\|c5\|c6>]` | Build the lean project firmware; the default chip is `esp32` |
-| `./espectre micro flash --chip <chip> --erase` | Build and flash the canonical project image |
+| `./espectre micro flash --chip <chip> --erase` | Build and flash the Micro-ESPectre firmware image |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
 | `./espectre micro run` | Start the device application |
 | `./espectre micro verify` | Check firmware, native modules, and deployed bytecode |
 | `./espectre monitor --chip <chip> --reset` | Start the application through esptool, then follow serial output |
 
-`--port` is optional for `flash`, `deploy`, `run`, and `verify`. `micro flash` requires `--chip`, builds the canonical project image, and flashes the files listed in its generated `flasher_args.json` metadata in one esptool session. Other device-facing commands accept an optional chip to resolve ambiguous candidates, while `build` defaults to `esp32`. `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`, which is useful for isolated laboratory settings.
+`--port` is optional for `flash`, `deploy`, `run`, and `verify`. `micro flash` requires `--chip`, builds the Micro-ESPectre firmware image, and flashes the files listed in its generated `flasher_args.json` metadata in one esptool session. Other device-facing commands accept an optional chip to resolve ambiguous candidates, while `build` defaults to `esp32`. `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`, which is useful for isolated laboratory settings.
 
 `micro build --json` emits final artifact metadata, `micro flash --json` adds the selected port after a successful flash, and `micro run --json` streams logs and emits a `direct_ready` event when the application reports its endpoint. Run `./espectre micro <command> --help` for the current flags.
 
@@ -140,15 +142,15 @@ Confirm that `config_local.py` exists, contains the intended SSID and password, 
 
 ## Implementation
 
-[runtime_main.py](runtime_main.py) owns calibration, diagnostics, and the device loop. Native bindings expose the SDK's Lightweight detector and temporal sampler, plus the shared traffic generator. Startup fails if the core module is absent or incompatible; there is no on-device Python detector fallback. See [core-only](../../../docs/SDK.md#core-only) for the core interface and logging contract.
+[runtime_main.py](runtime_main.py) runs calibration, collects diagnostics, and drives the device loop. Native bindings expose the SDK's Lightweight detector and temporal sampler, plus the shared traffic generator. Startup fails if the core module is absent or incompatible; there is no on-device Python detector fallback. See [core-only](../../../docs/SDK.md#core-only) for the core interface and logging contract.
 
 The firmware links `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC_SOURCES` from the SDK's source registry. Detector and logging bindings use `espectre_core_sdk.h`. Traffic, Wi-Fi transmit-rate policy, and the C diagnostic catalog use their focused public headers. These components keep MicroPython in charge of the runtime lifecycle.
 
-[native_direct.c](firmware/native_components/native_direct.c) owns HTTP framing, CORS, mDNS, and transport counters; MicroPython supplies resource snapshots. Telemetry runs at `EVALUATION_INTERVAL_MS` only while an SSE client is connected. Health refreshes once per second. Full diagnostics and garbage collection prefer an empty CSI ring, with at most 500 ms of additional deferral under backlog.
+[native_direct.c](firmware/native_components/native_direct.c) handles HTTP framing, CORS, mDNS, and transport counters. MicroPython supplies resource snapshots. Telemetry runs at `EVALUATION_INTERVAL_MS` only while an SSE client is connected. Health refreshes once per second. Full diagnostics and garbage collection prefer an empty CSI ring, with at most 500 ms of additional deferral under backlog.
 
 Board profiles under [boards/](firmware/boards/) contain the memory, Wi-Fi, and peripheral build choices. Classic ESP32 uses smaller Wi-Fi queues and omits lwIP IRAM placement to preserve heap. Bluetooth, ESP-NOW, asyncio, and Ethernet are disabled in the maintained profile.
 
-The `Micro-ESPectre > Advanced task scheduling` Kconfig menu controls native HTTPD and traffic priorities through `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` and `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY`. Both accept `1..10` and default to `1`; board overrides require validation. MicroPython owns the VM task priority.
+The `Micro-ESPectre > Advanced task scheduling` Kconfig menu controls native HTTPD and traffic priorities through `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` and `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY`. Both accept `1..10` and default to `1`; board overrides require validation. MicroPython sets the VM task priority.
 
 ## Validation
 

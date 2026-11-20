@@ -21,7 +21,9 @@ If the device roams between access points, you can pin it to one without editing
 
 Official images add the last three MAC bytes to the ESPHome hostname, for example `espectre-a1b2c3.local`. This lets one image serve multiple devices on the same network. The Home Assistant device and entity IDs use the same suffix.
 
-## Integration surface
+<a id="integration-surface"></a>
+
+## ESPHome integration
 
 Declaring `espectre:` creates the [entities](#integrated-entities) automatically.
 
@@ -38,7 +40,9 @@ This turns off Direct requests, live telemetry, raw CSI streaming, and ESPectre 
 
 Changes made through Direct show up in Home Assistant right away. Wi-Fi credentials, OTA, and API encryption stay under ESPHome's control. Renaming the device in ESPectre does not change the ESPHome hostname or entity IDs.
 
-## Configuration surface
+<a id="configuration-surface"></a>
+
+## Sensing configuration
 
 Sensing options go under `espectre:`, with the names, defaults, and ranges listed in [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). The full YAML schema is in [__init__.py](components/espectre/__init__.py). See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials) for what to adjust.
 
@@ -274,7 +278,7 @@ Some sensing options change name: `segmentation_window_size_ms` becomes `window_
 
 ### As an ESPHome external component
 
-Each maintained chip has one canonical example. By default it includes `espectre-source-github.yaml`, which resolves the component from GitHub:
+Each maintained chip has one example configuration. By default it includes `espectre-source-github.yaml`, which resolves the component from GitHub:
 
 ```yaml
 external_components:
@@ -318,7 +322,7 @@ The CLI builds the chip's example YAML with the component from your local checko
 
 ### Build toolchain
 
-The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) compiles the selected SDK through the canonical build definition at [`CMakeLists.txt`](../../CMakeLists.txt). No toolchain override or separate library is needed.
+The ESPHome examples use the native ESP-IDF backend from the ESPHome version pinned in [`requirements.txt`](../../../../requirements.txt). [`__init__.py`](components/espectre/__init__.py) registers this directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) compiles the selected SDK through the shared SDK build definition at [`CMakeLists.txt`](../../CMakeLists.txt). No toolchain override or separate library is needed.
 
 ### Automatic SDK configuration
 
@@ -403,7 +407,7 @@ The frontend uses public SDK headers. See [building against an SDK bundle](../..
 This section is for component maintainers. `sensing_schema.py` is generated from the SDK schema; CMake checks that it matches the selected SDK before compiling.
 
 - [`__init__.py`](components/espectre/__init__.py): YAML schema, validation, codegen, native ESP-IDF component registration, and ESPHome build flags
-- [`CMakeLists.txt`](components/espectre/CMakeLists.txt): native ESP-IDF bridge to the canonical shared SDK build definition
+- [`CMakeLists.txt`](components/espectre/CMakeLists.txt): native ESP-IDF bridge to the shared SDK build definition
 - [`espectre.cpp`](components/espectre/espectre.cpp), [`espectre.h`](components/espectre/espectre.h): ESPHome adapter over the shared runtime frontend controller
 - [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp): movement and motion publishing
 - [`threshold_number.cpp`](components/espectre/threshold_number.cpp): runtime threshold control

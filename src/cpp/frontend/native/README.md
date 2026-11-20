@@ -77,7 +77,7 @@ Home Assistant discovery is enabled in published firmware and can be disabled wi
 | CSI Traffic Source | Runtime traffic control: `ping`, `dns`, `dns_tcp`, `wifi_raw`, or `external` |
 | CSI Packet Spacing | Runtime CSI sample spacing: `half_slot` or `distinct` |
 | Recalibrate | Configuration button that starts recalibration |
-| Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
+| Calibration Active | Diagnostic binary sensor that reports whether the runtime is calibrating |
 | Generator, network, CSI, and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
 
 Standalone MQTT clients use the [MQTT topics](../../../../docs/API.md#mqtt-topics). Production diagnostics are available through both Direct and MQTT, including transport queues, drops, and failures; see [API diagnostics](../../../../docs/API.md#diagnostics).

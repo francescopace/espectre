@@ -20,10 +20,11 @@
 - Use `ALGORITHMS.md`, `FEATURES.md`, `ML_DATA_COLLECTION.md`, and `ML_TRAINING.md` for detector behavior, feature inventory, collection, and training workflows.
 - Use `performance/README.md`, `LITERATURE.md`, and `../data/auto_generated/DATASET_QUALITY_CHECK.md` for benchmark status, external research, collection backlog, and dataset quality.
 - Use `RELEASING.md` for maintainer procedures covering firmware signing, SDK packaging, and publication.
-- Use `ROADMAP.md` for product outcomes, gates, and sequencing; `adr/*.md` for durable decisions; and `review/*.md` only for dated review context.
+- Use `ROADMAP.md` for product outcomes, gates, and sequencing, and `adr/*.md` for durable decisions.
 
 ## Durable Records
 
+- When a user requests a persistent review, create `docs/review/` with the first dated record. Include stable finding IDs, severity, precise locations, and one progress checklist. Track review completion separately from finding resolution.
 - Keep `ROADMAP.md` at the outcome, gate, and sequencing level. Put experiment and collection details in their owning documents.
 - Use ADRs for durable architectural or project-level decisions, including important rejected directions. Keep one decision per ADR, preserve its rationale, and update `Status`, `Supersedes`, and `Superseded by` consistently. Follow the template and writing rules in the [ADR guide](adr/README.md).
 - Treat `FEATURES.md` as the feature analysis: for each seriously evaluated feature, give its meaning, evidence, limits, and verdict. Group by feature family, not by date. Fitting recipes and split policy go in `ML_TRAINING.md`; current results go in the performance report.

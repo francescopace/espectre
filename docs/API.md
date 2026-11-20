@@ -30,7 +30,7 @@ Direct HTTP listens on TCP port `62587`. Clients start with `GET /espectre/v1/ca
 | `DELETE` | `/wifi/bssid` | yes | yes | yes | no |
 | `DELETE` | `/wifi/credentials`, `/mqtt` | yes | no | no | no |
 
-Unsupported combinations return HTTP `404`. A custom build can disable features listed here, so always check `capabilities`. Micro-ESPectre limits are in its [Direct HTTP surface](../src/python/micro_espectre/README.md#direct-http-surface) section.
+Unsupported combinations return HTTP `404`. A custom build can disable features listed here, so always check `capabilities`. Micro-ESPectre limits are in its [supported Direct HTTP operations](../src/python/micro_espectre/README.md#supported-direct-http-operations) section.
 
 ### Request and response framing
 
@@ -356,7 +356,7 @@ The base topic is `espectre/v1/devices/{device_id}` unless Native is configured 
 | --- | --- | --- |
 | `health` | yes | Health, availability, and Last Will |
 | `device` | yes | Device identity and build |
-| `capabilities` | yes | Negotiation and supported surface |
+| `capabilities` | yes | Protocol negotiation and supported features |
 | `sensing` | yes | Sensing state and tuning |
 | `wifi` | yes | Redacted radio state |
 | `ota` | yes | OTA state |
