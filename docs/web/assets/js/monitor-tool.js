@@ -51,7 +51,8 @@
         calibrating: false,
         calibrationTimer: null,
         rawTargetSavePending: null,
-        rawTargetDiscovery: null
+        rawTargetDiscovery: null,
+        sessionFaults: []
     };
 
     function monitorStatus(message) {
@@ -92,6 +93,7 @@
         if (moveEl) moveEl.textContent = '—';
         monitorStats({});
         monitorDiagStatus('');
+        resetMonitorReportView();
         conn.movement = 0;
         conn.motion = false;
         renderTelemetry();
@@ -268,6 +270,7 @@
                 duration_seconds: Math.max(0, Math.round((Date.now() - monitor.connectedAt) / 1000))
             });
         }
+        resetMonitorReportView();
         resetMonitorSession();
     }
 
@@ -630,6 +633,413 @@
         );
     }
 
+    /* ============================================== diagnostic report */
+
+    let monitorReportSampling = null;
+    let monitorReportJson = '';
+
+    function recordMonitorFault(data) {
+        if (!monitor.sessionFaults) monitor.sessionFaults = [];
+        monitor.sessionFaults.push({
+            at: Date.now(),
+            timestamp: new Date().toISOString(),
+            fault: data && typeof data === 'object' ? { ...data } : data
+        });
+    }
+
+    function calculateRateStats(values) {
+        const numbers = (values || [])
+            .filter((v) => typeof v === 'number' && Number.isFinite(v))
+            .sort((a, b) => a - b);
+        if (!numbers.length) return { min: null, median: null, max: null };
+        const min = numbers[0];
+        const max = numbers[numbers.length - 1];
+        const mid = Math.floor(numbers.length / 2);
+        const median = numbers.length % 2 !== 0 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2;
+        return {
+            min: Number(min.toFixed(4)),
+            median: Number(median.toFixed(4)),
+            max: Number(max.toFixed(4))
+        };
+    }
+
+    function isMulticastOrBroadcastMac(mac) {
+        const clean = mac.toLowerCase();
+        if (clean === 'ff:ff:ff:ff:ff:ff' || clean === 'ff-ff-ff-ff-ff-ff') return true;
+        if (clean.startsWith('01:00:5e') || clean.startsWith('01-00-5e') || clean.startsWith('33:33')) return true;
+        return false;
+    }
+
+    function isMulticastOrLoopbackIp(ip) {
+        if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' || ip === '255.255.255.255') return true;
+        const first = parseInt(ip.split('.')[0], 10);
+        if (first >= 224 && first <= 239) return true;
+        return false;
+    }
+
+    function redactMacAddress(value) {
+        return value.replace(/\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, (match) => {
+            if (isMulticastOrBroadcastMac(match)) return match;
+            const sep = match.includes(':') ? ':' : '-';
+            const parts = match.split(sep);
+            return `${parts[0]}${sep}${parts[1]}${sep}**${sep}**${sep}**${sep}**`;
+        });
+    }
+
+    function redactIpv4Address(value) {
+        return value.replace(/\b((?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)\.){3}(?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)\b/g, (match) => {
+            if (isMulticastOrLoopbackIp(match)) return match;
+            const parts = match.split('.');
+            return `${parts[0]}.${parts[1]}.x.x`;
+        });
+    }
+
+    function redactDiagnosticReport(data) {
+        if (!data || typeof data !== 'object') return data;
+
+        const sensitiveTerms = [];
+        const addTerm = (val, replacement) => {
+            if (typeof val === 'string' && val.trim().length >= 3) {
+                const escaped = val.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                sensitiveTerms.push({ pattern: new RegExp(escaped, 'gi'), replacement });
+            }
+        };
+
+        if (data.wifi && typeof data.wifi === 'object') {
+            addTerm(data.wifi.ssid, '<redacted_ssid>');
+            addTerm(data.wifi.sta_ssid, '<redacted_ssid>');
+            addTerm(data.wifi.ap_ssid, '<redacted_ssid>');
+        }
+        if (data.device && typeof data.device === 'object') {
+            addTerm(data.device.name, '<redacted_name>');
+            addTerm(data.device.label, '<redacted_label>');
+            addTerm(data.device.hostname, '<redacted_hostname>');
+        }
+
+        const sanitizeText = (str) => {
+            if (typeof str !== 'string') return str;
+            let out = str;
+            for (const { pattern, replacement } of sensitiveTerms) {
+                out = out.replace(pattern, replacement);
+            }
+            out = out.replace(/\b[a-zA-Z0-9][-a-zA-Z0-9]*\.local\b/gi, '<redacted_hostname>.local');
+            out = redactMacAddress(out);
+            out = redactIpv4Address(out);
+            return out;
+        };
+
+        const transform = (key, val) => {
+            const lowerKey = (key || '').toLowerCase();
+
+            if (lowerKey === 'credentials' || lowerKey.endsWith('_credentials')) {
+                return undefined;
+            }
+
+            if (lowerKey.includes('password') || lowerKey.includes('passphrase') || lowerKey.includes('secret') || lowerKey.includes('token') || lowerKey.includes('api_key') || lowerKey.includes('private_key')) {
+                if (typeof val === 'boolean') return val;
+                if (val && typeof val === 'string') return '[REDACTED]';
+                if (val && typeof val === 'object') return undefined;
+                return val;
+            }
+
+            if (lowerKey === 'name' && typeof val === 'string') return '<redacted_name>';
+            if (lowerKey === 'label' && typeof val === 'string') return '<redacted_label>';
+            if (lowerKey === 'hostname' && typeof val === 'string') return '<redacted_hostname>';
+            if (lowerKey === 'ssid' && typeof val === 'string') return '<redacted_ssid>';
+
+            if (lowerKey === 'device_id' && typeof val === 'string' && val.length >= 8) {
+                return `${val.slice(0, 4)}...${val.slice(-4)}`;
+            }
+
+            if (typeof val === 'string') {
+                return sanitizeText(val);
+            }
+
+            if (Array.isArray(val)) {
+                return val.map((item) => transform(key, item)).filter((item) => item !== undefined);
+            }
+
+            if (val && typeof val === 'object') {
+                const result = {};
+                for (const [k, v] of Object.entries(val)) {
+                    const transformed = transform(k, v);
+                    if (transformed !== undefined) result[k] = transformed;
+                }
+                return result;
+            }
+
+            return val;
+        };
+
+        return transform('root', data);
+    }
+
+    function monitorCancelDiagnosticReport({ silent = false } = {}) {
+        if (!monitorReportSampling) return;
+        monitorReportSampling.cancel(silent);
+    }
+
+    function resetMonitorReportView() {
+        monitorCancelDiagnosticReport({ silent: true });
+        monitorReportJson = '';
+        const progressEl = $('.js-mon-report-progress');
+        const resultEl = $('.js-mon-report-result');
+        const previewEl = $('.js-mon-report-preview');
+        const startBtn = $('.js-mon-report-start');
+        if (progressEl) progressEl.hidden = true;
+        if (resultEl) resultEl.hidden = true;
+        if (previewEl) previewEl.textContent = '';
+        if (startBtn) startBtn.disabled = false;
+    }
+
+    function monitorStartDiagnosticReport({
+        sampleDurationSec = 30,
+        sampleIntervalMs = 1000
+    } = {}) {
+        if (monitorReportSampling) return Promise.resolve(null);
+        const mode = conn.mode;
+        const direct = mode === 'direct';
+        if (!direct && mode !== 'demo') {
+            toast('Connect to a device before generating a diagnostic report.');
+            return Promise.resolve(null);
+        }
+        if (direct && !directClient?.connected) {
+            toast('Direct HTTP connection is not ready. Connect and try again.');
+            return Promise.resolve(null);
+        }
+
+        const startBtn = $('.js-mon-report-start');
+        if (startBtn) startBtn.disabled = true;
+
+        const progressEl = $('.js-mon-report-progress');
+        const trackEl = $('.js-mon-report-track');
+        const barEl = $('.js-mon-report-bar');
+        const statusEl = $('.js-mon-report-status');
+        const resultEl = $('.js-mon-report-result');
+        const previewEl = $('.js-mon-report-preview');
+        const copyBtn = $('.js-mon-report-copy');
+
+        if (progressEl) progressEl.hidden = false;
+        if (resultEl) resultEl.hidden = true;
+        if (barEl) barEl.style.width = '0%';
+        if (trackEl) trackEl.setAttribute('aria-valuenow', '0');
+        if (statusEl) statusEl.textContent = `Sampling diagnostics (0/${sampleDurationSec}s)…`;
+
+        const samples = {
+            csi_occupancy: [],
+            csi_accepted_pps: [],
+            csi_filtered_pps: [],
+            csi_hw_error_pps: []
+        };
+
+        let elapsedSec = 0;
+        const controller = new AbortController();
+
+        return new Promise((resolve) => {
+            const samplingState = {
+                controller,
+                timer: null,
+                cancel(silent = false) {
+                    if (samplingState.timer) clearInterval(samplingState.timer);
+                    controller.abort();
+                    monitorReportSampling = null;
+                    if (progressEl) progressEl.hidden = true;
+                    if (startBtn) {
+                        startBtn.disabled = false;
+                        if (typeof startBtn.focus === 'function') startBtn.focus();
+                    }
+                    if (!silent) toast('Diagnostic report cancelled.');
+                    resolve(null);
+                }
+            };
+            monitorReportSampling = samplingState;
+
+            const pollSample = async () => {
+                if (monitorReportSampling !== samplingState) return;
+                if (direct && !directClient?.connected) {
+                    samplingState.cancel({ silent: true });
+                    toast('Device disconnected while sampling diagnostics.');
+                    return;
+                }
+                if (direct && directClient?.connected) {
+                    try {
+                        const res = await directClient.request('get', 'diagnostics', {
+                            fields: ['csi_occupancy', 'csi_accepted_pps', 'csi_filtered_pps', 'csi_hw_error_pps']
+                        }, { timeoutMs: Math.min(2000, sampleIntervalMs), signal: controller.signal });
+                        if (res && typeof res === 'object') {
+                            if (typeof res.csi_occupancy === 'number') samples.csi_occupancy.push(res.csi_occupancy);
+                            if (typeof res.csi_accepted_pps === 'number') samples.csi_accepted_pps.push(res.csi_accepted_pps);
+                            if (typeof res.csi_filtered_pps === 'number') samples.csi_filtered_pps.push(res.csi_filtered_pps);
+                            if (typeof res.csi_hw_error_pps === 'number') samples.csi_hw_error_pps.push(res.csi_hw_error_pps);
+                        }
+                    } catch {
+                        // Stale or dropped polling interval sample is ignored
+                    }
+                } else if (mode === 'demo') {
+                    const targetPps = csiTargetPps();
+                    samples.csi_accepted_pps.push(Math.max(1, targetPps - 10));
+                    samples.csi_occupancy.push(Math.max(1, targetPps - 16) / targetPps);
+                    samples.csi_filtered_pps.push(0);
+                    samples.csi_hw_error_pps.push(0);
+                }
+                const pct = Math.min(100, Math.round((elapsedSec / sampleDurationSec) * 100));
+                if (barEl) barEl.style.width = `${pct}%`;
+                if (trackEl) trackEl.setAttribute('aria-valuenow', String(pct));
+                if (statusEl) statusEl.textContent = `Sampling diagnostics (${Math.min(elapsedSec, sampleDurationSec)}/${sampleDurationSec}s)…`;
+
+                if (elapsedSec >= sampleDurationSec) {
+                    if (samplingState.timer) clearInterval(samplingState.timer);
+                    samplingState.timer = null;
+                    await finishReport();
+                    return;
+                }
+                elapsedSec += Math.round(sampleIntervalMs / 1000) || 1;
+            };
+
+            const finishReport = async () => {
+                if (monitorReportSampling !== samplingState) return;
+                if (statusEl) statusEl.textContent = 'Reading device resources…';
+
+                let capabilities = {};
+                let device = {};
+                let health = {};
+                let sensing = {};
+                let wifi = {};
+
+                if (direct && directClient?.connected) {
+                    const readResource = async (name) => {
+                        try {
+                            return await directClient.request('get', name, {}, {
+                                timeoutMs: 5000,
+                                signal: controller.signal
+                            });
+                        } catch (err) {
+                            return { error: err.message || String(err) };
+                        }
+                    };
+                    [capabilities, device, health, sensing, wifi] = await Promise.all([
+                        readResource('capabilities'),
+                        readResource('device'),
+                        readResource('health'),
+                        readResource('sensing'),
+                        readResource('wifi')
+                    ]);
+                } else if (mode === 'demo') {
+                    capabilities = { protocol_version: '1.0', resources: ['device', 'health', 'sensing', 'wifi', 'diagnostics'] };
+                    device = {
+                        name: 'Demo sensor',
+                        device_id: conn.deviceId || '2222222222222222',
+                        chip: 'esp32s3',
+                        firmware_version: '1.0.0'
+                    };
+                    health = { status: 'healthy', uptime: 3600, free_memory_kb: 161.4 };
+                    sensing = { detector: 'lightweight', csi_target_pps: csiTargetPps(), motion_on_hits: 3, motion_off_hits: 5 };
+                    wifi = { ssid: 'DemoNetwork', sta_ip: '192.168.1.50', sta_mac: '30:ae:a4:07:0a:24', wifi_channel: 6, password_configured: true };
+                }
+
+                const rawReport = {
+                    timestamp: new Date().toISOString(),
+                    client: {
+                        site: typeof window !== 'undefined' && window.location ? window.location.origin : '',
+                        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : ''
+                    },
+                    sampling: {
+                        duration_seconds: sampleDurationSec,
+                        samples_collected: Math.max(
+                            samples.csi_occupancy.length,
+                            samples.csi_accepted_pps.length,
+                            samples.csi_filtered_pps.length,
+                            samples.csi_hw_error_pps.length
+                        ),
+                        rates: {
+                            csi_occupancy: calculateRateStats(samples.csi_occupancy),
+                            csi_accepted_pps: calculateRateStats(samples.csi_accepted_pps),
+                            csi_filtered_pps: calculateRateStats(samples.csi_filtered_pps),
+                            csi_hw_error_pps: calculateRateStats(samples.csi_hw_error_pps)
+                        }
+                    },
+                    fault_events: monitor.sessionFaults ? monitor.sessionFaults.slice() : [],
+                    capabilities,
+                    device,
+                    health,
+                    sensing,
+                    wifi
+                };
+
+                const sanitized = redactDiagnosticReport(rawReport);
+                monitorReportJson = JSON.stringify(sanitized, null, 2);
+
+                if (previewEl) previewEl.textContent = monitorReportJson;
+                if (progressEl) progressEl.hidden = true;
+                if (resultEl) resultEl.hidden = false;
+                if (startBtn) startBtn.disabled = false;
+                if (copyBtn && typeof copyBtn.focus === 'function') copyBtn.focus();
+                monitorReportSampling = null;
+                toast('Diagnostic report ready.');
+                resolve(sanitized);
+            };
+
+            pollSample();
+            samplingState.timer = setInterval(pollSample, sampleIntervalMs);
+        });
+    }
+
+    async function monitorCopyDiagnosticReport() {
+        if (!monitorReportJson) {
+            toast('No diagnostic report available to copy.');
+            return;
+        }
+        const fenced = '```json\n' + monitorReportJson + '\n```';
+        const copyBtn = $('.js-mon-report-copy');
+        try {
+            if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(fenced);
+            } else if (typeof document !== 'undefined') {
+                const ta = document.createElement('textarea');
+                ta.value = fenced;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            }
+            if (copyBtn) {
+                const prevText = copyBtn.textContent;
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    if (copyBtn.textContent === 'Copied!') copyBtn.textContent = prevText;
+                }, 2000);
+            }
+            toast('Fenced JSON copied to clipboard.');
+        } catch (err) {
+            console.warn('Clipboard write failed:', err);
+            toast('Failed to copy to clipboard.');
+        }
+    }
+
+    function monitorDownloadDiagnosticReport() {
+        if (!monitorReportJson) {
+            toast('No diagnostic report available to download.');
+            return;
+        }
+        try {
+            const blob = new Blob([monitorReportJson], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `espectre-diagnostic-report-${Date.now()}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+            toast('Diagnostic report downloaded.');
+        } catch (err) {
+            console.warn('Download failed:', err);
+            toast('Failed to download report.');
+        }
+    }
+
     function monitorInit() {
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
@@ -692,5 +1102,9 @@
         document.getElementById('sense-raw-target').addEventListener('change', monitorChangeRawTarget);
         document.getElementById('sense-raw-target-manual').addEventListener('change', monitorChangeRawTarget);
         document.getElementById('sense-raw-target-refresh').addEventListener('click', monitorRefreshRawTrafficTargets);
+        $('.js-mon-report-start')?.addEventListener('click', () => monitorStartDiagnosticReport());
+        $('.js-mon-report-cancel')?.addEventListener('click', () => monitorCancelDiagnosticReport());
+        $('.js-mon-report-copy')?.addEventListener('click', () => monitorCopyDiagnosticReport());
+        $('.js-mon-report-download')?.addEventListener('click', () => monitorDownloadDiagnosticReport());
         window.addEventListener('resize', monitorResizeChart);
     }
