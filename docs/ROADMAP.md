@@ -4,7 +4,6 @@
 
 | Milestone | Status | Product outcome |
 | --- | --- | --- |
-| **v3.2.0** | Released | Bring ESPectre to Arduino projects through a supported SDK runtime, and serve the ESPectre Direct API next to the component built into ESPHome |
 | **v3.3.0** | In progress | Add stationary presence as a distinct sensing output, and move official ESPHome images to the built-in component |
 | **v3.4.0** | Research-gated | Release a supported gesture or non-medical micro-motion capability |
 | **v4.0.0** | Planned | Coordinate sensing nodes on the local network |
@@ -156,7 +155,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **November 11, 2026**
+Last update: **November 20, 2026**
 
 For discussion and proposed changes:
 

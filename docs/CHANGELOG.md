@@ -4,27 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.2.1] - work in progress
+## [3.2.1] - 2026-11-20 - ESPHome 2026.11 compatibility and MQTT without a CA bundle
 
-ESPectre 3.2.1 lets the Direct API use the same mDNS dependency as ESPHome 2026.11 and adds CI coverage for ESP-IDF 6.1.1 and Arduino-ESP32 4.0.0.
+ESPectre 3.2.1 brings the Direct API add-on to ESPHome 2026.11 and lets SDK projects connect to a plaintext MQTT broker without bundling CA certificates.
+
+Automated builds now cover ESP-IDF 6.1.1 and Arduino-ESP32 4.0.0.
 
 ### ESPHome
 
-- The firmware build uses ESPHome 2026.11.0, up from 2026.10.2.
+- Official firmware images use ESPHome 2026.11.0 and load the ESPectre external component.
 
 ### SDK
 
-- Direct now accepts `espressif/mdns` versions `>=1.12.0,<1.16.0`, including the 1.15.0 release pinned by ESPHome 2026.11.
-- CI builds the SDK with all optional services on ESP32-C6 using ESP-IDF 6.1.1. It also compiles the Arduino `MotionDetection` example on all six supported chips with Arduino-ESP32 3.3.12 and 4.0.0.
-- On ESP-IDF 6, the SDK pins `espressif/mqtt` to 1.0.0 because 1.1.0 fails to compile on ESP32-C5 with ESP-IDF 6.1.1.
-- The MQTT transport builds with the ESP-IDF certificate bundle disabled. In that configuration, `mqtt://` works and `mqtts://` reports that the bundle is required.
+- Direct accepts `espressif/mdns` versions `>=1.12.0,<1.16.0`, including the 1.15.0 release used by ESPHome 2026.11.
+- `mqtt://` works with the CA bundle disabled. `mqtts://` requires `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y`. If a connected client switches to `mqtts://` without the bundle, the SDK closes the plaintext connection and reports the configuration error.
+- On ESP-IDF 6, the SDK keeps `espressif/mqtt` at 1.0.0. Version 1.1.0 fails to compile on ESP32-C5 with ESP-IDF 6.1.1.
+- On ESP-IDF 6.1.1, CI builds the full SDK on ESP32-C6. On ESP32-C5, it builds Direct and MQTT together with the CA bundle turned off. CI also compiles the Arduino `MotionDetection` example on all six supported chips with Arduino-ESP32 3.3.12 and 4.0.0.
 
 ### Tools and integrations
 
-- Device settings shows the connected access point on devices that cannot pin one, such as ESPHome.
-- Monitor's Destination MAC menu accepts a typed MAC, for a sensor that discovery does not find or any other device on the same channel.
-- A tool page opened after the device connected shows the device's settings. Monitor showed defaults and hid the packet spacing and raw destination fields until a page reload.
-- `tools/analyze_stationary_presence.py` measures false and missed presence on paired recordings of an empty room and a still person from the same session. See the [analysis tools](../tools/README.md).
+- Device settings shows the connected access point's BSSID on devices that report it read-only, including ESPHome with Direct.
+- Monitor accepts a manually entered unicast destination MAC for raw Wi-Fi traffic on the same channel. The target can be a sensor outside discovery or another Wi-Fi device.
+- Opening Monitor after connecting now shows the device's current detection mode, packet spacing, and raw destination settings without a page reload.
+- The host-side analysis tool measures false and missed presence detections on paired recordings of an empty room and a person sitting still. See the [analysis tools](https://github.com/francescopace/espectre/blob/3.2.1/tools/README.md).
 - The web flasher moves to `@improv-wifi/serial-sdk` 3.0.0, the new name of the Improv Serial library.
 
 ---
