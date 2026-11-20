@@ -85,7 +85,7 @@ The verifier checks the resolved lockfile after every build: minimal, MQTT, prov
 
 ### ESP-IDF compatibility checks
 
-CI builds the minimum and the newest supported ESP-IDF on one target each. Before a release, build the example with every optional service group on all six targets, in Docker with each `espressif/idf` image listed in the [SDK compatibility table](SDK.md#esp-idf-compatibility-validation), and update the table. The `v6.1` tag is ESP-IDF's name for 6.1.
+Before a release, build the example with every optional service group on all six targets. Use the Docker images in the [SDK compatibility table](SDK.md#esp-idf-compatibility-validation) and any newer image in the [SDK build matrix](../.github/workflows/sdk-component.yml), then record the results in the table.
 
 Check the lockfiles: bundled MQTT on 5.5.x, `espressif/mqtt` within the manifest range on 6.x, and `espressif/mdns` within the manifest range. The MQTT range must keep 1.0.0, the release ESPHome pins on ESP-IDF 6. On 6.x, C5 and C6 keep only about 3–5% of the app partition free with every service on.
 
@@ -107,13 +107,13 @@ Before the first upload, the repository owner must complete these steps:
 
 1. `Prepare Build`, `Website Unit Tests`, `C++ Unit Tests`, and `Python Unit Tests` run in parallel. Preparation chooses the version, artifact names, signing mode, and publication channel.
 2. When all four pass, the ESPHome, Matter, Native, and Arduino builds, `Build SDK Package`, and `Build Traffic Generator Image` start in parallel. The image job builds the image, checks its web UI in a container, and builds the `amd64` and `arm64` OCI archive.
-3. Each firmware build then runs its dependency audit. The SDK package runs the SDK verification builds: no optional services on ESP32 and ESP32-C5, each service alone and all of them on ESP32-C3, and all of them with ESP-IDF 5.5.3 on ESP32-C5 and ESP-IDF 6.1 on ESP32-C6.
+3. Each firmware build then runs its dependency audit. The SDK verification builds cover the minimal package on ESP32 and ESP32-C5, each optional service alone and all of them on ESP32-C3, and the full package on the toolchains listed in [SDK compatibility validation](SDK.md#esp-idf-compatibility-validation).
 4. When all three audits pass, the [emulator CSI replay](../tools/README.md#emulator-csi-replay) runs the ESPHome and Native images in esp-emu.
 5. `Dispatch Publication` waits for the replay, SDK verification, the Arduino builds, and the image build, then starts `cd.yml` (`workflow_dispatch`) on the same branch or tag and links it in the CI summary.
 
 CD derives the channel, release tag, registry, and environment from the validated source and passes them along through job outputs. Artifacts are built once in CI and downloaded by CD. Checks and publication show up as separate runs.
 
-Branch protection should require preparation, the initial test jobs, firmware builds, dependency audits, the emulator replay, SDK packaging, SDK component build checks, and the traffic generator image build. Downstream checks alone are insufficient because they can be skipped after an upstream failure. Snapshot and release dispatch require the emulator replay, which runs only after every audit passes, and SDK verification to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
+Branch protection should require preparation, the initial test jobs, ESPHome, Native, and Matter firmware builds, dependency audits, the emulator replay, SDK packaging, `SDK compatibility`, and the traffic generator image build. The `SDK compatibility` check requires both the Arduino and ESP-IDF SDK build matrices to succeed. Its name stays the same when a chip or toolchain version changes. Snapshot and release dispatch require the emulator replay, which runs only after every audit passes, and SDK verification to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
 
 Registry packaging and Native and Matter container builds share the Component Manager version pinned in `requirements.txt`, which is compatible with ESP-IDF 5.5.6. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
 

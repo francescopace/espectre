@@ -176,9 +176,6 @@ target_include_directories(espectre_native_mdns_bootstrap_testlib
         "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"
 )
 
-add_library(espectre_mqtt_transport_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mqtt_transport_esp_idf.cpp"
-)
 add_library(espectre_frontend_emulator_replay_testlib STATIC ${ESPECTRE_FRONTEND_EMULATOR_REPLAY_SOURCES})
 target_include_directories(espectre_frontend_emulator_replay_testlib PUBLIC "${ESPECTRE_FRONTEND_ROOT}")
 target_link_libraries(espectre_frontend_emulator_replay_testlib
@@ -194,11 +191,6 @@ add_library(espectre_ota_https_testlib STATIC
 target_link_libraries(espectre_ota_https_testlib
     PUBLIC
         espectre_frontend_ota_protocol_testlib
-        espectre_test_mocks
-)
-target_link_libraries(espectre_mqtt_transport_testlib
-    PUBLIC
-        espectre_runtime_testlib
         espectre_test_mocks
 )
 target_link_libraries(espectre_direct_service_testlib
@@ -312,7 +304,6 @@ foreach(target_name
         espectre_runtime_dual_band_testlib
         espectre_direct_service_testlib
         espectre_native_mdns_bootstrap_testlib
-        espectre_mqtt_transport_testlib
         espectre_frontend_ota_protocol_testlib
         espectre_ota_https_testlib
         espectre_frontend_esphome_testlib

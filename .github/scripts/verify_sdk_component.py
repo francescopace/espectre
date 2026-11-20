@@ -27,10 +27,11 @@ LINK_CHECK_SOURCE = REPO_ROOT / ".github" / "sdk" / "optional_services_link_chec
 COMPONENT_NAME = "francescopace/espectre"
 SDK_SERVICE_PROFILES = ("frontend_support", "mqtt", "provisioning", "direct")
 # Compatibility builds beside the release toolchain pinned in espectre_cli.idf_container:
-# the minimum version the SDK manifest accepts and the newest major release.
+# the minimum version the SDK manifest accepts and the 6.x versions in CI.
 IDF_COMPATIBILITY_IMAGES = {
     "5.5.3": "espressif/idf:v5.5.3@sha256:8ccd4d2ce413889c6c2bba57e986c670302094efb91c913c6091152e317a7805",
     "6.1": "espressif/idf:v6.1@sha256:81893c71bb5e570088901f21def8684c25cd2a9020281bd01b843a7655edb18c",
+    "6.1.1": "espressif/idf:v6.1.1@sha256:2b4f966c37eaedc19542b0637a5f850b2eff9478d8e858192aa0073d92c2dc91",
 }
 
 
@@ -193,6 +194,8 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
     profiles = () if args.profile == "minimal" else (args.profile,)
     if args.profile == "all":
         profiles = SDK_SERVICE_PROFILES
+    elif args.profile == "direct_mqtt_no_bundle":
+        profiles = ("direct", "mqtt")
     if args.profile == "minimal":
         # Compile only the example's dependency closure, so unused bundled
         # stacks cannot hide unconditional SDK dependencies in this check.
@@ -216,6 +219,8 @@ def prepare(args: argparse.Namespace, inventory: dict, files: dict[str, bytes]) 
         output.write('\nCONFIG_ESPECTRE_EXAMPLE_WIFI_SSID="sdk-ci-placeholder"\n')
         for profile in profiles:
             output.write(f"CONFIG_ESPECTRE_SDK_ENABLE_{profile.upper()}=y\n")
+        if args.profile == "direct_mqtt_no_bundle":
+            output.write("CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n\n")
     print(f"Prepared {args.target}/{args.profile}: {project}")
 
 
@@ -241,7 +246,7 @@ def verify_dependencies(project: Path) -> None:
     config = json.loads((project / "build/config/sdkconfig.json").read_text(encoding="utf-8"))
     lock = yaml.safe_load((project / "dependencies.lock").read_text(encoding="utf-8"))
     for line in (project / "sdkconfig.defaults").read_text(encoding="utf-8").splitlines():
-        if line.startswith("CONFIG_ESPECTRE_SDK_ENABLE_"):
+        if line.startswith(("CONFIG_ESPECTRE_SDK_ENABLE_", "CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=")):
             option, value = line.removeprefix("CONFIG_").split("=", 1)
             if config.get(option, False) != (value == "y"):
                 raise ValueError(f"SDK build did not apply requested option: {line}")
@@ -334,7 +339,7 @@ def main() -> None:
                         help="Prepare the example from the CI package; resolve the SDK during the build.")
     parser.add_argument("--target", choices=("esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"),
                         default="esp32c3")
-    parser.add_argument("--profile", choices=("minimal", *SDK_SERVICE_PROFILES, "all"),
+    parser.add_argument("--profile", choices=("minimal", *SDK_SERVICE_PROFILES, "all", "direct_mqtt_no_bundle"),
                         default="minimal")
     parser.add_argument("--docker", action="store_true")
     parser.add_argument("--idf-version", choices=tuple(IDF_COMPATIBILITY_IMAGES),

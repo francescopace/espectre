@@ -678,13 +678,14 @@ jobs:
     needs: [prepare, test-site, test-cpp, test-python]
     permissions:
       contents: read
-    name: Build Arduino ${{ matrix.chip }}
+    name: Build Arduino ${{ matrix.core }} on ${{ matrix.target.chip }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
+        core: ['3.3.12', '4.0.0']
+        target:
           - chip: ESP32
             board: esp32
           - chip: ESP32-C3
@@ -700,7 +701,7 @@ jobs:
     env:
       ARDUINO_CLI_VERSION: 1.5.1
       ARDUINO_CLI_SHA256: 28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b
-      ARDUINO_ESP32_VERSION: 3.3.12
+      ARDUINO_ESP32_VERSION: ${{ matrix.core }}
       ARDUINO_DIRECTORIES_DATA: ${{ github.workspace }}/.cache/arduino/data
       ARDUINO_DIRECTORIES_DOWNLOADS: ${{ github.workspace }}/.cache/arduino/downloads
       ARDUINO_DIRECTORIES_USER: ${{ github.workspace }}/.cache/arduino/user
@@ -752,11 +753,11 @@ jobs:
       - name: Compile the MotionDetection example
         run: |
           arduino-cli compile --warnings default \
-            --fqbn "esp32:esp32:${{ matrix.board }}" \
+            --fqbn "esp32:esp32:${{ matrix.target.board }}" \
             "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/MotionDetection"
 
       - name: Compile the display examples
-        if: matrix.board == 'esp32s3'
+        if: matrix.target.board == 'esp32s3'
         run: |
           arduino-cli lib install --no-deps \
             "Adafruit BusIO@1.17.4" \
@@ -770,7 +771,7 @@ jobs:
             "${ARDUINO_DIRECTORIES_USER}/libraries/ESPectre/examples/WaveshareTouchLCD147"
 
       - name: Upload Arduino library
-        if: success() && github.event_name == 'push' && matrix.board == 'esp32'
+        if: success() && github.event_name == 'push' && matrix.target.board == 'esp32' && matrix.core == '4.0.0'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           overwrite: true
@@ -1016,6 +1017,22 @@ jobs:
     uses: ./.github/workflows/sdk-component.yml
     with:
       publication: ${{ needs.build-sdk.outputs.publication }}
+
+  sdk-compatibility:
+    name: SDK compatibility
+    needs: [build-arduino, verify-sdk-component]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Check both build matrices
+        env:
+          ARDUINO_RESULT: ${{ needs.build-arduino.result }}
+          SDK_RESULT: ${{ needs.verify-sdk-component.result }}
+        run: |
+          echo "Arduino: $ARDUINO_RESULT, ESP-IDF: $SDK_RESULT"
+          test "$ARDUINO_RESULT" = success && test "$SDK_RESULT" = success
 
   dispatch-publication:
     name: Dispatch Publication

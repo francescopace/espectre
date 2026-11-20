@@ -13,8 +13,11 @@
 #include <cstring>
 #include <new>
 
-#include "esp_crt_bundle.h"
 #include "core/espectre_log.h"
+#include "sdkconfig.h"
+#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+#include "esp_crt_bundle.h"
+#endif
 
 namespace espectre {
 
@@ -39,10 +42,16 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   if (!validate_espectre_mqtt_config(config)) {
     return false;
   }
-
   if (client_ != nullptr) {
     shutdown();
   }
+#if !CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
+  if (config.mqtt_scheme == "mqtts") {
+    ESPECTRE_LOGE(TAG, "mqtts:// requires CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y");
+    return false;
+  }
+#endif
+
   receive_storage_.reset(new (std::nothrow) ReceiveStorage);
   if (receive_storage_ == nullptr) {
     ESPECTRE_LOGE(TAG, "Failed to allocate MQTT receive storage");
@@ -68,10 +77,12 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   mqtt_config.broker.address.transport = config.mqtt_scheme == "mqtts"
                                              ? MQTT_TRANSPORT_OVER_SSL
                                              : MQTT_TRANSPORT_OVER_TCP;
+#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
   if (config.mqtt_scheme == "mqtts") {
     mqtt_config.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
     mqtt_config.broker.verification.skip_cert_common_name_check = false;
   }
+#endif
   if (!mqtt_username_.empty()) {
     mqtt_config.credentials.username = mqtt_username_.c_str();
   }

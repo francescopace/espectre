@@ -28,7 +28,7 @@ On 2026-10-21 the `wifi_motion_detection` example, with all optional services en
 | `v6.0.3` | Pass | Pass | Pass | Pass | Pass | Pass |
 | `v6.1` | Pass | Pass | Pass | Pass | Pass | Pass |
 
-CI also builds 5.5.3 on ESP32-C5 and 6.1 on ESP32-C6 on every push. These are build checks only; ESP-IDF 6.x has not been tested on hardware yet. See [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks) for what remains.
+On every push, CI builds the SDK with all optional services on ESP32-C5 with ESP-IDF 5.5.3 and on ESP32-C6 with ESP-IDF 6.1 and 6.1.1. CI also compiles the Arduino library's `MotionDetection` example on all six targets with Arduino-ESP32 3.3.12 and 4.0.0. Hardware validation for ESP-IDF 6.x is still pending. See the [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks).
 
 ## Installation
 
@@ -195,6 +195,8 @@ All groups are off by default, so the base SDK pulls in no network stack. Enable
 | `ESPECTRE_SDK_ENABLE_DIRECT` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `espressif/mdns` 1.12 to 1.15 |
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | Device configuration store and Wi-Fi provisioning | Nothing extra |
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | Turns on provisioning |
+
+Plaintext MQTT (`mqtt://`) works with the ESP-IDF certificate bundle disabled. For `mqtts://`, enable `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` so the transport can verify the broker certificate. If the bundle is disabled, `EspIdfMqttTransport::setup()` logs an error and returns `false` for `mqtts://`.
 
 The mDNS version is pinned because discovery uses private mDNS functions. Component Manager reads these options from Kconfig (ESP-IDF 5.5 and Component Manager 2.2 or newer), so:
 

@@ -9,7 +9,10 @@
 #include <string>
 #include <new>
 
+#include "sdkconfig.h"
+#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
 #include "esp_crt_bundle.h"
+#endif
 #include "mqtt_client.h"
 #include "mqtt_transport_esp_idf.h"
 
@@ -89,18 +92,31 @@ void test_setup_bounds_the_esp_mqtt_outbox() {
   TEST_ASSERT_EQUAL(8192U, transport.diagnostics().outbox_capacity_bytes);
 }
 
-void test_mqtts_uses_the_certificate_bundle_and_hostname_verification() {
+void test_mqtts_requires_the_certificate_bundle_for_broker_verification() {
   mqtt_client_mock_reset();
   EspIdfMqttTransport transport;
   EspectreDeviceConfig secure = config();
   secure.mqtt_scheme = "mqtts";
   secure.mqtt_port = 8883U;
+#if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
   TEST_ASSERT_TRUE(transport.setup(secure));
   TEST_ASSERT_EQUAL_STRING("broker.local", g_mqtt_client_mock.broker_hostname);
   TEST_ASSERT_EQUAL(8883U, g_mqtt_client_mock.broker_port);
   TEST_ASSERT_EQUAL(MQTT_TRANSPORT_OVER_SSL, g_mqtt_client_mock.broker_transport);
   TEST_ASSERT_TRUE(g_mqtt_client_mock.crt_bundle_attach == esp_crt_bundle_attach);
   TEST_ASSERT_FALSE(g_mqtt_client_mock.skip_cert_common_name_check);
+#else
+  TEST_ASSERT_FALSE(transport.setup(secure));
+  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.init_calls);
+
+  TEST_ASSERT_TRUE(transport.setup(config()));
+  connect(transport);
+  TEST_ASSERT_FALSE(transport.setup(secure));
+  TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.init_calls);
+  TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.destroy_calls);
+  TEST_ASSERT_FALSE(transport.connected());
+  TEST_ASSERT_FALSE(transport.publish_suffix("telemetry", "{}", false));
+#endif
 }
 
 void test_invalid_endpoint_is_rejected_before_client_initialization() {
@@ -252,7 +268,7 @@ int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_receive_storage_failure_shutdown_and_fragmented_recovery);
   RUN_TEST(test_setup_bounds_the_esp_mqtt_outbox);
-  RUN_TEST(test_mqtts_uses_the_certificate_bundle_and_hostname_verification);
+  RUN_TEST(test_mqtts_requires_the_certificate_bundle_for_broker_verification);
   RUN_TEST(test_invalid_endpoint_is_rejected_before_client_initialization);
   RUN_TEST(test_publish_is_deferred_and_latest_snapshot_replaces_stale_data);
   RUN_TEST(test_command_results_overtake_replaceable_snapshots);

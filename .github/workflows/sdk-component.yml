@@ -43,11 +43,13 @@ jobs:
           - {name: Core ESP32-C5, target: esp32c5, profile: minimal}
           - {name: Frontend ESP32-C3, target: esp32c3, profile: frontend_support}
           - {name: MQTT ESP32-C3, target: esp32c3, profile: mqtt}
+          - {name: Direct and MQTT without CA bundle ESP32-C5, target: esp32c5, profile: direct_mqtt_no_bundle, idf: '6.1.1'}
           - {name: Provisioning ESP32-C3, target: esp32c3, profile: provisioning}
           - {name: Direct HTTP ESP32-C3, target: esp32c3, profile: direct}
           - {name: Full ESP32-C3, target: esp32c3, profile: all}
           - {name: Full ESP32-C5 IDF 5.5.3, target: esp32c5, profile: all, idf: '5.5.3'}
           - {name: Full ESP32-C6 IDF 6.1, target: esp32c6, profile: all, idf: '6.1'}
+          - {name: Full ESP32-C6 IDF 6.1.1, target: esp32c6, profile: all, idf: '6.1.1'}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup-sdk-packaging
