@@ -16,6 +16,9 @@
 #include "esp_netif.h"
 #include "sdkconfig.h"
 
+#include <cstdio>
+#include <utility>
+
 namespace esphome::espectre_direct {
 
 static const char *const TAG = "espectre_direct";
@@ -39,9 +42,66 @@ uint32_t station_ipv4() {
   return info.ip.addr;
 }
 
+::espectre::WifiBssidPinStationState station_state() {
+  const auto snapshot = ::espectre::read_direct_wifi_snapshot();
+  return {snapshot.configured, snapshot.connected, ::espectre::read_direct_wifi_connected(),
+          snapshot.ssid, snapshot.bssid};
+}
+
 }  // namespace
 
+bool ESPectreDirect::connect_to_access_point_(const std::string &bssid, std::string *message, bool *transition_started) {
+  auto *wifi = wifi::global_wifi_component;
+  auto station = wifi->get_sta();
+  if (station.get_ssid().empty() && station.has_bssid()) {
+    // ESPHome fills the SSID from the scan only on its connection-attempt copy.
+    station.set_ssid(::espectre::read_direct_wifi_snapshot().ssid);
+  }
+  if (station.get_ssid().empty()) {
+    if (message != nullptr) *message = "No configured ESPHome station";
+    return false;
+  }
+  // Only override this connection attempt. Retain the full list of networks and
+  // credentials owned by ESPHome, including those needed after a rollback.
+  station.clear_channel();
+  if (bssid.empty()) {
+    station.clear_bssid();
+  } else {
+    wifi::bssid_t address{};
+    if (std::sscanf(bssid.c_str(), "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx", &address[0], &address[1],
+                    &address[2], &address[3], &address[4], &address[5]) != 6) {
+      if (message != nullptr) *message = "Invalid BSSID";
+      return false;
+    }
+    station.set_bssid(address);
+  }
+  // HTTPD has queued the 202 locally. Allow a TCP delayed-ACK interval for
+  // the last headers and body to reach the client before leaving the AP.
+  this->set_timeout(250, [wifi, station = std::move(station)]() { wifi->start_connecting(station); });
+  if (transition_started != nullptr) *transition_started = true;
+  return true;
+}
+
+void ESPectreDirect::setup() {
+#ifdef ESPECTRE_DIRECT_HAS_FRONTEND_WIFI_STATUS
+  ::espectre::WifiBssidPinServiceConfig pin_config;
+  pin_config.apply_callback = [this](const std::string &pin, std::string *message, bool *started) {
+    return this->connect_to_access_point_(pin, message, started);
+  };
+  pin_config.station_state_getter = station_state;
+  this->wifi_pin_ready_ = this->wifi_pin_.setup(std::move(pin_config)) == ESP_OK;
+  if (!this->wifi_pin_ready_) {
+    ESP_LOGW(TAG, "Wi-Fi BSSID storage unavailable");
+    return;
+  }
+  wifi::global_wifi_component->add_connect_state_listener(this);
+  wifi::global_wifi_component->add_scan_results_listener(this);
+  this->wifi_pin_.notify_station_changed();
+#endif
+}
+
 void ESPectreDirect::loop() {
+  this->wifi_pin_.loop();
   if (!this->started_) {
     const uint32_t now = millis();
     // The built-in component starts its runtime on its own schedule, and restarts it after a fault.
@@ -77,6 +137,44 @@ bool ESPectreDirect::start_() {
   config.raw_csi = this->raw_csi_;
   config.device_label_getter = []() { return std::string(App.get_friendly_name().c_str()); };
   config.peer_discovery = &this->peer_discovery_;
+#ifdef ESPECTRE_DIRECT_HAS_FRONTEND_WIFI_STATUS
+  if (this->wifi_pin_ready_) {
+    config.wifi_snapshot_getter = [this]() {
+      auto snapshot = ::espectre::read_direct_wifi_snapshot();
+      if (snapshot.ssid == this->wifi_pin_.stored_ssid()) snapshot.pinned_bssid = this->wifi_pin_.stored_bssid();
+      snapshot.apply_state = this->wifi_pin_.apply_state_name();
+      snapshot.apply_message = this->wifi_pin_.apply_message();
+      return snapshot;
+    };
+    config.wifi_scan_started = [this]() {
+      this->scan_state_ = ScanState::SCANNING;
+      // ESPHome skips the results callback on empty or failed scans.
+      this->set_timeout("wifi-scan", 15000, [this]() {
+        if (this->scan_state_ == ScanState::SCANNING) this->scan_state_ = ScanState::EMPTY;
+      });
+    };
+    config.wifi_scan_results_getter = [this](const std::string &ssid,
+                                             std::vector<::espectre::StandaloneWifiAccessPoint> &points) {
+      if (this->scan_state_ != ScanState::COMPLETE) return this->scan_state_ == ScanState::SCANNING;
+      for (const auto &ap : wifi::global_wifi_component->get_scan_result()) {
+        if (ap.get_ssid() != ssid) continue;
+        char address[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        format_mac_addr_upper(ap.get_bssid().data(), address);
+        points.push_back({ssid, address, ap.get_rssi(), ap.get_channel()});
+        if (points.size() == 32U) break;
+      }
+      return false;
+    };
+    config.wifi_bssid_pin_setter = [this](const std::string &pin, bool force, std::string *message) {
+      return this->wifi_pin_.request_update(pin, message, force);
+    };
+    config.wifi_bssid_pin_preflight = [this](std::string *message) {
+      if (!this->wifi_pin_.apply_pending()) return true;
+      if (message != nullptr) *message = "Wi-Fi BSSID update already in progress";
+      return false;
+    };
+  }
+#endif
   config.diagnostics_sample_getter = []() -> const ::espectre::RuntimeDiagnosticsSample * {
     const ::espectre::RuntimeFrontendController *current = ::espectre::RuntimeGuestAccess::runtime();
     return current != nullptr ? current->diagnostics_sample() : nullptr;

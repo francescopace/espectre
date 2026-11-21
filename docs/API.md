@@ -116,7 +116,7 @@ During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derive
 
 ### `wifi`
 
-The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown. Unknown RSSI is `null`. Native, Matter, and SDK frontends that report pin status also return `pinned_bssid`, `apply_state`, and `apply_message`. An empty `pinned_bssid` means automatic AP selection, even when `bssid` identifies the connected AP. Native also returns `ip`. The station MAC address and credentials are never returned.
+The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown. Unknown RSSI is `null`. Native, Matter, and SDK frontends that report pin status, including the ESPHome Direct add-on with pin support, also return `pinned_bssid`, `apply_state`, and `apply_message`. An empty `pinned_bssid` means automatic AP selection, even when `bssid` identifies the connected AP. Native also returns `ip`. The station MAC address and credentials are never returned.
 
 The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 

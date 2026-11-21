@@ -251,9 +251,9 @@ Omit `ref` to follow the default branch, or set a tag or commit to pin the add-o
 
 The GitHub examples use the SDK from the same revision as the add-on. Its mDNS range includes the version required by ESPHome. If you select a registry release yourself, check its Direct dependencies: SDK 3.2.0 excludes mDNS 1.15.0, which ESPHome 2026.11.0 requires.
 
-The add-on serves the device and sensing resources, live events, CSI collection, and discovery. The built-in component applies each change. Recalibration is always available. The other commands depend on which ESPHome platforms are compiled: the threshold and motion hits need the `number` platform, the detection profile, traffic source, and packet spacing need the `select` platform, and sensing enablement needs the `switch` platform. Declare the corresponding entity to publish its state and restore a supported setting after reboot. The threshold is temporary.
+The add-on serves the device and sensing resources, live events, CSI collection, and discovery. The built-in component applies sensing changes. Recalibration is always available. The other commands depend on which ESPHome platforms are compiled: the threshold and motion hits need the `number` platform, the detection profile, traffic source, and packet spacing need the `select` platform, and sensing enablement needs the `switch` platform. Declare the corresponding entity to publish its state and restore a supported setting after reboot. The threshold is temporary.
 
-The device name, the access point pin, the `wifi_raw` destination, the Wi-Fi settings, and MQTT are not available through the add-on. Manage them in the YAML.
+With the SDK shipped alongside this add-on, Device settings can scan, pin, or clear the access point for the current Wi-Fi network through Direct. SDK releases without frontend scan results provide read-only Wi-Fi status. The add-on saves the pin after the station reconnects to the requested access point and obtains an IPv4 address. If the switch times out, it restores the previous pin. You can select another access point while sensing is stopped as long as the device is reachable over Wi-Fi. Manage the device name, the `wifi_raw` destination, Wi-Fi credentials, and MQTT in ESPHome.
 
 `esphome.project.version` sets the firmware version that the Direct API reports. The SDK version is separate; see [versioning](../../../../docs/SDK.md#versioning).
 
@@ -276,7 +276,7 @@ Earlier ESPectre releases loaded an `espectre` component from this repository th
 
 Some sensing options change name: `segmentation_window_size_ms` becomes `window_size`, `evaluation_interval_ms` becomes `evaluation_interval`, and the filter options become the `lowpass_filter` and `hampel_filter` blocks. The built-in diagnostics have no admitted, filtered, stale, or out-of-order rate, and no Wi-Fi channel. [espectre-entities.yaml](examples/espectre-entities.yaml) shows every entity with its earlier name.
 
-Before upgrading from an external-component image, record the detection profile, CSI traffic source, packet spacing, and motion on/off hit counts. The built-in component stores these controls in ESPHome entity preferences and starts from the YAML defaults on the first boot. Reapply your recorded values in Home Assistant or put them in the YAML before upgrading. If you set a device label, access point pin, or raw destination through Direct, move it to the YAML as well.
+Before upgrading from an external-component image, record the detection profile, CSI traffic source, packet spacing, and motion on/off hit counts. The built-in component stores these controls in ESPHome entity preferences and starts from the YAML defaults on the first boot. Reapply your recorded values in Home Assistant or put them in the YAML before upgrading. If you pinned an access point through Direct, record its BSSID and reapply it in Device settings after the upgrade. Move any device label or raw destination set through Direct to YAML.
 
 A configuration adopted from an earlier example follows `main`, so its next build uses the built-in component and needs ESPHome 2026.11 or later.
 

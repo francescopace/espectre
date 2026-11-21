@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 import esphome.codegen as cg
-from esphome.components import esp32, espectre
+from esphome.components import esp32, espectre, wifi
 from esphome.components.esp32.const import KEY_COMPONENTS, KEY_ESP32, KEY_REF
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PATH, CONF_PORT, CONF_VERSION
@@ -128,6 +128,9 @@ def _require_guest_access_sdk():
 # Runs after the built-in component, whose SDK version this may replace.
 @coroutine_with_priority(CoroPriority.LATE)
 async def to_code(config):
+    wifi.request_wifi_connect_state_listener()
+    wifi.request_wifi_scan_results()
+    wifi.request_wifi_scan_results_listener()
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     parent = await cg.get_variable(config[espectre.CONF_ESPECTRE_ID])

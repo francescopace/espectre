@@ -62,6 +62,8 @@ Keep `csi_target_pps` at its default of `100`. Changing it changes detector timi
 
 If packets go out but the replies do not come back, [change the traffic source](#calibration-stalls-or-startup-quality-is-poor).
 
+If replies arrive but CSI callbacks stay at zero after the receive path refreshes, check the connected BSSID and its RSSI in Device settings. On a mesh network, try another access point for the same SSID and check the admitted rate and occupancy again. The Wi-Fi connection can carry traffic even when it provides no usable CSI.
+
 A protocol or bandwidth shown as `unavailable` in logs does not mean capture failed; check the packet counters first.
 
 ## LAN traffic blocked
