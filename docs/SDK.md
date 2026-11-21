@@ -8,7 +8,7 @@ ESPectre adds Wi-Fi motion detection to ESP-IDF firmware. It reads Channel State
 
 | Requirement | Supported configuration |
 |-------------|-------------------------|
-| ESP-IDF | `>=5.5.3`; release builds use 5.5.6 |
+| ESP-IDF | `>=5.5.3`; the repository toolchain uses 6.1.1 |
 | C++ | C++17 or later; CI builds use C++17, C++20, and C++23 |
 | Target | ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6 |
 | License | `GPL-3.0-only`, or a separate commercial license; see [Licensing](#licensing) |

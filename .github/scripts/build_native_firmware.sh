@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${NATIVE_BUILD_DIR:-build-container-${NATIVE_TARGET}}"
-DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:v5.5.6@sha256:bf72fe7a15c22849a9a94147301165a545fb8905d97c176cf748e3e4614cac84}"
+DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:v6.1.1@sha256:2b4f966c37eaedc19542b0637a5f850b2eff9478d8e858192aa0073d92c2dc91}"
 OUTPUT_DIR="$(dirname "${NATIVE_OUTPUT}")"
 NATIVE_OUTPUT_IN_WORK="/work/${NATIVE_OUTPUT#"${REPO_ROOT}"/}"
 NATIVE_OTA_OUTPUT_IN_WORK=""
@@ -46,25 +46,26 @@ docker run --rm \
       esp32s2) NATIVE_CHIP=s2 ;;
       *) echo \"Unsupported native target: ${NATIVE_TARGET}\" >&2; exit 1 ;;
     esac
-    # ESP-IDF activates a venv where --user installs are rejected; install into HOME instead.
-    SITE_PACKAGES=\"\${HOME}/.local/lib/python/site-packages\"
+    # Run the host CLI and SBOM tools in their own environment. IDF subprocesses
+    # keep the image's interpreter, PATH, and Espressif-constrained packages.
+    TOOLS_ENV=\"\${HOME}/cli-venv\"
     REQUIREMENTS_HASH=\"\$(cat /work/requirements.txt /work/.github/scripts/build_native_firmware.sh | sha256sum | cut -d ' ' -f 1)\"
     REQUIREMENTS_MARKER=\"\${HOME}/.espectre-requirements-\${REQUIREMENTS_HASH}\"
-    export PYTHONPATH=\"\${SITE_PACKAGES}\${PYTHONPATH:+:\${PYTHONPATH}}\"
     if [ ! -f \"\${REQUIREMENTS_MARKER}\" ]; then
-      rm -rf \"\${SITE_PACKAGES}\"
-      mkdir -p \"\${SITE_PACKAGES}\"
-      python -m pip install --target \"\${SITE_PACKAGES}\" -r /work/requirements.txt
+      python -m venv --clear \"\${TOOLS_ENV}\"
+      awk '/^(colorama|python-dotenv|paho-mqtt|prompt_toolkit|pyserial|PyYAML|license-expression|esp-idf-sbom)==/' /work/requirements.txt > \"\${TOOLS_ENV}/requirements.txt\"
+      \"\${TOOLS_ENV}/bin/python\" -m pip install -r \"\${TOOLS_ENV}/requirements.txt\"
       python \"\${IDF_PATH}/tools/idf_tools.py\" check-python-dependencies
       rm -f \"\${HOME}\"/.espectre-requirements-*
       touch \"\${REQUIREMENTS_MARKER}\"
     fi
+    export ESPECTRE_SKIP_VENV_REEXEC=1
     if [ -n \"\${SDKCONFIG_DEFAULTS:-}\" ]; then
       export SDKCONFIG_DEFAULTS
     fi
     export ESPECTRE_IDF_BUILD_DIR=${BUILD_DIR}
     cd /work
-    python /work/espectre native build --chip \"\${NATIVE_CHIP}\" --backend local --clean
+    \"\${TOOLS_ENV}/bin/python\" /work/espectre native build --chip \"\${NATIVE_CHIP}\" --backend local --clean
     cd /work/src/cpp/frontend/native/app/${BUILD_DIR}
     if python -m esptool merge-bin -h >/dev/null 2>&1; then
       python -m esptool --chip ${NATIVE_TARGET} merge-bin --pad-to-size 4MB -o \"\${NATIVE_OUTPUT}\" @flash_args
@@ -74,13 +75,13 @@ docker run --rm \
     if [ -n \"\${NATIVE_OTA_OUTPUT:-}\" ]; then
       cp espectre-native.bin \"\${NATIVE_OTA_OUTPUT}\"
     fi
-    python /work/.github/scripts/build_firmware_compliance.py \
+    \"\${TOOLS_ENV}/bin/python\" /work/.github/scripts/build_firmware_compliance.py \
       --frontend native \
       --project-description /work/src/cpp/frontend/native/app/${BUILD_DIR}/project_description.json \
       --firmware \"\${NATIVE_OUTPUT}\" \
       --output-dir \"\$(dirname \"\${NATIVE_OUTPUT}\")\"
     if [ -n \"\${NATIVE_OTA_OUTPUT:-}\" ]; then
-      python /work/.github/scripts/build_firmware_compliance.py \
+      \"\${TOOLS_ENV}/bin/python\" /work/.github/scripts/build_firmware_compliance.py \
         --frontend native \
         --project-description /work/src/cpp/frontend/native/app/${BUILD_DIR}/project_description.json \
         --firmware \"\${NATIVE_OTA_OUTPUT}\" \

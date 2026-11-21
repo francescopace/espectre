@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### ESPHome
 
+- Repository firmware builds use ESP-IDF 6.1.1. ESPHome images use the 2026.12 development revision pinned in the Python requirements.
 - The ESP32-S2 example enables TinyUSB for complete Improv Serial replies on native USB.
 - Official images and the examples use the `espectre` component built into ESPHome, with the `espectre_direct` add-on for the Direct API. They need ESPHome 2026.11 or later.
 - The external component is removed. To update a YAML that loads it, see [moving from the external component](../src/cpp/frontend/esphome/README.md#moving-from-the-external-component).

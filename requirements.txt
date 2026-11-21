@@ -1,24 +1,24 @@
 # Python dependencies for ESPectre
 
 # ESPHome build workflow
-esphome==2026.11.0
-aioesphomeapi==46.25.1  # required by ESPHome 2026.11.0
-esptool==5.6.0          # required by ESPHome 2026.11.0
-cryptography==50.0.2    # required by ESPHome 2026.11.0; firmware and release catalog signatures
+esphome @ https://github.com/esphome/esphome/archive/52a6402f5c71f578fd7e4f0013ec1ca8f7c1fa8f.tar.gz
+aioesphomeapi==46.30.1  # required by ESPHome 2026.12-dev
+esptool==5.6.0          # required by ESPHome 2026.12-dev
+cryptography==50.0.2    # required by ESPHome 2026.12-dev; firmware and release catalog signatures
 mpremote==1.29.0        # CLI wrapper coverage in Python tests
 mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro deploy
 pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests
 -r tools/ha_traffic_generator_addon/requirements.txt  # Home Assistant panel and internal API client
-paho-mqtt==2.1.0        # required by ESPHome 2026.11.0
-click==8.5.0            # required by ESPHome 2026.11.0
-requests==2.34.2        # required by ESPHome 2026.11.0
-zeroconf==0.153.0       # required by ESPHome 2026.11.0; used for host device discovery
+paho-mqtt==2.2.0        # required by ESPHome 2026.12-dev
+click==8.5.1            # required by ESPHome 2026.12-dev
+requests==2.34.2        # required by ESPHome 2026.12-dev
+zeroconf==0.154.0       # required by ESPHome 2026.12-dev; used for host device discovery
 colorama==0.4.6         # terminal colors
 python-dotenv==1.2.4    # environment variables support
 PyYAML==6.0.3           # YAML parsing
-idf-component-manager==2.5.2  # SDK registry tooling and ESP-IDF 5.5 firmware builds
+idf-component-manager==3.1.2  # SDK registry tooling and ESP-IDF 6.1 firmware builds
 prompt_toolkit==3.0.53  # interactive CLI support
 
 # Test dependencies

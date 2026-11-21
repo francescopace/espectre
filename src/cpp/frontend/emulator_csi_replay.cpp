@@ -150,16 +150,13 @@ void run(void *) {
 
 esp_err_t start_locked(ReplayState &replay) {
   if (replay.task != nullptr) return ESP_OK;
-  const uart_config_t uart_config = {
-      .baud_rate = kReplayBaud,
-      .data_bits = UART_DATA_8_BITS,
-      .parity = UART_PARITY_DISABLE,
-      .stop_bits = UART_STOP_BITS_1,
-      .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-      .rx_flow_ctrl_thresh = 0,
-      .source_clk = UART_SCLK_DEFAULT,
-      .flags = {},
-  };
+  uart_config_t uart_config{};
+  uart_config.baud_rate = kReplayBaud;
+  uart_config.data_bits = UART_DATA_8_BITS;
+  uart_config.parity = UART_PARITY_DISABLE;
+  uart_config.stop_bits = UART_STOP_BITS_1;
+  uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+  uart_config.source_clk = UART_SCLK_DEFAULT;
   esp_err_t err = uart_driver_install(kReplayUart, kRxBufferBytes, 0, 0, nullptr, 0);
   if (err == ESP_OK) err = uart_param_config(kReplayUart, &uart_config);
   if (err != ESP_OK) {

@@ -1299,7 +1299,7 @@ def test_run_idf_command_build_uses_wifi_defaults_when_present(monkeypatch, tmp_
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
@@ -1385,7 +1385,7 @@ def test_run_idf_command_build_ignores_shared_sdkconfig_target(monkeypatch, tmp_
     env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
@@ -1421,7 +1421,7 @@ def test_run_idf_command_build_uses_explicit_sdkconfig_when_missing(
 
     monkeypatch.setenv("ESPECTRE_IDF_SDKCONFIG", str(generated_sdkconfig))
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False))
@@ -1449,8 +1449,8 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
     calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
-    monkeypatch.setattr(idf, "ensure_docker_backend", lambda _policy: "/usr/bin/docker")
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(idf, "ensure_docker_backend", lambda _policy, *, image: "/usr/bin/docker")
     monkeypatch.setattr(idf, "run_idf_container", lambda **kwargs: calls.append(kwargs))
 
     idf.run_idf_command(
@@ -1498,8 +1498,8 @@ def test_run_idf_command_forced_local_backend_does_not_try_docker(monkeypatch, t
     docker_calls: list[str] = []
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
-    monkeypatch.setattr(idf, "ensure_docker_backend", lambda policy: docker_calls.append(policy))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: (_ for _ in ()).throw(FileNotFoundError()))
+    monkeypatch.setattr(idf, "ensure_docker_backend", lambda policy, *, image: docker_calls.append(policy))
 
     with pytest.raises(SystemExit):
         idf.run_idf_command(
@@ -1528,7 +1528,7 @@ def test_docker_backend_failure_does_not_clean_existing_build(monkeypatch, tmp_p
     monkeypatch.setattr(
         idf,
         "ensure_docker_backend",
-        lambda _policy: (_ for _ in ()).throw(idf.DockerBackendError("download declined")),
+        lambda _policy, *, image: (_ for _ in ()).throw(idf.DockerBackendError("download declined")),
     )
 
     with pytest.raises(SystemExit):
@@ -1674,7 +1674,7 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32"))
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="esp32", idf_command="build", port=None, clean=False))
@@ -1714,7 +1714,7 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
@@ -1757,7 +1757,7 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     monkeypatch.setattr(
         idf,
         "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+        lambda *_: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
@@ -1793,7 +1793,7 @@ def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(
         idf,
         "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+        lambda *_: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
@@ -1835,7 +1835,7 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
     monkeypatch.setattr(
         idf,
         "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+        lambda *_: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
@@ -2730,7 +2730,7 @@ def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Pat
     env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check, **_kwargs: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command(
@@ -2839,7 +2839,7 @@ def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, t
     monkeypatch.setattr(
         idf,
         "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+        lambda *_: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
     )
 
     def _raise_not_found(_cmd, cwd, check, **_kwargs):
@@ -2921,7 +2921,8 @@ def test_resolve_idf_environment_repairs_incomplete_esphome_python_env(
     repaired: list[bool] = []
     process_env = {"IDF_PATH": str(framework_path)}
 
-    def repair_install() -> tuple[Path, Path]:
+    def repair_install(version) -> tuple[Path, Path]:
+        assert version == idf.IDF_VERSION
         repaired.append(True)
         python_executable.parent.mkdir(parents=True)
         python_executable.write_text("", encoding="utf-8")
@@ -2965,7 +2966,7 @@ def test_run_idf_command_build_uses_esphome_managed_environment(monkeypatch, tmp
     )
 
     monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
-    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda *_: env)
     monkeypatch.setattr(idf, "ccache_binary", lambda path=None: None)
     monkeypatch.setattr(
         idf.subprocess,
@@ -3076,7 +3077,7 @@ def test_run_idf_command_build_uses_single_exported_subprocess(monkeypatch, tmp_
     monkeypatch.setattr(
         idf,
         "resolve_idf_environment",
-        lambda: idf.ResolvedIdfEnvironment(
+        lambda *_: idf.ResolvedIdfEnvironment(
             mode="export",
             source="standard ESP-IDF install",
             install_dir=export_script.parent,
