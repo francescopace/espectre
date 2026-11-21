@@ -345,7 +345,8 @@ def enrich_sbom(sbom: dict, description: dict, frontend: str, firmware: Path) ->
                 package["licenseConcluded"] = str(licensing.parse(expression).subs({
                     licensing.parse("GPL-3.0-only"): licensing.parse(own_license),
                 }))
-        if frontend == "esphome" and package_id in {"SPDXRef-COMPONENT-src", "SPDXRef-COMPONENT-espectre"}:
+        if frontend == "esphome" and package_id in {"SPDXRef-COMPONENT-src", "SPDXRef-COMPONENT-espectre",
+                                                    "SPDXRef-COMPONENT-espectre-emulator-csi-replay"}:
             package["licenseDeclared"] = "GPL-3.0-only"
             if package_id == "SPDXRef-COMPONENT-src":
                 package["name"] = "ESPHome C++ runtime"

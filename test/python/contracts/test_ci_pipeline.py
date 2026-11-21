@@ -1175,13 +1175,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert 'improv/improv:\n    version: "1.2.7"' in native_manifest
     assert "git:" not in native_manifest
 
-    for relative_path in (
-        "src/cpp/frontend/native/espectre/idf_component.yml",
-        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
-    ):
-        frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
-        assert "espressif/esp_tinyusb:" in frontend_manifest
-        assert '- if: "target == esp32s2"' in frontend_manifest
+    assert "espressif/esp_tinyusb:" in native_manifest
+    assert '- if: "target == esp32s2"' in native_manifest
 
     matter_manifest = (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "espectre" / "idf_component.yml"
@@ -1190,11 +1185,9 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert "git:" not in matter_manifest
     assert "espressif/esp_tinyusb:" not in matter_manifest
     assert "esp32s2" not in matter_manifest
-    for relative_path in (
-        "src/cpp/frontend/matter/app/main/idf_component.yml",
-        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
-    ):
-        assert "improv" not in (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    assert "improv" not in (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "main" / "idf_component.yml"
+    ).read_text(encoding="utf-8")
     assert not (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults.esp32s2"
     ).exists()
@@ -2432,7 +2425,10 @@ def test_esp_idf_signatures_reject_unsigned_corrupt_and_wrong_key_images(tmp_pat
     private.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                           serialization.NoEncryption()))
     image = tmp_path / "app.bin"
-    image.write_bytes(b"firmware payload" * 256)
+    payload = bytearray(b"firmware payload" * 256)
+    payload[32:36] = (0xABCD5432).to_bytes(4, "little")
+    payload[48:80] = b"3.3.0".ljust(32, b"\0")
+    image.write_bytes(payload)
     with pytest.raises(ValueError, match="signature"):
         signing.verify_app(image, key.public_key(), legacy=legacy)
     subprocess.run([sys.executable, "-m", "espsecure", "sign-data", str(image), "--version", "1" if legacy else "2",
@@ -2446,6 +2442,10 @@ def test_esp_idf_signatures_reject_unsigned_corrupt_and_wrong_key_images(tmp_pat
     signed_app = image.read_bytes()
     factory[0x10000:0x10000 + len(signed_app)] = signed_app
     (tmp_path / "factory.bin").write_bytes(factory)
+    builder = load_script("build_signed_firmware")
+    builder.validate_images(tmp_path / "factory.bin", image, key, legacy=legacy, expected_version="3.3.0")
+    with pytest.raises(ValueError, match="Signed OTA image version"):
+        builder.validate_images(tmp_path / "factory.bin", image, key, legacy=legacy, expected_version="3.3.1")
     catalog = {"frontends": {
         "native": {"artifacts": [
             {"build_type": "ota", "chip": "esp32" if legacy else "esp32c6", "filename": "app.bin"},

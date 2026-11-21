@@ -408,12 +408,3 @@ def test_frontends_use_only_public_sdk_headers() -> None:
             if target in sdk_headers and target not in public:
                 violations.append(f"{source.relative_to(REPO_ROOT)} -> {include}")
     assert not violations, "Frontend includes private SDK headers: " + ", ".join(violations)
-
-
-def test_esphome_schema_matches_the_public_sdk_contract() -> None:
-    """Python validation and firmware compilation must use the same sensing contract."""
-    import runpy
-
-    generator = runpy.run_path(str(REPO_ROOT / ".github" / "scripts" / "generate_esphome_schema.py"))
-    output = CPP_ROOT / "frontend" / "esphome" / "components" / "espectre" / "sensing_schema.py"
-    assert output.read_text(encoding="utf-8") == generator["render_schema"]()

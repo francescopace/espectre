@@ -39,8 +39,7 @@ Python tests run on at most four workers, because the replay tests get slower wi
 ### SDK validation
 
 - `test/cpp/suites/runtime/test_sdk_surface.cpp` checks that everything documented is reachable through `espectre_sdk.h` and that the defaults match.
-- `test/python/contracts/test_sdk_surface_invariants.py` checks the generated ESPHome schema, blocks frontends from using private SDK headers, and checks that every public header is documented in the API reference and in [public headers](docs/SDK.md#public-headers).
-- After changing the sensing schema, run `.venv/bin/python .github/scripts/generate_esphome_schema.py` (`--check` only verifies).
+- `test/python/contracts/test_sdk_surface_invariants.py` blocks frontends from using private SDK headers, and checks that every public header is documented in the API reference and in [public headers](docs/SDK.md#public-headers).
 - To check the packaged component and example, follow [package and validate](docs/RELEASING.md#package-and-validate).
 
 ## Pull requests

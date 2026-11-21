@@ -1767,6 +1767,7 @@ describe('website tool contracts', () => {
         for (const [project, version, frontend, expectedVersion] of [
             ['espectre-native', '2.8.0-417-g2b49a9c', 'native', '2.8.0-417-g2b49a9c'],
             ['espectre-matter', '2.8.0-417-g2b49a9c', 'matter', '2.8.0-417-g2b49a9c'],
+            ['espectre', '3.3.0-1-gabcdef0', 'esphome', '3.3.0-1-gabcdef0'],
             ['espectre', '2026.7.4', 'esphome', ''],
             ['unrelated', '1.0.0', '', ''],
         ]) {

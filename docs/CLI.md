@@ -124,7 +124,7 @@ ESP32-S2 boards using USB CDC must already be in download mode to flash.
 | `config` | Validate and show the configuration |
 | `monitor` | Show logs |
 
-Common flags are `--chip`, `--config`, and `--device`. Each chip has one example configuration; the CLI uses it with the external component from your local checkout.
+Common flags are `--chip`, `--config`, and `--device`. Each chip has one example configuration; the CLI uses it with the Direct API add-on and the SDK from your local checkout.
 
 - `build --clean` runs `esphome clean` first; `--clean-all` runs `esphome clean-all`.
 - `flash --erase` erases all flash before a serial upload. It does not work over the network.

@@ -19,24 +19,22 @@ packages:
 esp32:
   board: esp32s3_120_16_8-qio_opi
 
-# ESPectre cadence and display-driven updates
-espectre:
-  id: espectre_csi
-  movement_sensor:
-    name: "Movement Score"
-    id: espectre_movement_score
+# Redraw the display when the movement or motion entity of the base config changes
+sensor:
+  - platform: copy
+    source_id: espectre_movement_score
+    id: tft_movement_update
     on_value:
       then:
         - component.update: tft_display
-  motion_sensor:
-    name: "Motion Detected"
-    id: espectre_motion_detected
+
+binary_sensor:
+  - platform: copy
+    source_id: espectre_motion_detected
+    id: tft_motion_update
     on_state:
       then:
         - component.update: tft_display
-  threshold_number:
-    name: "Threshold"
-    id: espectre_threshold
 
 spi:
   clk_pin: GPIO38

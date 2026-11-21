@@ -1345,8 +1345,9 @@
                 if (frontend) {
                     return {
                         firmware: FLASH_FIRMWARE_NAMES[frontend],
-                        // ESPHome's app descriptor stores the framework version.
-                        version: frontend === 'esphome' ? '' : descriptor.version,
+                        // Older ESPHome images stamp the framework's calendar version.
+                        version: frontend === 'esphome' && !/^v?\d{1,3}\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(descriptor.version)
+                            ? '' : descriptor.version,
                         chipFamily: flashNormalizeChip(chipFamily)
                     };
                 }

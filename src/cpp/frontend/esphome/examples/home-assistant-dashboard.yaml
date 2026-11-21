@@ -103,13 +103,13 @@ views:
               - entity: sensor.espectre_traffic_rx_rate
                 name:
                   type: entity
-              - entity: sensor.espectre_csi_admitted_rate
+              - entity: sensor.espectre_csi_accepted_rate
+                name:
+                  type: entity
+              - entity: sensor.espectre_csi_temporal_occupancy
                 name:
                   type: entity
               - entity: sensor.espectre_wifi_rssi
-                name:
-                  type: entity
-              - entity: sensor.espectre_wifi_channel
                 name:
                   type: entity
             show_header_toggle: false

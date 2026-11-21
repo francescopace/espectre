@@ -1,4 +1,5 @@
-# ESPectre component source for repository development.
+# ESPectre add-ons and matching SDK for repository development.
+# Sensing comes from the espectre component built into ESPHome.
 substitutions:
   project_version: !env_var ESPECTRE_GIT_VERSION local
 
@@ -6,7 +7,7 @@ external_components:
   - source:
       type: local
       path: ../components
-    components: [ espectre ]
+    components: [ espectre_direct, espectre_usb_console ]
 
 dashboard_import:
   package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/${example_config}@main
