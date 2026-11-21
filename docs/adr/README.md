@@ -28,6 +28,7 @@ Not for routine cleanup, temporary experiments or sweeps, generated benchmark re
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
 - [`2026-08-23-standardize-managed-csi-traffic-sources.md`](2026-08-23-standardize-managed-csi-traffic-sources.md)
+- [Defer ESP32-C6 sensing from access-point Block ACKs](2026-11-21-defer-c6-block-ack-sensing.md)
 
 ### ML and validation
 
