@@ -19,17 +19,17 @@ It also moves official ESPHome images to the `espectre` component built into ESP
 
 **Commitment**: stationary presence is planned work, not an open research question. The detector still ships only after it passes the gates below and in the [research pipeline](#research-pipeline).
 
-**Scope**:
+**Items**:
 
-- Ship the capture profile, CSI rate, and window changes that the presence detector depends on (R1 to R3 in the [research pipeline](#research-pipeline)), with C++/Python parity
-- Validate stationary presence across representative hardware and environments using paired same-session evidence
-- Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
-- Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
-- Build official ESPHome images on an ESPHome release whose built-in component takes every sensing control, which starts with 2026.11, and remove the external component once those images match it in the browser tools and the CLI
-- Before releasing ESPectre v3.3.0, pin an exact stable ESPHome 2026.12.x version in [requirements.txt](../requirements.txt) and verify that Native and Matter pin the same `espressif/mdns` version as that release
-- On ESP32 and ESP32-C5, upgrade an official ESPectre 3.2.x ESPHome image over OTA to a signed 3.3.0 image built with that stable ESPHome version. After reboot, confirm that both the browser tools and the CLI can reach the device
-- Test Matter with ESP-IDF 6.1.1 on ESP32 and ESP32-C5 hardware. Verify commissioning, occupancy updates at the controller, and reconnection to the same controller after a device reboot. Record the results in the [controller validation records](../src/cpp/frontend/matter/README.md#controller-validation-records)
-- Once the upstream MicroPython ESP32 port supports ESP-IDF 6.1.1, update Micro-ESPectre to that revision and build it with ESP-IDF 6.1.1. On an ESP32-C5, verify boot and Wi-Fi association, then measure the received CSI rate against the 100 packets/s target
+- [ ] Ship the capture profile, CSI rate, and window changes that the presence detector depends on (R1 to R3 in the [research pipeline](#research-pipeline)), with C++/Python parity
+- [ ] Validate stationary presence across representative hardware and environments using paired same-session evidence
+- [ ] Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
+- [ ] Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
+- [ ] Before releasing ESPectre v3.3.0, pin an exact stable ESPHome 2026.12.x version in [requirements.txt](../requirements.txt) and run the [mDNS alignment test](../test/python/contracts/test_ci_pipeline.py) against that release to confirm that Native and Matter pin the same `espressif/mdns` version
+- [ ] Build the official ESPHome images with that stable version and verify that the browser tools and CLI support the same sensing controls as the 3.2.x images
+- [ ] Upgrade an official ESPectre 3.2.x ESPHome image over OTA to a signed 3.3.0 image built with that stable ESPHome version. After reboot, confirm that both the browser tools and the CLI can reach the device
+- [ ] Pin the exact stable upstream MicroPython release that includes the [ESP-IDF 6.1 port](https://github.com/micropython/micropython/pull/19725) and supports ESP-IDF 6.1.1. Rebuild all six targets with that release
+- [ ] Rerun the [firmware benchmark](../tools/benchmark_firmware.py) on every supported chip before release
 
 **Exit criteria**: the detector passes its data and performance gates, C++ and Python agree, all frontends report presence the same way, and the documentation says clearly what presence cannot tell. If a candidate misses a gate, record why in the [feature analysis](FEATURES.md) and move to the next one; the release waits until one passes. Official ESPHome images use the built-in component, and the browser tools and the CLI work with them as they do with 3.2 images.
 
@@ -159,7 +159,7 @@ This file covers goals, release gates, and order. Details live elsewhere:
 - [API reference](API.md), [discovery reference](DISCOVERY.md), and [architecture overview](ARCHITECTURE.md) for system contracts
 - [changelog](CHANGELOG.md) for shipped behavior
 
-Last update: **November 20, 2026**
+Last update: **November 21, 2026**
 
 For discussion and proposed changes:
 

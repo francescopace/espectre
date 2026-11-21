@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import subprocess
 import tokenize
 from io import BytesIO
@@ -107,8 +108,10 @@ def test_pinned_checkout_update_backs_up_edits_per_repository_and_revision(
     source_path = upstream / "module.c"
     source_path.write_text("old pin\n", encoding="utf-8")
     old_commit = _commit_fixture(upstream, "old pin")
-    source_path.write_text("new pin\n", encoding="utf-8")
-    new_commit = _commit_fixture(upstream, "new pin")
+    fork = tmp_path / "fork"
+    subprocess.run(["git", "clone", "-q", str(upstream), str(fork)], check=True)
+    (fork / "module.c").write_text("new pin\n", encoding="utf-8")
+    new_commit = _commit_fixture(fork, "new pin")
 
     workspace = tmp_path / "micro-esp32"
     stale_backup = workspace / f"micropython-before-{micro_firmware.MICROPYTHON_PATCH_REVISION}.patch"
@@ -122,7 +125,7 @@ def test_pinned_checkout_update_backs_up_edits_per_repository_and_revision(
         checkouts[name] = checkout
 
     for name, checkout in checkouts.items():
-        micro_firmware._checkout_pinned_repository(upstream.as_uri(), new_commit, checkout)
+        micro_firmware._checkout_pinned_repository(fork.as_uri(), new_commit, checkout)
 
         assert (checkout / "module.c").read_text(encoding="utf-8") == "new pin\n"
         backup_path = workspace / f"{name}-before-{old_commit[:12]}.patch"
@@ -618,7 +621,7 @@ def test_micro_build_tracks_sdk_changes_and_return_to_checkout(
         sdk_root.mkdir()
     idf_dir = tmp_path / "idf"
     idf_dir.mkdir()
-    (idf_dir / "version.txt").write_text("v5.5.5\n", encoding="utf-8")
+    (idf_dir / "version.txt").write_text(f"v{idf_container.IDF_VERSION}\n", encoding="utf-8")
     env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", install_dir=idf_dir)
     monkeypatch.setattr(micro_firmware, "REPO_ROOT", repo_root)
     monkeypatch.setattr(
@@ -638,16 +641,26 @@ def test_micro_build_tracks_sdk_changes_and_return_to_checkout(
     for name in vars(micro_firmware):
         if name.startswith("_configure_project_"):
             monkeypatch.setattr(micro_firmware, name, lambda *_args: None)
-    monkeypatch.setattr(micro_firmware, "_align_idf_lockfile", lambda *_args: None)
 
     configure_calls = []
     docker_calls = []
+    if backend == "docker":
+        old_cache = workspace / "build-c3-docker"
+        old_cache.mkdir(parents=True)
+        (old_cache / "CMakeCache.txt").write_text("old compiler", encoding="utf-8")
 
     def record_build(commands, environment):
         configure = next(cmd for cmd in commands if cmd[:2] == ["cmake", "-S"])
         configure_calls.append((configure, environment))
         build_dir = workspace / configure[configure.index("-B") + 1]
         build_dir.mkdir(parents=True, exist_ok=True)
+        if backend == "docker":
+            cmake_cache = build_dir / "CMakeCache.txt"
+            if len(configure_calls) == 1:
+                assert not cmake_cache.exists()
+                cmake_cache.write_text("current compiler", encoding="utf-8")
+            else:
+                assert cmake_cache.read_text(encoding="utf-8") == "current compiler"
         (build_dir / "firmware.bin").write_bytes(b"test firmware")
 
     def run_local(command, environment, **_kwargs):
@@ -704,28 +717,48 @@ def test_micro_build_rejects_missing_sdk_before_preparing_firmware(monkeypatch, 
 def test_project_firmware_uses_shared_cpp_identity(tmp_path: Path) -> None:
     cmake_path = tmp_path / "ports" / "esp32" / "CMakeLists.txt"
     cmake_path.parent.mkdir(parents=True)
-    cmake_path.write_text("project(micropython)\n", encoding="utf-8")
+    cmake_path.write_text(
+        "project(micropython)\n"
+        "execute_process(COMMAND git diff --exit-code ${LOCKFILE_PATH} RESULT_VARIABLE RES)\n"
+        "if(RES)\n  message(WARNING dirty)\nendif()\n",
+        encoding="utf-8",
+    )
     micro_firmware._configure_project_identity(tmp_path)
     micro_firmware._configure_project_identity(tmp_path)
+    (tmp_path / "boards" / "test").mkdir(parents=True)
+    lockfile = tmp_path / "lockfiles" / "dependencies.lock.esp32c5"
+    lockfile.parent.mkdir()
+    lockfile.write_bytes(b"checked-in components")
+    expected_lock_hash = hashlib.sha256(lockfile.read_bytes()).hexdigest()
     identity = tmp_path / "identity.txt"
     script = tmp_path / "verify.cmake"
     script.write_text(
         "cmake_minimum_required(VERSION 3.16)\n"
         f'set(ESPECTRE_FRONTEND_ROOT "{micro_firmware.REPO_ROOT / "src/cpp/frontend"}")\n'
+        f'set(MICROPY_BOARD_DIR "{tmp_path}/boards/test")\n'
+        "set(IDF_TARGET esp32c5)\n"
+        f'set(ESPECTRE_COMPONENT_LOCK_SHA256 "{expected_lock_hash}")\n'
+        "macro(idf_build_set_property key value)\n"
+        "  set(${key} \"${value}\")\n"
+        "endmacro()\n"
         "macro(project name)\n"
-        f'  file(WRITE "{identity}" "${{name}}\\n${{PROJECT_VER}}\\n")\n'
+        f'  file(WRITE "{identity}" "${{name}}\\n${{PROJECT_VER}}\\n${{DEPENDENCIES_LOCK}}\\n")\n'
         "endmacro()\n"
         f'include("{cmake_path}")\n',
         encoding="utf-8",
     )
     result = subprocess.run(
         ["cmake", "-DESPECTRE_GIT_VERSION=2.8.0-417-g2b49a9c", "-P", str(script)],
-        capture_output=True, text=True,
+        cwd=tmp_path, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stderr
     assert identity.read_text(encoding="utf-8").splitlines() == [
-        micro_firmware.PROJECT_FIRMWARE_PROJECT_NAME, "2.8.0-417-g2b49a9c"
+        micro_firmware.PROJECT_FIRMWARE_PROJECT_NAME, "2.8.0-417-g2b49a9c", f"{tmp_path}/boards/test/../../lockfiles/dependencies.lock.esp32c5"
     ]
+    lockfile.write_bytes(b"re-resolved components")
+    mismatch = subprocess.run(result.args, cwd=tmp_path, capture_output=True, text=True)
+    assert mismatch.returncode != 0
+    assert "Resolved components differ" in mismatch.stderr
     defaults = (
         micro.PYTHON_SRC_DIR / "firmware" / "boards" / "sdkconfig.micro_espectre"
     ).read_text(encoding="utf-8").splitlines()
@@ -742,23 +775,13 @@ def test_project_firmware_rejects_unexpected_upstream_project(tmp_path: Path) ->
     assert cmake_path.read_text(encoding="utf-8") == "project(unrelated)\n"
 
 
-def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
-    micropython_dir = tmp_path / "micropython"
-    lockfile = (
-        micropython_dir
-        / "ports"
-        / "esp32"
-        / "lockfiles"
-        / "dependencies.lock.esp32s3"
-    )
-    lockfile.parent.mkdir(parents=True)
-    lockfile.write_text(
-        "dependencies:\n  idf:\n    source:\n      type: idf\n    version: 5.5.2\n",
-        encoding="utf-8",
-    )
-    micro_firmware._align_idf_lockfile(micropython_dir, "s3", "5.5.5")
-
-    assert "    version: 5.5.5\n" in lockfile.read_text(encoding="utf-8")
+def test_micro_build_rejects_an_incompatible_local_idf(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "version.txt").write_text("v5.5.6\n", encoding="utf-8")
+    env = idf.ResolvedIdfEnvironment(mode="active", source="IDF_PATH", install_dir=tmp_path)
+    backend = idf.ResolvedIdfBuildBackend(mode="local", idf_environment=env)
+    monkeypatch.setattr(micro_firmware, "resolve_idf_build_backend", lambda *_args: backend)
+    with pytest.raises(RuntimeError, match="found 5.5.6"):
+        micro_firmware.build_project_firmware(micro.PYTHON_SRC_DIR, chip="c5", cache_dir=tmp_path)
 
 
 def test_project_firmware_rejects_bootloader_cache_from_another_idf(tmp_path: Path) -> None:
@@ -1242,31 +1265,6 @@ def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
     assert source.count("wifi_sta_config.sta.channel") == 1
     assert "args[ARG_channel].u_int > 255" in source
     assert "args[ARG_channel].u_int > 14" not in source
-
-
-def test_project_firmware_matches_wifi_auth_guard_to_idf_release(tmp_path: Path) -> None:
-    source_path = tmp_path / "ports" / "esp32" / "network_wlan.c"
-    source_path.parent.mkdir(parents=True)
-    source_path.write_text(
-        """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
-_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
-""",
-        encoding="utf-8",
-    )
-
-    micro_firmware._configure_project_wifi_auth_max(tmp_path)
-    micro_firmware._configure_project_wifi_auth_max(tmp_path)
-
-    source = source_path.read_text(encoding="utf-8")
-    assert source.count("WIFI_AUTH_MAX == 18") == 1
-    assert source.count("WIFI_AUTH_MAX == 17") == 1
-    assert "ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)" in source
-    assert "ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 3)" in source
-
-    source_path.write_text("_Static_assert(WIFI_AUTH_MAX == 16);\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="auth enum anchor"):
-        micro_firmware._configure_project_wifi_auth_max(tmp_path)
 
 
 def test_project_boards_cover_micro_chip_registry_and_only_esp32_override() -> None:

@@ -18,7 +18,7 @@
 
   <h2 id="micropython-upstream">ESPectre brought ESP32 CSI to mainline MicroPython</h2>
   <p>ESPectre added Wi-Fi CSI access to MicroPython in <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener">micropython/micropython#18460</a>. New ESP32 <code>network.WLAN</code> methods let Python code capture CSI, read it from a buffer, and count dropped frames.</p>
-  <p>The change was merged for MicroPython 1.29.0, so any MicroPython project can now use CSI on the ESP32. Micro-ESPectre builds on an official MicroPython version instead of the old CSI fork.</p>
+  <p>MicroPython 1.29.0 added these CSI methods to its ESP32 port. Other MicroPython projects can use them too.</p>
 
   <h2 id="micropython-runtime">What runs on the ESP32</h2>
   <p>The device loop runs in MicroPython on the board. CSI capture uses MicroPython. Filtering, Lightweight detection, traffic generation, and HTTP delivery use native components from the C++ SDK. The device reports motion and a movement score; it does not send raw CSI.</p>
@@ -38,7 +38,7 @@
     <tbody>
       <tr><td>Board</td><td>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6.</td></tr>
       <tr><td>Radio</td><td>Steady Wi-Fi traffic on 2.4&nbsp;GHz. ESP32-C5 also captures a 5&nbsp;GHz link as <code>vht20</code>. Detection quality on 5&nbsp;GHz is not measured yet.</td></tr>
-      <tr><td>Firmware</td><td>The ESPectre MicroPython image, built from an official MicroPython version</td></tr>
+      <tr><td>Firmware</td><td>The Micro-ESPectre firmware built with the repository CLI</td></tr>
       <tr><td>Host setup</td><td>The ESPectre repository and its <code>./espectre</code> command</td></tr>
       <tr><td>Monitoring</td><td>A browser or client on the same local network</td></tr>
     </tbody>

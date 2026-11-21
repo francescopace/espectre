@@ -18,6 +18,13 @@ target_sources(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/native_wifi.c
 )
 
+# MicroPython scans native sources for QSTRs before the deferred component links apply.
+idf_component_get_property(cjson_dir espressif__cjson COMPONENT_DIR)
+list(APPEND MICROPY_CPP_INC_EXTRA "${cjson_dir}/cJSON")
+
+idf_build_get_property(idf_definitions COMPILE_DEFINITIONS)
+target_compile_definitions(usermod_espectre_native_components INTERFACE ${idf_definitions})
+
 target_include_directories(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}
     ${ESPECTRE_SDK_ROOT}
@@ -33,7 +40,7 @@ cmake_language(
     idf::espectre_core
     idf::espectre_runtime_traffic
     idf::esp_http_server
-    idf::json
+    idf::espressif__cjson
     idf::log
     idf::espressif__mdns
 )

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import shutil
 import subprocess
 from dataclasses import dataclass, replace
@@ -22,26 +21,21 @@ try:
 except ImportError:  # pragma: no cover - exercised on POSIX
     msvcrt = None
 
-from .common import FIRMWARE_CACHE_DIR, MICROPYTHON_FIRMWARE_BUILD, REPO_ROOT
+from .common import FIRMWARE_CACHE_DIR, REPO_ROOT
 from .idf import (
     resolve_idf_build_backend,
     resolve_idf_build_dir_name,
     run_in_idf_environment,
 )
-from .idf_container import container_sdk_root, run_toolchain_container
+from .idf_container import IDF_DOCKER_IMAGE_DIGEST, IDF_VERSION, container_sdk_root, run_toolchain_container
 
-# The pinned MicroPython port and its dependency lock require ESP-IDF 5.5.
-MICRO_IDF_VERSION = "5.5.6"
-MICRO_IDF_IMAGE = (
-    f"espressif/idf:v{MICRO_IDF_VERSION}@"
-    "sha256:bf72fe7a15c22849a9a94147301165a545fb8905d97c176cf748e3e4614cac84"
-)
-
-MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
-MICROPYTHON_COMMIT = "0fd6c573ea815774668bbb16b8e197c8822368b2"
+# Use the tested ESP-IDF 6.1 port from MicroPython PR 19725 until it lands upstream.
+MICROPYTHON_REPOSITORY = "https://github.com/cumin777/micropython.git"
+MICROPYTHON_COMMIT = "6a7b29f99cf62687c385f62765a42c511caaa3a0"
+MICROPYTHON_FIRMWARE_BUILD = MICROPYTHON_COMMIT[:12]
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
-MICROPYTHON_PATCH_REVISION = "sdk-boundary-v3"
+MICROPYTHON_PATCH_REVISION = "idf61-lock-verification-v1"
 PROJECT_FIRMWARE_PROJECT_NAME = "micro-espectre"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
@@ -112,15 +106,16 @@ def _checkout_pinned_repository(url: str, commit: str, destination: Path) -> Non
             if not backup_path.exists():
                 backup_path.write_text(source_diff, encoding="utf-8")
 
+        # A new pin may live in a different repository than the cached origin.
+        subprocess.run(
+            ["git", "-C", str(destination), "fetch", "--depth", "1", url, commit],
+            check=True,
+        )
         subprocess.run(
             ["git", "-C", str(destination), "restore", "--worktree", "--source=HEAD", "--", "."],
             check=True,
         )
         stamp_path.unlink(missing_ok=True)
-        subprocess.run(
-            ["git", "-C", str(destination), "fetch", "--depth", "1", "origin", commit],
-            check=True,
-        )
         subprocess.run(
             ["git", "-C", str(destination), "checkout", "--detach", commit],
             check=True,
@@ -192,48 +187,47 @@ def _read_idf_version(idf_path: Path) -> str:
 
 
 def _configure_project_identity(micropython_dir: Path) -> None:
-    """Set the Micro-ESPectre name and use the shared Native and Matter Git version resolver."""
+    """Select the project descriptor and the staged component lock for this board."""
     cmake_path = micropython_dir / "ports" / "esp32" / "CMakeLists.txt"
     source = cmake_path.read_text(encoding="utf-8")
     original = "project(micropython)"
     replacement = (
         'include("${ESPECTRE_FRONTEND_ROOT}/../espectre_git_version.cmake")\n'
         'set(PROJECT_VER "${ESPECTRE_GIT_VERSION}")\n'
+        'set(ESPECTRE_LOCKFILE "${MICROPY_BOARD_DIR}/../../lockfiles/dependencies.lock.${IDF_TARGET}")\n'
+        'idf_build_set_property(DEPENDENCIES_LOCK "${ESPECTRE_LOCKFILE}")\n'
         f"project({PROJECT_FIRMWARE_PROJECT_NAME})"
     )
+    # Replace the port's Git check: its checkout does not own our staged lock.
+    check_start = "execute_process(COMMAND git diff --exit-code ${LOCKFILE_PATH}"
+    check_replacement = (
+        'file(SHA256 "${ESPECTRE_LOCKFILE}" resolved_lock_hash)\n'
+        'if(NOT resolved_lock_hash STREQUAL ESPECTRE_COMPONENT_LOCK_SHA256)\n'
+        '    message(FATAL_ERROR "Resolved components differ from the checked-in lockfile for ${IDF_TARGET}")\n'
+        'endif()'
+    )
+    if replacement in source and check_replacement in source:
+        return
+    before_check, marker, check = source.partition(check_start)
+    # The pinned port's outer if(RES) ends at the first unindented endif().
+    _, end, after_check = check.partition("\nendif()")
+    if before_check.count(original) != 1 or not marker or not end:
+        raise RuntimeError("Unable to configure the Micro-ESPectre project identity or lockfile check")
+    source = before_check.replace(original, replacement) + check_replacement + after_check
+    cmake_path.write_text(source, encoding="utf-8")
+
+
+def _configure_project_vfs(micropython_dir: Path) -> None:
+    """Size the dynamic filesystem within the flash range registered with IDF."""
+    path = micropython_dir / "ports" / "esp32" / "main.c"
+    source = path.read_text(encoding="utf-8")
+    original = "esp_flash_get_physical_size(NULL, &flash_size);"
+    replacement = "esp_flash_get_size(NULL, &flash_size);"
     if replacement in source:
         return
     if source.count(original) != 1:
-        raise RuntimeError("Unable to configure the Micro-ESPectre project identity")
-    cmake_path.write_text(source.replace(original, replacement), encoding="utf-8")
-
-
-def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_version: str) -> None:
-    """Align the cached MicroPython component lock with the ESP-IDF 5.5 patch release."""
-    if re.fullmatch(r"5\.5\.\d+", idf_version) is None:
-        raise RuntimeError(f"ESP-IDF 5.5 is required; found {idf_version or 'unknown'}")
-
-    lockfile = (
-        micropython_dir
-        / "ports"
-        / "esp32"
-        / "lockfiles"
-        / f"dependencies.lock.esp32{'' if chip == 'esp32' else chip}"
-    )
-    lines = lockfile.read_text(encoding="utf-8").splitlines(keepends=True)
-    in_idf_dependency = False
-    for index, line in enumerate(lines):
-        if line.rstrip("\r\n") == "  idf:":
-            in_idf_dependency = True
-            continue
-        if in_idf_dependency and line.startswith("    version: "):
-            newline = "\r\n" if line.endswith("\r\n") else "\n"
-            lines[index] = f"    version: {idf_version}{newline}"
-            lockfile.write_text("".join(lines), encoding="utf-8")
-            return
-        if in_idf_dependency and not line.startswith("    "):
-            break
-    raise RuntimeError(f"ESP-IDF dependency entry is missing: {lockfile}")
+        raise RuntimeError("Unable to configure the Micro-ESPectre filesystem partition")
+    path.write_text(source.replace(original, replacement), encoding="utf-8")
 
 
 def _configure_project_csi_capture(micropython_dir: Path, chip: str) -> None:
@@ -1184,7 +1178,7 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
                                 WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
                                 WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC,
                             };
-                            wifi_bandwidths_t bandwidths = {WIFI_BW_HT20, WIFI_BW_HT20};
+                            wifi_bandwidths_t bandwidths = {WIFI_BW20, WIFI_BW20};
                             esp_exceptions(esp_wifi_set_protocols(self->if_id, &protocols));
                             esp_exceptions(esp_wifi_set_bandwidths(self->if_id, &bandwidths));
                         }
@@ -1289,35 +1283,6 @@ def _configure_project_wifi_channel_pin(micropython_dir: Path) -> None:
     source = source.replace(bssid_arg, bssid_arg + channel_arg, 1)
     source = source.replace(bssid_block_end, bssid_block_end + channel_block, 1)
     source_path.write_text(source, encoding="utf-8")
-
-
-def _configure_project_wifi_auth_max(micropython_dir: Path) -> None:
-    """Match MicroPython's Wi-Fi auth enum guard to ESP-IDF 5.5.6.
-
-    ESP-IDF 5.5.6 and 6.0.3 append the scan-only WIFI_AUTH_UNKNOWN value, which
-    6.0.0 through 6.0.2 lack. Only the guard changes: the value is not exposed
-    as a Python constant.
-    """
-    source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
-    source = source_path.read_text(encoding="utf-8")
-    original = """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
-_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
-"""
-    replacement = """#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 3) || \\
-    (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 6) && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0))
-_Static_assert(WIFI_AUTH_MAX == 18, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 3)
-_Static_assert(WIFI_AUTH_MAX == 17, "Synchronize WIFI_AUTH_XXX constants with the ESP-IDF. Look at esp-idf/components/esp_wifi/include/esp_wifi_types_generic.h");
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
-"""
-    if replacement in source:
-        return
-    if original not in source:
-        raise RuntimeError(
-            f"MicroPython Wi-Fi auth enum anchor is missing: {source_path}"
-        )
-    source_path.write_text(source.replace(original, replacement, 1), encoding="utf-8")
 
 
 def _write_manifest(manifest_path: Path) -> None:
@@ -1482,7 +1447,20 @@ def _build_project_firmware_locked(
     if not sdk_root.is_dir():
         raise RuntimeError(f"ESPectre SDK directory does not exist: {sdk_root}")
 
-    resolved_backend = resolve_idf_build_backend(backend, pull_policy, MICRO_IDF_VERSION, MICRO_IDF_IMAGE)
+    resolved_backend = resolve_idf_build_backend(backend, pull_policy)
+
+    idf_path: Path | None = None
+    if resolved_backend.mode == "local":
+        idf_environment = resolved_backend.idf_environment
+        assert idf_environment is not None
+        idf_path = idf_environment.install_dir
+        if idf_path is None and idf_environment.idf_path_entry:
+            idf_path = Path(idf_environment.idf_path_entry).resolve().parents[1]
+        if idf_path is None:
+            raise RuntimeError("The resolved local ESP-IDF path is unavailable")
+        idf_version = _read_idf_version(idf_path)
+        if idf_version != IDF_VERSION:
+            raise RuntimeError(f"Micro-ESPectre requires ESP-IDF {IDF_VERSION}, found {idf_version}")
 
     workspace = cache_dir / "micro-esp32"
     micropython_dir = workspace / "micropython"
@@ -1493,6 +1471,8 @@ def _build_project_firmware_locked(
         container=resolved_backend.mode == "docker",
     )
     assert build_dir_name is not None
+    if resolved_backend.mode == "docker":
+        build_dir_name = f"{build_dir_name}-{IDF_DOCKER_IMAGE_DIGEST[:12]}"
     build_dir = workspace / build_dir_name
     support_root = workspace / "firmware-support"
     manifest_path = workspace / "manifest.py"
@@ -1509,32 +1489,19 @@ def _build_project_firmware_locked(
     )
     patch_stamp_path = _prepare_micropython_patch_revision(micropython_dir)
     _configure_project_identity(micropython_dir)
+    _configure_project_vfs(micropython_dir)
     _configure_project_csi_capture(micropython_dir, chip)
     _configure_project_csi_rearm(micropython_dir)
     _configure_project_csi_fixed_records(micropython_dir)
     _configure_project_csi_quality(micropython_dir)
     _configure_project_gc_heap_reserve(micropython_dir)
     _configure_project_wifi_channel_pin(micropython_dir)
-    _configure_project_wifi_auth_max(micropython_dir)
     _configure_project_s2_usb_serial(micropython_dir)
     if chip == "c5":
         _configure_project_wifi_band_mode(micropython_dir)
     patch_stamp_path.write_text(MICROPYTHON_PATCH_REVISION + "\n", encoding="utf-8")
     _stage_firmware_support(source_dir, support_root)
     _write_manifest(manifest_path)
-
-    idf_path: Path | None = None
-    if resolved_backend.mode == "local":
-        idf_environment = resolved_backend.idf_environment
-        assert idf_environment is not None
-        idf_path = idf_environment.install_dir
-        if idf_path is None and idf_environment.idf_path_entry:
-            idf_path = Path(idf_environment.idf_path_entry).resolve().parents[1]
-        if idf_path is None:
-            raise RuntimeError("The resolved local ESP-IDF path is unavailable")
-        idf_version = _read_idf_version(idf_path)
-    else:
-        idf_version = MICRO_IDF_VERSION
 
     incompatible_cache = False
     if resolved_backend.mode == "local" and build_dir.exists():
@@ -1555,7 +1522,6 @@ def _build_project_firmware_locked(
             (build_dir / generated_config).unlink(missing_ok=True)
         (build_dir / ".espectre-kconfig-profile").unlink(missing_ok=True)
 
-    _align_idf_lockfile(micropython_dir, chip, idf_version)
     jobs = str(max(1, min(8, os.cpu_count() or 1)))
     if resolved_backend.mode == "docker":
         build_root = Path("/work") / workspace.resolve().relative_to(REPO_ROOT.resolve())
@@ -1577,6 +1543,9 @@ def _build_project_firmware_locked(
     sdk_build_environment = {
         "ESPECTRE_SDK_ROOT": build_sdk_root,
     }
+    idf_target = "esp32" if chip == "esp32" else f"esp32{chip}"
+    source_lock = source_dir / "firmware" / "lockfiles" / f"dependencies.lock.{idf_target}"
+    lock_hash = hashlib.sha256(source_lock.read_bytes()).hexdigest()
     commands = [
         ["make", "-C", "micropython/mpy-cross", f"-j{jobs}"],
         [
@@ -1588,6 +1557,7 @@ def _build_project_firmware_locked(
             "-G",
             "Ninja",
             f"-DMICROPY_BOARD={board}",
+            f"-DESPECTRE_COMPONENT_LOCK_SHA256={lock_hash}",
             f"-DMICROPY_BOARD_DIR={build_root / 'firmware-support' / 'boards' / board}",
             f"-DMICROPY_FROZEN_MANIFEST={build_root / 'manifest.py'}",
             f"-DMICROPY_LIB_DIR={build_root / 'micropython-lib'}",
@@ -1617,7 +1587,6 @@ def _build_project_firmware_locked(
     if resolved_backend.mode == "docker":
         run_toolchain_container(
             frontend="micro",
-            image=MICRO_IDF_IMAGE,
             workdir=workspace,
             commands=commands,
             repo_root=REPO_ROOT,

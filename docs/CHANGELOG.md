@@ -17,6 +17,10 @@ All notable changes to this project will be documented in this file.
 - The examples build with the SDK from the same revision as the Direct add-on. To test another SDK, set `espectre_direct.sdk.path` or `ESPECTRE_SDK_ROOT`.
 - Before upgrading from the external component, record the active detection profile, traffic source, packet spacing, and motion hit counts. Reapply them after the first boot or set them in the YAML before upgrading.
 
+### Micro-ESPectre
+
+- Firmware builds use ESP-IDF 6.1.1 on all six targets. During 3.3 development, the CLI pins the [MicroPython ESP-IDF 6.1 port](https://github.com/micropython/micropython/pull/19725).
+
 ### Tools and integrations
 
 - The web flasher reads the ESPectre version from signed ESPHome image descriptors when Improv metadata is unavailable.

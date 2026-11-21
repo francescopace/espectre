@@ -8,7 +8,7 @@ The deployed runtime provides Lightweight detection and calibration, internal pi
 
 The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy and pure-Python Lightweight implementations live under `tools/lib/` for host-side research and C++/Python validation; `micro deploy` does not copy them to the device.
 
-It builds a pinned mainline MicroPython for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, and senses as a normal Wi-Fi client (no promiscuous mode). For placement and the first check, see [sensor placement](../../../docs/SETUP.md#sensor-placement). Before recording people, read [data privacy](../../../docs/ML_DATA_COLLECTION.md#data-privacy).
+The 3.3 development firmware pins commit `6a7b29f99cf6` from the [MicroPython ESP-IDF 6.1 port](https://github.com/micropython/micropython/pull/19725). It builds for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, and senses as a normal Wi-Fi client (no promiscuous mode). For placement and the first check, see [sensor placement](../../../docs/SETUP.md#sensor-placement). Before recording people, read [data privacy](../../../docs/ML_DATA_COLLECTION.md#data-privacy).
 
 ## Build and deploy
 
@@ -35,9 +35,11 @@ Build and flash the firmware, then deploy and start the application:
 ./espectre micro run
 ```
 
-`--erase` clears flash for the initial installation. On Windows, use `.\espectre.cmd` in place of `./espectre`. Builds require ESP-IDF 5.5 and use the backend and compiler-cache policy in [local build prerequisites](../../../docs/CLI.md#local-build-prerequisites). Cached sources, build trees, and images live under `.firmware/` in this directory.
+`--erase` clears flash for the initial installation. On Windows, use `.\espectre.cmd` in place of `./espectre`. Builds require ESP-IDF 6.1.1 and use the backend and compiler-cache policy in [local build prerequisites](../../../docs/CLI.md#local-build-prerequisites). Cached sources, build trees, and images live under `.firmware/` in this directory.
 
 For application or configuration changes, run `micro deploy` and then `micro run`; no reflash is needed. Deploy compiles the app to `.mpy` (ABI 6.3) and swaps it in atomically, so an interrupted deploy is safe. Rebuild and flash only when native components or the board profile change.
+
+On boards with a dynamically sized filesystem, MicroPython uses the space between the last firmware partition and the flash size configured in the image. A 4 MiB image therefore mounts a writable filesystem even on an 8 MiB module.
 
 The embedded `micro-espectre` application descriptor reports the ESPectre firmware build version. A later filesystem deployment does not change that version. Older images with empty descriptors need a firmware rebuild and flash to populate them.
 
@@ -149,6 +151,8 @@ The firmware links `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_TRAFFIC
 [native_direct.c](firmware/native_components/native_direct.c) handles HTTP framing, CORS, mDNS, and transport counters. MicroPython supplies resource snapshots. Telemetry runs at `EVALUATION_INTERVAL_MS` only while an SSE client is connected. Health refreshes once per second. Full diagnostics and garbage collection prefer an empty CSI ring, with at most 500 ms of additional deferral under backlog.
 
 Board profiles under [boards/](firmware/boards/) contain the memory, Wi-Fi, and peripheral build choices. Classic ESP32 uses smaller Wi-Fi queues and omits lwIP IRAM placement to preserve heap. Bluetooth, ESP-NOW, asyncio, and Ethernet are disabled in the maintained profile.
+
+The [component lockfiles](firmware/lockfiles/) pin the ESP-IDF dependencies for each target. The build checks the resolved lock against the repository copy. Docker uses a separate CMake build directory for each chip and toolchain image. Refresh the lockfiles when updating the MicroPython port, ESP-IDF, or the component manifests.
 
 The `Micro-ESPectre > Advanced task scheduling` Kconfig menu controls native HTTPD and traffic priorities through `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` and `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY`. Both accept `1..10` and default to `1`; board overrides require validation. MicroPython sets the VM task priority.
 
