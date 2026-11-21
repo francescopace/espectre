@@ -21,6 +21,8 @@ The upstream Matter [NOTICE](src/cpp/frontend/matter/third_party/esp_matter/NOTI
 
 ESP-IDF and esp-matter contain additional permissively licensed components. Each per-build `*-third-party-licenses.zip` contains the license files collected from the linked component set, while the adjacent `*-sbom.spdx.json` records the firmware checksum and package and component inventory.
 
+ESP-IDF 6.1.1 includes TF-PSA-Crypto 1.1.1. Its source inventory covers the bundled mldsa-native tree, including CC-BY-4.0 documentation and MIT-0 license options in proofs and tests. The firmware audit recognizes those terms in the file-scan conclusion for this upstream package and version. The license archive includes the TF-PSA-Crypto and mldsa-native license files.
+
 Firmware audits fail CI and release checks for incompatible license expressions or incomplete scans. Unidentified licenses remain review warnings. CVE findings are uploaded to GitHub Security through SARIF and do not block firmware builds, snapshots, or releases; triage and dismissals are managed in GitHub Code scanning. A failed SARIF upload fails its CI or release audit job. The CI summary contains license findings only. Snapshot publication still requires a successful source CI run.
 
 ## Repository-vendored source

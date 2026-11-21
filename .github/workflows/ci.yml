@@ -732,7 +732,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        core: ['3.3.12', '4.0.0']
+        core: ['3.3.13', '4.0.0']
         target:
           - chip: ESP32
             board: esp32
@@ -747,8 +747,8 @@ jobs:
           - chip: ESP32-S3
             board: esp32s3
     env:
-      ARDUINO_CLI_VERSION: 1.5.1
-      ARDUINO_CLI_SHA256: 28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b
+      ARDUINO_CLI_VERSION: 1.6.0
+      ARDUINO_CLI_SHA256: 321ee249f44c78053234fec0f36101092bc6021bf24939e15e0cc2449c5ed250
       ARDUINO_ESP32_VERSION: ${{ matrix.core }}
       ARDUINO_DIRECTORIES_DATA: ${{ github.workspace }}/.cache/arduino/data
       ARDUINO_DIRECTORIES_DOWNLOADS: ${{ github.workspace }}/.cache/arduino/downloads

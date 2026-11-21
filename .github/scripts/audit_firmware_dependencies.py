@@ -23,8 +23,16 @@ PERMISSIVE_LICENSES = {
 }
 OWN_LICENSE = "LicenseRef-ESPectre-Commercial"
 
+# ESP-IDF's file-tag scan covers the entire TF-PSA-Crypto source tree, including
+# mldsa-native documentation, proofs, and test code. See THIRD_PARTY_NOTICES.md.
+REVIEWED_SOURCE_LICENSES = {
+    ("SPDXRef-SUBPACKAGE-mbedtls-mbedtls-tf-psa-crypto", "1.1.1",
+     "https://github.com/Mbed-TLS/TF-PSA-Crypto"): frozenset({"CC-BY-4.0", "MIT-0"}),
+}
 
-def license_allowed(expression: str, frontend: str, *, first_party: bool = False) -> bool:
+
+def license_allowed(expression: str, frontend: str, *, first_party: bool = False,
+                    additional: frozenset[str] = frozenset()) -> bool:
     licensing = get_spdx_licensing()
     try:
         parsed = licensing.parse(expression, strict=True)
@@ -32,7 +40,7 @@ def license_allowed(expression: str, frontend: str, *, first_party: bool = False
         return False
     if parsed is None:
         return False
-    allowed = PERMISSIVE_LICENSES | ({"GPL-3.0-only"} if frontend == "esphome" else set())
+    allowed = PERMISSIVE_LICENSES | additional | ({"GPL-3.0-only"} if frontend == "esphome" else set())
     if first_party:
         allowed = allowed | {OWN_LICENSE}
     # WITH is one indivisible term; OR permits a choice, while AND requires both.
@@ -67,14 +75,17 @@ def check_licenses(sbom: dict, frontend: str) -> tuple[list[str], list[str]]:
             "SPDXRef-Package-Firmware", "SPDXRef-PROJECT-espectre-native",
             "SPDXRef-PROJECT-espectre-matter", "SPDXRef-COMPONENT-espectre", "SPDXRef-COMPONENT-main",
         } and package.get("licenseDeclared") == f"GPL-3.0-only OR {OWN_LICENSE}"
-        expressions = {
-            package.get(key, "NOASSERTION") for key in ("licenseDeclared", "licenseConcluded")
-        } - {"NOASSERTION", "NONE", ""}
+        declared = package.get("licenseDeclared", "NOASSERTION")
+        expressions = {declared, package.get("licenseConcluded", "NOASSERTION")} - {"NOASSERTION", "NONE", ""}
         label = f"{package['name']} ({package_id})"
         if not expressions:
             unknown.append(label)
+        source_terms = REVIEWED_SOURCE_LICENSES.get(
+            (package_id, package.get("versionInfo"), package.get("downloadLocation")), frozenset()
+        )
         for expression in sorted(expressions):
-            if not license_allowed(expression, frontend, first_party=first_party):
+            additional = frozenset() if expression == declared else source_terms
+            if not license_allowed(expression, frontend, first_party=first_party, additional=additional):
                 errors.append(f"{label}: {expression}")
     return errors, unknown
 
