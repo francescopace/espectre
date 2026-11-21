@@ -10,6 +10,7 @@ the built-in component, so its entities and saved settings stay right.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+import os
 from pathlib import Path
 
 import esphome.codegen as cg
@@ -19,6 +20,8 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PATH, CONF_PORT, CONF_VERSION
 from esphome.core import CORE, EsphomeError
 from esphome.coroutine import CoroPriority, coroutine_with_priority
+from esphome.helpers import copy_file_if_changed
+from esphome.yaml_util import ESPHomeDataBase, make_data_base
 
 CODEOWNERS = ["@francescopace"]
 DEPENDENCIES = ["espectre", "wifi"]
@@ -31,6 +34,9 @@ CONF_SDK = "sdk"
 DIRECT_HTTP_PORT = 62587
 SDK_COMPONENT = "francescopace/espectre"
 SDK_DIRECTORIES = ("francescopace__espectre", "espectre")
+# The source directories of an SDK checkout; its other directories hold firmware and examples.
+SDK_SOURCE_DIRECTORIES = ("core", "runtime")
+SDK_STAGING_EXCLUDES = ("build", "managed_components")
 # The first SDK with guest access to a runtime that another component owns.
 MIN_SDK_VERSION = (3, 2, 0)
 
@@ -39,13 +45,44 @@ ESPectreDirect = espectre_direct_ns.class_("ESPectreDirect", cg.Component)
 
 
 def _sdk_path(value):
-    path = Path(cv.directory(value))
-    if not (path / "espectre_sdk.h").is_file():
-        raise cv.Invalid("This directory does not contain the ESPectre SDK (espectre_sdk.h is missing)")
-    # ESP-IDF names a local component after its real directory, so a symbolic link does not rename it.
-    if path.resolve().name not in SDK_DIRECTORIES:
-        raise cv.Invalid(f"The SDK directory must be named {' or '.join(SDK_DIRECTORIES)}")
-    return str(path)
+    # Resolve the header, since a relative directory such as "../.." can exist
+    # beside both the top-level YAML and the package that declared sdk.path.
+    header = str(Path(cv.string_strict(value)) / "espectre_sdk.h")
+    if isinstance(value, ESPHomeDataBase):
+        header = make_data_base(header, value)
+    return str(cv.file_(header).resolve().parent)
+
+
+def _sdk_source_files(source):
+    """List the files of an SDK directory that the component build reads."""
+    files = [path for path in source.iterdir() if path.is_file() and not path.name.startswith(".")]
+    for directory in SDK_SOURCE_DIRECTORIES:
+        for path in (source / directory).rglob("*"):
+            parts = path.relative_to(source).parts
+            if path.is_file() and not any(
+                part.startswith((".", *SDK_STAGING_EXCLUDES)) for part in parts
+            ):
+                files.append(path)
+    return files
+
+
+def _stage_sdk(source):
+    """Copy an SDK directory into the build tree under a name that ESP-IDF resolves.
+
+    ESP-IDF names a local component after its real directory, so a repository
+    checkout (`src/cpp`) or a symbolic link to it cannot be used in place.
+    """
+    staged = CORE.relative_build_path("espectre_sdk", SDK_DIRECTORIES[1])
+    wanted = set()
+    for path in _sdk_source_files(source):
+        target = staged / path.relative_to(source)
+        copy_file_if_changed(path, target)
+        wanted.add(target)
+    # A file removed from the SDK must not survive in the copy.
+    for path in staged.rglob("*"):
+        if path.is_file() and path not in wanted:
+            path.unlink()
+    return staged
 
 
 CONFIG_SCHEMA = cv.All(
@@ -99,11 +136,19 @@ async def to_code(config):
     cg.add(var.set_raw_csi(config[CONF_RAW_CSI]))
 
     sdk = config.get(CONF_SDK, {})
-    if CONF_PATH in sdk:
-        esp32.add_idf_component(name=SDK_COMPONENT, path=sdk[CONF_PATH])
-    elif CONF_VERSION in sdk:
+    if CONF_VERSION in sdk:
         esp32.add_idf_component(name=SDK_COMPONENT, ref=sdk[CONF_VERSION])
     else:
-        _require_guest_access_sdk()
+        # A Git external component has its own checkout, even when the top-level
+        # YAML lives in Device Builder. Use the SDK shipped with that revision.
+        checkout_sdk = (Path(__file__).parent / "../../../..").resolve()
+        override = sdk.get(CONF_PATH) or os.environ.get("ESPECTRE_SDK_ROOT")
+        if override or (checkout_sdk / "espectre_sdk.h").is_file():
+            path = Path(_sdk_path(override)).resolve() if override else checkout_sdk
+            if path.name not in SDK_DIRECTORIES:
+                path = _stage_sdk(path)
+            esp32.add_idf_component(name=SDK_COMPONENT, path=str(path))
+        else:
+            _require_guest_access_sdk()
     esp32.add_idf_sdkconfig_option("CONFIG_ESPECTRE_SDK_ENABLE_DIRECT", True)
     esp32.include_builtin_idf_component("esp_http_server")

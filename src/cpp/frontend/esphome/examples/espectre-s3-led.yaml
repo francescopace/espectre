@@ -23,11 +23,11 @@ light:
     rgb_order: GRB
     chipset: ws2812
 
-# Override ESPectre config to add LED triggers
-espectre:
-  id: espectre_csi
-  motion_sensor:
-    name: "Motion Detected"
+# Follow the motion entity of the base config to drive the LED
+binary_sensor:
+  - platform: copy
+    source_id: espectre_motion_detected
+    id: onboard_led_motion
     on_press:
       then:
         - light.turn_on:

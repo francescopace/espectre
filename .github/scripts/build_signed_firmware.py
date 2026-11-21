@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from firmware_signing import ESP32_SECRET, RSA_SECRET, REPO_ROOT, factory_app, private_key_from_secret, verify_app
 
 NATIVE_APP = REPO_ROOT / "src/cpp/frontend/native/app"
-ESPHOME_EXAMPLES = REPO_ROOT / "src/cpp/frontend/esphome/examples"
+ESPHOME_REPLAY_COMPONENT = REPO_ROOT / "src/cpp/frontend/esphome/espectre_emulator_csi_replay"
 
 
 def validate_sdkconfig(path: Path, *, legacy: bool) -> None:
@@ -52,13 +52,21 @@ def native_profile(key_path: str, *, legacy: bool) -> str:
     ])
 
 
-def validate_images(factory: Path, ota: Path, key, *, legacy: bool) -> None:
+def validate_images(factory: Path, ota: Path, key, *, legacy: bool, expected_version: str | None = None) -> None:
     verify_app(ota, key.public_key(), legacy=legacy)
     data = factory.read_bytes()
     address, size = factory_app(data)
     app = ota.read_bytes()
     if len(app) > size or data[address:address + len(app)] != app:
         raise ValueError("The factory image must contain the complete signed OTA application")
+    if expected_version is not None:
+        # ESP-IDF puts esp_app_desc_t immediately after the image and first segment headers.
+        descriptor = app[32:80]
+        if int.from_bytes(descriptor[:4], "little") != 0xABCD5432:
+            raise ValueError("Missing ESP-IDF application descriptor in the signed OTA image")
+        version = descriptor[16:48].split(b"\0", 1)[0].decode("utf-8")
+        if version != expected_version:
+            raise ValueError(f"Signed OTA image version {version!r} differs from {expected_version!r}")
 
 
 def build_native(directory: Path, key_path: Path, args, key) -> None:
@@ -91,7 +99,14 @@ def build_esphome(key_path: Path, args, key) -> None:
             f"esphome:\n  build_path: {json.dumps(str(build_root))}\n"
             "esp32:\n  framework:\n"
             # Released images carry the CSI replay that CI runs in esp-emu; it stays inert on silicon.
+            # ESPHome and the SDK have no replay code, so it is linked as a component of its own.
+            "    components:\n      - name: espectre_emulator_csi_replay\n"
+            f"        path: {json.dumps(str(ESPHOME_REPLAY_COMPONENT))}\n"
             "    sdkconfig_options:\n      CONFIG_ESPECTRE_EMULATOR_CSI_REPLAY: y\n"
+            # ESPHome stamps its own version in the image descriptor; published images carry ours.
+            "      CONFIG_APP_PROJECT_VER_FROM_CONFIG: y\n"
+            # sdkconfig_options passes raw Kconfig values through YAML, which consumes one layer of quotes.
+            f"      CONFIG_APP_PROJECT_VER: {json.dumps(json.dumps(args.version))}\n"
             "    advanced:\n      signed_ota_verification:\n"
             f"        signing_scheme: {'ecdsa_v1' if args.legacy else 'rsa3072'}\n"
             f"        signing_key: {json.dumps(str(key_path))}\n")
@@ -109,7 +124,8 @@ def build_esphome(key_path: Path, args, key) -> None:
     description = json.loads(descriptions[0].read_text())
     validate_sdkconfig(Path(description["config_file"]), legacy=args.legacy)
     build = descriptions[0].parent
-    validate_images(build / "firmware.factory.bin", build / "firmware.ota.bin", key, legacy=args.legacy)
+    validate_images(build / "firmware.factory.bin", build / "firmware.ota.bin", key,
+                    legacy=args.legacy, expected_version=args.version)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with open(output, "a", encoding="utf-8") as file:
             file.write(f"factory_bin={build / 'firmware.factory.bin'}\n"

@@ -880,7 +880,10 @@ describe('Improv Serial initialization', () => {
         };
         function reply(type, data) {
             const bytes = [...SERIAL_PACKET_HEADER, type, data.length, ...data];
-            input.enqueue(Uint8Array.from([...bytes, bytes.reduce((sum, value) => sum + value, 0) & 0xff, 10]));
+            const frame = Uint8Array.from([...bytes, bytes.reduce((sum, value) => sum + value, 0) & 0xff, 10]);
+            for (let offset = 0; offset < frame.length; offset += 64) {
+                input.enqueue(frame.subarray(offset, offset + 64));
+            }
         }
         const serial = new ImprovSerial(port, { log() {}, debug() {}, error() {} });
         return { serial, port, commands };
@@ -902,6 +905,49 @@ describe('Improv Serial initialization', () => {
         await assert.rejects(serial.initialize(1000), /UNKNOWN_RPC_COMMAND/);
         assert.equal(serial._rpcFeedback, undefined);
         assert.equal(port.readable.locked, false);
+    });
+
+    it('reads the complete settings URL across USB transfers after provisioning', async () => {
+        const url = 'https://espectre.dev/tools/device-settings/?target=192.168.254.254';
+        const { serial } = device((cmd, reply) => {
+            if (cmd === 2) {
+                reply(ImprovSerialMessageType.CURRENT_STATE, [ImprovSerialCurrentState.READY]);
+            } else if (cmd === 3) {
+                reply(ImprovSerialMessageType.RPC_RESULT, [cmd, 0]);
+            } else if (cmd === 1) {
+                reply(ImprovSerialMessageType.CURRENT_STATE, [ImprovSerialCurrentState.PROVISIONING]);
+                reply(ImprovSerialMessageType.CURRENT_STATE, [ImprovSerialCurrentState.PROVISIONED]);
+                const bytes = new TextEncoder().encode(url);
+                reply(ImprovSerialMessageType.RPC_RESULT, [cmd, bytes.length + 1, bytes.length, ...bytes]);
+            }
+        });
+        try {
+            await serial.initialize();
+            await serial.provision('lab', 'test', 2000);
+            assert.equal(serial.nextUrl, url);
+        } finally {
+            await serial.close();
+        }
+    });
+
+    it('rejects stale connected state and a credential error while reprovisioning', async () => {
+        const { serial } = device((cmd, reply) => {
+            if (cmd === 2) {
+                reply(ImprovSerialMessageType.CURRENT_STATE, [ImprovSerialCurrentState.PROVISIONED]);
+                reply(ImprovSerialMessageType.RPC_RESULT, [cmd, 0]);
+            } else if (cmd === 3) {
+                reply(ImprovSerialMessageType.RPC_RESULT, [cmd, 0]);
+            } else {
+                reply(ImprovSerialMessageType.CURRENT_STATE, [ImprovSerialCurrentState.PROVISIONED]);
+                setTimeout(() => reply(ImprovSerialMessageType.ERROR_STATE, [3]), 600);
+            }
+        });
+        try {
+            await serial.initialize();
+            await assert.rejects(serial.provision('lab', 'wrong', 1500), /UNABLE_TO_CONNECT/);
+        } finally {
+            await serial.close();
+        }
     });
 
     for (const state of [ImprovSerialCurrentState.READY, ImprovSerialCurrentState.PROVISIONED]) {
@@ -1705,6 +1751,7 @@ describe('website tool contracts', () => {
         for (const [project, version, frontend, expectedVersion] of [
             ['espectre-native', '2.8.0-417-g2b49a9c', 'native', '2.8.0-417-g2b49a9c'],
             ['espectre-matter', '2.8.0-417-g2b49a9c', 'matter', '2.8.0-417-g2b49a9c'],
+            ['espectre', '3.3.0-1-gabcdef0', 'esphome', '3.3.0-1-gabcdef0'],
             ['espectre', '2026.7.4', 'esphome', ''],
             ['unrelated', '1.0.0', '', ''],
         ]) {
