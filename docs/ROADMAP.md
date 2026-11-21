@@ -25,6 +25,7 @@ It also moves official ESPHome images to the `espectre` component built into ESP
 - [ ] Validate stationary presence across representative hardware and environments using paired same-session evidence
 - [ ] Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
 - [ ] Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state, the Matter occupancy attribute, or the Home Assistant motion entity
+- [ ] Once [ESPHome PR #23010](https://github.com/esphome/esphome/pull/23010) merges into `dev`, enable the prepared `traffic_generator_target_mac` text entity by default in the ESPHome firmware configurations and examples that support `wifi_raw`
 - [ ] Before releasing ESPectre v3.3.0, pin an exact stable ESPHome 2026.12.x version in [requirements.txt](../requirements.txt) and run the [mDNS alignment test](../test/python/contracts/test_ci_pipeline.py) against that release to confirm that Native and Matter pin the same `espressif/mdns` version
 - [ ] Build the official ESPHome images with that stable version and verify that the browser tools and CLI support the same sensing controls as the 3.2.x images
 - [ ] Upgrade an official ESPectre 3.2.x ESPHome image over OTA to a signed 3.3.0 image built with that stable ESPHome version. After reboot, confirm that both the browser tools and the CLI can reach the device

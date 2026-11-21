@@ -16,6 +16,9 @@ substitutions:
 packages:
   component_source: !include espectre-source-${component_source}.yaml
   entities: !include espectre-entities.yaml
+  traffic_target_mac: !include
+    file: espectre-traffic-target-mac.yaml
+    condition: ${enable_traffic_target_mac | default(false)}
 
 esphome:
   name: espectre

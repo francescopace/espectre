@@ -27,7 +27,7 @@ Official images add the last three MAC bytes to the ESPHome hostname, for exampl
 
 ## ESPHome integration
 
-`espectre:` runs sensing. Each entity is declared under its ESPHome platform; the examples take theirs from [espectre-entities.yaml](examples/espectre-entities.yaml), listed in [entities of the examples](#entities-of-the-examples).
+`espectre:` runs sensing. The examples declare their [shared entities](examples/espectre-entities.yaml) under the corresponding ESPHome platforms. Examples that support `wifi_raw` can also include the [target MAC text entity](examples/espectre-traffic-target-mac.yaml).
 
 The `espectre_direct` add-on runs ESPectre's Direct HTTP API next to the ESPHome API. Direct offers the same sensing controls plus live telemetry and raw CSI collection; find the device with `./espectre devices --frontend esphome`. See the [API reference](../../../../docs/API.md) and [discovery reference](../../../../docs/DISCOVERY.md).
 
@@ -84,6 +84,7 @@ At boot, the threshold starts from the selected profile's SDK default: High Accu
 | `number`, `motion_off_hits` | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `select`, `detection_algorithm` | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `select`, `traffic_generator_mode` | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` / `wifi_raw` / `external` selection |
+| `text`, `traffic_generator_target_mac` | `CSI Traffic Target MAC` | Optional `wifi_raw` destination. See [internal traffic generator](#internal-traffic-generator) for availability and setup. |
 | `select`, `csi_sample_spacing` | `CSI Packet Spacing` | Runtime `half_slot` / `distinct` packet spacing |
 | `switch`, `sensing` | `Sensing Enabled` | Enables or pauses sensing |
 | `button` | `Recalibrate` | Starts runtime recalibration |
@@ -188,7 +189,14 @@ espectre:
   # traffic_generator_target_ip: 192.168.1.10 # Default: the gateway
 ```
 
-The `CSI Traffic Source` select changes the source at runtime, including `external`, and the device remembers it. With `wifi_raw`, `traffic_generator_target_mac` sends to another sensor instead of the access point; it is a YAML option only. ESP32-C6 does not offer `wifi_raw`; see [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
+The `CSI Traffic Source` select changes the source at runtime, including `external`, and the device remembers it. For `wifi_raw`, set `espectre.traffic_generator_target_mac` to `auto` to follow the associated access point (the default), or to a unicast MAC address to send to another sensor. ESP32-C6 does not support `wifi_raw`. See [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
+
+With an ESPHome installation that includes [PR #23010](https://github.com/esphome/esphome/pull/23010), set the following substitution in an ESP32, S2, S3, C3, or C5 example to change the destination from Home Assistant using `CSI Traffic Target MAC`. The entity is off by default for compatibility with ESPHome 2026.11.
+
+```yaml
+substitutions:
+  enable_traffic_target_mac: true
+```
 
 ### External traffic mode
 
@@ -274,7 +282,7 @@ Earlier ESPectre releases loaded an `espectre` component from this repository th
 | `diagnostics_button` | A template button that updates the `diagnostics` sensors |
 | `direct_api` | The `espectre_direct` add-on |
 
-Some sensing options change name: `segmentation_window_size_ms` becomes `window_size`, `evaluation_interval_ms` becomes `evaluation_interval`, and the filter options become the `lowpass_filter` and `hampel_filter` blocks. The built-in diagnostics have no admitted, filtered, stale, or out-of-order rate, and no Wi-Fi channel. [espectre-entities.yaml](examples/espectre-entities.yaml) shows every entity with its earlier name.
+Some sensing options change name: `segmentation_window_size_ms` becomes `window_size`, `evaluation_interval_ms` becomes `evaluation_interval`, and the filter options become the `lowpass_filter` and `hampel_filter` blocks. The built-in diagnostics have no admitted, filtered, stale, or out-of-order rate, and no Wi-Fi channel. The [shared entity definitions](examples/espectre-entities.yaml) show the retained names.
 
 Before upgrading from an external-component image, record the detection profile, CSI traffic source, packet spacing, and motion on/off hit counts. The built-in component stores these controls in ESPHome entity preferences and starts from the YAML defaults on the first boot. Reapply your recorded values in Home Assistant or put them in the YAML before upgrading. If you pinned an access point through Direct, record its BSSID and reapply it in Device settings after the upgrade. Move any device label or raw destination set through Direct to YAML.
 

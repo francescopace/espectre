@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 - Official images and the examples use the `espectre` component built into ESPHome, with the `espectre_direct` add-on for the Direct API. They need ESPHome 2026.11 or later.
 - The external component is removed. To update a YAML that loads it, see [moving from the external component](../src/cpp/frontend/esphome/README.md#moving-from-the-external-component).
 - The entities of the examples keep their names. `CSI Admitted Rate`, `CSI Filtered Rate`, `CSI Stale Rate`, `CSI Out-of-order Rate`, and `WiFi Channel` are gone.
-- On ESPHome, Device settings can pin or clear the access point through Direct. Configure the device name and the default `wifi_raw` destination in YAML.
+- On ESPHome, Device settings can pin or clear the access point through Direct. Configure the device name and the default `wifi_raw` destination in YAML. Compatible examples can also expose the [target MAC control in Home Assistant](../src/cpp/frontend/esphome/README.md#internal-traffic-generator) with an ESPHome version that includes it.
 - The examples build with the SDK from the same revision as the Direct add-on. To test another SDK, set `espectre_direct.sdk.path` or `ESPECTRE_SDK_ROOT`.
 - Before upgrading from the external component, record the active detection profile, traffic source, packet spacing, and motion hit counts. Reapply them after the first boot or set them in the YAML before upgrading.
 

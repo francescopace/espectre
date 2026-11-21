@@ -1,0 +1,4 @@
+text:
+  - platform: espectre
+    traffic_generator_target_mac:
+      name: "CSI Traffic Target MAC"
