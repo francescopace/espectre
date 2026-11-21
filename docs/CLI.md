@@ -220,7 +220,7 @@ The search always runs for the full timeout, so slower devices have time to answ
 ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --ssid MyNetwork
 ```
 
-The password comes from `ESPECTRE_WIFI_PASSWORD`, from the variable named by `--password-env`, or from a hidden prompt. It is never accepted on the command line or printed. `--timeout` limits the whole exchange, and `--json` prints the port, device address, and result for other tools.
+The password comes from `ESPECTRE_WIFI_PASSWORD`, from the variable named by `--password-env`, or from a hidden prompt. It is never accepted on the command line or printed. `--timeout` limits the whole exchange, and `--json` prints the port, device address, and result for other tools. If the device confirms the connection but its USB response omits or truncates the address, provisioning still succeeds. The JSON endpoint is then `null`. Run `./espectre devices` to find the device on the network.
 
 ### `direct`
 

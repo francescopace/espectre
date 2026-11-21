@@ -516,7 +516,8 @@ def test_get_serial_port_forwards_operation_to_shared_resolver(monkeypatch) -> N
     ]
 
 
-def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> None:
+@pytest.mark.parametrize("url, endpoint", [("http://192.0.2.5", "http://192.0.2.5/espectre/v1"), (None, None)])
+def test_improv_provision_json_reports_selected_port(monkeypatch, capsys, url, endpoint) -> None:
     observed = []
 
     class FakeImprovClient:
@@ -532,7 +533,7 @@ def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> Non
         def provision(self, ssid, password, *, timeout):
             observed.append(("provision", ssid, password, timeout))
             return SimpleNamespace(
-                endpoint="http://192.0.2.5",
+                endpoint=url,
                 device_info=("ESPectre", "1.0", "s3", "Native"),
                 states=("ready", "provisioned"),
             )
@@ -561,7 +562,7 @@ def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> Non
     assert json.loads(capsys.readouterr().out) == {
         "chip": "s3",
         "device_info": ["ESPectre", "1.0", "s3", "Native"],
-        "endpoint": "http://192.0.2.5/espectre/v1",
+        "endpoint": endpoint,
         "frontend": "native",
         "port": "/dev/cu.valid",
         "states": ["ready", "provisioned"],

@@ -18,7 +18,8 @@ All notable changes to this project will be documented in this file.
 
 ### Tools and integrations
 
-- The web flasher reads the ESPectre version from signed ESPHome image descriptors when Improv metadata is unavailable.
+- The web flasher reads the ESPectre version from signed ESPHome image descriptors when Improv metadata is unavailable. The CLI retries the state query after a device confirms that it is joining a new Wi-Fi network.
+- The CLI recognizes a confirmed Wi-Fi connection even when USB CDC truncates the Improv device information or settings URL.
 
 ---
 
