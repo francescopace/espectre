@@ -28,7 +28,7 @@ On 2026-10-21 the `wifi_motion_detection` example, with all optional services en
 | `v6.0.3` | Pass | Pass | Pass | Pass | Pass | Pass |
 | `v6.1` | Pass | Pass | Pass | Pass | Pass | Pass |
 
-On every push, CI builds the SDK with all optional services on ESP32-C5 with ESP-IDF 5.5.3 and on ESP32-C6 with ESP-IDF 6.1 and 6.1.1. CI also compiles the Arduino library's `MotionDetection` example on all six targets with Arduino-ESP32 3.3.12 and 4.0.0. Hardware validation for ESP-IDF 6.x is still pending. See the [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks).
+On every push, CI builds the SDK with all optional services on ESP32-C5 with ESP-IDF 5.5.3 and on ESP32-C6 with ESP-IDF 6.1 and 6.1.1. CI also compiles the Arduino library's `MotionDetection` example on all six targets with Arduino-ESP32 3.3.13 and 4.0.0. Hardware validation for ESP-IDF 6.x is still pending. See the [ESP-IDF compatibility checks](RELEASING.md#esp-idf-compatibility-checks).
 
 ## Installation
 

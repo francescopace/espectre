@@ -495,6 +495,32 @@ def test_firmware_license_gate_checks_linked_packages_and_reports_unknowns(firmw
     assert len(unknown) == 1 and "unidentified" in unknown[0]
 
 
+@pytest.mark.parametrize("override,allowed", [
+    ({}, True),
+    ({"versionInfo": "1.1.2"}, False),
+    ({"downloadLocation": "https://example.com/fork"}, False),
+    ({"SPDXID": "SPDXRef-unrelated"}, False),
+    ({"licenseDeclared": "CC-BY-4.0"}, False),
+    ({"licenseConcluded": "MIT-0 AND AGPL-3.0-only"}, False),
+])
+def test_source_license_review_is_scoped_to_the_upstream_inventory(firmware_auditor, override, allowed):
+    package = {
+        "SPDXID": "SPDXRef-SUBPACKAGE-mbedtls-mbedtls-tf-psa-crypto",
+        "name": "tf-psa-crypto",
+        "versionInfo": "1.1.1",
+        "downloadLocation": "https://github.com/Mbed-TLS/TF-PSA-Crypto",
+        "licenseConcluded": "Apache-2.0 AND BSD-3-Clause AND CC-BY-4.0 AND MIT AND MIT-0",
+        **override,
+    }
+    sbom = {"packages": [package], "relationships": [{
+        "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES",
+        "relatedSpdxElement": package["SPDXID"],
+    }]}
+    errors, unknown = firmware_auditor.check_licenses(sbom, "native")
+    assert not unknown
+    assert (not errors) == allowed
+
+
 @pytest.mark.parametrize("exit_code,records,raises,findings", [
     (0, [{"vulnerable": "NO", "pkg_name": "idf"}], False, 0),
     (1, [{"vulnerable": "YES", "pkg_name": "idf", "cve_id": "CVE-2026-1234"}], False, 1),

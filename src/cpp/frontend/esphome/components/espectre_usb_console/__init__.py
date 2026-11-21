@@ -27,5 +27,5 @@ async def to_code(config):
     esp32.add_idf_sdkconfig_option("CONFIG_TINYUSB_DESC_SERIAL_STRING", "0")
     # Compile ESPHome's CDC calls while the IDF console itself stays disabled.
     cg.add_define("CONFIG_ESP_CONSOLE_USB_CDC", 1)
-    cg.add_global(cg.RawStatement('#include "primary_console.h"'))
+    cg.add_define("USE_ESPECTRE_USB_CONSOLE")
     cg.add(cg.RawStatement("ESP_ERROR_CHECK_WITHOUT_ABORT(::espectre::initialize_primary_console());"))
