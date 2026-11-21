@@ -12,6 +12,6 @@
 
 #define VERSION_CODE(major, minor, patch) ((major) << 16 | (minor) << 8 | (patch))
 #ifndef ESPHOME_VERSION_CODE
-#define ESPHOME_VERSION "2026.11.0"
-#define ESPHOME_VERSION_CODE VERSION_CODE(2026, 11, 0)
+#define ESPHOME_VERSION "2026.12.0-dev"
+#define ESPHOME_VERSION_CODE VERSION_CODE(2026, 12, 0)
 #endif

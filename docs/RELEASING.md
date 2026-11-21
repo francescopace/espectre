@@ -68,7 +68,7 @@ The registry component includes an `API.md` generated from the packaged public h
 
 The verifier checks the local archive and inventory byte for byte before contacting a registry. For registry downloads and installed components, it compares every value in the root `idf_component.yml` after parsing YAML: Component Manager can reorder keys or change line wrapping when packaging an upload. Scalar types, list order, and all manifest fields must match the verified local archive. All other files retain exact SHA-256 checks, including the example manifests; added or missing files fail verification.
 
-To check an extracted artifact with ESP-IDF 5.5.6 in the current shell:
+To check an extracted artifact with ESP-IDF 6.1.1 in the current shell:
 
 ```sh
 python .github/scripts/verify_sdk_component.py prepare \
@@ -79,7 +79,7 @@ python .github/scripts/verify_sdk_component.py build \
   --destination /tmp/espectre-sdk-check --target esp32c3
 ```
 
-Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 5.5.6 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. Native and ESPHome firmware builds on S2 cover the frontend-owned TinyUSB console.
+Use an empty destination outside the checkout. The verifier appends the selected profile's options to the extracted example's `sdkconfig.defaults`. It also sets a dummy SSID so the linker retains the sensing startup; configure real credentials before a hardware test. CI uses `--docker` with the repository's pinned ESP-IDF 6.1.1 image and mounts only the extracted consumer directory. The six minimal targets, four individual optional groups on C3, C3 with all groups, and S2 with all groups form a twelve-build matrix. The Native S2 build covers the frontend-owned TinyUSB console. The ESPHome S2 image also uses TinyUSB for Improv Serial on native USB.
 
 The verifier checks the resolved lockfile after every build: minimal, MQTT, provisioning, and frontend support profiles must download no external stacks; Direct adds only `espressif/mdns`. The manifest selects mDNS through a Kconfig condition and limits it to `>=1.12.0,<1.16.0` because Direct's bootstrap responder uses `mdns_private.h`, `mdns_priv_receive_action`, and other private mDNS functions. The range includes the mDNS versions that ESPHome pins: 1.14.0 in 2026.10 and 1.15.0 in 2026.11. Before raising the upper bound, build Direct with the new version and confirm that `mdns_priv_receive_action` is still called from another source file, so `--wrap` intercepts it.
 
@@ -115,7 +115,7 @@ CD derives the channel, release tag, registry, and environment from the validate
 
 Branch protection should require preparation, the initial test jobs, ESPHome, Native, and Matter firmware builds, dependency audits, the emulator replay, SDK packaging, `SDK compatibility`, and the traffic generator image build. The `SDK compatibility` check requires both the Arduino and ESP-IDF SDK build matrices to succeed. Its name stays the same when a chip or toolchain version changes. Snapshot and release dispatch require the emulator replay, which runs only after every audit passes, and SDK verification to succeed. A failed CI run leaves published artifacts and coverage badges unchanged.
 
-Registry packaging and Native and Matter container builds share the Component Manager version pinned in `requirements.txt`, which is compatible with ESP-IDF 5.5.6. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
+Registry packaging uses Component Manager 3.1.2, matching the ESP-IDF 6.1.1 container. Native and Matter run the host CLI and compliance tools in a separate Python environment so their dependencies do not override ESP-IDF tools. Their Python dependency caches include the installation script in the cache fingerprint, and the IDF dependency check must pass before an installation is marked reusable. The official upload action manages its dependencies in a separate container.
 
 | Event | Publication |
 |-------|-------------|

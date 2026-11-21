@@ -528,10 +528,9 @@ jobs:
           path: |
             .cache/build/matter-home
             src/cpp/frontend/matter/app/managed_components
-          key: matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig.defaults*') }}
+          key: matter-${{ runner.os }}-idf-v6.1.1-build-v1-${{ matrix.target }}-${{ hashFiles('requirements.txt', 'src/cpp/frontend/matter/app/main/idf_component.yml', 'src/cpp/frontend/matter/espectre/idf_component.yml', 'src/cpp/frontend/matter/app/sdkconfig.defaults*') }}
           restore-keys: |
-            matter-${{ runner.os }}-idf-v5.5-build-v3-${{ matrix.target }}-
-            matter-${{ runner.os }}-idf-v5.5-deps-v2-
+            matter-${{ runner.os }}-idf-v6.1.1-build-v1-${{ matrix.target }}-
 
       - name: Build Matter firmware
         run: |
@@ -606,9 +605,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache/build/native-home
-          key: native-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
+          key: native-${{ runner.os }}-idf-v6.1.1-deps-v1-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            native-${{ runner.os }}-idf-v5.5-deps-v2-
+            native-${{ runner.os }}-idf-v6.1.1-deps-v1-
 
       - name: Build native firmware
         run: |

@@ -37,6 +37,7 @@ from .esptool_runner import (
 from .idf_container import (
     DockerBackendError,
     IDF_VERSION,
+    IDF_DOCKER_IMAGE,
     container_sdk_root,
     ensure_docker_backend,
     run_idf_container,
@@ -256,7 +257,7 @@ def is_idf_environment_active() -> bool:
     return bool(shutil.which("idf.py") and os.environ.get("IDF_PATH") and os.environ.get("IDF_PYTHON_ENV_PATH"))
 
 
-def iter_idf_install_candidates() -> list[tuple[str, Path]]:
+def iter_idf_install_candidates(version: str = IDF_VERSION) -> list[tuple[str, Path]]:
     """Return likely ESP-IDF installation directories for the current host."""
     candidates: list[tuple[str, Path]] = []
     seen: set[Path] = set()
@@ -268,7 +269,7 @@ def iter_idf_install_candidates() -> list[tuple[str, Path]]:
     home = Path(os.environ.get("USERPROFILE") or Path.home()) if is_windows_host() else Path.home()
     candidates.append(("standard ESP-IDF install", home / "esp" / "esp-idf"))
     if is_windows_host():
-        candidates.append(("standard ESP-IDF install", home / "esp" / "v5.5" / "esp-idf"))
+        candidates.append(("standard ESP-IDF install", home / "esp" / f"v{version.rsplit('.', 1)[0]}" / "esp-idf"))
 
     unique_candidates: list[tuple[str, Path]] = []
     for source, candidate in candidates:
@@ -327,22 +328,22 @@ def build_esphome_idf_process_environment(
         CORE.build_path = previous_build_path
 
 
-def repair_esphome_managed_idf_install() -> tuple[Path, Path]:
+def repair_esphome_managed_idf_install(version: str = IDF_VERSION) -> tuple[Path, Path]:
     """Complete an interrupted ESPHome-managed ESP-IDF installation."""
     from esphome.espidf.framework import check_esp_idf_install
 
-    framework_path, python_env_path = check_esp_idf_install(IDF_VERSION)
+    framework_path, python_env_path = check_esp_idf_install(version)
     return Path(framework_path), Path(python_env_path)
 
 
-def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
+def resolve_esphome_managed_idf_environment(version: str = IDF_VERSION) -> ResolvedIdfEnvironment | None:
     """Resolve the pinned native ESP-IDF toolchain already managed by ESPHome."""
     tools_path = get_esphome_idf_tools_path()
     if tools_path is None:
         return None
 
-    framework_path = tools_path / "frameworks" / IDF_VERSION
-    python_env_path = tools_path / "penvs" / IDF_VERSION
+    framework_path = tools_path / "frameworks" / version
+    python_env_path = tools_path / "penvs" / version
     idf_py = framework_path / "tools" / "idf.py"
     python_executable = python_env_path / ("Scripts/python.exe" if is_windows_host() else "bin/python")
     if not idf_py.is_file():
@@ -353,7 +354,7 @@ def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
     ).is_file()
     if not environment_complete:
         try:
-            framework_path, python_env_path = repair_esphome_managed_idf_install()
+            framework_path, python_env_path = repair_esphome_managed_idf_install(version)
         except (ImportError, OSError, RuntimeError, ValueError):
             return None
         idf_py = framework_path / "tools" / "idf.py"
@@ -378,7 +379,7 @@ def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
     )
 
 
-def resolve_idf_environment() -> ResolvedIdfEnvironment:
+def resolve_idf_environment(version: str = IDF_VERSION) -> ResolvedIdfEnvironment:
     """Resolve how the CLI should launch idf.py on this host."""
     if is_idf_environment_active():
         return ResolvedIdfEnvironment(
@@ -387,7 +388,7 @@ def resolve_idf_environment() -> ResolvedIdfEnvironment:
             install_dir=Path(os.environ["IDF_PATH"]).expanduser(),
         )
 
-    for source, install_dir in iter_idf_install_candidates():
+    for source, install_dir in iter_idf_install_candidates(version):
         export_script = resolve_idf_export_script_for_install(install_dir)
         if export_script is None:
             continue
@@ -400,7 +401,7 @@ def resolve_idf_environment() -> ResolvedIdfEnvironment:
             export_kind=script_kind,
         )
 
-    if esphome_env := resolve_esphome_managed_idf_environment():
+    if esphome_env := resolve_esphome_managed_idf_environment(version):
         return esphome_env
 
     idf_on_path = shutil.which("idf.py")
@@ -474,6 +475,8 @@ def run_idf_subprocess(
 def resolve_idf_build_backend(
     requested_backend: str = "auto",
     pull_policy: str = "ask",
+    version: str = IDF_VERSION,
+    image: str = IDF_DOCKER_IMAGE,
 ) -> ResolvedIdfBuildBackend:
     """Select the common local-first or pinned-Docker ESP-IDF backend."""
     if requested_backend not in {"auto", "local", "docker"}:
@@ -483,7 +486,7 @@ def resolve_idf_build_backend(
         try:
             return ResolvedIdfBuildBackend(
                 mode="local",
-                idf_environment=resolve_idf_environment(),
+                idf_environment=resolve_idf_environment(version),
             )
         except FileNotFoundError:
             if requested_backend == "local":
@@ -491,7 +494,7 @@ def resolve_idf_build_backend(
 
     return ResolvedIdfBuildBackend(
         mode="docker",
-        docker=ensure_docker_backend(pull_policy),
+        docker=ensure_docker_backend(pull_policy, image=image),
     )
 
 

@@ -1,10 +1,14 @@
 dependencies:
   idf:
     version: ">=5.5.0"
+  espressif/mqtt:
+    version: "1.0.0"
+    rules:
+      - if: "idf_version >=6.0.0"
   improv/improv:
     version: "1.2.7"
   espressif/mdns:
-    version: "^1.9.0"
+    version: "1.15.0"
   espressif/esp_tinyusb:
     version: "^2.0.0"
     rules:

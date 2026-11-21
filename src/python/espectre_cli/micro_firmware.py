@@ -28,8 +28,14 @@ from .idf import (
     resolve_idf_build_dir_name,
     run_in_idf_environment,
 )
-from .idf_container import IDF_VERSION, container_sdk_root, run_toolchain_container
+from .idf_container import container_sdk_root, run_toolchain_container
 
+# The pinned MicroPython port and its dependency lock require ESP-IDF 5.5.
+MICRO_IDF_VERSION = "5.5.6"
+MICRO_IDF_IMAGE = (
+    f"espressif/idf:v{MICRO_IDF_VERSION}@"
+    "sha256:bf72fe7a15c22849a9a94147301165a545fb8905d97c176cf748e3e4614cac84"
+)
 
 MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "0fd6c573ea815774668bbb16b8e197c8822368b2"
@@ -1476,7 +1482,7 @@ def _build_project_firmware_locked(
     if not sdk_root.is_dir():
         raise RuntimeError(f"ESPectre SDK directory does not exist: {sdk_root}")
 
-    resolved_backend = resolve_idf_build_backend(backend, pull_policy)
+    resolved_backend = resolve_idf_build_backend(backend, pull_policy, MICRO_IDF_VERSION, MICRO_IDF_IMAGE)
 
     workspace = cache_dir / "micro-esp32"
     micropython_dir = workspace / "micropython"
@@ -1528,7 +1534,7 @@ def _build_project_firmware_locked(
             raise RuntimeError("The resolved local ESP-IDF path is unavailable")
         idf_version = _read_idf_version(idf_path)
     else:
-        idf_version = IDF_VERSION
+        idf_version = MICRO_IDF_VERSION
 
     incompatible_cache = False
     if resolved_backend.mode == "local" and build_dir.exists():
@@ -1611,6 +1617,7 @@ def _build_project_firmware_locked(
     if resolved_backend.mode == "docker":
         run_toolchain_container(
             frontend="micro",
+            image=MICRO_IDF_IMAGE,
             workdir=workspace,
             commands=commands,
             repo_root=REPO_ROOT,

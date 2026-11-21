@@ -27,7 +27,9 @@ set(espectre_native_requires
     mbedtls
     nvs_flash
     lwip
-    driver
+    esp_driver_gpio
+    esp_driver_uart
+    esp_driver_usb_serial_jtag
     freertos
     heap
     improv__improv

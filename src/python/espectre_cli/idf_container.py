@@ -14,8 +14,8 @@ import sys
 from typing import Callable
 
 
-IDF_VERSION = "5.5.6"
-IDF_DOCKER_IMAGE_DIGEST = "bf72fe7a15c22849a9a94147301165a545fb8905d97c176cf748e3e4614cac84"
+IDF_VERSION = "6.1.1"
+IDF_DOCKER_IMAGE_DIGEST = "2b4f966c37eaedc19542b0637a5f850b2eff9478d8e858192aa0073d92c2dc91"
 IDF_DOCKER_IMAGE = f"espressif/idf:v{IDF_VERSION}@sha256:{IDF_DOCKER_IMAGE_DIGEST}"
 DOCKER_PULL_POLICIES = ("ask", "missing", "never")
 
@@ -74,7 +74,7 @@ def ensure_docker_backend(
     docker = docker_executable()
     if docker is None:
         raise DockerBackendError(
-            f"Docker is not installed. Install Docker, or install ESP-IDF {IDF_VERSION} for local builds."
+            f"Docker is not installed. Install Docker to use {image.split('@')[0]}, or install ESP-IDF locally."
         )
 
     while not docker_daemon_is_running(docker):
@@ -260,10 +260,11 @@ def run_toolchain_container(
     pull_policy: str,
     docker: str | None = None,
     environment: dict[str, str] | None = None,
+    image: str = IDF_DOCKER_IMAGE,
     error_label: str = "Docker ESP-IDF toolchain build",
 ) -> None:
     """Run arbitrary repository toolchain commands in the pinned IDF image."""
-    docker = docker or ensure_docker_backend(pull_policy)
+    docker = docker or ensure_docker_backend(pull_policy, image=image)
     command = build_toolchain_docker_command(
         docker,
         frontend=frontend,
@@ -271,6 +272,7 @@ def run_toolchain_container(
         commands=commands,
         repo_root=repo_root,
         environment=environment,
+        image=image,
     )
     try:
         subprocess.run(command, check=True)
