@@ -46,10 +46,10 @@ def run_improv_provision_command(args) -> int:
             password = getpass.getpass(f"Wi-Fi password ({args.password_env} is unset): ")
         with ImprovSerialClient(port) as client:
             result = client.provision(args.ssid, password, timeout=args.timeout)
+            endpoint = direct_endpoint_from_device_url(result.endpoint) if result.endpoint else None
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         print(f"Improv provisioning failed: {exc}", file=diagnostic_stream)
         return 1
-    endpoint = direct_endpoint_from_device_url(result.endpoint)
     if json_output:
         print(
             json.dumps(
@@ -66,7 +66,10 @@ def run_improv_provision_command(args) -> int:
         )
         return 0
     print("Improv provisioning completed.")
-    print(f"Device endpoint: {endpoint}")
+    if endpoint:
+        print(f"Device endpoint: {endpoint}")
+    else:
+        print("The device did not return its address. Use ./espectre devices to find it.")
     return 0
 
 

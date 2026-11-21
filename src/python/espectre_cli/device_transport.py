@@ -21,6 +21,7 @@ from .device_discovery import ESPECTRE_DIRECT_PORT
 IMPROV_HEADER = b"IMPROV"
 IMPROV_VERSION = 1
 IMPROV_MAX_FRAME_SIZE = 265
+IMPROV_OPTIONAL_RESPONSE_TIMEOUT = 0.5
 DIRECT_PATH = "/espectre/v1"
 DIRECT_EVENTS_PATH = "/espectre/v1/events"
 DIRECT_PROTOCOL_VERSION = "1.0"
@@ -80,7 +81,7 @@ class ImprovFrame:
 
 @dataclass(frozen=True)
 class ImprovProvisioningResult:
-    endpoint: str
+    endpoint: str | None
     states: tuple[str, ...]
     device_info: tuple[str, ...]
 
@@ -138,11 +139,15 @@ class ImprovFrameParser:
             if len(self._buffer) < frame_length:
                 break
             raw = bytes(self._buffer[:frame_length])
-            del self._buffer[:frame_length]
             if raw[6] != IMPROV_VERSION:
                 raise ImprovProtocolError(f"unsupported Improv version {raw[6]}")
             if sum(raw[:-1]) & 0xFF != raw[-1]:
+                if raw[7] == ImprovPacketType.RPC_RESPONSE:
+                    # A truncated USB CDC reply can run into the next valid frame.
+                    del self._buffer[0]
+                    continue
                 raise ImprovProtocolError("invalid Improv frame checksum")
+            del self._buffer[:frame_length]
             try:
                 packet_type = ImprovPacketType(raw[7])
             except ValueError as exc:
@@ -243,7 +248,7 @@ class ImprovSerialClient:
         predicate: Callable[[ImprovFrame], object | None],
         deadline: float,
     ) -> object:
-        while time.monotonic() < deadline:
+        while self._pending_frames or time.monotonic() < deadline:
             if not self._pending_frames:
                 chunk = self._serial.read(IMPROV_MAX_FRAME_SIZE)
                 if not chunk:
@@ -310,43 +315,71 @@ class ImprovSerialClient:
                 # The firmware service may not answer the first query while it
                 # starts. Retry this idempotent protocol request within the
                 # caller's provisioning deadline.
-        device_info = self._rpc(ImprovCommand.GET_DEVICE_INFO, deadline)
+        now = time.monotonic()
+        try:
+            device_info = self._rpc(
+                ImprovCommand.GET_DEVICE_INFO,
+                now + min(IMPROV_OPTIONAL_RESPONSE_TIMEOUT, (deadline - now) / 2),
+            )
+        except TimeoutError:
+            device_info = ()
+            self._parser = ImprovFrameParser()
+        if time.monotonic() >= deadline:
+            raise TimeoutError("timed out before sending Wi-Fi settings")
         self._send_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
 
         endpoint: str | None = None
+        initially_online = states[-1] == "provisioned"
+        joining = False
+        confirmed = False
 
-        def provisioning_result(frame: ImprovFrame) -> str | None:
-            nonlocal endpoint
+        def provisioning_result(frame: ImprovFrame) -> bool | None:
+            nonlocal endpoint, joining, confirmed
             state = current_state(frame)
             if state is not None:
-                return endpoint if state == ImprovState.PROVISIONED.name.lower() and endpoint else None
+                if state == "provisioning":
+                    joining = True
+                if state == "provisioned" and (joining or not initially_online):
+                    confirmed = True
+                    return True
+                return None
             if frame.packet_type != ImprovPacketType.RPC_RESPONSE:
                 return None
-            response_command, values = parse_improv_rpc_response(frame.data)
-            if response_command not in {
-                ImprovCommand.WIFI_SETTINGS,
-                ImprovCommand.GET_CURRENT_STATE,
-            }:
-                raise ImprovProtocolError(
-                    f"unexpected Improv RPC response {response_command.name}; expected WIFI_SETTINGS or GET_CURRENT_STATE"
-                )
-            if len(values) != 1 or not values[0]:
-                raise ImprovProtocolError("Improv Wi-Fi response did not contain one device URL")
-            endpoint = values[0]
-            return endpoint if ImprovState.PROVISIONED.name.lower() in states else None
+            command, values = parse_improv_rpc_response(frame.data)
+            if command == ImprovCommand.GET_DEVICE_INFO:
+                return None  # Late optional metadata.
+            if command not in {ImprovCommand.WIFI_SETTINGS, ImprovCommand.GET_CURRENT_STATE}:
+                raise ImprovProtocolError(f"unexpected Improv provisioning response {command.name}")
+            if command == ImprovCommand.GET_CURRENT_STATE and initially_online and not joining:
+                return None
+            if len(values) > 1:
+                raise ImprovProtocolError("Improv Wi-Fi response contained multiple device URLs")
+            if values:
+                endpoint = values[0] or None
+            if command == ImprovCommand.WIFI_SETTINGS:
+                # This response is correlated with the credentials we just sent.
+                confirmed = True
+            return True if confirmed else None
 
-        while endpoint is None and time.monotonic() < deadline:
-            retry_deadline = min(deadline, time.monotonic() + 2.0)
+        while not confirmed:
             try:
-                endpoint = self._read_until(provisioning_result, retry_deadline)  # type: ignore[assignment]
+                self._read_until(provisioning_result, min(deadline, time.monotonic() + 2.0))
             except TimeoutError:
                 if time.monotonic() >= deadline:
                     raise
-                # Recover when the one-shot WIFI_SETTINGS completion was lost
-                # while the interface associated or the USB console reset.
-                self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
+                # A poll during reprovisioning can still report the old network.
+                if not initially_online or joining:
+                    self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
         if endpoint is None:
-            raise TimeoutError("timed out waiting for Improv provisioning result")
+            # A short state frame can arrive before a complete, truncated, or absent URL.
+            def received_endpoint(frame: ImprovFrame) -> bool | None:
+                provisioning_result(frame)
+                return True if endpoint else None
+
+            try:
+                self._read_until(received_endpoint, min(deadline, time.monotonic() + IMPROV_OPTIONAL_RESPONSE_TIMEOUT))
+            except TimeoutError:
+                pass
         return ImprovProvisioningResult(endpoint, tuple(states), device_info)
 
 

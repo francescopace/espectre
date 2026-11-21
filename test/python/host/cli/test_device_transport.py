@@ -206,6 +206,50 @@ def test_improv_client_handles_multiple_frames_in_one_serial_read():
     assert len(serial.writes) == 3
     assert serial.closed
 
+@pytest.mark.parametrize("outcome", ["accepted", "lost_completion", "rejected"])
+def test_improv_reprovision_with_truncated_usb_replies(monkeypatch, outcome):
+    monkeypatch.setattr(device_transport, "IMPROV_OPTIONAL_RESPONSE_TIMEOUT", 0.02)
+
+    def state(value):
+        return encode_improv_frame(ImprovPacketType.CURRENT_STATE, bytes([value]))
+
+    class UsbConsole:
+        response = b""
+
+        def write(self, packet):
+            command = ImprovCommand(packet[9])
+            full = _improv_rpc_response(command, ["x" * 73])
+            truncated = full[:64] + full[-2:]
+            if command == ImprovCommand.GET_CURRENT_STATE:
+                self.response = state(4) + truncated
+            elif command == ImprovCommand.GET_DEVICE_INFO:
+                self.response = truncated
+            elif outcome == "lost_completion":
+                self.response = state(3)
+            elif outcome == "accepted":
+                self.response = state(3) + state(4) + truncated
+            else:
+                self.response = state(4) + encode_improv_frame(ImprovPacketType.ERROR_STATE, bytes([3]))
+            return len(packet)
+
+        def read(self, size):
+            chunk, self.response = self.response[:size], self.response[size:]
+            return chunk
+
+        def close(self):
+            pass
+
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: UsbConsole()) as client:
+        if outcome != "rejected":
+            result = client.provision("Lab", "test", timeout=3)
+            assert result.states == ("provisioned", "provisioning", "provisioned")
+            assert result.endpoint is None
+            assert result.device_info == ()
+        else:
+            with pytest.raises(ImprovProtocolError, match="error 3"):
+                client.provision("Lab", "wrong", timeout=1)
+
+
 def test_improv_client_retries_initial_state_query_after_flash(monkeypatch):
     class FakeClock:
         now = 0.0

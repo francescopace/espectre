@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
 - In `wifi_raw`, setting the target to the connected AP’s BSSID now sends AP-directed frames, just like `auto`. The explicit target stays fixed across roaming.
 - Direct can return up to 32 access points from a frontend scan and report the saved BSSID and pin status. Device settings uses the saved BSSID to confirm automatic AP selection. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. Direct rejects pin changes during raw CSI collection and prevents collection from starting while a pin change awaits acknowledgement.
 
+### CLI
+
+- Wi-Fi provisioning over Improv Serial succeeds when the device confirms the new connection, even if USB drops the device information or settings URL. When the address is missing, `./espectre provision --json` reports `endpoint: null`, and `./espectre devices` can discover the device.
+
 ---
 
 ## [3.2.1] - 2026-11-20 - ESPHome 2026.11 compatibility and MQTT without a CA bundle
