@@ -112,9 +112,10 @@ struct RuntimeConfig {
   std::string traffic_generator_target_ip;
   /**
    * WIFI_RAW destination: `auto` follows the currently associated AP after every
-   * reconnect or BSSID pin change. An explicit unicast MAC sends direct MCS0
-   * Null Data on the station's channel: HT20 on 2.4 GHz, VHT20 on C5 5 GHz. Local ACK sensing
-   * still requires AUTO or LLTF. Other traffic modes ignore this setting.
+   * reconnect or BSSID pin change. A fixed unicast MAC uses AP-directed frames
+   * while it matches the associated BSSID. Other destinations use direct MCS0
+   * Null Data on the station's channel (HT20 on 2.4 GHz, VHT20 on C5 5 GHz).
+   * Local ACK sensing requires AUTO or LLTF. Other traffic modes ignore this setting.
    */
   std::string traffic_generator_target_mac{"auto"};
   /**

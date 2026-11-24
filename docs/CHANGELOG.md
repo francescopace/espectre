@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### SDK
 
+- In `wifi_raw`, setting the target to the connected AP’s BSSID now sends AP-directed frames, just like `auto`. The explicit target stays fixed across roaming.
 - Direct can use frontend scan results and report the saved BSSID and pin status. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. During raw CSI collection, Direct rejects pin changes before acknowledging them.
 
 ---

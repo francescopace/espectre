@@ -104,7 +104,7 @@ Clients must ignore resources, operations, events, and fields they do not know.
 | `threshold` | number | Current detector threshold in `[0.0, 1.0]` |
 | `motion_on_hits`, `motion_off_hits` | integer | Consecutive evaluations required for each state transition |
 | `traffic_generator_mode` | string | `ping`, `dns`, `dns_tcp`, or `wifi_raw` (see [compatibility limits](CSI.md#compatibility-limits)) for the device's own traffic, or `external` when another host sends it |
-| `traffic_generator_target_mac` | string, optional | Configured `wifi_raw` destination: `auto` (currently associated AP) or an explicit unicast peer MAC; `auto` remains the configured value after AP changes |
+| `traffic_generator_target_mac` | string, optional | Configured `wifi_raw` destination: `auto` (currently associated AP) or a fixed unicast MAC. A fixed MAC uses AP-directed frames while it matches the associated BSSID |
 | `csi_target_pps` | integer | Configured CSI traffic target in packets per second |
 | `csi_sample_spacing` | string, optional | Configured `half_slot` (default) or `distinct`; it applies to every traffic source. See [temporal admission](ALGORITHMS.md#temporal-admission) |
 | `csi_traffic_udp_port` | integer, optional | External CSI traffic UDP port |

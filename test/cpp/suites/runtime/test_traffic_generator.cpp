@@ -961,6 +961,36 @@ void test_raw_peer_destination_and_return_to_auto(void) {
   g_esp_wifi_mock.raw_tx_hook = nullptr;
 }
 
+void test_explicit_raw_target_uses_ap_frames_only_while_associated_to_that_bssid(void) {
+  TrafficGeneratorService generator;
+  active_generator = &generator;
+  g_esp_wifi_mock.raw_tx_hook = stop_raw_test_generator;
+  const uint8_t target[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+  const uint8_t wildcard[6] = {255, 255, 255, 255, 255, 255};
+  std::memcpy(g_esp_wifi_mock.current_ap_info.bssid, target, sizeof(target));
+  TEST_ASSERT_TRUE(generator.set_target_mac("02:11:22:33:44:55"));
+  generator.init(100U, TrafficGeneratorMode::WIFI_RAW);
+  TEST_ASSERT_TRUE(generator.start(0U));
+  const auto *frame = g_esp_wifi_mock.raw_tx_frame;
+  TEST_ASSERT_EQUAL(TRAFFIC_NULL_DATA_FRAME_SIZE, g_esp_wifi_mock.raw_tx_length);
+  TEST_ASSERT_EQUAL(0x01U, frame[1]);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(target, frame + 4U, sizeof(target));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(target, frame + 16U, sizeof(target));
+  TEST_ASSERT_EQUAL(WIFI_PHY_RATE_6M, g_esp_wifi_mock.raw_rate_config.rate);
+
+  // After roaming, keep sending to the configured address as a direct peer.
+  ++g_esp_wifi_mock.current_ap_info.bssid[5];
+  g_esp_wifi_mock.raw_tx_call_count = 0;
+  TEST_ASSERT_TRUE(generator.start(0U));
+  TEST_ASSERT_EQUAL(TRAFFIC_NULL_DATA_PEER_FRAME_SIZE, g_esp_wifi_mock.raw_tx_length);
+  TEST_ASSERT_EQUAL(0U, frame[1]);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(target, frame + 4U, sizeof(target));
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(wildcard, frame + 16U, sizeof(wildcard));
+  TEST_ASSERT_EQUAL(WIFI_PHY_RATE_MCS0_LGI, g_esp_wifi_mock.raw_rate_config.rate);
+  g_esp_wifi_mock.raw_tx_hook = nullptr;
+  active_generator = nullptr;
+}
+
 void test_raw_destination_waits_for_the_old_worker_before_retargeting(void) {
   prepare_lifecycle_test();
   const uint8_t bssid[6] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
@@ -993,6 +1023,7 @@ void test_raw_destination_waits_for_the_old_worker_before_retargeting(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_raw_peer_destination_and_return_to_auto);
+    RUN_TEST(test_explicit_raw_target_uses_ap_frames_only_while_associated_to_that_bssid);
     RUN_TEST(test_raw_vht20_compatibility_preserves_unrelated_driver_errors);
     RUN_TEST(test_raw_destination_waits_for_the_old_worker_before_retargeting);
     RUN_TEST(test_dns_udp_generator_sends_one_paced_query_per_wait);

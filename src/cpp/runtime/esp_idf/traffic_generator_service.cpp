@@ -469,17 +469,18 @@ bool TrafficGeneratorService::launch_(uint32_t target_addr) {
     wifi_ap_record_t ap{};
     uint8_t station_mac[6]{};
     uint8_t peer_mac[6]{};
-    const bool direct_peer = target_mac_ != "auto";
     if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK ||
         esp_wifi_get_mac(WIFI_IF_STA, station_mac) != ESP_OK) {
       ESPECTRE_LOGE(TAG, "Associated AP or station MAC is unavailable");
       return false;
     }
-    if (direct_peer && (!parse_unicast_mac_address(target_mac_, peer_mac) ||
-                        std::memcmp(peer_mac, station_mac, sizeof(station_mac)) == 0)) {
+    const bool explicit_target = target_mac_ != "auto";
+    if (explicit_target && (!parse_unicast_mac_address(target_mac_, peer_mac) ||
+                            std::memcmp(peer_mac, station_mac, sizeof(station_mac)) == 0)) {
       ESPECTRE_LOGE(TAG, "Raw destination %s is invalid or this device's own MAC", target_mac_.c_str());
       return false;
     }
+    const bool direct_peer = explicit_target && std::memcmp(peer_mac, ap.bssid, sizeof(peer_mac)) != 0;
     null_data_frame_length_ = build_null_data_frame(direct_peer ? peer_mac : ap.bssid, station_mac,
                                                     null_data_frame_, sizeof(null_data_frame_), direct_peer);
     if (null_data_frame_length_ == 0U) {
