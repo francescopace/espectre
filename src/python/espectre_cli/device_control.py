@@ -46,10 +46,13 @@ def run_improv_provision_command(args) -> int:
             password = getpass.getpass(f"Wi-Fi password ({args.password_env} is unset): ")
         with ImprovSerialClient(port) as client:
             result = client.provision(args.ssid, password, timeout=args.timeout)
-            endpoint = direct_endpoint_from_device_url(result.endpoint) if result.endpoint else None
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         print(f"Improv provisioning failed: {exc}", file=diagnostic_stream)
         return 1
+    try:
+        endpoint = direct_endpoint_from_device_url(result.endpoint) if result.endpoint else None
+    except ValueError:
+        endpoint = None  # Provisioning succeeded, but the supplied address is unusable.
     if json_output:
         print(
             json.dumps(

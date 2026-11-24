@@ -566,8 +566,10 @@ void test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection(
   frontend.set_wifi_provisioning_info(wifi);
   int provisioning_calls = 0;
   frontend.set_provisioning_command_callback(
-      [&provisioning_calls](const std::string &, std::string *) {
+      [&](const std::string &, std::string *) {
         ++provisioning_calls;
+        wifi.apply_state = "verifying";
+        frontend.set_wifi_provisioning_info(wifi);
         return true;
       });
   TEST_ASSERT_TRUE(frontend.setup());
@@ -594,6 +596,12 @@ void test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection(
   TEST_ASSERT_FALSE(direct.emit_raw_session_request());
   result.response_sent_callback(true);
   TEST_ASSERT_EQUAL(1, provisioning_calls);
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
+  wifi.apply_state = "rolling_back";
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
+  wifi.apply_state = "rolled_back";
+  frontend.set_wifi_provisioning_info(wifi);
   TEST_ASSERT_TRUE(direct.emit_raw_session_request());
   TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::REQUESTED));
 }

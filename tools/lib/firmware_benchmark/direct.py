@@ -1237,7 +1237,7 @@ def run_direct_frontend_cases(
 
     endpoint: str
     provisioning: dict[str, object] | None = None
-    endpoint_override = benchmark_setting("ESPECTRE_BENCHMARK_DIRECT_ENDPOINT", "") or ""
+    endpoint_url = benchmark_setting("ESPECTRE_BENCHMARK_DIRECT_ENDPOINT", "")
     try:
         if frontend in {"native", "esphome"}:
             provision_command = [
@@ -1270,11 +1270,13 @@ def run_direct_frontend_cases(
                 )
             provisioning = parse_json_object_from_output(provision_result.output)
             provisioned_endpoint = provisioning.get("endpoint")
-            if not isinstance(provisioned_endpoint, str) or not provisioned_endpoint:
+            if "endpoint" not in provisioning or (
+                provisioned_endpoint is not None and not (isinstance(provisioned_endpoint, str) and provisioned_endpoint)
+            ):
                 raise RuntimeError(
-                    f"{FRONTEND_LABELS[frontend]} provision JSON did not contain an endpoint"
+                    f"{FRONTEND_LABELS[frontend]} provision JSON requires an endpoint URL or null"
                 )
-            endpoint = direct_endpoint_from_device_url(endpoint_override or provisioned_endpoint)
+            endpoint_url = endpoint_url or provisioned_endpoint
         elif frontend == "matter":
             if onboarding_capture is None:
                 raise RuntimeError("Matter onboarding capture is unavailable")
@@ -1285,15 +1287,11 @@ def run_direct_frontend_cases(
                 "controller_revision": commissioning.controller_revision,
                 "node_id": commissioning.node_id,
             }
-            endpoint = (
-                direct_endpoint_from_device_url(endpoint_override)
-                if endpoint_override
-                else discover_direct_device(frontend, chip=chip).endpoint
-            )
-        elif endpoint_override:
-            endpoint = direct_endpoint_from_device_url(endpoint_override)
-        else:
-            endpoint = discover_direct_device(frontend, chip=chip).endpoint
+        endpoint = (
+            direct_endpoint_from_device_url(endpoint_url)
+            if endpoint_url
+            else discover_direct_device(frontend, chip=chip).endpoint
+        )
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         failed_results = _failed_direct_results(selected_cases, bootstrap, str(exc))
         if matter_monitor is not None:

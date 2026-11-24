@@ -117,8 +117,15 @@ class ImprovFrameParser:
         self._buffer = bytearray()
 
     def feed(self, chunk: bytes) -> list[ImprovFrame]:
-        self._buffer.extend(chunk)
         frames: list[ImprovFrame] = []
+        frame = self.next_frame(chunk)
+        while frame is not None:
+            frames.append(frame)
+            frame = self.next_frame()
+        return frames
+
+    def next_frame(self, chunk: bytes = b"") -> ImprovFrame | None:
+        self._buffer.extend(chunk)
         while True:
             header_at = self._buffer.find(IMPROV_HEADER)
             if header_at < 0:
@@ -127,24 +134,26 @@ class ImprovFrameParser:
                     self._buffer[:] = self._buffer[-keep:]
                 else:
                     self._buffer.clear()
-                break
+                return None
             if header_at:
                 del self._buffer[:header_at]
             if len(self._buffer) < 9:
-                break
+                return None
             data_length = self._buffer[8]
             frame_length = 10 + data_length
             if frame_length > IMPROV_MAX_FRAME_SIZE:
+                del self._buffer[0]
                 raise ImprovProtocolError("Improv frame exceeds the size limit")
             if len(self._buffer) < frame_length:
-                break
+                return None
             raw = bytes(self._buffer[:frame_length])
             if raw[6] != IMPROV_VERSION:
+                del self._buffer[0]
                 raise ImprovProtocolError(f"unsupported Improv version {raw[6]}")
             if sum(raw[:-1]) & 0xFF != raw[-1]:
+                del self._buffer[0]
                 if raw[7] == ImprovPacketType.RPC_RESPONSE:
                     # A truncated USB CDC reply can run into the next valid frame.
-                    del self._buffer[0]
                     continue
                 raise ImprovProtocolError("invalid Improv frame checksum")
             del self._buffer[:frame_length]
@@ -152,8 +161,7 @@ class ImprovFrameParser:
                 packet_type = ImprovPacketType(raw[7])
             except ValueError as exc:
                 raise ImprovProtocolError(f"unknown Improv packet type {raw[7]}") from exc
-            frames.append(ImprovFrame(packet_type, raw[9:-1]))
-        return frames
+            return ImprovFrame(packet_type, raw[9:-1])
 
 
 def encode_improv_frame(packet_type: ImprovPacketType, data: bytes = b"") -> bytes:
@@ -227,7 +235,6 @@ class ImprovSerialClient:
             serial_factory = Serial
         self._serial = serial_factory(port=port, baudrate=baudrate, timeout=0.1, write_timeout=2.0)
         self._parser = ImprovFrameParser()
-        self._pending_frames: list[ImprovFrame] = []
 
     def close(self) -> None:
         self._serial.close()
@@ -247,23 +254,36 @@ class ImprovSerialClient:
         self,
         predicate: Callable[[ImprovFrame], object | None],
         deadline: float,
+        *,
+        optional: bool = False,
     ) -> object:
-        while self._pending_frames or time.monotonic() < deadline:
-            if not self._pending_frames:
+        chunk = b""
+        while True:
+            try:
+                frame = self._parser.next_frame(chunk)
+            except ImprovProtocolError:
+                if not optional:
+                    raise
+                chunk = b""
+                continue
+            chunk = b""
+            if frame is None:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("timed out waiting for Improv response")
                 chunk = self._serial.read(IMPROV_MAX_FRAME_SIZE)
-                if not chunk:
-                    continue
-                self._pending_frames.extend(self._parser.feed(chunk))
-            while self._pending_frames:
-                frame = self._pending_frames.pop(0)
-                if frame.packet_type == ImprovPacketType.ERROR_STATE:
-                    code = frame.data[0] if len(frame.data) == 1 else -1
-                    if code:
-                        raise ImprovProtocolError(f"Improv device reported error {code}")
+                continue
+            if frame.packet_type == ImprovPacketType.ERROR_STATE and len(frame.data) == 1 and frame.data[0]:
+                raise ImprovProtocolError(f"Improv device reported error {frame.data[0]}")
+            try:
+                if frame.packet_type == ImprovPacketType.ERROR_STATE and len(frame.data) != 1:
+                    raise ImprovProtocolError("invalid Improv error-state payload")
                 result = predicate(frame)
-                if result is not None:
-                    return result
-        raise TimeoutError("timed out waiting for Improv response")
+            except ImprovProtocolError:
+                if not optional:
+                    raise
+                continue
+            if result is not None:
+                return result
 
     def _rpc(self, command: ImprovCommand, deadline: float) -> tuple[str, ...]:
         self._send_rpc(command)
@@ -323,13 +343,13 @@ class ImprovSerialClient:
             )
         except TimeoutError:
             device_info = ()
-            self._parser = ImprovFrameParser()
         if time.monotonic() >= deadline:
             raise TimeoutError("timed out before sending Wi-Fi settings")
+        # Discard bytes the parser buffered while reading state and device info.
+        self._parser = ImprovFrameParser()
         self._send_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
 
         endpoint: str | None = None
-        initially_online = states[-1] == "provisioned"
         joining = False
         confirmed = False
 
@@ -339,7 +359,7 @@ class ImprovSerialClient:
             if state is not None:
                 if state == "provisioning":
                     joining = True
-                if state == "provisioned" and (joining or not initially_online):
+                if state == "provisioned" and joining:
                     confirmed = True
                     return True
                 return None
@@ -350,7 +370,7 @@ class ImprovSerialClient:
                 return None  # Late optional metadata.
             if command not in {ImprovCommand.WIFI_SETTINGS, ImprovCommand.GET_CURRENT_STATE}:
                 raise ImprovProtocolError(f"unexpected Improv provisioning response {command.name}")
-            if command == ImprovCommand.GET_CURRENT_STATE and initially_online and not joining:
+            if command == ImprovCommand.GET_CURRENT_STATE and not joining:
                 return None
             if len(values) > 1:
                 raise ImprovProtocolError("Improv Wi-Fi response contained multiple device URLs")
@@ -367,8 +387,8 @@ class ImprovSerialClient:
             except TimeoutError:
                 if time.monotonic() >= deadline:
                     raise
-                # A poll during reprovisioning can still report the old network.
-                if not initially_online or joining:
+                # Wait for the device to announce the join before polling for a lost completion.
+                if joining:
                     self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
         if endpoint is None:
             # A short state frame can arrive before a complete, truncated, or absent URL.
@@ -377,17 +397,20 @@ class ImprovSerialClient:
                 return True if endpoint else None
 
             try:
-                self._read_until(received_endpoint, min(deadline, time.monotonic() + IMPROV_OPTIONAL_RESPONSE_TIMEOUT))
-            except TimeoutError:
+                self._read_until(received_endpoint, min(deadline, time.monotonic() + IMPROV_OPTIONAL_RESPONSE_TIMEOUT),
+                                 optional=True)
+            except OSError:
+                # Includes TimeoutError and a serial disconnect after confirmation.
                 pass
         return ImprovProvisioningResult(endpoint, tuple(states), device_info)
 
 
 def direct_endpoint_from_device_url(device_url: str) -> str:
     parsed = urlsplit(device_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.port == 0
+            or any(char.isspace() for char in parsed.netloc)):
         raise ValueError("Improv returned an invalid device URL")
-    target_values = parse_qs(parsed.query, strict_parsing=False).get("target", [])
+    target_values = parse_qs(parsed.query, keep_blank_values=True).get("target", [])
     if target_values:
         if len(target_values) != 1:
             raise ValueError("Improv returned multiple device targets")
@@ -398,7 +421,7 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
         except ValueError:
             try:
                 parsed_target = urlsplit(f"//{target}")
-                if not parsed_target.hostname or parsed_target.path:
+                if not parsed_target.hostname or parsed_target.path or parsed_target.port == 0:
                     raise ValueError
                 address = ipaddress.ip_address(parsed_target.hostname)
                 port = parsed_target.port or ESPECTRE_DIRECT_PORT

@@ -187,12 +187,16 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
     ports_after_reset = iter([["/dev/cu.other"], ["/dev/cu.other", "/dev/cu.test"]])
 
     class FakeConnection:
+        timeout = 1.0
+        in_waiting = 128
+
         def __init__(self, port, **_kwargs):
             assert port == "/dev/cu.test"
             self.lines = iter(
                 [
-                    b"I app: MATTER_QR=MT:TESTPAYLOAD\n",
-                    b"I app: MATTER_MANUAL_CODE=12704227053\n",
+                    b"I app: MATTER_QR=MT:TEST",
+                    b"PAYLOAD\r\nI app: MATTER_MANUAL_CODE=127",
+                    b"04227053\x1b[0m\r\n",
                 ]
             )
 
@@ -202,7 +206,7 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
         def __exit__(self, *_args):
             return False
 
-        def readline(self):
+        def read(self, size):
             return next(self.lines, b"")
 
         def close(self):
@@ -237,7 +241,10 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
     assert reset_calls == [("s3", "esp32s3", "/dev/cu.test")]
 
 
-def test_matter_onboarding_timeout_includes_usb_reconnection(monkeypatch) -> None:
+@pytest.mark.parametrize("final_bytes", [
+    b"", b"MATTER_MANUAL_CODE=123", b"MATTER_MANUAL_CODE=123\n", b"MATTER_MANUAL_CODE=12704227053",
+])
+def test_matter_onboarding_timeout_includes_usb_reconnection(monkeypatch, final_bytes) -> None:
     port = "/dev/cu.test"
     clock = [0.0]
     ports = iter([[], [port]])
@@ -246,10 +253,15 @@ def test_matter_onboarding_timeout_includes_usb_reconnection(monkeypatch) -> Non
     monkeypatch.setattr(common.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
 
     class SilentConnection:
+        in_waiting = 128
+
         def __init__(self, port, *, baudrate, timeout):
             self.timeout = timeout
+            self.chunks = iter([b"MATTER_QR=MT:TESTPAYLOAD\n", final_bytes])
 
-        def readline(self):
+        def read(self, size):
+            if chunk := next(self.chunks, b""):
+                return chunk
             clock[0] += self.timeout
             return b""
 
@@ -266,6 +278,9 @@ def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> N
     reset_calls: list[tuple[str, str, str]] = []
 
     class FakeConnection:
+        timeout = 1.0
+        in_waiting = 128
+
         def __init__(self, *_args, **_kwargs):
             self.lines = iter(
                 [
@@ -280,7 +295,7 @@ def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> N
         def __exit__(self, *_args):
             return False
 
-        def readline(self):
+        def read(self, size):
             return next(self.lines, b"")
 
         def close(self):
@@ -307,10 +322,13 @@ def test_matter_onboarding_does_not_retry_serial_failure(monkeypatch) -> None:
     opened: list[str] = []
 
     class FakeConnection:
+        timeout = 1.0
+        in_waiting = 128
+
         def __init__(self, port, **_kwargs):
             opened.append(port)
 
-        def readline(self):
+        def read(self, size):
             raise OSError("device disconnected")
 
         def close(self):
@@ -542,7 +560,13 @@ def test_get_serial_port_forwards_operation_to_shared_resolver(monkeypatch) -> N
     ]
 
 
-@pytest.mark.parametrize("url, endpoint", [("http://192.0.2.5", "http://192.0.2.5/espectre/v1"), (None, None)])
+@pytest.mark.parametrize("url, endpoint", [
+    ("http://192.0.2.5", "http://192.0.2.5/espectre/v1"),
+    ("broken-address", None),
+    ("http://192.0.2.5:bad", None),
+    ("https://espectre.dev/tools/device-settings/?target=", None),
+    (None, None),
+])
 def test_improv_provision_json_reports_selected_port(monkeypatch, capsys, url, endpoint) -> None:
     observed = []
 

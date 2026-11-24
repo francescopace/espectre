@@ -510,8 +510,8 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
   TEST_ASSERT_EQUAL_STRING("ESPectre test device", info[3].c_str());
   TEST_ASSERT_EQUAL_STRING("ESP-IDF", info[4].c_str());
 
-  const std::string ssid = "Improv Network";
-  const std::string password = "serial-secret";
+  const std::string ssid(32, 'S');
+  const std::string password(63, 'p');
   std::vector<uint8_t> wifi_data{static_cast<uint8_t>(ssid.size())};
   wifi_data.insert(wifi_data.end(), ssid.begin(), ssid.end());
   wifi_data.push_back(static_cast<uint8_t>(password.size()));
@@ -519,6 +519,9 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
   output.clear();
   input = make_improv_rpc_frame(improv::WIFI_SETTINGS, wifi_data);
   input_position = 0U;
+  // A full-length credential frame spans two console reads.
+  service.loop();
+  TEST_ASSERT_TRUE(input_position < input.size());
   service.loop();
   wifi_provisioning.loop();
 
@@ -526,9 +529,19 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
   TEST_ASSERT_EQUAL(2U, frames.size());
   TEST_ASSERT_EQUAL_UINT8(improv::TYPE_CURRENT_STATE, frames[1].type);
   TEST_ASSERT_EQUAL_UINT8(improv::STATE_PROVISIONING, frames[1].payload[0]);
-  TEST_ASSERT_EQUAL_STRING(ssid.c_str(), reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
+  TEST_ASSERT_EQUAL(0, std::memcmp(ssid.data(), g_esp_wifi_mock.last_config.sta.ssid, ssid.size()));
+  TEST_ASSERT_EQUAL_STRING(password.c_str(), reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
   TEST_ASSERT_FALSE(g_esp_wifi_mock.last_config.sta.bssid_set);
   TEST_ASSERT_TRUE(std::search(output.begin(), output.end(), password.begin(), password.end()) == output.end());
+
+  output.clear();
+  input = make_improv_rpc_frame(improv::GET_CURRENT_STATE);
+  input_position = 0U;
+  service.loop();
+  frames = parse_improv_frames(output);
+  TEST_ASSERT_EQUAL(2U, frames.size());
+  TEST_ASSERT_EQUAL_UINT8(improv::TYPE_CURRENT_STATE, frames[1].type);
+  TEST_ASSERT_EQUAL_UINT8(improv::STATE_PROVISIONING, frames[1].payload[0]);
 
   output.clear();
   emit_got_ip(&manager);

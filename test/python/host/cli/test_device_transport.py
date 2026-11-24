@@ -170,41 +170,50 @@ def test_improv_client_does_not_touch_modem_control_lines():
     client.close()
 
 
+class ImprovConsole:
+    """Queue device replies only when the host writes their corresponding RPC."""
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.input = bytearray()
+        self.commands = []
+        self.closed = False
+
+    def write(self, data):
+        command = ImprovCommand(data[9])
+        self.commands.append(command)
+        self.input.extend(self.reply(command))
+        return len(data)
+
+    def read(self, size):
+        chunk = bytes(self.input[:size])
+        del self.input[:size]
+        return chunk
+
+    def close(self):
+        self.closed = True
+
+
+def _state(value):
+    return encode_improv_frame(ImprovPacketType.CURRENT_STATE, bytes([value]))
+
+
 def test_improv_client_handles_multiple_frames_in_one_serial_read():
-    class FakeSerial:
-        def __init__(self, **_kwargs):
-            self.writes: list[bytes] = []
-            self.closed = False
-            device_info = _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"])
-            provisioned_url = _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
-            self.reads = [
-                b"boot log\n"
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x02")
-                + device_info
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x03")
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
-                + provisioned_url
-            ]
-
-        def read(self, _size: int = 1) -> bytes:
-            return self.reads.pop(0) if self.reads else b""
-
-        def write(self, data: bytes) -> int:
-            self.writes.append(data)
-            return len(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    serial = FakeSerial()
-    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
-        result = client.provision("Lab", "secret", timeout=1.0)
+    replies = {
+        ImprovCommand.GET_CURRENT_STATE: b"boot log\n" + _state(2),
+        ImprovCommand.GET_DEVICE_INFO: _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"]),
+        ImprovCommand.WIFI_SETTINGS: _state(3) + _state(4) + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"]),
+    }
+    serial = ImprovConsole(replies.__getitem__)
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: serial) as client:
+        result = client.provision("Lab", "secret", timeout=1)
 
     assert result.endpoint == "http://192.0.2.10"
     assert result.states == ("authorized", "provisioning", "provisioned")
     assert result.device_info == ("ESPectre", "1", "c3", "Native")
-    assert len(serial.writes) == 3
+    assert len(serial.commands) == 3
     assert serial.closed
+
 
 @pytest.mark.parametrize("outcome", ["accepted", "lost_completion", "rejected"])
 def test_improv_reprovision_with_truncated_usb_replies(monkeypatch, outcome):
@@ -251,77 +260,98 @@ def test_improv_reprovision_with_truncated_usb_replies(monkeypatch, outcome):
 
 
 def test_improv_client_retries_initial_state_query_after_flash(monkeypatch):
-    class FakeClock:
-        now = 0.0
+    now = [0.0]
+    replies = iter([
+        b"", _state(2),
+        _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "s3", "Native"]),
+        _state(4) + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"]),
+    ])
+    class BootingConsole(ImprovConsole):
+        def read(self, size):
+            now[0] += 0.1
+            return super().read(size)
 
-        def monotonic(self):
-            self.now += 0.75
-            return self.now
-
-    class FakeSerial:
-        def __init__(self):
-            self.writes: list[bytes] = []
-            self.responses_sent = False
-
-        def read(self, _size: int = 1) -> bytes:
-            if len(self.writes) < 2 or self.responses_sent:
-                return b""
-            self.responses_sent = True
-            return (
-                encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x02")
-                + _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "s3", "Native"])
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
-                + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
-            )
-
-        def write(self, data: bytes) -> int:
-            self.writes.append(data)
-            return len(data)
-
-        def close(self) -> None:
-            pass
-
-    clock = FakeClock()
-    serial = FakeSerial()
-    monkeypatch.setattr(device_transport.time, "monotonic", clock.monotonic)
-
-    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
-        result = client.provision("Lab", "secret", timeout=10.0)
+    serial = BootingConsole(lambda _: next(replies))
+    monkeypatch.setattr(device_transport.time, "monotonic", lambda: now[0])
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: serial) as client:
+        result = client.provision("Lab", "secret", timeout=10)
 
     assert result.endpoint == "http://192.0.2.10"
-    assert len(serial.writes) == 4
+    assert serial.commands == [ImprovCommand.GET_CURRENT_STATE] * 2 + [ImprovCommand.GET_DEVICE_INFO, ImprovCommand.WIFI_SETTINGS]
+
 
 def test_improv_client_ignores_current_state_url_before_device_info():
-    class FakeSerial:
-        def __init__(self, **_kwargs):
-            self.writes: list[bytes] = []
-            self.closed = False
-            self.reads = [
-                encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
-                + _improv_rpc_response(ImprovCommand.GET_CURRENT_STATE, ["http://192.0.2.10"])
-                + _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"])
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x03")
-                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
-                + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
-            ]
-
-        def read(self, _size: int = 1) -> bytes:
-            return self.reads.pop(0) if self.reads else b""
-
-        def write(self, data: bytes) -> int:
-            self.writes.append(data)
-            return len(data)
-
-        def close(self) -> None:
-            self.closed = True
-
-    serial = FakeSerial()
-    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
-        result = client.provision("Lab", "secret", timeout=1.0)
-
+    replies = {
+        ImprovCommand.GET_CURRENT_STATE: _state(4) + _improv_rpc_response(ImprovCommand.GET_CURRENT_STATE, ["http://192.0.2.99"]),
+        ImprovCommand.GET_DEVICE_INFO: _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"]),
+        ImprovCommand.WIFI_SETTINGS: _state(3) + _state(4) + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"]),
+    }
+    serial = ImprovConsole(replies.__getitem__)
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: serial) as client:
+        result = client.provision("Lab", "secret", timeout=1)
     assert result.endpoint == "http://192.0.2.10"
     assert result.device_info == ("ESPectre", "1", "c3", "Native")
     assert serial.closed
+
+
+@pytest.mark.parametrize("initial_state", [2, 4])
+def test_improv_requires_evidence_from_new_settings(monkeypatch, initial_state):
+    now = [0.0]
+    replies = {
+        ImprovCommand.GET_CURRENT_STATE: _state(initial_state),
+        ImprovCommand.GET_DEVICE_INFO: _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, []) + _state(4),
+        ImprovCommand.WIFI_SETTINGS: _state(4),
+    }
+
+    class Console(ImprovConsole):
+        def read(self, size):
+            now[0] += 0.1
+            return super().read(size)
+
+    serial = Console(replies.__getitem__)
+    monkeypatch.setattr(device_transport.time, "monotonic", lambda: now[0])
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: serial) as client:
+        with pytest.raises(TimeoutError):
+            client.provision("New", "wrong", timeout=5)
+    assert serial.commands.count(ImprovCommand.GET_CURRENT_STATE) == 1
+
+
+@pytest.mark.parametrize("tail", ["disconnect", "malformed", "bad_checksum", "invalid_state", "rejected"])
+def test_improv_optional_address_after_confirmation(monkeypatch, tail):
+    monkeypatch.setattr(device_transport, "IMPROV_OPTIONAL_RESPONSE_TIMEOUT", 0.02)
+    damaged_url = encode_improv_frame(ImprovPacketType.RPC_RESPONSE, bytes([ImprovCommand.WIFI_SETTINGS, 7]))
+    bad_checksum = bytearray(_state(4))
+    bad_checksum[-2] ^= 0xFF
+    rejected = encode_improv_frame(ImprovPacketType.ERROR_STATE, bytes([3]))
+    ending = {
+        "disconnect": b"",
+        "malformed": damaged_url,
+        "bad_checksum": bytes(bad_checksum),
+        "invalid_state": _state(0xFF),
+        "rejected": bytes(bad_checksum) + damaged_url + rejected,
+    }[tail]
+    replies = {
+        ImprovCommand.GET_CURRENT_STATE: _state(2),
+        ImprovCommand.GET_DEVICE_INFO: _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, []),
+        ImprovCommand.WIFI_SETTINGS: _state(3) + _state(4) + ending,
+    }
+
+    class Console(ImprovConsole):
+        def read(self, size):
+            if not self.input and tail == "disconnect":
+                raise OSError("USB disconnected")
+            return super().read(size)
+
+    serial = Console(replies.__getitem__)
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_: serial) as client:
+        if tail == "rejected":
+            with pytest.raises(ImprovProtocolError, match="error 3"):
+                client.provision("Lab", "test", timeout=1)
+        else:
+            result = client.provision("Lab", "test", timeout=1)
+            assert result.endpoint is None
+            assert result.states == ("authorized", "provisioning", "provisioned")
+
 
 def test_improv_portal_url_builds_direct_endpoint_from_device_ip():
     assert direct_endpoint_from_device_url(

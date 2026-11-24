@@ -336,9 +336,14 @@ def test_improv_provisioning_failure_is_reported_through_callback(monkeypatch, f
 
 
 @pytest.mark.parametrize("frontend", ["native", "esphome"])
-def test_runtime_monitor_keeps_benchmark_physical_port(
+@pytest.mark.parametrize(("reported", "override"), [
+    ("http://192.0.2.10/espectre/v1", ""),
+    (None, "http://192.0.2.20/espectre/v1"),
+    (None, ""),
+])
+def test_provisioned_benchmark_endpoint_and_physical_monitor_port(
     monkeypatch,
-    frontend,
+    frontend, reported, override,
 ):
     case = BenchmarkCase(frontend, "lightweight")
 
@@ -358,7 +363,18 @@ def test_runtime_monitor_keeps_benchmark_physical_port(
         result.flash = CommandResult(["flash"], 0, 1.0, "")
         return True
 
-    def fail_connect(*_args, **_kwargs):
+    discovered = "http://192.0.2.30/espectre/v1"
+
+    def discover(which_frontend, *, chip):
+        assert (which_frontend, chip) == (frontend, "c3")
+        assert reported is None and not override
+        return SimpleNamespace(endpoint=discovered)
+
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_DIRECT_ENDPOINT", override)
+    monkeypatch.setattr(bench, "discover_direct_device", discover)
+
+    def fail_connect(endpoint, **_kwargs):
+        assert endpoint == (override or reported or discovered)
         raise RuntimeError("stop after monitor")
 
     monitor_commands: list[list[str]] = []
@@ -375,7 +391,7 @@ def test_runtime_monitor_keeps_benchmark_physical_port(
             1.0,
             json.dumps(
                 {
-                    "endpoint": "http://192.0.2.10:62587/espectre/v1",
+                    "endpoint": reported,
                     "port": "/dev/cu.runtime-alias",
                 }
             ),

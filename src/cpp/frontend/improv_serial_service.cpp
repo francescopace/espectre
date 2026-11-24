@@ -27,6 +27,7 @@
 #include <driver/usb_serial_jtag_vfs.h>
 #include <hal/usb_serial_jtag_ll.h>
 #elif defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_UART
+#include <driver/uart.h>
 #include <driver/uart_vfs.h>
 #endif
 
@@ -36,7 +37,12 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.improv";
+#if defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_UART
+// Consume a buffered 110-byte Wi-Fi settings request in one frontend loop.
+constexpr size_t kMaxReadBytesPerLoop = 128U;
+#else
 constexpr size_t kMaxReadBytesPerLoop = 64U;
+#endif
 
 }  // namespace
 
@@ -84,12 +90,24 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     use_nonblocking_usb_log_output();
   }
 #elif defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_UART
-  // Improv lengths, payloads, and checksums may contain CR or LF. Preserve
-  // every byte on each direction that uses the primary UART console.
-  if ((!read_callback_ && uart_vfs_dev_port_set_rx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF) != 0) ||
-      (!write_callback_ && uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF) != 0)) {
-    ESPECTRE_LOGE(TAG, "Failed to configure binary Improv UART I/O: errno=%d", errno);
+  constexpr auto port = static_cast<uart_port_t>(CONFIG_ESP_CONSOLE_UART_NUM);
+  if (!write_callback_ && uart_vfs_dev_port_set_tx_line_endings(port, ESP_LINE_ENDINGS_LF) != 0) {
+    ESPECTRE_LOGE(TAG, "Failed to configure binary Improv UART output: errno=%d", errno);
     return false;
+  }
+  if (!read_callback_) {
+    // Buffer two complete frames while the frontend loop is busy. Read the
+    // bytes directly so the console VFS cannot translate CR or LF on input.
+    if (!uart_is_driver_installed(port)) {
+      const esp_err_t result = uart_driver_install(port, 2 * receive_buffer_.size(), 0, 0, nullptr, 0);
+      if (result != ESP_OK) {
+        ESPECTRE_LOGE(TAG, "Failed to install the primary UART driver: %s", esp_err_to_name(result));
+        return false;
+      }
+    }
+    read_callback_ = [](uint8_t *data, size_t capacity) {
+      return uart_read_bytes(port, data, capacity, 0);
+    };
   }
 #endif
 
@@ -225,6 +243,10 @@ bool ImprovSerialService::handle_command_(uint8_t command,
       return false;
     }
     case static_cast<uint8_t>(improv::GET_CURRENT_STATE):
+      if (provisioning_request_pending_) {
+        (void) send_state_(improv::STATE_PROVISIONING);
+        return false;
+      }
       state_ = connected_() ? improv::STATE_PROVISIONED : improv::STATE_AUTHORIZED;
       (void) send_state_(state_);
       if (state_ == improv::STATE_PROVISIONED) {

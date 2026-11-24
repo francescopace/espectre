@@ -10,6 +10,7 @@
 #include "espectre_services_sdk.h"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,7 @@ struct NativeWifiProvisioningInfo {
   bool scan_pending{false};
   std::string scan_message;
   std::vector<AccessPoint> access_points;
+  bool apply_pending() const { return apply_state == "verifying" || apply_state == "rolling_back"; }
 };
 
 class NativeDirectFrontend {
@@ -74,6 +76,7 @@ class NativeDirectFrontend {
   IDirectHttpService *service_{nullptr};
   IPeerDiscoveryService *peer_discovery_{nullptr};
   NativeWifiProvisioningInfo wifi_info_{};
+  std::shared_ptr<void> wifi_apply_reservation_{};
   size_t client_count_{0U};
   bool peer_discovery_enabled_{false};
   bool session_tokens_enabled_{false};

@@ -13,12 +13,15 @@ All notable changes to this project will be documented in this file.
 
 ### CLI
 
-- `matter qr` and `matter flash` wait for the selected USB port to reappear after reset before reading the commissioning codes.
-- Wi-Fi provisioning over Improv Serial succeeds when the device confirms the new connection, even if USB drops the device information or settings URL. When the address is missing, `./espectre provision --json` reports `endpoint: null`, and `./espectre devices` can discover the device.
+- `matter qr` and `matter flash` wait for the selected USB port to reappear after reset and publish the commissioning codes only after receiving both complete log lines.
+- Improv Serial provisioning waits for the settings reply or a transition from provisioning to provisioned. After confirmation, a missing or damaged settings URL, or a USB disconnect while reading it, yields `endpoint: null`. Explicit device errors still fail provisioning.
+- The Native and ESPHome firmware benchmarks accept a successful provisioning result with a null endpoint. They use the configured Direct endpoint or discover a matching device.
 
 ### Firmware
 
+- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native Direct holds off raw CSI collection until a BSSID change finishes.
 - Improv Serial preserves binary packets on UART consoles. Native can provision Wi-Fi on classic ESP32 boards when the SSID, password, or packet checksum contains a byte that the console would otherwise translate (#231). The web installer distinguishes a rejected packet from a failed Wi-Fi connection.
+- Native and Matter buffer incoming Improv frames on the UART console. On classic ESP32, two consecutive 110-byte requests could overflow the hardware FIFO before the frontend loop read them. A complete 110-byte Wi-Fi settings request already in the buffer is now processed in one loop iteration.
 - Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.
 
 ---

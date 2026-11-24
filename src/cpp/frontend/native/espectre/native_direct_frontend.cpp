@@ -74,6 +74,11 @@ void NativeDirectFrontend::set_peer_discovery_service(IPeerDiscoveryService *ser
 
 void NativeDirectFrontend::set_wifi_provisioning_info(const NativeWifiProvisioningInfo &info) {
   wifi_info_ = info;
+  if (!info.apply_pending()) {
+    wifi_apply_reservation_.reset();
+  } else if (!wifi_apply_reservation_) {
+    wifi_apply_reservation_ = owner_.runtime_.try_reserve_wifi_update();
+  }
   refresh();
 }
 
@@ -222,8 +227,7 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
               {}};
     }
     auto reservation = owner_.runtime_.try_reserve_wifi_update();
-    if (!reservation || wifi_info_.apply_state == "verifying" ||
-        wifi_info_.apply_state == "rolling_back" || wifi_info_.scan_pending) {
+    if (!reservation || wifi_info_.apply_pending() || wifi_info_.scan_pending) {
       return {false,
               espectre_command_result_payload(
                   owner_.device_config_, command, false, "unavailable",
@@ -249,8 +253,11 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
             owner_.device_config_, command, true, "ok", message,
             wifi_bssid_ack_data(wifi.bssid)),
         [this, request, connection_token, reservation = std::move(reservation)](bool sent) mutable {
-          const auto hold = std::move(reservation);
-          if (sent && hold) (void) this->handle_request_(request, connection_token);
+          auto hold = std::move(reservation);
+          if (sent && hold) {
+            (void) this->handle_request_(request, connection_token);
+            if (wifi_info_.apply_pending()) wifi_apply_reservation_ = std::move(hold);
+          }
         },
     };
   }

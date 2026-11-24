@@ -49,8 +49,8 @@ from .targets import (
 )
 
 
-MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
-MATTER_MANUAL_CODE_PATTERN = re.compile(r"MATTER_MANUAL_CODE=([0-9]+)")
+MATTER_QR_PATTERN = re.compile(rb"MATTER_QR=(MT:[A-Z0-9.\-]+)(?:\x1b\[0m)?\r?$")
+MATTER_MANUAL_CODE_PATTERN = re.compile(rb"MATTER_MANUAL_CODE=([0-9]{11}(?:[0-9]{10})?)(?:\x1b\[0m)?\r?$")
 IDF_TARGET_CONFIG_PATTERN = re.compile(r'^CONFIG_IDF_TARGET="([^"]+)"$', re.MULTILINE)
 ESPHOME_IDF_STAMP_FILE = ".esphome.stamp.json"
 @dataclass(frozen=True)
@@ -666,14 +666,21 @@ def read_matter_onboarding(
             wait_timeout_s=deadline - time.monotonic(),
         )
         connection = serial.Serial(port, baudrate=115200, timeout=1.0)
+        partial_line = b""
         while (remaining := deadline - time.monotonic()) > 0:
-            if remaining < 1.0:
+            if remaining < connection.timeout:
                 connection.timeout = remaining
-            line = connection.readline().decode("utf-8", errors="replace")
-            if qr_match := MATTER_QR_PATTERN.search(line):
-                qr_payload = qr_match.group(1)
-            if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
-                manual_code = manual_match.group(1)
+            chunk = connection.read(max(1, min(connection.in_waiting, 4096)))
+            if not chunk:
+                continue
+            *lines, partial_line = (partial_line + chunk).split(b"\n")
+            # Only complete console lines carry codes. Bound unrelated boot output.
+            partial_line = partial_line[-4096:]
+            for line in lines:
+                if qr_match := MATTER_QR_PATTERN.search(line):
+                    qr_payload = qr_match.group(1).decode("ascii")
+                if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
+                    manual_code = manual_match.group(1).decode("ascii")
             if qr_payload and manual_code:
                 if json_output:
                     print(

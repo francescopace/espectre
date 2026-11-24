@@ -18,7 +18,7 @@ Complete the local build prerequisites in [local build prerequisites](../../../.
 
 `--ota-channel` sets the default OTA channel. See [`native` and `matter` commands](../../../../docs/CLI.md#native-and-matter) for all options.
 
-Improv Serial uses the main serial console. On ESP32-S2 that is TinyUSB CDC, enabled by `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` under **ESPectre Firmware** in menuconfig.
+Improv Serial uses the main serial console. On classic ESP32, the UART sends LF as a single byte so binary packets retain their checksums. If log lines appear indented, enable LF-to-CRLF display conversion in the terminal. On ESP32-S2 that is TinyUSB CDC, enabled by `ESPECTRE_TINYUSB_PRIMARY_CONSOLE` under **ESPectre Firmware** in menuconfig.
 
 On ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3, the defaults enable `ESPECTRE_EMULATOR_CSI_REPLAY`, which lets CI replay recorded CSI into the published image inside Espressif's emulator. It starts only when the factory MAC carries a marker that real chips cannot have; see [emulator CSI replay](../../../../tools/README.md#emulator-csi-replay).
 

@@ -162,7 +162,7 @@ Matter also has:
 |---------|---------|
 | `qr` | Restart the device and print its QR payload and manual pairing code |
 
-`qr` requires `--chip`. Add `--no-reset` to read without restarting. After a reset, the CLI waits for the same serial port to return and reads both codes within the remaining time. The default is 20 seconds. Use `matter qr --timeout <seconds>` to change it. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
+`qr` requires `--chip`. Add `--no-reset` to read without restarting. After a reset, the CLI waits for the same serial port to return and reads both complete log lines within the remaining time. A partial line at timeout cannot produce a pairing code. The default is 20 seconds. Use `matter qr --timeout <seconds>` to change it. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
 
 Examples:
 
@@ -220,7 +220,9 @@ The search always runs for the full timeout, so slower devices have time to answ
 ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --ssid MyNetwork
 ```
 
-The password comes from `ESPECTRE_WIFI_PASSWORD`, from the variable named by `--password-env`, or from a hidden prompt. It is never accepted on the command line or printed. `--timeout` limits the whole exchange, and `--json` prints the port, device address, and result for other tools. If the device confirms the connection but its USB response omits or truncates the address, provisioning still succeeds. The JSON endpoint is then `null`. Run `./espectre devices` to find the device on the network.
+The password comes from `ESPECTRE_WIFI_PASSWORD`, from the variable named by `--password-env`, or from a hidden prompt. It is never accepted on the command line or printed. `--timeout` limits the whole exchange, and `--json` prints the port, device address, and result for other tools. The CLI waits for the settings reply or a transition from provisioning to provisioned after sending the credentials. If both forms of confirmation are lost, the command times out. After confirmation, a missing or unusable address or a USB disconnect while reading the address yields `endpoint: null`. Run `./espectre devices` to find the device. An explicit Improv error still fails the command.
+
+When reprovisioning a device that is already online, older Native firmware can report the previous connection if the CLI polls during verification. This can make the CLI report success with the previous address. The updated Native firmware reports `provisioning` until verification or rollback finishes.
 
 ### `direct`
 

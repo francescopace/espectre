@@ -265,7 +265,7 @@ These three routes return `202` before the device disconnects. `data` holds the 
 {"accepted":true,"code":"ok","message":"Wi-Fi BSSID update accepted","data":{"current_bssid":"11:22:33:44:55:66"}}
 ```
 
-If a Wi-Fi change is awaiting acknowledgement, a concurrent `GET /csi` returns HTTP `409`. Retry after the Wi-Fi change has been applied.
+If a Wi-Fi change is awaiting acknowledgement, a concurrent `GET /csi` returns HTTP `409`. Native also returns `409` while it verifies the change or restores the previous access point. Retry after the Wi-Fi change finishes.
 
 ### MQTT configuration
 
