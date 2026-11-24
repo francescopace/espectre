@@ -45,6 +45,7 @@ idf_component_register(
     REQUIRES
         ${espectre_native_requires}
     PRIV_REQUIRES
+        esp_driver_uart
         espectre_config
 )
 

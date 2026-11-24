@@ -26,6 +26,8 @@
 #include <driver/usb_serial_jtag.h>
 #include <driver/usb_serial_jtag_vfs.h>
 #include <hal/usb_serial_jtag_ll.h>
+#elif defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_UART
+#include <driver/uart_vfs.h>
 #endif
 
 
@@ -80,6 +82,14 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
     // Improv owns this console, so logs must not wait for a closed monitor.
     use_nonblocking_usb_log_output();
+  }
+#elif defined(ESP_PLATFORM) && CONFIG_ESP_CONSOLE_UART
+  // Improv lengths, payloads, and checksums may contain CR or LF. Preserve
+  // every byte on each direction that uses the primary UART console.
+  if ((!read_callback_ && uart_vfs_dev_port_set_rx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF) != 0) ||
+      (!write_callback_ && uart_vfs_dev_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_LF) != 0)) {
+    ESPECTRE_LOGE(TAG, "Failed to configure binary Improv UART I/O: errno=%d", errno);
+    return false;
   }
 #endif
 

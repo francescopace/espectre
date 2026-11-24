@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Firmware
 
+- Improv Serial preserves binary packets on UART consoles. Native can provision Wi-Fi on classic ESP32 boards when the SSID, password, or packet checksum contains a byte that the console would otherwise translate (#231). The web installer distinguishes a rejected packet from a failed Wi-Fi connection.
 - Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.
 
 ---

@@ -1643,7 +1643,13 @@
             flashReportWifiResult('failure', error);
             password.value = '';
             console.warn('Improv Serial provisioning failed:', error);
-            toast('The board could not join that network. Check the credentials and try again.');
+            if (error === 'INVALID_RPC_PACKET') {
+                toast('The board rejected the Improv Serial packet. Check the firmware version and retry.');
+            } else if (error === 'UNABLE_TO_CONNECT') {
+                toast('The board could not join that network. Check the credentials and try again.');
+            } else {
+                toast('Wi-Fi setup over USB did not complete. Reconnect the board and try again.');
+            }
         } finally {
             $('.js-flash-provision').disabled = false;
         }
