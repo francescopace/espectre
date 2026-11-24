@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### CLI
 
+- `matter qr` and `matter flash` wait for the selected USB port to reappear after reset before reading the commissioning codes.
 - Wi-Fi provisioning over Improv Serial succeeds when the device confirms the new connection, even if USB drops the device information or settings URL. When the address is missing, `./espectre provision --json` reports `endpoint: null`, and `./espectre devices` can discover the device.
 
 ### Firmware

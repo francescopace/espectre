@@ -162,7 +162,7 @@ Matter also has:
 |---------|---------|
 | `qr` | Restart the device and print its QR payload and manual pairing code |
 
-`qr` requires `--chip`; add `--no-reset` to read without restarting. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
+`qr` requires `--chip`. Add `--no-reset` to read without restarting. After a reset, the CLI waits for the same serial port to return and reads both codes within the remaining time. The default is 20 seconds. Use `matter qr --timeout <seconds>` to change it. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
 
 Examples:
 

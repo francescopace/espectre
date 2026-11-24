@@ -663,9 +663,12 @@ def read_matter_onboarding(
             chip=chip,
             frontend="matter",
             purpose="onboarding",
+            wait_timeout_s=deadline - time.monotonic(),
         )
         connection = serial.Serial(port, baudrate=115200, timeout=1.0)
-        while time.monotonic() < deadline:
+        while (remaining := deadline - time.monotonic()) > 0:
+            if remaining < 1.0:
+                connection.timeout = remaining
             line = connection.readline().decode("utf-8", errors="replace")
             if qr_match := MATTER_QR_PATTERN.search(line):
                 qr_payload = qr_match.group(1)

@@ -184,9 +184,11 @@ def test_get_serial_port_returns_compatible_explicit_argument(monkeypatch) -> No
 def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None:
     fake_serial = ModuleType("serial")
     reset_calls: list[tuple[str, str, str]] = []
+    ports_after_reset = iter([["/dev/cu.other"], ["/dev/cu.other", "/dev/cu.test"]])
 
     class FakeConnection:
-        def __init__(self, *_args, **_kwargs):
+        def __init__(self, port, **_kwargs):
+            assert port == "/dev/cu.test"
             self.lines = iter(
                 [
                     b"I app: MATTER_QR=MT:TESTPAYLOAD\n",
@@ -209,7 +211,7 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
     fake_serial.Serial = FakeConnection
     fake_serial.SerialException = OSError
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
+    monkeypatch.setattr(common, "detect_serial_ports", lambda: next(ports_after_reset))
     monkeypatch.setattr(
         idf,
         "run_firmware",
@@ -233,6 +235,30 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
         "qr_payload": "MT:TESTPAYLOAD",
     }
     assert reset_calls == [("s3", "esp32s3", "/dev/cu.test")]
+
+
+def test_matter_onboarding_timeout_includes_usb_reconnection(monkeypatch) -> None:
+    port = "/dev/cu.test"
+    clock = [0.0]
+    ports = iter([[], [port]])
+    monkeypatch.setattr(common, "detect_serial_ports", lambda: next(ports))
+    monkeypatch.setattr(common.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(common.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    class SilentConnection:
+        def __init__(self, port, *, baudrate, timeout):
+            self.timeout = timeout
+
+        def readline(self):
+            clock[0] += self.timeout
+            return b""
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=SilentConnection, SerialException=OSError))
+    assert not idf.read_matter_onboarding(port, timeout_seconds=0.25, reset=False)
+    assert clock[0] == pytest.approx(0.25)
 
 
 def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> None:
