@@ -32,6 +32,10 @@ namespace espectre {
 
 namespace {
 
+bool is_wifi_pin_command(const std::string &command) {
+  return command == "set_wifi_bssid" || command == "clear_wifi_bssid";
+}
+
 std::string wifi_bssid_ack_data(const std::string &current_bssid) {
   std::string data{"{"};
   append_json_pair(&data, "current_bssid", current_bssid.c_str(), true);
@@ -329,7 +333,10 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
                                            "diagnostic field is not available on this frontend");
   }
   // The owner may have stopped its runtime, for example to restart it after a fault.
-  if (!runtime_->is_setup_complete() && !frontend_command_allowed_during_raw_collection(command.command)) {
+  const bool frontend_wifi_control = config_.wifi_bssid_pin_setter &&
+      (is_wifi_pin_command(command.command) || command.command == "scan_wifi");
+  if (!runtime_->is_setup_complete() && !frontend_wifi_control &&
+      !frontend_command_allowed_during_raw_collection(command.command)) {
     return espectre_command_result_payload(device, command, false, "unavailable", "sensing runtime is not running");
   }
   if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION &&
@@ -407,7 +414,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
     uint64_t request_token,
     const DirectRequest &request) {
   const bool wifi_pin_offered = !guest_ || config_.wifi_bssid_pin_setter;
-  if (wifi_pin_offered && (request.command == "set_wifi_bssid" || request.command == "clear_wifi_bssid")) {
+  if (wifi_pin_offered && is_wifi_pin_command(request.command)) {
     EspectreDeviceConfig device;
     device.device_id = config_.device_id;
     EspectreCommand command;
@@ -420,6 +427,10 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
                   device, command, false,
                   frontend_command_parse_error_code(parse_error), parse_error.c_str()),
               {}};
+    }
+    if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION ||
+        (!runtime_->is_setup_complete() && !config_.wifi_bssid_pin_setter)) {
+      return {false, handle_request_(request), {}};
     }
     if (wifi_response_pending_) {
       return {false,
@@ -570,48 +581,65 @@ DirectWifiSnapshot RuntimeDirectHttpBridge::wifi_snapshot_() const {
 }
 
 std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
-  std::string out{"{\"scanning\":false,\"message\":\"\",\"access_points\":["};
-#if defined(ESP_PLATFORM)
+  std::string entries;
+  const auto append_ap = [&entries](const char *bssid, int rssi, uint8_t channel) {
+    if (!entries.empty()) entries += ',';
+    entries += '{';
+    append_json_pair(&entries, "bssid", bssid, true);
+    entries += ",\"rssi_dbm\":" + std::to_string(rssi);
+    append_uint(&entries, "channel", channel);
+    entries += '}';
+  };
   const std::string configured_ssid = wifi_snapshot_().ssid;
-  uint16_t count = 0U;
-  const esp_err_t count_result = esp_wifi_scan_get_ap_num(&count);
-  if (!configured_ssid.empty() && count_result == ESP_OK && count > 0U) {
-    count = std::min<uint16_t>(count, 32U);
-    std::vector<wifi_ap_record_t> records(count);
-    if (esp_wifi_scan_get_ap_records(&count, records.data()) == ESP_OK) {
-      bool first = true;
-      for (uint16_t index = 0U; index < count; ++index) {
-        const uint8_t *ssid_begin = records[index].ssid;
-        const uint8_t *ssid_end =
-            std::find(ssid_begin, ssid_begin + sizeof(records[index].ssid), static_cast<uint8_t>(0U));
-        const size_t ssid_length = static_cast<size_t>(ssid_end - ssid_begin);
-        if (ssid_length != configured_ssid.size() ||
-            std::memcmp(ssid_begin, configured_ssid.data(), ssid_length) != 0) {
-          continue;
-        }
-        if (!first) out += ',';
-        first = false;
-        char bssid[18]{};
-        std::snprintf(bssid,
-                      sizeof(bssid),
-                      "%02X:%02X:%02X:%02X:%02X:%02X",
-                      records[index].bssid[0],
-                      records[index].bssid[1],
-                      records[index].bssid[2],
-                      records[index].bssid[3],
-                      records[index].bssid[4],
-                      records[index].bssid[5]);
-        out += '{';
-        append_json_pair(&out, "bssid", bssid, true);
-        out += ",\"rssi_dbm\":" + std::to_string(static_cast<int>(records[index].rssi));
-        append_uint(&out, "channel", records[index].primary);
-        out += '}';
+  bool scanning = false;
+  if (config_.wifi_scan_results_getter) {
+    std::vector<StandaloneWifiAccessPoint> results;
+    scanning = config_.wifi_scan_results_getter(configured_ssid, results);
+    for (const auto &ap : results) {
+      if (!configured_ssid.empty() && ap.ssid == configured_ssid) {
+        append_ap(ap.bssid.c_str(), ap.rssi_dbm, ap.channel);
       }
     }
-  } else if (count_result == ESP_ERR_WIFI_STATE) {
-    out.replace(12U, 5U, "true");
+  }
+#if defined(ESP_PLATFORM)
+  else {
+    uint16_t count = 0U;
+    const esp_err_t count_result = esp_wifi_scan_get_ap_num(&count);
+    if (!configured_ssid.empty() && count_result == ESP_OK && count > 0U) {
+      count = std::min<uint16_t>(count, 32U);
+      std::vector<wifi_ap_record_t> records(count);
+      if (esp_wifi_scan_get_ap_records(&count, records.data()) == ESP_OK) {
+        for (uint16_t index = 0U; index < count; ++index) {
+          const uint8_t *ssid_begin = records[index].ssid;
+          const uint8_t *ssid_end =
+              std::find(ssid_begin, ssid_begin + sizeof(records[index].ssid), static_cast<uint8_t>(0U));
+          const size_t ssid_length = static_cast<size_t>(ssid_end - ssid_begin);
+          if (ssid_length != configured_ssid.size() ||
+              std::memcmp(ssid_begin, configured_ssid.data(), ssid_length) != 0) {
+            continue;
+          }
+          char bssid[18]{};
+          std::snprintf(bssid,
+                        sizeof(bssid),
+                        "%02X:%02X:%02X:%02X:%02X:%02X",
+                        records[index].bssid[0],
+                        records[index].bssid[1],
+                        records[index].bssid[2],
+                        records[index].bssid[3],
+                        records[index].bssid[4],
+                        records[index].bssid[5]);
+          append_ap(bssid, records[index].rssi, records[index].primary);
+        }
+      }
+    } else if (count_result == ESP_ERR_WIFI_STATE) {
+      scanning = true;
+    }
   }
 #endif
+  std::string out{"{"};
+  append_bool(&out, "scanning", scanning, true);
+  out += ",\"message\":\"\",\"access_points\":[";
+  out += entries;
   out += "]}";
   return out;
 }
@@ -739,12 +767,14 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
     wifi_scan_config_t scan{};
     scan.ssid = scan_ssid.data();
     const esp_err_t result = esp_wifi_scan_start(&scan, false);
+    if (result == ESP_OK && config_.wifi_scan_started) config_.wifi_scan_started();
     if (message != nullptr) {
       *message = result == ESP_OK ? "Wi-Fi access point scan started"
                                   : "Wi-Fi access point scan could not be started";
     }
     return result == ESP_OK;
 #else
+    if (config_.wifi_scan_started) config_.wifi_scan_started();
     if (message != nullptr) *message = "Wi-Fi control accepted by host test adapter";
     return true;
 #endif
@@ -835,6 +865,11 @@ std::string RuntimeDirectHttpBridge::wifi_payload_() const {
   append_bool(&out, "connected", wifi.connected);
   append_json_pair(&out, "ssid", wifi.ssid.c_str());
   append_json_pair(&out, "bssid", wifi.bssid.c_str());
+  if (!wifi.apply_state.empty()) {
+    append_json_pair(&out, "pinned_bssid", wifi.pinned_bssid.c_str());
+    append_json_pair(&out, "apply_state", wifi.apply_state.c_str());
+    append_json_pair(&out, "apply_message", wifi.apply_message.c_str());
+  }
   append_json_pair(&out, "band", wifi.band.c_str());
   append_uint(&out, "channel", wifi.channel);
   out += ",\"rssi_dbm\":";

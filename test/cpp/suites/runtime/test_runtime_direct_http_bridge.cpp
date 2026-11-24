@@ -246,6 +246,76 @@ void test_guest_bridge_refuses_changes_while_the_owner_runtime_is_stopped(void) 
   TEST_ASSERT_EQUAL(1, requests.threshold_calls);
 }
 
+void test_guest_can_recover_wifi_after_sensing_stops(void) {
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  bool scanning = false;
+  config.wifi_scan_started = [&]() { scanning = true; };
+  config.wifi_scan_results_getter = [&](const std::string &, std::vector<StandaloneWifiAccessPoint> &results) {
+    if (!scanning) {
+      results.push_back({"mesh", "02:00:00:00:00:01", -45, 6});
+      results.push_back({"other", "02:00:00:00:00:02", -50, 11});
+    }
+    return scanning;
+  };
+  config.wifi_snapshot_getter = []() {
+    DirectWifiSnapshot wifi;
+    wifi.ssid = "mesh";
+    wifi.bssid = "02:00:00:00:00:01";
+    wifi.apply_state = "applied";
+    return wifi;
+  };
+  std::string applied;
+  config.wifi_bssid_pin_setter = [&applied](const std::string &pin, bool, std::string *) {
+    applied = pin;
+    return true;
+  };
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+  const DirectRequest pin{"", "set_wifi_bssid", R"({"bssid":"02:00:00:00:00:01"})"};
+  owner.shutdown();
+  TEST_ASSERT_TRUE(contains(service.emit_deferred_request(1U, {"", "scan_wifi", "{}"}).response, "\"accepted\":true"));
+  const DirectRequest aps{"", "wifi_access_points", "{}", "/espectre/v1/wifi/access-points", "GET"};
+  TEST_ASSERT_TRUE(contains(service.emit_deferred_request(2U, aps).response, "\"scanning\":true"));
+  scanning = false;
+  const auto scan = service.emit_deferred_request(3U, aps);
+  TEST_ASSERT_TRUE(contains(scan.response, "02:00:00:00:00:01"));
+  TEST_ASSERT_FALSE(contains(scan.response, "02:00:00:00:00:02"));
+  const auto wifi = service.emit_deferred_request(4U, {"", "wifi", "{}", "/espectre/v1/wifi", "GET"});
+  TEST_ASSERT_TRUE(contains(wifi.response, "\"bssid\":\"02:00:00:00:00:01\""));
+  TEST_ASSERT_TRUE(contains(wifi.response, "\"pinned_bssid\":\"\""));
+  TEST_ASSERT_TRUE(contains(wifi.response, "\"apply_state\":\"applied\""));
+  auto result = service.emit_deferred_request(7U, pin);
+  TEST_ASSERT_TRUE(contains(result.response, "\"accepted\":true"));
+  TEST_ASSERT_TRUE(applied.empty());
+  TEST_ASSERT_TRUE(static_cast<bool>(result.response_sent_callback));
+  result.response_sent_callback(false);
+  TEST_ASSERT_TRUE(applied.empty());
+  result = service.emit_deferred_request(8U, pin);
+  TEST_ASSERT_TRUE(static_cast<bool>(result.response_sent_callback));
+  result.response_sent_callback(true);
+  TEST_ASSERT_EQUAL_STRING("02:00:00:00:00:01", applied.c_str());
+}
+
+void test_guest_refuses_wifi_pin_before_acknowledging_during_raw_collection(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  config.wifi_bssid_pin_setter = [](const std::string &, bool, std::string *) { return true; };
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+  TEST_ASSERT_TRUE(owner.start_raw_collection([](void *, const RawCsiPacketView &) { return true; }, nullptr));
+  const auto scan = service.emit_deferred_request(8U, DirectRequest{"", "scan_wifi", "{}"});
+  TEST_ASSERT_TRUE(contains(scan.response, "\"code\":\"busy_raw_collection\""));
+  const auto result = service.emit_deferred_request(9U, DirectRequest{"", "clear_wifi_bssid", "{}"});
+  TEST_ASSERT_TRUE(contains(result.response, "\"code\":\"busy_raw_collection\""));
+  TEST_ASSERT_FALSE(static_cast<bool>(result.response_sent_callback));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_guest_bridge_needs_a_set_up_runtime);
@@ -255,6 +325,8 @@ int process(void) {
   RUN_TEST(test_guest_bridge_offers_only_the_controls_the_owner_takes);
   RUN_TEST(test_guest_bridge_offers_no_sensing_route_without_a_field);
   RUN_TEST(test_guest_bridge_refuses_changes_while_the_owner_runtime_is_stopped);
+  RUN_TEST(test_guest_can_recover_wifi_after_sensing_stops);
+  RUN_TEST(test_guest_refuses_wifi_pin_before_acknowledging_during_raw_collection);
   return UNITY_END();
 }
 

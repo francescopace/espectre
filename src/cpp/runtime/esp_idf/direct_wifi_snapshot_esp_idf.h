@@ -29,6 +29,12 @@ struct DirectWifiSnapshot {
   uint8_t channel{0U};
   /** Signal strength, or `INT16_MIN` when not associated. */
   int16_t rssi_dbm{INT16_MIN};
+  /** Saved BSSID for this SSID, or empty for automatic selection. Available with apply_state. */
+  std::string pinned_bssid{};
+  /** Wi-Fi transaction state, or empty if the frontend does not report pin status. */
+  std::string apply_state{};
+  /** Human-readable detail for apply_state. */
+  std::string apply_message{};
 };
 
 /** Read the current ESP-IDF station configuration and association without credentials. */

@@ -120,6 +120,8 @@ class WifiBssidPinService {
   void loop();
 
   WifiBssidPinApplyState apply_state() const { return apply_state_; }
+  /** Protocol name of the current transaction state. */
+  const char *apply_state_name() const;
   /** Human-readable detail for apply_state(). */
   const std::string &apply_message() const { return apply_message_; }
   /** SSID the stored pin belongs to; empty without a pin. */

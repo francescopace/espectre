@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [3.2.2] - work in progress
+
+### SDK
+
+- Direct can use frontend scan results and report the saved BSSID and pin status. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. During raw CSI collection, Direct rejects pin changes before acknowledging them.
+
+---
+
 ## [3.2.1] - 2026-11-20 - ESPHome 2026.11 compatibility and MQTT without a CA bundle
 
 ESPectre 3.2.1 brings the Direct API add-on to ESPHome 2026.11 and lets SDK projects connect to a plaintext MQTT broker without bundling CA certificates.

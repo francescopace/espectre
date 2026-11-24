@@ -116,7 +116,7 @@ During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derive
 
 ### `wifi`
 
-The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown; unknown RSSI is `null`. Native also returns `ip`, `apply_state`, and `apply_message`. The MAC address and credentials are never returned.
+The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown; unknown RSSI is `null`. Native also returns `ip`, `apply_state`, and `apply_message`. SDK frontends that supply pin status return `pinned_bssid` (empty for automatic selection), `apply_state`, and `apply_message`. The MAC address and credentials are never returned.
 
 The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 

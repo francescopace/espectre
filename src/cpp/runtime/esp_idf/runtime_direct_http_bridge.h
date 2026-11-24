@@ -15,6 +15,7 @@
 
 #include "runtime/direct_http_service.h"
 #include "direct_wifi_snapshot_esp_idf.h"
+#include "standalone_wifi_service.h"
 #include "runtime/frontend_command_engine.h"
 #include "runtime/peer_discovery.h"
 #include "raw_csi_session_controller.h"
@@ -24,6 +25,9 @@
 
 #include <atomic>
 #include <vector>
+
+/** The Direct bridge can read scan results and pin status from the Wi-Fi owner. */
+#define ESPECTRE_DIRECT_HAS_FRONTEND_WIFI_STATUS 1
 
 namespace espectre {
 
@@ -73,6 +77,10 @@ struct RuntimeDirectHttpBridgeConfig {
   std::function<bool(std::string *message)> wifi_bssid_pin_preflight;
   /** Latest complete frontend loop duration in milliseconds; omitted callbacks yield null. */
   std::function<float()> loop_time_ms_getter{};
+  /** Called on the owner loop after a Direct access point scan starts successfully. */
+  std::function<void()> wifi_scan_started{};
+  /** Read frontend-owned scan results. Return true while the requested scan is in progress. */
+  std::function<bool(const std::string &ssid, std::vector<StandaloneWifiAccessPoint> &results)> wifi_scan_results_getter{};
 };
 
 /**

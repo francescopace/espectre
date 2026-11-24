@@ -140,6 +140,17 @@ void WifiBssidPinService::loop() {
   process_station_state_(config_.station_state_getter());
 }
 
+const char *WifiBssidPinService::apply_state_name() const {
+  switch (apply_state_) {
+    case WifiBssidPinApplyState::VERIFYING: return "verifying";
+    case WifiBssidPinApplyState::ROLLING_BACK: return "rolling_back";
+    case WifiBssidPinApplyState::APPLIED: return "applied";
+    case WifiBssidPinApplyState::ROLLED_BACK: return "rolled_back";
+    case WifiBssidPinApplyState::RECOVERY_REQUIRED: return "recovery_required";
+    default: return "idle";
+  }
+}
+
 bool WifiBssidPinService::apply_pending() const {
   return apply_state_ == WifiBssidPinApplyState::VERIFYING ||
          apply_state_ == WifiBssidPinApplyState::ROLLING_BACK;
