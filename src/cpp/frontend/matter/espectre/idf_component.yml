@@ -4,4 +4,4 @@ dependencies:
   improv/improv:
     version: "1.2.7"
   espressif/mdns:
-    version: "^1.9.0"
+    version: "1.15.0"

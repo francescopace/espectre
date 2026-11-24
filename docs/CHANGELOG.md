@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file.
 
 - Wi-Fi provisioning over Improv Serial succeeds when the device confirms the new connection, even if USB drops the device information or settings URL. When the address is missing, `./espectre provision --json` reports `endpoint: null`, and `./espectre devices` can discover the device.
 
+### Firmware
+
+- Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.
+
 ---
 
 ## [3.2.1] - 2026-11-20 - ESPHome 2026.11 compatibility and MQTT without a CA bundle

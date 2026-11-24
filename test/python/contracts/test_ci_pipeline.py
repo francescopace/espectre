@@ -1174,7 +1174,6 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     ).read_text(encoding="utf-8")
     assert 'improv/improv:\n    version: "1.2.7"' in native_manifest
     assert "git:" not in native_manifest
-    assert "espressif/mdns:" in native_manifest
 
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
@@ -1189,7 +1188,6 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     ).read_text(encoding="utf-8")
     assert 'improv/improv:\n    version: "1.2.7"' in matter_manifest
     assert "git:" not in matter_manifest
-    assert "espressif/mdns:" in matter_manifest
     assert "espressif/esp_tinyusb:" not in matter_manifest
     assert "esp32s2" not in matter_manifest
     for relative_path in (
@@ -1200,6 +1198,43 @@ def test_sdk_snapshot_stamps_git_describe_identity(
     assert not (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults.esp32s2"
     ).exists()
+
+
+def test_frontend_mdns_pins_match_installed_esphome(tmp_path: Path) -> None:
+    config = tmp_path / "mdns.yaml"
+    config.write_text(
+        "esphome:\n  name: mdns-test\n  build_path: build\n"
+        "esp32:\n  variant: ESP32\n  framework:\n    type: esp-idf\n"
+        "network: {}\nmdns: {}\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "esphome", "compile", str(config), "--only-generate"],
+        env={**os.environ, "ESPHOME_DATA_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    frontend_root = REPO_ROOT / "src/cpp/frontend"
+    manifests = {
+        "ESPHome": tmp_path / "build/src/idf_component.yml",
+        "Native": frontend_root / "native/espectre/idf_component.yml",
+        "Matter": frontend_root / "matter/espectre/idf_component.yml",
+    }
+    pins = {}
+    for frontend, manifest in manifests.items():
+        dependencies = yaml.safe_load(manifest.read_text(encoding="utf-8"))["dependencies"]
+        assert "espressif/mdns" in dependencies, f"{frontend} is missing espressif/mdns"
+        dependency = dependencies["espressif/mdns"]
+        pin = dependency.get("version") if isinstance(dependency, dict) else dependency
+        try:
+            pins[frontend] = Version(pin.removeprefix("==").strip())
+        except (AttributeError, ValueError):
+            pytest.fail(f"{frontend} must pin an exact espressif/mdns version, got {pin!r}")
+
+    assert len(set(pins.values())) == 1, f"espressif/mdns version mismatch: {pins}"
 
 
 def test_release_sdk_rejects_a_version_tag_mismatch(tmp_path: Path) -> None:
