@@ -709,6 +709,22 @@ describe('device HTTP request budgets', () => {
         assert.equal(reads, 3);
     });
 
+    it('confirms automatic Wi-Fi selection while still associated with the same AP', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const bssid = '02:00:00:00:00:01';
+        runtime.context.document.getElementById = () => ({ value: '' });
+        const results = [];
+        runtime.context.track = (_name, event) => results.push(event.result);
+        runtime.setClient({ connected: true, request: async (method, path) => {
+            if (method === 'delete' && path === 'wifi/bssid') return { current_bssid: bssid };
+            assert.equal(path, 'wifi');
+            return { connected: true, bssid, pinned_bssid: '', apply_state: 'applied' };
+        } });
+        await runtime.context.cfgSaveWifi();
+        await runtime.nextTimer();
+        assert.deepEqual(results, ['accepted', 'success']);
+    });
+
     it('limits verification retries to the changed resource and ignores unrelated events', async () => {
         const runtime = loadDeviceHttpRuntime();
         const reads = [];

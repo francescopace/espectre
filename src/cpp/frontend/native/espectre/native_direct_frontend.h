@@ -77,7 +77,6 @@ class NativeDirectFrontend {
   size_t client_count_{0U};
   bool peer_discovery_enabled_{false};
   bool session_tokens_enabled_{false};
-  bool wifi_response_pending_{false};
   RawCsiSessionController raw_session_controller_{};
 };
 

@@ -116,7 +116,7 @@ During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derive
 
 ### `wifi`
 
-The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown; unknown RSSI is `null`. Native also returns `ip`, `apply_state`, and `apply_message`. SDK frontends that supply pin status return `pinned_bssid` (empty for automatic selection), `apply_state`, and `apply_message`. The MAC address and credentials are never returned.
+The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown. Unknown RSSI is `null`. Native and SDK frontends that report pin status also return `pinned_bssid`, `apply_state`, and `apply_message`. An empty `pinned_bssid` means automatic AP selection, even when `bssid` identifies the connected AP. Native also returns `ip`. The station MAC address and credentials are never returned.
 
 The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 
@@ -132,7 +132,7 @@ The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 }
 ```
 
-`access_points` holds the last completed scan. While a new scan runs, `scanning` is true; poll this resource until it finishes.
+`access_points` holds the last completed scan. The SDK bridge returns up to 32 access points for the configured SSID. While a new scan runs, `scanning` is true. Poll this resource until it finishes.
 
 ### `mqtt`
 
@@ -264,6 +264,8 @@ These three routes return `202` before the device disconnects. `data` holds the 
 ```json
 {"accepted":true,"code":"ok","message":"Wi-Fi BSSID update accepted","data":{"current_bssid":"11:22:33:44:55:66"}}
 ```
+
+If a Wi-Fi change is awaiting acknowledgement, a concurrent `GET /csi` returns HTTP `409`. Retry after the Wi-Fi change has been applied.
 
 ### MQTT configuration
 

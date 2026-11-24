@@ -399,6 +399,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   const std::string wifi_snapshot = direct.emit_request(
       DirectRequest{"", "wifi", "{}", "/espectre/v1/wifi", "GET"});
   TEST_ASSERT_TRUE(wifi_snapshot.find("\"ssid\":\"Lab\"") != std::string::npos);
+  TEST_ASSERT_TRUE(wifi_snapshot.find("\"pinned_bssid\":\"AA:BB:CC:DD:EE:FF\"") != std::string::npos);
   TEST_ASSERT_TRUE(wifi_snapshot.find("\"band\":\"5g\"") != std::string::npos);
   TEST_ASSERT_TRUE(wifi_snapshot.find("\"channel\":36") != std::string::npos);
   const std::string mqtt_snapshot = direct.emit_request(
@@ -590,8 +591,11 @@ void test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection(
   TEST_ASSERT_TRUE(result.response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(0, provisioning_calls);
   TEST_ASSERT_TRUE(static_cast<bool>(result.response_sent_callback));
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
   result.response_sent_callback(true);
   TEST_ASSERT_EQUAL(1, provisioning_calls);
+  TEST_ASSERT_TRUE(direct.emit_raw_session_request());
+  TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::REQUESTED));
 }
 
 void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out(void) {

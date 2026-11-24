@@ -184,7 +184,6 @@ void RuntimeDirectHttpBridge::shutdown() {
   config_changed_ = {};
   event_client_count_.store(0U, std::memory_order_relaxed);
   deferred_requests_enabled_ = false;
-  wifi_response_pending_ = false;
   guest_ = false;
   sink_ = {};
   queued_changes_ = FrontendCommandChange::NONE;
@@ -432,7 +431,8 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
         (!runtime_->is_setup_complete() && !config_.wifi_bssid_pin_setter)) {
       return {false, handle_request_(request), {}};
     }
-    if (wifi_response_pending_) {
+    auto reservation = runtime_->try_reserve_wifi_update();
+    if (!reservation) {
       return {false,
               espectre_command_result_payload(
                   device, command, false, "unavailable",
@@ -451,7 +451,6 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
               {}};
     }
     const DirectWifiSnapshot wifi = wifi_snapshot_();
-    wifi_response_pending_ = true;
     const char *message = request.command == "set_wifi_bssid"
                               ? "Wi-Fi BSSID update accepted"
                               : "Wi-Fi BSSID clear accepted";
@@ -459,9 +458,9 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
         false,
         espectre_command_result_payload(
             device, command, true, "ok", message, wifi_bssid_ack_data(wifi.bssid)),
-        [this, request](bool sent) {
-          this->wifi_response_pending_ = false;
-          if (sent) (void) this->handle_request_(request);
+        [this, request, reservation = std::move(reservation)](bool sent) mutable {
+          const auto hold = std::move(reservation);
+          if (sent && hold) (void) this->handle_request_(request);
         },
     };
   }
@@ -581,6 +580,7 @@ DirectWifiSnapshot RuntimeDirectHttpBridge::wifi_snapshot_() const {
 }
 
 std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
+  constexpr uint16_t max_access_points = 32U;
   std::string entries;
   const auto append_ap = [&entries](const char *bssid, int rssi, uint8_t channel) {
     if (!entries.empty()) entries += ',';
@@ -595,9 +595,11 @@ std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
   if (config_.wifi_scan_results_getter) {
     std::vector<StandaloneWifiAccessPoint> results;
     scanning = config_.wifi_scan_results_getter(configured_ssid, results);
+    uint16_t added = 0U;
     for (const auto &ap : results) {
       if (!configured_ssid.empty() && ap.ssid == configured_ssid) {
         append_ap(ap.bssid.c_str(), ap.rssi_dbm, ap.channel);
+        if (++added == max_access_points) break;
       }
     }
   }
@@ -606,7 +608,7 @@ std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
     uint16_t count = 0U;
     const esp_err_t count_result = esp_wifi_scan_get_ap_num(&count);
     if (!configured_ssid.empty() && count_result == ESP_OK && count > 0U) {
-      count = std::min<uint16_t>(count, 32U);
+      count = std::min(count, max_access_points);
       std::vector<wifi_ap_record_t> records(count);
       if (esp_wifi_scan_get_ap_records(&count, records.data()) == ESP_OK) {
         for (uint16_t index = 0U; index < count; ++index) {

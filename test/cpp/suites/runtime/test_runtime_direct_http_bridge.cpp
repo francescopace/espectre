@@ -12,9 +12,11 @@
 #include "direct_http_service_mock.h"
 #include "frontend_runtime_shim.h"
 #include "runtime_direct_http_bridge.h"
+#include "runtime/direct_http_protocol.h"
 #include "runtime_frontend_controller.h"
 #include "runtime_guest_access.h"
 
+#include <cstdio>
 #include <string>
 
 using namespace espectre;
@@ -316,6 +318,70 @@ void test_guest_refuses_wifi_pin_before_acknowledging_during_raw_collection(void
   TEST_ASSERT_FALSE(static_cast<bool>(result.response_sent_callback));
 }
 
+void test_pending_pin_holds_off_raw_capture_until_response_completion(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  config.raw_csi = true;
+  int apply_calls = 0;
+  config.wifi_bssid_pin_setter = [&](const std::string &, bool, std::string *) {
+    ++apply_calls;
+    return true;
+  };
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+  const DirectRequest clear{"", "clear_wifi_bssid", "{}"};
+  const auto capture = [](void *, const RawCsiPacketView &) { return true; };
+  for (const bool sent : {false, true}) {
+    auto pin = service.emit_deferred_request(1U, clear);
+    TEST_ASSERT_TRUE(contains(pin.response, "\"accepted\":true"));
+    TEST_ASSERT_FALSE(service.emit_raw_session_request());
+    TEST_ASSERT_FALSE(owner.start_raw_collection(capture, nullptr));
+    const auto second = service.emit_deferred_request(2U, clear);
+    TEST_ASSERT_TRUE(contains(second.response, "\"accepted\":false"));
+    TEST_ASSERT_FALSE(static_cast<bool>(second.response_sent_callback));
+    TEST_ASSERT_TRUE(static_cast<bool>(pin.response_sent_callback));
+    pin.response_sent_callback(sent);
+    TEST_ASSERT_EQUAL(sent ? 1 : 0, apply_calls);
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+    TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  }
+  // Dropping the pending response also releases the station.
+  TEST_ASSERT_TRUE(contains(service.emit_deferred_request(3U, clear).response, "\"accepted\":true"));
+  TEST_ASSERT_TRUE(owner.start_raw_collection(capture, nullptr));
+  TEST_ASSERT_EQUAL(1, apply_calls);
+}
+
+void test_frontend_scan_caps_matching_access_points(void) {
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  config.wifi_snapshot_getter = []() {
+    DirectWifiSnapshot wifi;
+    wifi.ssid = "mesh";
+    return wifi;
+  };
+  config.wifi_scan_results_getter = [](const std::string &ssid, std::vector<StandaloneWifiAccessPoint> &results) {
+    results.push_back({"other", "02:00:00:00:01:00", -40, 1});
+    for (unsigned i = 0; i < 160; ++i) {
+      char bssid[18];
+      std::snprintf(bssid, sizeof(bssid), "02:00:00:00:00:%02X", i);
+      results.push_back({ssid, bssid, -50, 6});
+    }
+    return false;
+  };
+  TEST_ASSERT_TRUE(bridge.setup(&service, &owner, config));
+  const auto scan = service.emit_request({"", "wifi_access_points", "{}", "/espectre/v1/wifi/access-points", "GET"});
+  TEST_ASSERT_TRUE(scan.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_SIZE);
+  TEST_ASSERT_TRUE(contains(scan, "02:00:00:00:00:1F"));
+  TEST_ASSERT_FALSE(contains(scan, "02:00:00:00:00:20"));
+  TEST_ASSERT_FALSE(contains(scan, "02:00:00:00:01:00"));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_guest_bridge_needs_a_set_up_runtime);
@@ -327,6 +393,8 @@ int process(void) {
   RUN_TEST(test_guest_bridge_refuses_changes_while_the_owner_runtime_is_stopped);
   RUN_TEST(test_guest_can_recover_wifi_after_sensing_stops);
   RUN_TEST(test_guest_refuses_wifi_pin_before_acknowledging_during_raw_collection);
+  RUN_TEST(test_pending_pin_holds_off_raw_capture_until_response_completion);
+  RUN_TEST(test_frontend_scan_caps_matching_access_points);
   return UNITY_END();
 }
 

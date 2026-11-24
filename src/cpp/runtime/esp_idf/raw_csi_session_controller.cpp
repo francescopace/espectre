@@ -78,6 +78,10 @@ bool RawCsiSessionController::begin(std::string *message) {
     if (message != nullptr) *message = "a CSI collection is already active";
     return false;
   }
+  if (runtime_->wifi_update_pending()) {
+    if (message != nullptr) *message = "a Wi-Fi update is in progress";
+    return false;
+  }
   RawCsiSessionConfig session;
   session.device_id = device_id_;
   session.chip = raw_chip_type(chip_);

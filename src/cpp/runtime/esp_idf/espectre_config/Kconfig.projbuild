@@ -78,7 +78,9 @@ config ESPECTRE_TRAFFIC_GENERATOR_TARGET_MAC
     default "auto"
     help
         auto follows the currently associated AP, including after a BSSID pin
-        change. A unicast MAC sends direct MCS0 Null Data on the same channel:
+        change. A fixed MAC matching the associated BSSID uses the same
+        AP-directed frames at 6 Mbps. Other unicast destinations use direct
+        MCS0 Null Data on the same channel:
         HT20 on 2.4 GHz, VHT20 on C5 5 GHz. Local sensing keeps LLTF.
         Ignored outside wifi_raw.
 

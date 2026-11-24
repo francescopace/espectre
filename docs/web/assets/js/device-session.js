@@ -824,7 +824,8 @@
             set('cfg-wifi-phy', profile ? profile.toUpperCase() : 'Unknown');
         }
         if (snapshot.wifi_bssid !== undefined) {
-            currentWifiBssid = String(snapshot.wifi_bssid || '').toUpperCase();
+            const associatedBssid = String(snapshot.wifi_bssid || '').toUpperCase();
+            currentWifiBssid = String(snapshot.wifi_pinned_bssid ?? associatedBssid).toUpperCase();
             const bssid = document.getElementById('cfg-bssid');
             if (bssid && ![...bssid.options].some((option) => option.value === currentWifiBssid)
                     && currentWifiBssid) {
@@ -832,7 +833,7 @@
             }
             if (bssid) bssid.value = currentWifiBssid;
             // Shown where the device cannot pin an access point.
-            set('cfg-access-point', currentWifiBssid || 'Unknown');
+            set('cfg-access-point', associatedBssid || 'Unknown');
         }
         if (snapshot.mqtt_host) {
             set('cfg-mqtt-scheme', snapshot.mqtt_scheme);

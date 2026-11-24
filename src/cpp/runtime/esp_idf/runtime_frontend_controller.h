@@ -305,6 +305,16 @@ class RuntimeFrontendController : private IRuntimeListener {
   /** True while the backend is calibrating. False before setup. */
   bool is_calibrating() const;
   /**
+   * Reserve the station while acknowledging and applying a Wi-Fi update.
+   * Returns an empty handle during raw collection or another reservation.
+   * Keep the handle until the update has been handed to the Wi-Fi owner, or
+   * discard it if the response could not be delivered. Raw collection can
+   * start again when the last copy is released.
+   */
+  [[nodiscard]] std::shared_ptr<void> try_reserve_wifi_update();
+  /** True while a Wi-Fi update holds the station before raw capture can start. */
+  bool wifi_update_pending() const { return !wifi_update_reservation_.expired(); }
+  /**
    * Enter transient raw collection through the active sensing backend.
    *
    * The callback runs synchronously in the Wi-Fi CSI capture context, not from
@@ -369,6 +379,7 @@ class RuntimeFrontendController : private IRuntimeListener {
   IRuntimeListener *listener_{nullptr};
   IRuntimeListener *observer_{nullptr};
   bool setup_complete_{false};
+  std::weak_ptr<void> wifi_update_reservation_;
   // The session's threshold came from RUNTIME_THRESHOLD_DETECTOR_DEFAULT and no
   // setter has replaced it, so shutdown() returns the staged value to it.
   bool threshold_follows_detector_{false};

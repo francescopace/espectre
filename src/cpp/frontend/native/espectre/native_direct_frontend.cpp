@@ -100,7 +100,6 @@ void NativeDirectFrontend::refresh() {
 
   peer_discovery_enabled_ = false;
   session_tokens_enabled_ = false;
-  wifi_response_pending_ = false;
   DirectHttpServiceConfig config = DirectHttpServiceConfig::for_first_party_portals();
   config.protocol_extension = owner_.command_capability_profile_(true).extension;
   config.device_id = owner_.device_config_.device_id;
@@ -160,7 +159,6 @@ void NativeDirectFrontend::shutdown() {
   client_count_ = 0U;
   peer_discovery_enabled_ = false;
   session_tokens_enabled_ = false;
-  wifi_response_pending_ = false;
   if (had_clients) {
     owner_.update_live_telemetry_enabled_();
   }
@@ -223,7 +221,8 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
                   "Wi-Fi configuration changes are unavailable"),
               {}};
     }
-    if (wifi_response_pending_ || wifi_info_.apply_state == "verifying" ||
+    auto reservation = owner_.runtime_.try_reserve_wifi_update();
+    if (!reservation || wifi_info_.apply_state == "verifying" ||
         wifi_info_.apply_state == "rolling_back" || wifi_info_.scan_pending) {
       return {false,
               espectre_command_result_payload(
@@ -239,7 +238,6 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
               {}};
     }
     const DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
-    wifi_response_pending_ = true;
     const char *message = request.command == "set_wifi_bssid"
                               ? "Wi-Fi BSSID update accepted"
                               : request.command == "clear_wifi_bssid"
@@ -250,9 +248,9 @@ IDirectHttpService::DeferredRequestResult NativeDirectFrontend::handle_deferred_
         espectre_command_result_payload(
             owner_.device_config_, command, true, "ok", message,
             wifi_bssid_ack_data(wifi.bssid)),
-        [this, request, connection_token](bool sent) {
-          this->wifi_response_pending_ = false;
-          if (sent) (void) this->handle_request_(request, connection_token);
+        [this, request, connection_token, reservation = std::move(reservation)](bool sent) mutable {
+          const auto hold = std::move(reservation);
+          if (sent && hold) (void) this->handle_request_(request, connection_token);
         },
     };
   }
@@ -360,6 +358,7 @@ std::string NativeDirectFrontend::wifi_payload(bool mqtt_safe) const {
   if (!mqtt_safe) {
     append_json_pair(&out, "ssid", wifi.ssid.c_str());
     append_json_pair(&out, "bssid", wifi.bssid.c_str());
+    append_json_pair(&out, "pinned_bssid", wifi_info_.bssid.c_str());
     append_json_pair(&out, "ip", owner_.device_info_.network.ip_address.c_str());
   }
   append_json_pair(&out, "band", wifi.band.c_str());

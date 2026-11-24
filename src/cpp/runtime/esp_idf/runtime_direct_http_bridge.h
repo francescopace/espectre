@@ -225,7 +225,6 @@ class RuntimeDirectHttpBridge {
   RawCsiSessionController raw_session_controller_{};
   std::atomic<size_t> event_client_count_{0U};
   bool deferred_requests_enabled_{false};
-  bool wifi_response_pending_{false};
   // Guest mode: the runtime belongs to another component.
   bool guest_{false};
   // Applies sensing changes: the owner's callbacks for a guest, the runtime setters otherwise.

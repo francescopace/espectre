@@ -430,9 +430,18 @@ bool RuntimeFrontendController::is_calibrating() const {
   return runtime_ != nullptr && runtime_->is_calibrating();
 }
 
+std::shared_ptr<void> RuntimeFrontendController::try_reserve_wifi_update() {
+  if (wifi_update_pending() || operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return {};
+  }
+  auto reservation = std::make_shared<char>();
+  wifi_update_reservation_ = reservation;
+  return reservation;
+}
+
 bool RuntimeFrontendController::start_raw_collection(raw_csi_packet_callback_t callback,
                                                      void *context) {
-  if (!runtime_ || !capabilities_.supports_raw_csi || callback == nullptr) {
+  if (!runtime_ || !capabilities_.supports_raw_csi || callback == nullptr || wifi_update_pending()) {
     return false;
   }
   const bool started = runtime_->start_raw_collection(callback, context);

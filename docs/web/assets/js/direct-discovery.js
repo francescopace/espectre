@@ -152,6 +152,7 @@
             wifi_band: wifi.band,
             wifi_channel: wifi.channel,
             wifi_rssi_dbm: wifi.rssi_dbm,
+            wifi_pinned_bssid: wifi.pinned_bssid,
             wifi_bssid: wifi.bssid,
             wifi_apply_state: wifi.apply_state,
             wifi_apply_message: wifi.apply_message,

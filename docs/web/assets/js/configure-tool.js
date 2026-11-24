@@ -120,6 +120,7 @@
             device_label: device.label ?? '',
             wifi_ssid: wifi.ssid || '',
             wifi_band: wifi.band || '',
+            wifi_pinned_bssid: wifi.pinned_bssid,
             wifi_bssid: wifi.bssid || '',
             wifi_connected: wifi.connected === true,
             wifi_apply_state: wifi.apply_state || '',
@@ -404,7 +405,7 @@
             },
             evaluate: (snapshot, pending) => {
                 const state = String(snapshot.wifi_apply_state || '').toLowerCase();
-                const configuredBssid = String(snapshot.wifi_bssid || '').toUpperCase();
+                const configuredBssid = String(snapshot.wifi_pinned_bssid ?? snapshot.wifi_bssid ?? '').toUpperCase();
                 const matches = configuredBssid === bssid;
                 if (state === 'recovery_required') {
                     return {
