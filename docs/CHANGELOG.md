@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.2.2] - work in progress
+## [3.2.2] - 2026-11-24 - Raw Wi-Fi targets and Direct Wi-Fi recovery
 
 ### SDK
 
