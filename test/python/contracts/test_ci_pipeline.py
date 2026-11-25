@@ -953,7 +953,7 @@ def test_sdk_version_metadata(
         ["git", "-C", str(tmp_path), "-c", "user.name=Test", "-c",
          "user.email=test@example.com", "-c", "commit.gpgsign=false",
          "commit", "-qm", "Application fixture"],
-        ["git", "-C", str(tmp_path), "tag", "9.9.9"],
+        ["git", "-C", str(tmp_path), "tag", "--no-sign", "9.9.9"],
     ):
         subprocess.run(command, check=True, capture_output=True, text=True)
     monkeypatch.setenv("ESPECTRE_GIT_VERSION", "unrelated-firmware-version")
