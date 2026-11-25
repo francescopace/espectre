@@ -17,7 +17,7 @@
   </details>
 
   <h2 id="esphome-choose">Your own YAML or an official image</h2>
-  <p>ESPectre's official ESPHome images run the same built-in component. They differ in what comes around it. This guide covers ESPHome 2026.11.</p>
+  <p>ESPectre's official ESPHome images run the same built-in component. They differ in what comes around it. This guide covers ESPHome 2026.12.</p>
   <div class="table-wrap"><table>
     <caption class="sr-only">Your own YAML compared with an official image</caption>
     <thead><tr><th scope="col"></th><th scope="col">Your own YAML</th><th scope="col">Official image</th></tr></thead>
@@ -119,7 +119,7 @@ button:
   <h2 id="esphome-limits">Current limits</h2>
   <ul class="checklist">
     <li>The built-in component has no Direct API of its own. Add the <code>espectre_direct</code> add-on for Monitor, Find devices, CSI collection, and the <code>./espectre</code> device commands; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#the-direct-api-add-on" target="_blank" rel="noopener">ESPHome guide</a> shows how.</li>
-    <li>Recalibration is always available. Other Direct commands depend on the ESPHome platforms compiled into the image. Declare the corresponding entity to see its state in Home Assistant and restore supported settings after reboot. Use YAML for the device name, the default <code>wifi_raw</code> destination, Wi-Fi credentials, and MQTT.</li>
+    <li>Recalibration is always available. Other Direct commands depend on the ESPHome platforms compiled into the image. Declare the corresponding entity to see its state in Home Assistant and restore supported settings after reboot. On chips that support <code>wifi_raw</code>, the official examples expose the destination through the <strong>CSI Traffic Target MAC</strong> entity, Monitor, and the CLI. Use YAML for the default destination, device name, Wi-Fi credentials, and MQTT.</li>
     <li>With SDK 3.2.2 or later, Device settings can select an access point or restore automatic selection. If a raw CSI stream returns <code>409</code> during the change, retry after the device finishes verifying the connection or restoring the previous pin.</li>
   </ul>
   <p>For every option and platform, see the <a href="https://esphome.io/components/espectre/" target="_blank" rel="noopener">ESPHome documentation</a>.</p>

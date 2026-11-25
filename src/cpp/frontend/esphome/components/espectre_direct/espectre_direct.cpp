@@ -206,6 +206,12 @@ bool ESPectreDirect::start_() {
     parent->recalibrate();
     return true;
   };
+#ifdef USE_ESPECTRE_TARGET_MAC_TEXT
+  sink.traffic_generator_target_mac = [parent](const std::string &target, std::string *) {
+    parent->request_traffic_generator_target_mac(target);
+    return true;
+  };
+#endif
 #ifdef USE_SELECT
   sink.traffic_generator_mode = [parent](::espectre::TrafficGeneratorMode mode, std::string *) {
     parent->request_traffic_generator_mode(mode);

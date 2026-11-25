@@ -130,7 +130,10 @@ display:
       } else {
         it.printf(140, 6, id(font_body), C_THR, "BOOT");
       }
-      it.printf(238, 8, id(font_small), C_DIM, "${detection_algorithm}");
+      if (id(espectre_detection_profile).has_state()) {
+        it.print(318, 8, id(font_small), C_DIM, TextAlign::TOP_RIGHT,
+                 id(espectre_detection_profile).current_option().c_str());
+      }
       it.line(0, 27, 319, 27, C_BTN_EDGE);
 
       // ----- Graph area (x 24-295, y 30-152) -----

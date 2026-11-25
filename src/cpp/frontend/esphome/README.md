@@ -2,7 +2,7 @@
 
 The ESPHome frontend gives Home Assistant users motion detection as ESPHome entities. Sensing comes from the [`espectre` component built into ESPHome](https://esphome.io/components/espectre/). This repository adds the `espectre_direct` add-on for the browser tools and the CLI, the example configurations, and the official images. For installation, placement, and the first detection check, start with the [setup guide](../../../../docs/SETUP.md).
 
-The examples and official images need ESPHome 2026.11 or later. The external component that earlier releases loaded from this repository is gone; see [moving from the external component](#moving-from-the-external-component).
+The examples for ESP32, S2, S3, C3, and C5 need ESPHome 2026.12 or later. The C6 example also supports 2026.11. The external component that earlier releases loaded from this repository is gone; see [moving from the external component](#moving-from-the-external-component).
 
 ## Getting started
 
@@ -27,7 +27,7 @@ Official images add the last three MAC bytes to the ESPHome hostname, for exampl
 
 ## ESPHome integration
 
-`espectre:` runs sensing. The examples declare their [shared entities](examples/espectre-entities.yaml) under the corresponding ESPHome platforms. Examples that support `wifi_raw` can also include the [target MAC text entity](examples/espectre-traffic-target-mac.yaml).
+`espectre:` runs sensing. The examples declare their [shared entities](examples/espectre-entities.yaml) under the corresponding ESPHome platforms. Examples that support `wifi_raw` also include the [target MAC text entity](examples/espectre-traffic-target-mac.yaml).
 
 The `espectre_direct` add-on runs ESPectre's Direct HTTP API next to the ESPHome API. Direct offers the same sensing controls plus live telemetry and raw CSI collection; find the device with `./espectre devices --frontend esphome`. See the [API reference](../../../../docs/API.md) and [discovery reference](../../../../docs/DISCOVERY.md).
 
@@ -191,11 +191,11 @@ espectre:
 
 The `CSI Traffic Source` select changes the source at runtime, including `external`, and the device remembers it. For `wifi_raw`, set `espectre.traffic_generator_target_mac` to `auto` to follow the associated access point (the default), or to a unicast MAC address to send to another sensor. ESP32-C6 does not support `wifi_raw`. See [compatibility limits](../../../../docs/CSI.md#compatibility-limits).
 
-With an ESPHome installation that includes [PR #23010](https://github.com/esphome/esphome/pull/23010), set the following substitution in an ESP32, S2, S3, C3, or C5 example to change the destination from Home Assistant using `CSI Traffic Target MAC`. The entity is off by default for compatibility with ESPHome 2026.11.
+On ESP32, S2, S3, C3, and C5, change the destination from Home Assistant using `CSI Traffic Target MAC`, or through Direct using Monitor or the CLI. The built-in component saves the destination across restarts. To omit this control, for example when selecting the `ht_vht` capture profile, set:
 
 ```yaml
 substitutions:
-  enable_traffic_target_mac: true
+  enable_traffic_target_mac: false
 ```
 
 ### External traffic mode
@@ -261,13 +261,13 @@ The GitHub examples use the SDK from the same revision as the add-on. Its mDNS r
 
 The add-on serves the device and sensing resources, live events, CSI collection, and discovery. The built-in component applies sensing changes. Recalibration is always available. The other commands depend on which ESPHome platforms are compiled: the threshold and motion hits need the `number` platform, the detection profile, traffic source, and packet spacing need the `select` platform, and sensing enablement needs the `switch` platform. Declare the corresponding entity to publish its state and restore a supported setting after reboot. The threshold is temporary.
 
-With SDK 3.2.2 or later, Device settings can scan, pin, or clear the access point for the current Wi-Fi network through Direct. With SDK 3.2.0 or 3.2.1, the add-on provides read-only Wi-Fi status. The add-on saves the pin after the station connects to the requested access point and obtains an IPv4 address. If the switch times out, it restores the previous pin. Opening a raw CSI stream during verification or rollback returns HTTP `409`, even while the old access point is reachable. Retry once the change finishes. You can select another access point while sensing is stopped as long as the device is reachable over Wi-Fi. Manage the device name, the `wifi_raw` destination, Wi-Fi credentials, and MQTT in ESPHome.
+With SDK 3.2.2 or later, Device settings can scan, pin, or clear the access point for the current Wi-Fi network through Direct. With SDK 3.2.0 or 3.2.1, the add-on provides read-only Wi-Fi status. The add-on saves the pin after the station connects to the requested access point and obtains an IPv4 address. If the switch times out, it restores the previous pin. Opening a raw CSI stream during verification or rollback returns HTTP `409`, even while the old access point is reachable. Retry once the change finishes. You can select another access point while sensing is stopped as long as the device is reachable over Wi-Fi. Manage the device name, Wi-Fi credentials, and MQTT in ESPHome.
 
 `esphome.project.version` sets the firmware version that the Direct API reports. The SDK version is separate; see [versioning](../../../../docs/SDK.md#versioning).
 
 ### Moving from the external component
 
-Earlier ESPectre releases loaded an `espectre` component from this repository through `external_components`. ESPectre 3.3 removes it. Update ESPHome to 2026.11 or later, remove `espectre` from `external_components`, add `espectre_direct` if you use the browser tools or the CLI, and declare the entities as platforms:
+Earlier ESPectre releases loaded an `espectre` component from this repository through `external_components`. ESPectre 3.3 removes it. For the 3.3 examples, use ESPHome 2026.12 or later, remove `espectre` from `external_components`, add `espectre_direct` if you use the browser tools or the CLI, and declare the entities as platforms:
 
 | External component, under `espectre:` | Built-in component |
 |----------------------------------------|--------------------|
@@ -284,9 +284,9 @@ Earlier ESPectre releases loaded an `espectre` component from this repository th
 
 Some sensing options change name: `segmentation_window_size_ms` becomes `window_size`, `evaluation_interval_ms` becomes `evaluation_interval`, and the filter options become the `lowpass_filter` and `hampel_filter` blocks. The built-in diagnostics have no admitted, filtered, stale, or out-of-order rate, and no Wi-Fi channel. The [shared entity definitions](examples/espectre-entities.yaml) show the retained names.
 
-Before upgrading from an external-component image, record the detection profile, CSI traffic source, packet spacing, and motion on/off hit counts. The built-in component stores these controls in ESPHome entity preferences and starts from the YAML defaults on the first boot. Reapply your recorded values in Home Assistant or put them in the YAML before upgrading. If you pinned an access point through Direct, record its BSSID and reapply it in Device settings after the upgrade. Move any device label or raw destination set through Direct to YAML.
+Before upgrading from an external-component image, record the detection profile, CSI traffic source, packet spacing, and motion on/off hit counts. The built-in component stores these controls in ESPHome entity preferences and starts from the YAML defaults on the first boot. Reapply your recorded values in Home Assistant or put them in the YAML before upgrading. If you pinned an access point through Direct, record its BSSID and reapply it in Device settings after the upgrade. Move any device label to YAML. Reapply a custom raw destination through Home Assistant or Direct.
 
-A configuration adopted from an earlier example follows `main`, so its next build uses the built-in component and needs ESPHome 2026.11 or later.
+A configuration adopted from an earlier example follows `main`, so its next build uses the built-in component and the minimum ESPHome version specified by the example.
 
 ### Example configurations
 

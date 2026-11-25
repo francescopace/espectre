@@ -58,6 +58,7 @@ number:
 select:
   - platform: espectre
     detection_algorithm:
+      id: espectre_detection_profile
       name: "Detection Profile"
     traffic_generator_mode:
       name: "CSI Traffic Source"

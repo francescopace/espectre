@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 import esphome.codegen as cg
-from esphome.components import esp32, espectre, wifi
+from esphome.components import esp32, espectre, socket, wifi
 from esphome.components.esp32.const import KEY_COMPONENTS, KEY_ESP32, KEY_REF
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PATH, CONF_PORT, CONF_VERSION
@@ -102,6 +102,11 @@ CONFIG_SCHEMA = cv.All(
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on_esp32,
+    # The SDK starts a separate esp_http_server with seven client slots,
+    # one TCP listener, and two UDP control sockets.
+    socket.consume_sockets(7, "espectre_direct"),
+    socket.consume_sockets(1, "espectre_direct", socket.SocketType.TCP_LISTEN),
+    socket.consume_sockets(2, "espectre_direct", socket.SocketType.UDP),
 )
 
 

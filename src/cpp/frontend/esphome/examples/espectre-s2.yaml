@@ -14,12 +14,12 @@ packages:
   entities: !include espectre-entities.yaml
   traffic_target_mac: !include
     file: espectre-traffic-target-mac.yaml
-    condition: ${enable_traffic_target_mac | default(false)}
+    condition: ${enable_traffic_target_mac | default(true)}
 
 esphome:
   name: espectre
   friendly_name: ESPectre
-  min_version: 2026.11.0
+  min_version: 2026.12.0
   # Keep the hostname unique when one official image is used on multiple devices.
   name_add_mac_suffix: true
   project:
