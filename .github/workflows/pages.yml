@@ -76,11 +76,19 @@ jobs:
               if (latest?.conclusion !== 'success') {
                 throw new Error(`Source publication job has not succeeded: ${name}`);
               }
-              if (name === 'Publish Website') {
-                core.setOutput('pages_artifact', `github-pages-${latest.run_attempt}`);
-                core.setOutput('sitemap_artifact', `website-sitemap-${latest.run_attempt}`);
-              }
             }
+            // A rerun can carry a successful job forward without uploading new artifacts.
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: runId, per_page: 100,
+            });
+            const names = new Set(artifacts.filter(artifact => !artifact.expired).map(artifact => artifact.name));
+            let artifactAttempt = attempt;
+            while (artifactAttempt > 0 && !names.has(`github-pages-${artifactAttempt}`)) artifactAttempt--;
+            if (!artifactAttempt || !names.has(`website-sitemap-${artifactAttempt}`)) {
+              throw new Error('The verified Pages archive and its matching sitemap are unavailable.');
+            }
+            core.setOutput('pages_artifact', `github-pages-${artifactAttempt}`);
+            core.setOutput('sitemap_artifact', `website-sitemap-${artifactAttempt}`);
             core.setOutput('run_id', String(runId));
             core.setOutput('head_sha', run.head_sha);
             core.setOutput('channel', snapshot ? 'preview' : 'release');

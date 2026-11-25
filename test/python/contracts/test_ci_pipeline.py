@@ -2303,8 +2303,9 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert "notify_indexnow.py --sitemap deployed-website/sitemap.xml" in pages
     assert "run.run_attempt !== attempt" in pages
     assert "latest?.conclusion !== 'success'" in pages
-    assert "pages_artifact', `github-pages-${latest.run_attempt}`" in pages
-    assert "sitemap_artifact', `website-sitemap-${latest.run_attempt}`" in pages
+    assert "github.rest.actions.listWorkflowRunArtifacts" in pages
+    assert "pages_artifact', `github-pages-${artifactAttempt}`" in pages
+    assert "sitemap_artifact', `website-sitemap-${artifactAttempt}`" in pages
     assert "ref: ${{ steps.source.outputs.head_sha }}" in pages
     assert "run.path !== '.github/workflows/cd.yml'" in pages
     assert "const snapshot = run.head_branch === 'main'" in pages
