@@ -143,6 +143,7 @@ void NativeDirectFrontend::refresh() {
                                         this->owner_.mqtt_frontend_->home_assistant().cancel_pending_state();
                                         this->owner_.publish_runtime_status_state_();
                                       });
+    raw_session_controller_.set_wifi_update_pending_callback([this]() { return wifi_info_.apply_pending(); });
   }
 }
 
@@ -157,6 +158,7 @@ void NativeDirectFrontend::loop() {
 }
 
 void NativeDirectFrontend::shutdown() {
+  raw_session_controller_.detach();
   if (service_ != nullptr && service_->running()) {
     service_->shutdown();
   }

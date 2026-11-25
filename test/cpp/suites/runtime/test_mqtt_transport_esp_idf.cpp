@@ -6,6 +6,7 @@
  */
 #include "test_harness.h"
 
+#include <memory>
 #include <string>
 #include <new>
 
@@ -67,13 +68,41 @@ void test_receive_storage_failure_shutdown_and_fragmented_recovery() {
     connect(transport);
     const std::string topic = espectre_topic(config(), "commands/request");
     mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "abc", 6, 0);
-    mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "def", 6, 3);
+    mqtt_client_mock_emit(MQTT_EVENT_DATA, cycle == 0 ? topic.c_str() : nullptr, "def", 6, 3);
     transport.loop();
     TEST_ASSERT_EQUAL(cycle + 1U, received);
     mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "abc", 6, 0);
     transport.shutdown();
     transport.loop();
     TEST_ASSERT_FALSE(transport.connected());
+  }
+}
+
+void test_topicless_fragments_require_an_uninterrupted_command() {
+  mqtt_client_mock_reset();
+  EspIdfMqttTransport transport;
+  TEST_ASSERT_TRUE(transport.setup(config()));
+  connect(transport);
+  int received = 0;
+  transport.set_command_callback([&](const std::string &) { ++received; });
+  const std::string topic = espectre_topic(config(), "commands/request");
+  mqtt_client_mock_emit(MQTT_EVENT_DATA, topic.c_str(), "abc", 6, 0);
+  mqtt_client_mock_emit(MQTT_EVENT_DATA, "other", "uvw", 6, 0);
+  mqtt_client_mock_emit(MQTT_EVENT_DATA, nullptr, "xyz", 6, 3);
+  transport.loop();
+  TEST_ASSERT_EQUAL(0, received);
+}
+
+void test_client_is_destroyed_once_on_scope_exit() {
+  for (bool explicit_shutdown : {false, true}) {
+    mqtt_client_mock_reset();
+    {
+      EspIdfMqttTransport transport;
+      TEST_ASSERT_TRUE(transport.setup(config()));
+      if (explicit_shutdown) transport.shutdown();
+    }
+    TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.stop_calls);
+    TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.destroy_calls);
   }
 }
 
@@ -244,8 +273,10 @@ void test_reconnects_are_observable() {
 void test_subscribe_rejects_unusable_requests_and_defers_until_connected() {
   mqtt_client_mock_reset();
   EspIdfMqttTransport transport;
-  TEST_ASSERT_TRUE(transport.setup(config()));
   const EspIdfMqttTransport::MessageCallback callback = [](const std::string &, const std::string &) {};
+  // Without a client the registration would be dropped by setup().
+  TEST_ASSERT_FALSE(transport.subscribe("espectre/topic", callback));
+  TEST_ASSERT_TRUE(transport.setup(config()));
   TEST_ASSERT_FALSE(transport.subscribe("", callback));
   TEST_ASSERT_FALSE(transport.subscribe("espectre/topic", nullptr));
 
@@ -262,12 +293,32 @@ void test_subscribe_rejects_unusable_requests_and_defers_until_connected() {
   TEST_ASSERT_EQUAL(after_connect + 2, g_mqtt_client_mock.subscribe_calls);
 }
 
+void test_rejected_setup_preserves_the_previous_client() {
+  mqtt_client_mock_reset();
+  EspIdfMqttTransport transport;
+  TEST_ASSERT_TRUE(transport.setup(config()));
+  connect(transport);
+  TEST_ASSERT_TRUE(transport.connected());
+  int received = 0;
+  TEST_ASSERT_TRUE(transport.subscribe("test/topic", [&](const auto &, const auto &) { ++received; }));
+  TEST_ASSERT_FALSE(transport.setup(EspectreDeviceConfig{}));
+  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.destroy_calls);
+  TEST_ASSERT_TRUE(transport.connected());
+  mqtt_client_mock_emit(MQTT_EVENT_DATA, "test/topic", "data", 4, 0);
+  transport.loop();
+  TEST_ASSERT_EQUAL(1, received);
+  TEST_ASSERT_TRUE(transport.publish_suffix("motion", "{}", false));
+}
+
 }  // namespace
 
 int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_receive_storage_failure_shutdown_and_fragmented_recovery);
+  RUN_TEST(test_topicless_fragments_require_an_uninterrupted_command);
+  RUN_TEST(test_client_is_destroyed_once_on_scope_exit);
   RUN_TEST(test_setup_bounds_the_esp_mqtt_outbox);
+  RUN_TEST(test_rejected_setup_preserves_the_previous_client);
   RUN_TEST(test_mqtts_requires_the_certificate_bundle_for_broker_verification);
   RUN_TEST(test_invalid_endpoint_is_rejected_before_client_initialization);
   RUN_TEST(test_publish_is_deferred_and_latest_snapshot_replaces_stale_data);

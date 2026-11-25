@@ -589,6 +589,16 @@ void test_native_frontend_rejects_deferred_wifi_mutations_during_raw_collection(
   TEST_ASSERT_EQUAL(0, provisioning_calls);
   TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::REQUESTED));
 
+  // Serial provisioning can enter verification while Direct awaits its acknowledgement.
+  auto cancelled = direct.emit_deferred_request(76U, DirectRequest{"wifi-unpin", "clear_wifi_bssid", "{}"});
+  TEST_ASSERT_TRUE(static_cast<bool>(cancelled.response_sent_callback));
+  wifi.apply_state = "verifying";
+  frontend.set_wifi_provisioning_info(wifi);
+  cancelled.response_sent_callback(false);
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
+  wifi.apply_state = "applied";
+  frontend.set_wifi_provisioning_info(wifi);
+
   auto result = direct.emit_deferred_request(77U, DirectRequest{"wifi-unpin", "clear_wifi_bssid", "{}"});
   TEST_ASSERT_TRUE(result.response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(0, provisioning_calls);

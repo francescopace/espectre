@@ -69,7 +69,8 @@ class IMqttTransport {
    *
    * Asynchronous: true means the client started, not that it reached the
    * broker. Wait for the connection callback before expecting publishes to
-   * land. Calling it again tears down the previous client and reconfigures.
+   * land. A configuration rejected during validation leaves the current client
+   * and its subscriptions running. A valid configuration replaces them.
    *
    * @return false when the configuration cannot produce a client, such as an
    *         empty `EspectreDeviceConfig::mqtt_host`.
@@ -103,10 +104,11 @@ class IMqttTransport {
   /**
    * Register a topic and its handler.
    *
-   * Idempotent per topic: subscribing again replaces the handler. May be
-   * called before the connection is up; the subscription is issued on connect.
+   * Idempotent per topic: subscribing again replaces the handler. Call it
+   * after a successful setup(); it may run before the connection is up, and
+   * the subscription is issued on connect.
    *
-   * @return false for an empty topic or an empty callback.
+   * @return false for an empty topic, an empty callback, or no client.
    */
   virtual bool subscribe(const std::string &topic, MessageCallback callback) = 0;
   /** Handler for the device command topic, which the transport subscribes itself. */

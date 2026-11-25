@@ -21,6 +21,7 @@
 #include "core/espectre_log.h"
 #include <esp_http_server.h>
 #include <esp_timer.h>
+#include <fcntl.h>
 #include <lwip/sockets.h>
 #if defined(ESP_PLATFORM)
 #include <lwip/tcp.h>
@@ -48,6 +49,8 @@ constexpr uint64_t kRequestWindowUs = 1000000U;
 // its first resend, so the server-wide 1 s send timeout would close the stream
 // on a single lost segment.
 constexpr time_t kRawSendTimeoutSeconds = 3;
+constexpr int64_t kRawStopTimeoutUs = 100000;
+constexpr int64_t kRawWritePollUs = 10000;
 constexpr const char *kHttp400 = "400 Bad Request";
 constexpr const char *kHttp403 = "403 Forbidden";
 constexpr const char *kHttp404 = "404 Not Found";
@@ -383,9 +386,7 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
   TaskHandle_t worker_task = worker_task_.load(std::memory_order_acquire);
   if (worker_task != nullptr) xTaskNotifyGive(worker_task);
   uint32_t waited_ms = 0U;
-  while ((worker_task_.load(std::memory_order_acquire) != nullptr ||
-          raw_worker_task_.load(std::memory_order_acquire) != nullptr) &&
-         waited_ms < kWorkerShutdownTimeoutMs) {
+  while (worker_task_.load(std::memory_order_acquire) != nullptr && waited_ms < kWorkerShutdownTimeoutMs) {
     vTaskDelay(kWorkerShutdownPollTicks);
     waited_ms += 1U;
   }
@@ -395,11 +396,18 @@ void EspIdfDirectHttpService::shutdown_(bool dispatch_callbacks) {
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
     vTaskDelete(worker_task);
   }
-  TaskHandle_t raw_worker_task = raw_worker_task_.exchange(nullptr, std::memory_order_acq_rel);
-  if (raw_worker_task != nullptr) {
-    ESPECTRE_LOGW(TAG, "Direct raw worker did not stop within %u ms",
-             static_cast<unsigned>(kWorkerShutdownTimeoutMs));
-    vTaskDelete(raw_worker_task);
+  // The raw worker owns any failed async request through socket teardown.
+  // Join it before destroying the HTTP server or the service's mutexes; deleting
+  // it would leak that request, so report a slow teardown and keep waiting.
+  waited_ms = 0U;
+  bool raw_wait_reported = false;
+  while (raw_worker_task_.load(std::memory_order_acquire) != nullptr) {
+    vTaskDelay(kWorkerShutdownPollTicks);
+    if (!raw_wait_reported && ++waited_ms >= kWorkerShutdownTimeoutMs) {
+      ESPECTRE_LOGW(TAG, "Direct raw worker still closing its stream after %u ms",
+                    static_cast<unsigned>(kWorkerShutdownTimeoutMs));
+      raw_wait_reported = true;
+    }
   }
 #endif
 
@@ -557,6 +565,9 @@ bool EspIdfDirectHttpService::start_raw_session(
   raw_drop_total_.store(0U, std::memory_order_relaxed);
   raw_send_backpressure_total_.store(0U, std::memory_order_relaxed);
   raw_fresh_record_total_.store(0U, std::memory_order_relaxed);
+  raw_write_.stop_deadline_us.store(INT64_MAX, std::memory_order_relaxed);
+  raw_write_.failed = false;
+  raw_write_.cancelled = false;
   raw_session_active_.store(true, std::memory_order_release);
   unlock_();
   return true;
@@ -566,9 +577,11 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   bool expected_active = true;
   if (!raw_session_active_.compare_exchange_strong(
           expected_active, false, std::memory_order_acq_rel)) return false;
+  raw_write_.stop_deadline_us.store(esp_timer_get_time() + kRawStopTimeoutUs, std::memory_order_release);
   while (raw_producer_active_.load(std::memory_order_acquire) != 0U) {
     vTaskDelay(1U);
   }
+  // The sender checks the same deadline on every retry, including partial writes.
   if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   httpd_req_t *request = nullptr;
   std::string origin;
@@ -585,6 +598,34 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   request = raw_session_.request;
   headers_pending = raw_session_.stream_sequence == 0U;
   if (headers_pending) origin = raw_session_.origin;
+  unlock_();
+  if (raw_write_.failed && !raw_write_.cancelled) reason = RawCsiStopReason::SLOW_CLIENT;
+  if (request != nullptr) {
+    // A failed or interrupted data chunk cannot be repaired by a terminator.
+    bool stream_failed = raw_write_.failed || reason == RawCsiStopReason::SLOW_CLIENT;
+    if (!stream_failed) {
+      if (headers_pending) set_response_headers_(request, origin);
+      raw_write_.batch_deadline_us = INT64_MAX;
+      stream_failed = httpd_resp_send_chunk(request, nullptr, 0U) != ESP_OK;
+      if (stream_failed && !raw_write_.cancelled && reason != RawCsiStopReason::RAW_DISCONNECTED) {
+        raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+      }
+    }
+    const int fd = httpd_req_to_sockfd(request);
+    if (!stream_failed && raw_write_.socket_flags >= 0 &&
+        fcntl(fd, F_SETFL, raw_write_.socket_flags) < 0) stream_failed = true;
+    raw_write_.socket_flags = -1;
+    httpd_sess_set_transport_ctx(server_, fd, nullptr, nullptr);
+    if (stream_failed) {
+      // lwIP may wait for a TCP segment even when shutting down a nonblocking
+      // socket. Transfer the pinned request to the raw worker before waking it.
+      failed_raw_request_.store(request, std::memory_order_release);
+    } else {
+      (void) httpd_req_async_handler_complete(request);
+    }
+  }
+  // Keep the session reserved until the last write and the ownership transfer finish.
+  xSemaphoreTake(mutex_, portMAX_DELAY);
   pending_raw_stopped_callback_ = std::move(raw_session_.stopped_callback);
   pending_raw_stop_reason_ = reason;
   request_raw_worker_stop_();
@@ -592,23 +633,20 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
   raw_buffers_.reset();
   unlock_();
   xSemaphoreGive(raw_send_mutex_);
-  if (request != nullptr) {
-    // A failed send can leave a partial HTTP chunk on the wire. Appending a
-    // terminator cannot repair it, and async completion only releases request
-    // ownership; it does not close the socket or wake the client's reader.
-    bool stream_failed = reason == RawCsiStopReason::SLOW_CLIENT;
-    if (!stream_failed) {
-      if (headers_pending) set_response_headers_(request, origin);
-      stream_failed = httpd_resp_send_chunk(request, nullptr, 0U) != ESP_OK;
-    }
-    if (stream_failed) {
-      const int fd = httpd_req_to_sockfd(request);
-      (void) ::shutdown(fd, SHUT_WR);
-      (void) ::shutdown(fd, SHUT_RD);
-    }
-    (void) httpd_req_async_handler_complete(request);
-  }
+#if !defined(ESP_PLATFORM)
+  // Host builds pump the raw worker synchronously.
+  close_failed_raw_request_();
+#endif
   return true;
+}
+
+void EspIdfDirectHttpService::close_failed_raw_request_() {
+  httpd_req_t *request = failed_raw_request_.exchange(nullptr, std::memory_order_acq_rel);
+  if (request == nullptr) return;
+  const int fd = httpd_req_to_sockfd(request);
+  (void) ::shutdown(fd, SHUT_WR);
+  (void) ::shutdown(fd, SHUT_RD);
+  (void) httpd_req_async_handler_complete(request);
 }
 
 bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
@@ -709,6 +747,7 @@ void EspIdfDirectHttpService::raw_worker_entry_(void *context) {
     }
   }
   if (service != nullptr) {
+    service->close_failed_raw_request_();
     while (service->raw_worker_notifications_active_.load(std::memory_order_acquire) != 0U) {
       vTaskDelay(1U);
     }
@@ -945,6 +984,10 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
   (void) httpd_resp_set_type(request, "application/octet-stream");
   (void) httpd_resp_set_hdr(request, "Cache-Control", "no-store");
   httpd_req_t *async_request = nullptr;
+  if (httpd_sess_set_send_override(server_, httpd_req_to_sockfd(request), &send_raw_bytes_) != ESP_OK) {
+    (void) send_error_(request, kHttp503, "raw CSI stream unavailable", origin);
+    return ESP_FAIL;
+  }
   if (httpd_req_async_handler_begin(request, &async_request) != ESP_OK || async_request == nullptr) {
     (void) send_error_(request, kHttp503, "raw CSI stream unavailable", origin);
     return ESP_FAIL;
@@ -1225,6 +1268,42 @@ void EspIdfDirectHttpService::service_event_streams_() {
   if (previous_count != current_count) notify_client_count_(current_count);
 }
 
+int EspIdfDirectHttpService::send_raw_bytes_(void *server, int fd, const char *bytes, size_t length, int flags) {
+  if (bytes == nullptr) return HTTPD_SOCK_ERR_INVALID;
+  auto *write = static_cast<RawWriteState *>(httpd_sess_get_transport_ctx(server, fd));
+  // A rejected request or a later keep-alive request behaves like the default
+  // httpd send, including its mapping of a timed-out send.
+  if (write == nullptr) {
+    const int sent = ::send(fd, bytes, length, flags);
+    if (sent >= 0) return sent;
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR ? HTTPD_SOCK_ERR_TIMEOUT
+                                                                      : HTTPD_SOCK_ERR_FAIL;
+  }
+  if (write->socket_flags < 0) {
+    const int original = fcntl(fd, F_GETFL, 0);
+    if (original < 0 || fcntl(fd, F_SETFL, original | O_NONBLOCK) < 0) return HTTPD_SOCK_ERR_FAIL;
+    write->socket_flags = original;
+  }
+  for (;;) {
+    const int64_t stop = write->stop_deadline_us.load(std::memory_order_acquire);
+    const int64_t remaining = std::min(stop, write->batch_deadline_us) - esp_timer_get_time();
+    if (remaining <= 0) {
+      write->cancelled = stop < write->batch_deadline_us;
+      return HTTPD_SOCK_ERR_TIMEOUT;
+    }
+    const int sent = ::send(fd, bytes, length, flags | MSG_DONTWAIT);
+    if (sent > 0) return sent;
+    if (sent == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) return HTTPD_SOCK_ERR_FAIL;
+    if (fd >= FD_SETSIZE) return HTTPD_SOCK_ERR_FAIL;
+    fd_set writable;
+    FD_ZERO(&writable);
+    FD_SET(fd, &writable);
+    timeval wait{};
+    wait.tv_usec = std::min(remaining, kRawWritePollUs);
+    if (select(fd + 1, nullptr, &writable, nullptr, &wait) < 0 && errno != EINTR) return HTTPD_SOCK_ERR_FAIL;
+  }
+}
+
 bool EspIdfDirectHttpService::service_raw_stream_() {
   if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   RawCsiSessionConfig config;
@@ -1315,12 +1394,16 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
 
   // The HTTP server borrows header strings until the first chunk is sent.
   if (headers_pending) set_response_headers_(request, origin);
+  raw_write_.batch_deadline_us = esp_timer_get_time() + kRawSendTimeoutSeconds * 1000000LL;
   const esp_err_t result = httpd_resp_send_chunk(request,
                                                   reinterpret_cast<const char *>(raw_buffers_->send.data()),
                                                   length);
   if (result != ESP_OK) {
-    ESPECTRE_LOGW(TAG, "Raw CSI send failed: %s; closing collection stream", esp_err_to_name(result));
-    raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+    raw_write_.failed = true;
+    if (!raw_write_.cancelled) {
+      ESPECTRE_LOGW(TAG, "Raw CSI send failed: %s; closing collection stream", esp_err_to_name(result));
+      raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+    }
     raw_drop_total_.fetch_add(records, std::memory_order_relaxed);
     xSemaphoreGive(raw_send_mutex_);
     (void) stop_raw_session(RawCsiStopReason::SLOW_CLIENT);
@@ -1367,6 +1450,8 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
         timeval send_timeout{};
         send_timeout.tv_sec = kRawSendTimeoutSeconds;
         (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
+        // The service owns raw_write_ until the async request is completed.
+        httpd_sess_set_transport_ctx(server_, raw_session_.fd, &raw_write_, [](void *) {});
         raw_session_.binary_bound = true;
         bound = true;
       }

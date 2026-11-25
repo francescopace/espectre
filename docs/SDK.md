@@ -196,6 +196,8 @@ All groups are off by default, so the base SDK pulls in no network stack. Enable
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | Device configuration store and Wi-Fi provisioning | Nothing extra |
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | Turns on provisioning |
 
+Raw CSI streaming is off by default in the Direct bridge. To offer `GET /espectre/v1/csi`, set `RuntimeDirectHttpBridgeConfig::raw_csi` to `true` before bridge setup and supply a nonzero `device_id`. Clients can check `capabilities.features.csi` for runtime support.
+
 Plaintext MQTT (`mqtt://`) works with the ESP-IDF certificate bundle disabled. For `mqtts://`, enable `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` so the transport can verify the broker certificate. If the bundle is disabled, `EspIdfMqttTransport::setup()` logs an error and returns `false` for `mqtts://`.
 
 The mDNS version is pinned because discovery uses private mDNS functions. Component Manager reads these options from Kconfig (ESP-IDF 5.5 and Component Manager 2.2 or newer), so:
@@ -270,7 +272,7 @@ These are the rules every integration needs. The [integration reference](../src/
 
 Call `set_config()`, `setup(listener)`, `loop()` repeatedly, and `shutdown()`. Check every `bool` result. `set_config()` fails while the runtime is running, so shut down first. A failed setup can be retried, and the configuration survives `shutdown()`.
 
-After setup, `config()` returns the values in use, including the resolved threshold. Writing to it only affects the next setup; use the setters for live changes.
+While the runtime is running, read `effective_config()` for the settings in use, including the resolved threshold. Use the setters for live changes. Edits through `config()` take effect at the next setup. Before setup and after shutdown, `effective_config()` returns those staged settings.
 
 ### Threading
 

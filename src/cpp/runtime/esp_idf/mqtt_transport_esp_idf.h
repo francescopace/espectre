@@ -32,6 +32,8 @@ namespace espectre {
  */
 class EspIdfMqttTransport : public IMqttTransport {
  public:
+  /** Stop the MQTT client before releasing its event context. */
+  ~EspIdfMqttTransport() override;
   bool setup(const EspectreDeviceConfig &config) override;
   void loop() override;
   void shutdown() override;

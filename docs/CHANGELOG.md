@@ -4,10 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [3.2.2] - 2026-11-24 - Raw Wi-Fi targets and Direct Wi-Fi recovery
+## [3.2.2] - 2026-11-25 - Raw Wi-Fi targets and Direct Wi-Fi recovery
 
 ### SDK
 
+- **Custom SDK bridges:** In 3.2.1, clients could open `GET /espectre/v1/csi` even when `raw_csi` was left at its default of `false`. In 3.2.2, that request returns HTTP `409`. To keep streaming on a supported runtime, set `RuntimeDirectHttpBridgeConfig::raw_csi` to `true` before bridge setup. Clients can check `capabilities.features.csi` before opening a stream, and peer discovery now advertises CSI only when enabled and supported.
+- Direct reports the active sensing settings and releases peer discovery on shutdown. `RuntimeDirectHttpBridge` and `RawCsiSessionController` now shut down when destroyed, so declare them after the service, runtime, and discovery they use.
+- `RawCsiSessionController::shutdown()` stops capture and keeps the service ready for the next collection. Use `detach()` to unregister the controller. `set_wifi_update_pending_callback()` holds off new streams while the frontend changes Wi-Fi. A stream refused because sensing is paused now says so instead of reporting a capture failure.
+- Stopping a raw stream gives the current write and the final HTTP chunk a shared 100 ms deadline. Direct preserves send failures that occur during stop and counts them in the stream diagnostics.
+- Wi-Fi apply states are available as `ESPECTRE_WIFI_APPLY_STATE_*` constants, and `espectre_wifi_apply_in_progress()` reports whether a change is still verifying or rolling back.
+- The MQTT transport assembles fragmented commands when only the first fragment carries the topic. It releases its client when destroyed, preserves the connection and subscriptions when validation rejects new settings, and `subscribe()` returns false before `setup()`.
 - In `wifi_raw`, setting the target to the connected AP’s BSSID now sends AP-directed frames, just like `auto`. The explicit target stays fixed across roaming.
 - Direct can return up to 32 access points from a frontend scan and report the saved BSSID and pin status. Device settings uses the saved BSSID to confirm automatic AP selection. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. Direct rejects pin changes during raw CSI collection. A new collection returns HTTP `409` while a pin change awaits acknowledgement or while the frontend reports that it is verifying or rolling back the change.
 
@@ -19,7 +25,7 @@ All notable changes to this project will be documented in this file.
 
 ### Firmware
 
-- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native and Matter reject new Direct raw CSI streams until a BSSID change finishes. Matter also reports the saved pin for the commissioned network and the status of the change in the Direct Wi-Fi resource.
+- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native rejects new Direct raw CSI streams until a BSSID or Improv Wi-Fi change finishes, and Matter until a BSSID change finishes. Matter also reports the saved pin for the commissioned network and the status of the change in the Direct Wi-Fi resource.
 - Improv Serial preserves binary packets on UART consoles. Native can provision Wi-Fi on classic ESP32 boards when the SSID, password, or packet checksum contains a byte that the console would otherwise translate (#231). The web installer distinguishes a rejected packet from a failed Wi-Fi connection.
 - Native and Matter buffer incoming Improv frames on the UART console. On classic ESP32, two consecutive 110-byte requests could overflow the hardware FIFO before the frontend loop read them. A complete 110-byte Wi-Fi settings request already in the buffer is now processed in one loop iteration.
 - Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.

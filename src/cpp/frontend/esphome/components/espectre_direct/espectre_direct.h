@@ -57,11 +57,12 @@ class ESPectreDirect final : public Component, public ::espectre::IRuntimeListen
   static constexpr uint32_t ADDRESS_POLL_INTERVAL_MS = 1000;
 
   espectre::ESPectreComponent *parent_{nullptr};
-  ::espectre::RuntimeDirectHttpBridge bridge_;
   ::espectre::EspIdfDirectHttpService service_;
   ::espectre::MdnsDiscoveryService mdns_discovery_;
   ::espectre::MdnsBootstrapResponder mdns_bootstrap_responder_;
   ::espectre::EspIdfPeerDiscoveryService peer_discovery_;
+  // Declared after the service and discovery it borrows; its destructor shuts them down.
+  ::espectre::RuntimeDirectHttpBridge bridge_;
   uint64_t device_id_{0};
   uint32_t next_start_ms_{0};
   uint32_t next_address_poll_ms_{0};

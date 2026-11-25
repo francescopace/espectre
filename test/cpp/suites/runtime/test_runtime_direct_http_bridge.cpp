@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <string>
+#include <type_traits>
 
 using namespace espectre;
 
@@ -378,7 +379,11 @@ void test_raw_capture_waits_for_reported_wifi_verification_and_rollback(void) {
   TEST_ASSERT_FALSE(service.emit_raw_session_request());
   TEST_ASSERT_FALSE(service.raw_diagnostics().active);
 
-  for (const char *state : {"rolled_back", "applied", "recovery_required", "idle", ""}) {
+  TEST_ASSERT_TRUE(espectre_wifi_apply_in_progress(ESPECTRE_WIFI_APPLY_STATE_VERIFYING));
+  TEST_ASSERT_TRUE(espectre_wifi_apply_in_progress(ESPECTRE_WIFI_APPLY_STATE_ROLLING_BACK));
+  for (const char *state : {ESPECTRE_WIFI_APPLY_STATE_ROLLED_BACK, ESPECTRE_WIFI_APPLY_STATE_APPLIED,
+                            ESPECTRE_WIFI_APPLY_STATE_RECOVERY_REQUIRED, ESPECTRE_WIFI_APPLY_STATE_IDLE, ""}) {
+    TEST_ASSERT_FALSE(espectre_wifi_apply_in_progress(state));
     wifi.apply_state = state;
     TEST_ASSERT_TRUE(service.emit_raw_session_request());
     TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
@@ -419,8 +424,187 @@ void test_frontend_scan_caps_matching_access_points(void) {
   TEST_ASSERT_FALSE(contains(scan, "02:00:00:00:01:00"));
 }
 
+void test_bridge_exposes_raw_capture_only_when_enabled(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  for (bool enabled : {true, false}) {
+    config.raw_csi = enabled;
+    TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+    const auto capabilities = service.emit_request({"", "capabilities", "{}", "", "GET"});
+    TEST_ASSERT_TRUE(contains(capabilities, enabled ? R"("csi":true)" : R"("csi":false)"));
+    TEST_ASSERT_EQUAL(enabled, service.emit_raw_session_request());
+    TEST_ASSERT_EQUAL(enabled, service.raw_diagnostics().active);
+    bridge.shutdown();
+    TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+  }
+}
+
+void test_raw_controller_detaches_capture_and_pending_notifications(void) {
+  using Controller = RawCsiSessionController;
+  using Configure = void (Controller::*)(IDirectHttpService *, RuntimeFrontendController *, uint64_t,
+                                         std::string, Controller::StoppedCallback, Controller::StartedCallback);
+  static_assert(std::is_same_v<decltype(&Controller::configure), Configure>);
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  IDirectHttpService::RawSessionStoppedCallback pending;
+  std::vector<RawCsiStopReason> reasons;
+  {
+    Controller raw;
+    raw.configure(&service, &owner, 1U, "esp32", [&](RawCsiStopReason reason) { reasons.push_back(reason); });
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+    raw.shutdown(RawCsiStopReason::REQUESTED);
+    TEST_ASSERT_FALSE(raw.active());
+    TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+    TEST_ASSERT_EQUAL(1U, reasons.size());
+    TEST_ASSERT_EQUAL(RawCsiStopReason::REQUESTED, reasons.front());
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+
+    // The worker already stopped the transport, but its notification is queued.
+    pending = std::move(service_mock::state.raw_stopped_callback);
+    TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::SLOW_CLIENT));
+    raw.detach();
+    TEST_ASSERT_EQUAL(1U, reasons.size());
+    TEST_ASSERT_FALSE(service.emit_raw_session_request());
+    TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+
+    raw.configure(&service, &owner, 1U, "esp32",
+                  [&](RawCsiStopReason reason) { reasons.push_back(reason); });
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+    pending(RawCsiStopReason::SLOW_CLIENT);
+    pending(RawCsiStopReason::SLOW_CLIENT);
+    TEST_ASSERT_TRUE(raw.active());
+    TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, owner.operation_state());
+    TEST_ASSERT_EQUAL(2U, reasons.size());
+    TEST_ASSERT_EQUAL(RawCsiStopReason::SLOW_CLIENT, reasons.back());
+    pending = std::move(service_mock::state.raw_stopped_callback);
+  }
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+  TEST_ASSERT_FALSE(service.emit_raw_session_request());
+  pending(RawCsiStopReason::SHUTDOWN);
+  TEST_ASSERT_EQUAL(2U, reasons.size());
+}
+
+void test_raw_detach_refuses_a_queued_open_from_its_stop_callback(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RawCsiSessionController raw;
+  IDirectHttpService::RawSessionRequestedCallback queued_open;
+  bool reopened = false;
+  raw.configure(&service, &owner, 1U, "esp32", [&](RawCsiStopReason) { reopened = queued_open(nullptr); });
+  queued_open = service_mock::state.raw_session_requested_callback;
+  TEST_ASSERT_TRUE(service.emit_raw_session_request());
+  raw.detach();
+  TEST_ASSERT_FALSE(reopened);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+}
+
+void test_bridge_reports_and_confirms_only_effective_sensing_settings(void) {
+  RuntimeFrontendController owner;
+  owner.config().motion_on_hits = 3;
+  owner.config().motion_off_hits = 5;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  RuntimeControlSink sink;
+  sink.queued = true;
+  sink.motion_hits = [](uint8_t, uint8_t, std::string *) { return true; };
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, bridge_config(), sink));
+  owner.config().motion_on_hits = 7;
+  const DirectRequest read{"", "sensing", "{}", "", "GET"};
+  TEST_ASSERT_TRUE(contains(service.emit_request(read), R"("motion_on_hits":3)"));
+
+  const DirectRequest update{"", "update_sensing", R"({"motion_on_hits":7,"motion_off_hits":5})"};
+  TEST_ASSERT_TRUE(service.emit_deferred_request(1U, update).deferred);
+  bridge.loop();
+  TEST_ASSERT_TRUE(contains(service_mock::state.last_deferred_response, R"("accepted":false)"));
+
+  owner.config().motion_on_hits = 8;
+  TEST_ASSERT_TRUE(service.emit_deferred_request(2U, update).deferred);
+  TEST_ASSERT_TRUE(owner.set_motion_hits(7, 5));
+  bridge.loop();
+  TEST_ASSERT_TRUE(contains(service_mock::state.last_deferred_response, R"("accepted":true)"));
+  TEST_ASSERT_TRUE(contains(service.emit_request(read), R"("motion_on_hits":7)"));
+  TEST_ASSERT_EQUAL(8, owner.config().motion_on_hits);
+}
+
+void test_reused_bridge_releases_previous_peer_discovery(void) {
+  class Discovery : public IPeerDiscoveryService {
+   public:
+    void set_wifi_ready(bool) override {}
+    bool ready() const override { return false; }
+    bool active() const override { return false; }
+    bool start(Completion) override { return false; }
+    void loop() override {}
+    void shutdown() override { ++stops; }
+    int stops{0};
+  } discovery;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  config.peer_discovery = &discovery;
+  TEST_ASSERT_TRUE(bridge.setup(&service, &owner, config));
+  bridge.shutdown();
+  TEST_ASSERT_EQUAL(1, discovery.stops);
+  service_mock::state.setup_result = false;
+  TEST_ASSERT_FALSE(bridge.setup(&service, &owner, config));
+  service_mock::state.setup_result = true;
+  TEST_ASSERT_TRUE(bridge.setup(&service, &owner, bridge_config()));
+  TEST_ASSERT_EQUAL(1, discovery.stops);
+}
+
+void test_destroyed_bridge_leaves_no_callback_in_the_service(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  {
+    RuntimeDirectHttpBridge bridge;
+    auto config = bridge_config();
+    config.raw_csi = true;
+    TEST_ASSERT_TRUE(bridge.setup(&service, &owner, config));
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+  }
+  TEST_ASSERT_TRUE(service_mock::state.shutdown_called);
+  TEST_ASSERT_FALSE(service.emit_raw_session_request());
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, owner.operation_state());
+}
+
+void test_raw_capture_reports_paused_sensing(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RawCsiSessionController raw;
+  raw.configure(&service, &owner, 1U, "esp32");
+  owner.set_services_armed(false);
+  std::string message;
+  TEST_ASSERT_FALSE(service.emit_raw_session_request(&message));
+  TEST_ASSERT_EQUAL_STRING("sensing is paused", message.c_str());
+  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+  owner.set_services_armed(true);
+  TEST_ASSERT_TRUE(service.emit_raw_session_request(&message));
+  raw.shutdown();
+}
+
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_bridge_exposes_raw_capture_only_when_enabled);
+  RUN_TEST(test_raw_controller_detaches_capture_and_pending_notifications);
+  RUN_TEST(test_raw_detach_refuses_a_queued_open_from_its_stop_callback);
+  RUN_TEST(test_bridge_reports_and_confirms_only_effective_sensing_settings);
+  RUN_TEST(test_reused_bridge_releases_previous_peer_discovery);
+  RUN_TEST(test_destroyed_bridge_leaves_no_callback_in_the_service);
+  RUN_TEST(test_raw_capture_reports_paused_sensing);
   RUN_TEST(test_guest_bridge_needs_a_set_up_runtime);
   RUN_TEST(test_guest_bridge_leaves_changes_to_the_owner_and_answers_after_it);
   RUN_TEST(test_guest_bridge_reports_a_change_the_owner_did_not_apply);

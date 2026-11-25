@@ -45,9 +45,24 @@ esp_err_t capture_payload(httpd_req_t *request, const char *payload, size_t leng
     copy_string(g_httpd_mock.allow_origin, sizeof(g_httpd_mock.allow_origin),
                 g_httpd_mock.pending_allow_origin);
   }
+  if (chunk) {
+    ++g_httpd_mock.chunk_attempts;
+    if (g_httpd_mock.before_chunk) g_httpd_mock.before_chunk(g_httpd_mock.before_chunk_ctx);
+  }
   if (g_httpd_mock.send_result != ESP_OK) return g_httpd_mock.send_result;
-  if (g_httpd_mock.send_to_socket && request != nullptr && length > 0U &&
-      ::send(request->fd, payload, length, 0) != static_cast<ssize_t>(length)) return ESP_FAIL;
+  if (g_httpd_mock.send_to_socket && request != nullptr) {
+    const bool terminator = chunk && length == 0;
+    const char *bytes = terminator ? "0\r\n\r\n" : payload;
+    size_t remaining = terminator ? 5U : length;
+    while (remaining > 0) {
+      const ssize_t sent = g_httpd_mock.send_override && g_httpd_mock.send_override_fd == request->fd
+          ? g_httpd_mock.send_override(&g_httpd_mock, request->fd, bytes, remaining, 0)
+          : ::send(request->fd, bytes, remaining, 0);
+      if (sent <= 0) return ESP_FAIL;
+      bytes += sent;
+      remaining -= static_cast<size_t>(sent);
+    }
+  }
   // Response headers are consumed by the first successful send.
   g_httpd_mock.pending_allow_origin = nullptr;
   if (chunk) g_httpd_mock.chunk_calls++;
@@ -203,6 +218,20 @@ esp_err_t httpd_req_async_handler_complete(httpd_req_t *request) {
   g_httpd_mock.async_complete_calls++;
   if (request->async_copy) delete request;
   return ESP_OK;
+}
+
+esp_err_t httpd_sess_set_send_override(httpd_handle_t, int fd, httpd_send_func_t send_fn) {
+  g_httpd_mock.send_override_fd = fd;
+  g_httpd_mock.send_override = send_fn;
+  return ESP_OK;
+}
+
+void httpd_sess_set_transport_ctx(httpd_handle_t, int fd, void *ctx, httpd_free_ctx_fn_t) {
+  if (g_httpd_mock.send_override_fd == fd) g_httpd_mock.transport_ctx = ctx;
+}
+
+void *httpd_sess_get_transport_ctx(httpd_handle_t, int fd) {
+  return g_httpd_mock.send_override_fd == fd ? g_httpd_mock.transport_ctx : nullptr;
 }
 
 int httpd_req_to_sockfd(httpd_req_t *request) { return request != nullptr ? request->fd : -1; }

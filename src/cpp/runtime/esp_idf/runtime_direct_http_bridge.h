@@ -59,7 +59,7 @@ struct RuntimeDirectHttpBridgeConfig {
   FrontendDeviceLabelCallback device_label_setter;
   /** Station snapshot for the `wifi` resource; omitted, read_direct_wifi_snapshot() is used. */
   std::function<DirectWifiSnapshot()> wifi_snapshot_getter;
-  /** Peer discovery for the `devices` resource; not owned. Omitted, it is not advertised. */
+  /** Peer discovery for the `devices` resource; not owned, must outlive the bridge. Omitted, it is not advertised. */
   IPeerDiscoveryService *peer_discovery{nullptr};
   /** Rate diagnostics, normally `RuntimeFrontendController::diagnostics_sample()`. */
   std::function<const RuntimeDiagnosticsSample *()> diagnostics_sample_getter;
@@ -130,11 +130,22 @@ bool apply_wifi_bssid_pin(const std::string &bssid,
  * Frontends retain ownership of their runtime and transport. The optional
  * callback lets an adapter republish frontend-native entities after a Direct
  * mutation, for example ESPHome number and select entities.
+ *
+ * @par Lifetime
+ * The destructor calls shutdown(), so the service, the runtime, and any peer
+ * discovery service must still exist when the bridge is destroyed. In an
+ * owning class, declare the bridge after them.
  */
 class RuntimeDirectHttpBridge {
  public:
   /** Called after a Direct request changed configuration. */
   using ConfigChangedCallback = std::function<void()>;
+
+  RuntimeDirectHttpBridge() = default;
+  /** Shut down so the service keeps no callback into a destroyed bridge. */
+  ~RuntimeDirectHttpBridge();
+  RuntimeDirectHttpBridge(const RuntimeDirectHttpBridge &) = delete;
+  RuntimeDirectHttpBridge &operator=(const RuntimeDirectHttpBridge &) = delete;
 
   /**
    * Start `service` for the first-party portals and route its requests to

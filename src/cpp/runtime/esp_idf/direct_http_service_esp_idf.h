@@ -157,6 +157,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
   bool service_raw_stream_();
+  static int send_raw_bytes_(void *server, int fd, const char *bytes, size_t length, int flags);
   void dispatch_pending_callbacks_();
   void shutdown_(bool dispatch_callbacks);
   void worker_loop_();
@@ -166,6 +167,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   void notify_worker_();
   void notify_raw_worker_();
   void request_raw_worker_stop_();
+  void close_failed_raw_request_();
   bool lock_() const;
   void unlock_() const;
 
@@ -212,6 +214,16 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   std::atomic<uint64_t> raw_sample_head_{0U};
   std::atomic<uint64_t> raw_sample_tail_{0U};
   std::atomic<uint64_t> raw_offer_sequence_{0U};
+  // The sender owns these fields under raw_send_mutex_. The frontend can
+  // shorten an in-flight write's deadline without acquiring that mutex.
+  struct RawWriteState {
+    std::atomic<int64_t> stop_deadline_us{INT64_MAX};
+    int64_t batch_deadline_us{INT64_MAX};
+    int socket_flags{-1};
+    bool cancelled{false};
+    bool failed{false};
+  } raw_write_;
+  std::atomic<httpd_req *> failed_raw_request_{nullptr};
   RawSessionState raw_session_{};
   PendingRawOpen pending_raw_open_{};
   RawSessionRequestedCallback raw_session_requested_callback_{};

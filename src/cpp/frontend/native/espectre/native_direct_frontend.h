@@ -31,12 +31,12 @@ struct NativeWifiProvisioningInfo {
   uint8_t channel{0U};
   bool has_saved_config{false};
   WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
-  std::string apply_state{"idle"};
+  std::string apply_state{ESPECTRE_WIFI_APPLY_STATE_IDLE};
   std::string apply_message;
   bool scan_pending{false};
   std::string scan_message;
   std::vector<AccessPoint> access_points;
-  bool apply_pending() const { return apply_state == "verifying" || apply_state == "rolling_back"; }
+  bool apply_pending() const { return espectre_wifi_apply_in_progress(apply_state); }
 };
 
 class NativeDirectFrontend {

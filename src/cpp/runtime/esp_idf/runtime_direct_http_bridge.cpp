@@ -76,6 +76,8 @@ void append_float(std::string *out, const char *key, float value) {
 
 }  // namespace
 
+RuntimeDirectHttpBridge::~RuntimeDirectHttpBridge() { shutdown(); }
+
 bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
                                          RuntimeFrontendController *runtime,
                                          const RuntimeDirectHttpBridgeConfig &config,
@@ -113,8 +115,6 @@ bool RuntimeDirectHttpBridge::setup_(IDirectHttpService *service,
       return !runtime_->is_calibrating() && owner_recalibrate(message);
     };
   }
-  refresh_peer_candidate_();
-
   DirectHttpServiceConfig service_config = DirectHttpServiceConfig::for_first_party_portals();
   service_config.device_id = config.device_id;
   service_config.port = config.port;
@@ -141,6 +141,7 @@ bool RuntimeDirectHttpBridge::setup_(IDirectHttpService *service,
         client_count_changed);
   }
   if (!setup) {
+    config_ = {};
     service_ = nullptr;
     runtime_ = nullptr;
     config_changed_ = {};
@@ -150,18 +151,19 @@ bool RuntimeDirectHttpBridge::setup_(IDirectHttpService *service,
     deferred_requests_enabled_ = false;
     return false;
   }
-  std::function<bool()> wifi_update_pending;
-  if (config_.wifi_snapshot_getter) {
-    wifi_update_pending = [this]() {
-      const DirectWifiSnapshot wifi = config_.wifi_snapshot_getter();
-      return wifi.apply_state == "verifying" || wifi.apply_state == "rolling_back";
-    };
+  refresh_peer_candidate_();
+  if (!config_.raw_csi) {
+    service_->set_raw_session_requested_callback({});
+    return true;
   }
   raw_session_controller_.configure(
       service_, runtime_, config_.device_id, config_.chip,
-      [this](RawCsiStopReason) { (void) this->publish_event("sensing", this->sensing_payload_()); },
-      [this]() { (void) this->publish_event("sensing", this->sensing_payload_()); },
-      std::move(wifi_update_pending));
+      [this](RawCsiStopReason) { (void) publish_event("sensing", sensing_payload_()); },
+      [this]() { (void) publish_event("sensing", sensing_payload_()); });
+  if (config_.wifi_snapshot_getter) {
+    raw_session_controller_.set_wifi_update_pending_callback(
+        [this]() { return espectre_wifi_apply_in_progress(config_.wifi_snapshot_getter().apply_state); });
+  }
   return true;
 }
 
@@ -182,11 +184,12 @@ void RuntimeDirectHttpBridge::loop() {
 }
 
 void RuntimeDirectHttpBridge::shutdown() {
-  raw_session_controller_.shutdown();
+  raw_session_controller_.detach();
   if (config_.peer_discovery != nullptr) config_.peer_discovery->shutdown();
   if (service_ != nullptr) {
     service_->shutdown();
   }
+  config_ = {};
   service_ = nullptr;
   runtime_ = nullptr;
   config_changed_ = {};
@@ -231,7 +234,7 @@ RuntimeControlSink RuntimeDirectHttpBridge::runtime_sink_() {
 bool RuntimeDirectHttpBridge::owner_applied_(const EspectreCommand &command) const {
   if (command.command == "recalibrate") return runtime_->is_calibrating();
   if (command.command != "update_sensing") return true;
-  const RuntimeConfig &config = runtime_->config();
+  const RuntimeConfig &config = runtime_->effective_config();
   return (!command.has_detector ||
           config.detection_algorithm == parse_detection_algorithm(command.detector.c_str())) &&
          (!command.has_threshold || std::fabs(runtime_->snapshot().threshold - command.threshold) < 0.0001f) &&
@@ -816,8 +819,8 @@ std::string RuntimeDirectHttpBridge::capabilities_payload_() const {
   info.supports_traffic_control = capabilities.supports_traffic_control;
   info.supports_traffic_target_mac = capabilities.supports_traffic_target_mac;
   info.supports_csi_sample_spacing = capabilities.supports_csi_sample_spacing;
-  info.csi_traffic_udp_port = runtime_->config().csi_traffic_udp_port;
-  info.csi_traffic_multicast_group = runtime_->config().csi_traffic_multicast_group;
+  info.csi_traffic_udp_port = runtime_->effective_config().csi_traffic_udp_port;
+  info.csi_traffic_multicast_group = runtime_->effective_config().csi_traffic_multicast_group;
   return espectre_capabilities_payload(device, info, capability_profile_());
 }
 
@@ -829,7 +832,7 @@ std::string RuntimeDirectHttpBridge::device_payload_() const {
   info.frontend = config_.frontend;
   info.firmware_version = config_.firmware_version;
   info.chip = config_.chip;
-  info.evaluation_interval_ms = runtime_->config().evaluation_interval_ms;
+  info.evaluation_interval_ms = runtime_->effective_config().evaluation_interval_ms;
   info = normalize_protocol_device_info(info, &runtime_->snapshot(),
                                         config_.frontend.c_str(),
                                         config_.chip.c_str());
@@ -843,7 +846,7 @@ std::string RuntimeDirectHttpBridge::health_payload_() const {
 }
 
 std::string RuntimeDirectHttpBridge::sensing_payload_() const {
-  const RuntimeConfig &config = runtime_->config();
+  const RuntimeConfig &config = runtime_->effective_config();
   std::string out{"{"};
   const RuntimeSnapshot &snapshot = runtime_->snapshot();
   const bool collecting = runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION;
@@ -961,7 +964,8 @@ void RuntimeDirectHttpBridge::refresh_peer_candidate_() {
   local.path = ESPECTRE_DIRECT_HTTP_BASE_ENDPOINT;
   local.firmware = config_.firmware_version;
   local.chip = config_.chip;
-  local.capabilities = "sensing,motion,devices,csi";
+  local.capabilities = "sensing,motion,devices";
+  if (config_.raw_csi && runtime_->capabilities().supports_raw_csi) local.capabilities += ",csi";
   local.port = config_.port;
   config_.peer_discovery->set_local_candidate(std::move(local));
 }

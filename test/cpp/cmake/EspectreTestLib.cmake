@@ -164,6 +164,8 @@ add_library(espectre_direct_service_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_http_service_esp_idf.cpp"
 )
 
+target_compile_definitions(espectre_direct_service_testlib PRIVATE ESPECTRE_TEST_REAL_MUTEX)
+
 add_library(espectre_native_mdns_bootstrap_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_bootstrap_responder.cpp"
 )

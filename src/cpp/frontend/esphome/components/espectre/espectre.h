@@ -207,14 +207,13 @@ class ESpectreComponent : public Component, public IRuntimeListener
   RuntimeFrontendController runtime_;
   float last_loop_time_ms_{0.0f};
   FrontendCommandEngine command_engine_;
-  // Keep the bridge alive while the service drains deferred callbacks during
-  // destruction. The component destructor disconnects the bridge explicitly
-  // before reverse member destruction begins.
-  RuntimeDirectHttpBridge direct_bridge_;
   EspIdfDirectHttpService direct_service_;
   MdnsDiscoveryService mdns_discovery_;
   MdnsBootstrapResponder mdns_bootstrap_responder_;
   EspIdfPeerDiscoveryService peer_discovery_;
+  // Declared after the service and discovery it borrows; its destructor shuts
+  // them down before they are destroyed.
+  RuntimeDirectHttpBridge direct_bridge_;
   struct StoredDeviceLabel {
     uint8_t version{1U};
     std::array<char, ESPECTRE_DEVICE_LABEL_MAX_LENGTH + 1U> value{};

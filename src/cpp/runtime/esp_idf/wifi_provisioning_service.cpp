@@ -127,18 +127,18 @@ bool assign_wifi_config_field(const std::string &field,
 const char *wifi_provisioning_apply_state_name(WifiProvisioningApplyState state) {
   switch (state) {
     case WifiProvisioningApplyState::VERIFYING:
-      return "verifying";
+      return ESPECTRE_WIFI_APPLY_STATE_VERIFYING;
     case WifiProvisioningApplyState::ROLLING_BACK:
-      return "rolling_back";
+      return ESPECTRE_WIFI_APPLY_STATE_ROLLING_BACK;
     case WifiProvisioningApplyState::APPLIED:
-      return "applied";
+      return ESPECTRE_WIFI_APPLY_STATE_APPLIED;
     case WifiProvisioningApplyState::ROLLED_BACK:
-      return "rolled_back";
+      return ESPECTRE_WIFI_APPLY_STATE_ROLLED_BACK;
     case WifiProvisioningApplyState::RECOVERY_REQUIRED:
-      return "recovery_required";
+      return ESPECTRE_WIFI_APPLY_STATE_RECOVERY_REQUIRED;
     case WifiProvisioningApplyState::IDLE:
     default:
-      return "idle";
+      return ESPECTRE_WIFI_APPLY_STATE_IDLE;
   }
 }
 

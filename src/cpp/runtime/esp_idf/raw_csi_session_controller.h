@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 
 #include "runtime/direct_http_service.h"
@@ -26,6 +27,11 @@ namespace espectre {
  *
  * @par Threading
  * Call every method from the task that owns the runtime and the service.
+ *
+ * @par Lifetime
+ * The destructor detaches from the service and the runtime, so both must
+ * still exist when the controller is destroyed. In an owning class, declare
+ * the controller after them.
  */
 class RawCsiSessionController {
  public:
@@ -37,44 +43,65 @@ class RawCsiSessionController {
   /**
    * Bind the service and runtime, and register the `GET /csi` handler.
    *
-   * Neither object is owned; both must outlive the controller. `device_id`
+   * Neither object is owned; both must outlive the controller, including its
+   * destructor, which detaches from them. `device_id`
    * must be nonzero and `chip` is the `CONFIG_IDF_TARGET` name; both are
-   * stamped on every record. If supplied, `frontend_wifi_update_pending`
-   * prevents a new session while the frontend is changing access points.
+   * stamped on every record. Reconfiguring closes the previous binding.
    */
   void configure(IDirectHttpService *service,
                  RuntimeFrontendController *runtime,
                  uint64_t device_id,
                  std::string chip,
                  StoppedCallback stopped_callback = {},
-                 StartedCallback started_callback = {},
-                 std::function<bool()> frontend_wifi_update_pending = {});
+                 StartedCallback started_callback = {});
+  /** After configure(), supply a predicate that blocks collection during a Wi-Fi change. */
+  void set_wifi_update_pending_callback(std::function<bool()> callback);
   /**
    * Start a session.
    *
    * @return false, with a reason in `message`, when raw CSI is unavailable, a
-   *         session is already active, or either side fails to start.
+   *         session is already active, a Wi-Fi change is pending, sensing is
+   *         paused, or either side fails to start.
    */
   bool begin(std::string *message = nullptr);
   /** End the session if the runtime left raw collection on its own. Call it from the loop. */
   void ensure_runtime_consistency();
-  /** End the active session, if any. */
+  /** Stop owned capture and keep the service bound for subsequent requests. */
   void shutdown(RawCsiStopReason reason = RawCsiStopReason::SHUTDOWN);
+  /**
+   * Stop capture and unregister the service. A pending stop is reported with the
+   * transport's reason when it dispatches its callback, while the controller
+   * still exists. Observer captures must remain valid until that delivery.
+   */
+  void detach();
   /** Whether a session is active. */
-  bool active() const { return active_; }
+  bool active() const;
 
  private:
-  static bool offer_packet_(void *context, const RawCsiPacketView &packet);
-  void handle_stopped_(RawCsiStopReason reason);
+  struct Binding : std::enable_shared_from_this<Binding> {
+    IDirectHttpService *service{nullptr};
+    RuntimeFrontendController *runtime{nullptr};
+    uint64_t device_id{0U};
+    std::string chip;
+    std::shared_ptr<StoppedCallback> stopped_callback;
+    StartedCallback started_callback;
+    std::function<bool()> wifi_update_pending;
+    struct Session {
+      RuntimeFrontendController *runtime;
+      std::shared_ptr<StoppedCallback> stopped_callback;
+      void stop_capture(RawCsiStopReason reason);
+    };
+    std::shared_ptr<Session> session;
+    std::weak_ptr<void> observer_lifetime;
 
-  IDirectHttpService *service_{nullptr};
-  RuntimeFrontendController *runtime_{nullptr};
-  uint64_t device_id_{0U};
-  std::string chip_;
-  bool active_{false};
-  std::function<bool()> frontend_wifi_update_pending_{};
-  StoppedCallback stopped_callback_{};
-  StartedCallback started_callback_{};
+    ~Binding();
+    bool begin(std::string *message);
+    void stop(IDirectHttpService &transport, RawCsiStopReason reason);
+    void detach();
+  };
+  std::shared_ptr<Binding> binding_;
+  // Destroy first so deferred transport completions cannot call a dead observer.
+  std::shared_ptr<void> observer_lifetime_;
 };
 
 }  // namespace espectre

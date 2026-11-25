@@ -6,10 +6,16 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "test_harness.h"
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <cerrno>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -875,6 +881,103 @@ void test_raw_loopback_origin_is_sent_when_closed_before_first_packet() {
   TEST_ASSERT_EQUAL(0U, g_httpd_mock.sent_lengths[0]);
 }
 
+enum class RawStopCase { FULL_FINAL_CHUNK, FULL_DATA_CHUNK, FAILED_DATA_CHUNK };
+
+void check_raw_send_during_stop(RawStopCase scenario) {
+  using Clock = std::chrono::steady_clock;
+  esp_timer_mock::clock_us = []() -> int64_t {
+    return std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch()).count();
+  };
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 1U;
+  RawCsiStopReason reported = RawCsiStopReason::INTERNAL_ERROR;
+  accept_raw_open(&service, session, [&](RawCsiStopReason reason) { reported = reason; });
+  httpd_mock_set_header("Origin", "https://test.espectre.dev");
+  int sockets[2];
+  TEST_ASSERT_EQUAL(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sockets));
+  httpd_req_t request = request_for(2U, sockets[0]);
+  TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&request));
+  service.loop();
+
+  // A full socket blocks even a five-byte HTTP terminator.
+  const int flags = fcntl(sockets[0], F_GETFL, 0);
+  TEST_ASSERT_TRUE(flags >= 0);
+  TEST_ASSERT_EQUAL(0, fcntl(sockets[0], F_SETFL, flags | O_NONBLOCK));
+  char filler[4096]{};
+  size_t filled = 0;
+  for (size_t size : {sizeof(filler), size_t{1}}) {
+    ssize_t sent;
+    while ((sent = send(sockets[0], filler, size, MSG_DONTWAIT)) > 0) filled += sent;
+    TEST_ASSERT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK);
+  }
+  TEST_ASSERT_EQUAL(0, fcntl(sockets[0], F_SETFL, flags));
+  g_httpd_mock.send_to_socket = true;
+  const auto start = Clock::now();
+  if (scenario == RawStopCase::FULL_FINAL_CHUNK) {
+    TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  } else {
+    struct SendGate {
+      explicit SendGate(EspIdfDirectHttpService &owner) : service(owner) {}
+      EspIdfDirectHttpService &service;
+      std::atomic<bool> entered{false};
+    } gate{service};
+    g_httpd_mock.before_chunk_ctx = &gate;
+    g_httpd_mock.before_chunk = [](void *ctx) {
+      auto &gate = *static_cast<SendGate *>(ctx);
+      gate.entered.store(true);
+      while (gate.service.raw_diagnostics().active) std::this_thread::yield();
+    };
+    if (scenario == RawStopCase::FAILED_DATA_CHUNK) g_httpd_mock.send_result = ESP_FAIL;
+    const int8_t csi[] = {1, -2};
+    RawCsiPacketView packet{};
+    packet.csi = csi;
+    packet.csi_len = sizeof(csi);
+    TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+    bool stopped = false;
+    std::thread stopper([&] {
+      while (!gate.entered.load()) std::this_thread::yield();
+      stopped = service.stop_raw_session(RawCsiStopReason::REQUESTED);
+    });
+    service.loop();
+    stopper.join();
+    TEST_ASSERT_TRUE(stopped);
+    g_httpd_mock.before_chunk = nullptr;
+  }
+  // Allow host scheduler jitter. A data-socket timeout would take three seconds.
+  TEST_ASSERT_TRUE(Clock::now() - start < std::chrono::milliseconds(500));
+  service.loop();
+  const bool failed = scenario == RawStopCase::FAILED_DATA_CHUNK;
+  TEST_ASSERT_EQUAL(static_cast<int>(failed ? RawCsiStopReason::SLOW_CLIENT : RawCsiStopReason::REQUESTED),
+                    static_cast<int>(reported));
+  TEST_ASSERT_EQUAL(failed ? 1U : 0U, service.raw_diagnostics().raw_send_backpressure_total);
+  TEST_ASSERT_EQUAL(scenario == RawStopCase::FULL_FINAL_CHUNK ? 0U : 1U, service.raw_diagnostics().raw_drop_total);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.chunk_attempts);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  size_t received = 0;
+  ssize_t count;
+  while ((count = recv(sockets[1], filler, sizeof(filler), MSG_DONTWAIT)) > 0) received += count;
+  TEST_ASSERT_EQUAL(filled, received);
+  TEST_ASSERT_EQUAL(0, count);
+  close(sockets[0]);
+  close(sockets[1]);
+  esp_timer_mock::clock_us = nullptr;
+}
+
+void test_raw_stop_bounds_the_final_chunk_on_a_full_socket() {
+  check_raw_send_during_stop(RawStopCase::FULL_FINAL_CHUNK);
+}
+
+void test_raw_stop_bounds_an_inflight_send_on_a_full_socket() {
+  check_raw_send_during_stop(RawStopCase::FULL_DATA_CHUNK);
+}
+
+void test_raw_stop_preserves_a_concurrent_data_send_failure() {
+  check_raw_send_during_stop(RawStopCase::FAILED_DATA_CHUNK);
+}
+
 void test_raw_batches_up_to_four_records_without_pacing() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
@@ -1100,14 +1203,35 @@ void test_raw_stop_leaves_the_socket_open_when_the_final_chunk_succeeds() {
   TEST_ASSERT_EQUAL(ESP_OK, dispatch_request(&raw_request));
   service.loop();
 
+  g_httpd_mock.send_to_socket = true;
   TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
   char byte = 0;
-  // A delivered terminator ends the HTTP body. The socket stays open.
+  TEST_ASSERT_EQUAL(0, fcntl(sockets[0], F_GETFL, 0) & O_NONBLOCK);
+  // The terminator reached the peer and the socket stays open.
+  char terminator[5];
+  TEST_ASSERT_EQUAL(5, recv(sockets[1], terminator, sizeof(terminator), MSG_DONTWAIT));
+  TEST_ASSERT_EQUAL(0, std::memcmp(terminator, "0\r\n\r\n", sizeof(terminator)));
   TEST_ASSERT_EQUAL(-1, recv(sockets[1], &byte, 1U, MSG_DONTWAIT));
   TEST_ASSERT_EQUAL(1, g_httpd_mock.chunk_calls);
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
-  close(sockets[0]);
+
+  // The session keeps the send override; later requests get the default httpd error codes.
+  TEST_ASSERT_TRUE(g_httpd_mock.send_override != nullptr);
+  TEST_ASSERT_EQUAL(HTTPD_SOCK_ERR_INVALID, g_httpd_mock.send_override(&g_httpd_mock, sockets[0], nullptr, 1U, 0));
+  const int flags = fcntl(sockets[0], F_GETFL, 0);
+  TEST_ASSERT_EQUAL(0, fcntl(sockets[0], F_SETFL, flags | O_NONBLOCK));
+  char filler[4096]{};
+  while (send(sockets[0], filler, sizeof(filler), 0) > 0) {
+  }
+  while (send(sockets[0], filler, 1U, 0) > 0) {
+  }
+  TEST_ASSERT_EQUAL(HTTPD_SOCK_ERR_TIMEOUT, g_httpd_mock.send_override(&g_httpd_mock, sockets[0], filler, 1U, 0));
   close(sockets[1]);
+  // Writing to a closed peer raises SIGPIPE on the host; the device has no signals.
+  void (*previous)(int) = std::signal(SIGPIPE, SIG_IGN);
+  TEST_ASSERT_EQUAL(HTTPD_SOCK_ERR_FAIL, g_httpd_mock.send_override(&g_httpd_mock, sockets[0], filler, 1U, 0));
+  std::signal(SIGPIPE, previous);
+  close(sockets[0]);
 }
 
 void test_raw_stop_accounts_records_accepted_but_not_sent() {
@@ -1186,6 +1310,9 @@ int main() {
   RUN_TEST(test_raw_get_opens_automatic_session_and_emits_v2_frame);
   RUN_TEST(test_raw_loopback_origin_survives_until_first_packet);
   RUN_TEST(test_raw_loopback_origin_is_sent_when_closed_before_first_packet);
+  RUN_TEST(test_raw_stop_bounds_the_final_chunk_on_a_full_socket);
+  RUN_TEST(test_raw_stop_bounds_an_inflight_send_on_a_full_socket);
+  RUN_TEST(test_raw_stop_preserves_a_concurrent_data_send_failure);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
   RUN_TEST(test_second_raw_get_is_rejected_while_the_first_open_is_pending);
   RUN_TEST(test_raw_ring_drops_new_record_and_accounts_every_offer);

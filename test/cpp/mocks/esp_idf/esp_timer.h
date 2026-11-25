@@ -16,6 +16,7 @@
 #ifdef __cplusplus
 namespace esp_timer_mock {
 
+inline int64_t (*clock_us)() = nullptr;
 inline int64_t time_us = 0;
 inline int64_t step_us = 1000;
 
@@ -82,6 +83,7 @@ static inline esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
 
 static inline int64_t esp_timer_get_time(void) {
 #ifdef __cplusplus
+  if (esp_timer_mock::clock_us) return esp_timer_mock::clock_us();
   esp_timer_mock::time_us += esp_timer_mock::step_us;
   return esp_timer_mock::time_us;
 #else

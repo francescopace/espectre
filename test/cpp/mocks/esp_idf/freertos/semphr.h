@@ -13,6 +13,25 @@
 inline bool g_freertos_fail_next_take = false;
 #endif
 
+#if defined(ESPECTRE_TEST_REAL_MUTEX)
+#include <chrono>
+#include <mutex>
+
+static inline SemaphoreHandle_t xSemaphoreCreateMutex(void) { return new std::timed_mutex; }
+static inline void vSemaphoreDelete(SemaphoreHandle_t semaphore) { delete static_cast<std::timed_mutex *>(semaphore); }
+static inline BaseType_t xSemaphoreTake(SemaphoreHandle_t semaphore, TickType_t ticks) {
+  auto *mutex = static_cast<std::timed_mutex *>(semaphore);
+  if (ticks == portMAX_DELAY) {
+    mutex->lock();
+    return pdTRUE;
+  }
+  return mutex->try_lock_for(std::chrono::milliseconds(ticks * portTICK_PERIOD_MS)) ? pdTRUE : pdFALSE;
+}
+static inline BaseType_t xSemaphoreGive(SemaphoreHandle_t semaphore) {
+  static_cast<std::timed_mutex *>(semaphore)->unlock();
+  return pdTRUE;
+}
+#else
 static inline SemaphoreHandle_t xSemaphoreCreateMutex(void) { return malloc(1U); }
 static inline SemaphoreHandle_t xSemaphoreCreateBinary(void) { return malloc(1U); }
 static inline void vSemaphoreDelete(SemaphoreHandle_t semaphore) { free(semaphore); }
@@ -29,3 +48,4 @@ static inline BaseType_t xSemaphoreTake(SemaphoreHandle_t semaphore, TickType_t 
 static inline BaseType_t xSemaphoreGive(SemaphoreHandle_t semaphore) {
   return semaphore != NULL ? pdTRUE : pdFALSE;
 }
+#endif

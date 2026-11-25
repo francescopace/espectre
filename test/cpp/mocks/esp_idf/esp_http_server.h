@@ -18,7 +18,13 @@ extern "C" {
 typedef void *httpd_handle_t;
 typedef int httpd_method_t;
 typedef esp_err_t (*httpd_open_func_t)(httpd_handle_t server, int socket);
+typedef int (*httpd_send_func_t)(httpd_handle_t, int, const char *, size_t, int);
+typedef void (*httpd_free_ctx_fn_t)(void *);
 typedef bool (*httpd_uri_match_func_t)(const char *template_uri, const char *uri, size_t match_upto);
+
+#define HTTPD_SOCK_ERR_FAIL -1
+#define HTTPD_SOCK_ERR_INVALID -2
+#define HTTPD_SOCK_ERR_TIMEOUT -3
 
 #define HTTP_GET 0
 #define HTTP_POST 1
@@ -85,6 +91,12 @@ typedef struct {
   esp_err_t receive_result;
   esp_err_t send_result;
   bool send_to_socket;
+  int send_override_fd;
+  httpd_send_func_t send_override;
+  void *transport_ctx;
+  void (*before_chunk)(void *);
+  void *before_chunk_ctx;
+  int chunk_attempts;
   int start_calls;
   int stop_calls;
   int register_calls;
@@ -138,6 +150,9 @@ esp_err_t httpd_resp_send(httpd_req_t *request, const char *payload, size_t leng
 esp_err_t httpd_resp_send_chunk(httpd_req_t *request, const char *payload, size_t length);
 esp_err_t httpd_req_async_handler_begin(httpd_req_t *request, httpd_req_t **out);
 esp_err_t httpd_req_async_handler_complete(httpd_req_t *request);
+esp_err_t httpd_sess_set_send_override(httpd_handle_t server, int fd, httpd_send_func_t send_fn);
+void httpd_sess_set_transport_ctx(httpd_handle_t server, int fd, void *ctx, httpd_free_ctx_fn_t free_fn);
+void *httpd_sess_get_transport_ctx(httpd_handle_t server, int fd);
 int httpd_req_to_sockfd(httpd_req_t *request);
 bool httpd_uri_match_wildcard(const char *template_uri, const char *uri, size_t match_upto);
 

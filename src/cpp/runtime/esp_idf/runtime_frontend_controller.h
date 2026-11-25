@@ -86,6 +86,8 @@ class RuntimeFrontendController : private IRuntimeListener {
   RuntimeConfig &config() { return config_; }
   /** Read-only view of the staged or last effective configuration. */
   const RuntimeConfig &config() const { return config_; }
+  /** Live settings while the backend is set up, or the staged settings before setup and after shutdown. */
+  const RuntimeConfig &effective_config() const { return runtime_ ? active_config_ : config_; }
   /**
    * Latest known snapshot, without querying the backend.
    *

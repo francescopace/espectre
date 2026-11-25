@@ -38,13 +38,13 @@ std::string make_topic_base(const EspectreDeviceConfig &config) {
 
 }  // namespace
 
+EspIdfMqttTransport::~EspIdfMqttTransport() { EspIdfMqttTransport::shutdown(); }
+
 bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   if (!validate_espectre_mqtt_config(config)) {
     return false;
   }
-  if (client_ != nullptr) {
-    shutdown();
-  }
+  shutdown();
 #if !CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
   if (config.mqtt_scheme == "mqtts") {
     ESPECTRE_LOGE(TAG, "mqtts:// requires CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y");
@@ -57,7 +57,6 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
     ESPECTRE_LOGE(TAG, "Failed to allocate MQTT receive storage");
     return false;
   }
-  subscriptions_.clear();
   reset_message_slots_();
   pending_publishes_.clear();
   diagnostics_ = {};
@@ -158,6 +157,7 @@ void EspIdfMqttTransport::shutdown() {
   receive_storage_.reset();
   connection_event_.clear();
   reset_message_slots_();
+  subscriptions_.clear();
   pending_publishes_.clear();
   diagnostics_.queued_publishes = 0U;
 }
@@ -190,7 +190,8 @@ MqttTransportDiagnostics EspIdfMqttTransport::diagnostics() const {
 }
 
 bool EspIdfMqttTransport::subscribe(const std::string &topic, MessageCallback callback) {
-  if (topic.empty() || !callback) {
+  // setup() starts without subscriptions, so an earlier registration would be lost.
+  if (client_ == nullptr || topic.empty() || !callback) {
     return false;
   }
   for (auto &subscription : subscriptions_) {
@@ -239,39 +240,41 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
       connection_event_.post(false);
       ESPECTRE_LOGW(TAG, "MQTT disconnected");
       break;
-    case MQTT_EVENT_DATA:
+    case MQTT_EVENT_DATA: {
       if (receive_storage_ == nullptr) break;
-      if (event->topic == nullptr || event->topic_len <= 0 || event->data == nullptr || event->data_len <= 0) {
+      auto &assembler = receive_storage_->assembler;
+      if (event->current_data_offset == 0) assembler.reset();
+      if (event->data == nullptr || event->data_len <= 0 || event->current_data_offset < 0) {
+        assembler.reset();
         break;
       }
-      {
-        const size_t topic_len = static_cast<size_t>(event->topic_len);
-        const bool is_command = topic_len == command_topic_.size() &&
-            std::memcmp(event->topic, command_topic_.data(), topic_len) == 0;
-        if (is_command) {
-          const auto result = receive_storage_->assembler.append(
-              event->data,
-              static_cast<size_t>(event->data_len),
-              static_cast<size_t>(event->total_data_len),
-              static_cast<size_t>(event->current_data_offset));
-          if (result == MqttPayloadAssembler::Result::COMPLETE) {
-            const std::string_view payload = receive_storage_->assembler.payload();
-            (void)enqueue_message_(event->topic, topic_len, payload.data(), payload.size());
-            receive_storage_->assembler.reset();
-          } else if (result == MqttPayloadAssembler::Result::INVALID) {
-            ESPECTRE_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
-          }
-          break;
+      const std::string_view topic = event->topic != nullptr && event->topic_len > 0
+          ? std::string_view(event->topic, static_cast<size_t>(event->topic_len)) : std::string_view{};
+      // ESP-MQTT normally supplies the topic only on the first fragment.
+      const bool continuation = topic.empty() && event->current_data_offset > 0 && assembler.in_progress();
+      if (topic == command_topic_ || continuation) {
+        const auto result = assembler.append(event->data, static_cast<size_t>(event->data_len),
+                                             static_cast<size_t>(event->total_data_len),
+                                             static_cast<size_t>(event->current_data_offset));
+        if (result == MqttPayloadAssembler::Result::COMPLETE) {
+          const std::string_view payload = assembler.payload();
+          (void)enqueue_message_(command_topic_.data(), command_topic_.size(), payload.data(), payload.size());
+          assembler.reset();
+        } else if (result == MqttPayloadAssembler::Result::INVALID) {
+          ESPECTRE_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
         }
-        if (event->current_data_offset != 0 || event->data_len != event->total_data_len) {
-          ESPECTRE_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %.*s",
-                   event->topic_len, event->topic);
-          break;
-        }
-        (void)enqueue_message_(event->topic, topic_len, event->data,
-                               static_cast<size_t>(event->data_len));
+        break;
       }
+      assembler.reset();
+      if (topic.empty()) break;
+      if (event->current_data_offset != 0 || event->data_len != event->total_data_len) {
+        ESPECTRE_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %.*s",
+                      event->topic_len, event->topic);
+        break;
+      }
+      (void)enqueue_message_(topic.data(), topic.size(), event->data, static_cast<size_t>(event->data_len));
       break;
+    }
     default:
       break;
   }

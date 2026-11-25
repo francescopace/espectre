@@ -70,9 +70,10 @@ class MatterFrontend : public IRuntimeListener {
   RuntimeFrontendController runtime_;
   float last_loop_time_ms_{0.0f};
   IDirectHttpService *direct_service_{nullptr};
-  RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;
   RuntimeEventMailbox runtime_events_{};
+  // Declared after what it borrows; its destructor shuts them down.
+  RuntimeDirectHttpBridge direct_bridge_;
   std::function<DirectWifiSnapshot()> wifi_snapshot_getter_{};
   WifiBssidPinSetter wifi_bssid_pin_setter_{};
   WifiBssidPinPreflight wifi_bssid_pin_preflight_{};

@@ -48,87 +48,135 @@ void fill_session_id(uint8_t *session_id, uint64_t seed) {
 #endif
 }
 
+bool offer_packet(void *context, const RawCsiPacketView &packet) {
+  return static_cast<IDirectHttpService *>(context)->offer_raw_packet(packet);
+}
+
 }  // namespace
+
+RawCsiSessionController::Binding::~Binding() { detach(); }
+
+void RawCsiSessionController::Binding::Session::stop_capture(RawCsiStopReason reason) {
+  if (auto *owner = std::exchange(runtime, nullptr)) owner->stop_raw_collection(reason);
+}
+
+void RawCsiSessionController::Binding::stop(IDirectHttpService &transport, RawCsiStopReason reason) {
+  const auto current = session;
+  if (!current || current->runtime == nullptr) return;
+  transport.stop_raw_session(reason);
+  // An asynchronous transport delivers its final reason from the frontend loop.
+  current->stop_capture(reason);
+}
+
+void RawCsiSessionController::Binding::detach() {
+  auto *transport = std::exchange(service, nullptr);
+  if (transport == nullptr) return;
+  transport->set_raw_session_requested_callback({});
+  stop(*transport, RawCsiStopReason::SHUTDOWN);
+}
 
 void RawCsiSessionController::configure(IDirectHttpService *service,
                                         RuntimeFrontendController *runtime,
                                         uint64_t device_id,
                                         std::string chip,
                                         StoppedCallback stopped_callback,
-                                        StartedCallback started_callback,
-                                        std::function<bool()> frontend_wifi_update_pending) {
-  service_ = service;
-  runtime_ = runtime;
-  device_id_ = device_id;
-  chip_ = std::move(chip);
-  stopped_callback_ = std::move(stopped_callback);
-  started_callback_ = std::move(started_callback);
-  frontend_wifi_update_pending_ = std::move(frontend_wifi_update_pending);
-  if (service_ != nullptr) {
-    service_->set_raw_session_requested_callback(
-        [this](std::string *message) { return this->begin(message); });
-  }
+                                        StartedCallback started_callback) {
+  detach();
+  if (service == nullptr || runtime == nullptr) return;
+  if (!observer_lifetime_) observer_lifetime_ = std::make_shared<char>();
+  binding_ = std::make_shared<Binding>();
+  binding_->observer_lifetime = observer_lifetime_;
+  binding_->service = service;
+  binding_->runtime = runtime;
+  binding_->device_id = device_id;
+  binding_->chip = std::move(chip);
+  if (stopped_callback) binding_->stopped_callback = std::make_shared<StoppedCallback>(std::move(stopped_callback));
+  binding_->started_callback = std::move(started_callback);
+  // A queued service callback can outlive shutdown and even the next configure().
+  service->set_raw_session_requested_callback([weak = std::weak_ptr<Binding>(binding_)](std::string *message) {
+    auto binding = weak.lock();
+    return binding && binding->begin(message);
+  });
 }
 
-bool RawCsiSessionController::begin(std::string *message) {
-  if (service_ == nullptr || runtime_ == nullptr || device_id_ == 0U ||
-      !runtime_->capabilities().supports_raw_csi) {
+void RawCsiSessionController::set_wifi_update_pending_callback(std::function<bool()> callback) {
+  if (binding_) binding_->wifi_update_pending = std::move(callback);
+}
+
+bool RawCsiSessionController::Binding::begin(std::string *message) {
+  if (service == nullptr || runtime == nullptr || device_id == 0U ||
+      !runtime->capabilities().supports_raw_csi) {
     if (message != nullptr) *message = "raw CSI collection is unavailable";
     return false;
   }
-  if (active_ || runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+  if ((session && session->runtime) || runtime->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     if (message != nullptr) *message = "a CSI collection is already active";
     return false;
   }
-  if (runtime_->wifi_update_pending() || (frontend_wifi_update_pending_ && frontend_wifi_update_pending_())) {
+  if (runtime->wifi_update_pending() || (wifi_update_pending && wifi_update_pending())) {
     if (message != nullptr) *message = "a Wi-Fi update is in progress";
     return false;
   }
-  RawCsiSessionConfig session;
-  session.device_id = device_id_;
-  session.chip = raw_chip_type(chip_);
-  fill_session_id(session.session_id, device_id_);
-  if (!service_->start_raw_session(
-          session, [this](RawCsiStopReason reason) { handle_stopped_(reason); })) {
+  // The runtime refuses collection while sensing is paused; say so instead of a capture failure.
+  if (!runtime->services_armed()) {
+    if (message != nullptr) *message = "sensing is paused";
+    return false;
+  }
+  RawCsiSessionConfig config;
+  config.device_id = device_id;
+  config.chip = raw_chip_type(chip);
+  fill_session_id(config.session_id, device_id);
+  auto current = std::make_shared<Session>(Session{runtime, stopped_callback});
+  if (!service->start_raw_session(
+          config, [current, lifetime = observer_lifetime](RawCsiStopReason reason) {
+            const auto notify = std::move(current->stopped_callback);
+            current->stop_capture(reason);
+            if (!lifetime.expired() && notify) (*notify)(reason);
+          })) {
     if (message != nullptr) *message = "the CSI collector is busy";
     return false;
   }
-  if (!runtime_->start_raw_collection(&offer_packet_, this)) {
-    (void) service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+  // The transport is ours now. A listener may detach it from inside runtime startup.
+  session = current;
+  const bool started = runtime->start_raw_collection(offer_packet, service);
+  if (service == nullptr || !started || runtime->operation_state() != RuntimeOperationState::RAW_COLLECTION) {
+    current->runtime = nullptr;
+    if (service != nullptr) {
+      service->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+    } else if (started) {
+      runtime->stop_raw_collection(RawCsiStopReason::SHUTDOWN);
+    }
     if (message != nullptr) *message = "CSI capture could not be started";
     return false;
   }
-  active_ = true;
-  if (started_callback_) started_callback_();
+  if (started_callback) started_callback();
   if (message != nullptr) *message = "CSI collection started";
   return true;
 }
 
+bool RawCsiSessionController::begin(std::string *message) {
+  const auto binding = binding_;
+  if (binding) return binding->begin(message);
+  if (message != nullptr) *message = "raw CSI collection is unavailable";
+  return false;
+}
+
+bool RawCsiSessionController::active() const { return binding_ && binding_->session && binding_->session->runtime; }
+
 void RawCsiSessionController::ensure_runtime_consistency() {
-  if (active_ && runtime_ != nullptr && service_ != nullptr &&
-      runtime_->operation_state() != RuntimeOperationState::RAW_COLLECTION) {
-    (void) service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+  if (active() && binding_->runtime->operation_state() != RuntimeOperationState::RAW_COLLECTION) {
+    binding_->service->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
   }
 }
 
 void RawCsiSessionController::shutdown(RawCsiStopReason reason) {
-  if (active_ && service_ != nullptr) {
-    (void) service_->stop_raw_session(reason);
-  }
-  active_ = false;
+  const auto binding = binding_;
+  if (binding && binding->service) binding->stop(*binding->service, reason);
 }
 
-bool RawCsiSessionController::offer_packet_(void *context,
-                                            const RawCsiPacketView &packet) {
-  auto *controller = static_cast<RawCsiSessionController *>(context);
-  return controller != nullptr && controller->service_ != nullptr &&
-         controller->service_->offer_raw_packet(packet);
-}
-
-void RawCsiSessionController::handle_stopped_(RawCsiStopReason reason) {
-  active_ = false;
-  if (runtime_ != nullptr) (void) runtime_->stop_raw_collection(reason);
-  if (stopped_callback_) stopped_callback_(reason);
+void RawCsiSessionController::detach() {
+  auto binding = std::move(binding_);
+  if (binding) binding->detach();
 }
 
 }  // namespace espectre

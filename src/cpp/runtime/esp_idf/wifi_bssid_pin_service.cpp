@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "core/espectre_log.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 #include "nvs.h"
 #include "nvs_helpers.h"
 #include "runtime/runtime_time.h"
@@ -142,12 +143,12 @@ void WifiBssidPinService::loop() {
 
 const char *WifiBssidPinService::apply_state_name() const {
   switch (apply_state_) {
-    case WifiBssidPinApplyState::VERIFYING: return "verifying";
-    case WifiBssidPinApplyState::ROLLING_BACK: return "rolling_back";
-    case WifiBssidPinApplyState::APPLIED: return "applied";
-    case WifiBssidPinApplyState::ROLLED_BACK: return "rolled_back";
-    case WifiBssidPinApplyState::RECOVERY_REQUIRED: return "recovery_required";
-    default: return "idle";
+    case WifiBssidPinApplyState::VERIFYING: return ESPECTRE_WIFI_APPLY_STATE_VERIFYING;
+    case WifiBssidPinApplyState::ROLLING_BACK: return ESPECTRE_WIFI_APPLY_STATE_ROLLING_BACK;
+    case WifiBssidPinApplyState::APPLIED: return ESPECTRE_WIFI_APPLY_STATE_APPLIED;
+    case WifiBssidPinApplyState::ROLLED_BACK: return ESPECTRE_WIFI_APPLY_STATE_ROLLED_BACK;
+    case WifiBssidPinApplyState::RECOVERY_REQUIRED: return ESPECTRE_WIFI_APPLY_STATE_RECOVERY_REQUIRED;
+    default: return ESPECTRE_WIFI_APPLY_STATE_IDLE;
   }
 }
 

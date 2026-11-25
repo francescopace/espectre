@@ -55,6 +55,8 @@ class MqttPayloadAssembler {
     return next_offset_ == expected_total_len_ ? Result::COMPLETE : Result::INVALID;
   }
 
+  bool in_progress() const { return next_offset_ < expected_total_len_; }
+
   std::string_view payload() const { return {payload_.data(), payload_size_}; }
 
   void reset() {
