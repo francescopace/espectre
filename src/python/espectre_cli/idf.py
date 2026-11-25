@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .build_artifacts import print_build_artifact_metadata, publish_idf_flash_artifacts
 from .common import (
@@ -28,6 +29,7 @@ from .common import (
     cli_command,
     get_serial_port,
     resolve_serial_port,
+    serial_console_mode,
 )
 from .esptool_runner import (
     flash_build as run_esptool_flash_build,
@@ -47,6 +49,10 @@ from .targets import (
     IDF_TARGET_BY_CHIP,
     resolve_idf_target,
 )
+
+
+if TYPE_CHECKING:
+    import serial
 
 
 MATTER_QR_PATTERN = re.compile(rb"MATTER_QR=(MT:[A-Z0-9.\-]+)(?:\x1b\[0m)?\r?$")
@@ -625,6 +631,38 @@ def run_idf_doctor(_args) -> int:
     return 0
 
 
+def _read_matter_codes(connection: serial.Serial, deadline: float) -> tuple[str, str] | None:
+    """Collect a complete QR and manual code from one boot."""
+    qr_payload = manual_code = None
+    partial_line = b""
+    while (remaining := deadline - time.monotonic()) > 0:
+        timeout = min(1.0, remaining)
+        if connection.timeout != timeout:
+            connection.timeout = timeout
+        chunk = connection.read(max(1, min(connection.in_waiting, 4096)))
+        if not chunk:
+            continue
+        *lines, partial_line = (partial_line + chunk).split(b"\n")
+        # Only complete console lines carry codes. Bound unrelated boot output.
+        partial_line = partial_line[-4096:]
+        for line in lines:
+            if qr_match := MATTER_QR_PATTERN.search(line):
+                qr_payload = qr_match.group(1).decode("ascii")
+            if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
+                manual_code = manual_match.group(1).decode("ascii")
+        if qr_payload and manual_code:
+            return qr_payload, manual_code
+    return None
+
+
+def _reset_matter_c3_usb(connection: serial.Serial) -> None:
+    """Pulse RTS on the open USB Serial/JTAG port so startup logs reach the reader."""
+    from esptool.reset import HardReset
+
+    connection.dtr = False
+    HardReset(connection, uses_usb=True).reset()
+
+
 def read_matter_onboarding(
     port: str,
     timeout_seconds: float = 20.0,
@@ -632,6 +670,7 @@ def read_matter_onboarding(
     chip: str | None = None,
     json_output: bool = False,
     reset: bool = True,
+    after_flash: bool = False,
 ) -> bool:
     """Read and print a Matter device's persisted onboarding codes."""
     try:
@@ -643,7 +682,8 @@ def read_matter_onboarding(
     action = "starting and waiting on" if reset else "reading current boot from"
     print(f"{Fore.CYAN}Matter QR: {action} {port}...{Style.RESET_ALL}")
 
-    if reset:
+    reset_on_open = reset and chip == "c3" and serial_console_mode(chip, port) == "usb_serial_jtag"
+    if reset and not reset_on_open:
         if chip is None:
             print(f"{Fore.RED}❌ --chip is required when resetting a Matter device.{Style.RESET_ALL}")
             return False
@@ -654,8 +694,6 @@ def read_matter_onboarding(
         )
 
     deadline = time.monotonic() + timeout_seconds
-    qr_payload = None
-    manual_code = None
     connection = None
     try:
         port = resolve_serial_port(
@@ -666,41 +704,40 @@ def read_matter_onboarding(
             wait_timeout_s=deadline - time.monotonic(),
         )
         connection = serial.Serial(port, baudrate=115200, timeout=1.0)
-        partial_line = b""
-        while (remaining := deadline - time.monotonic()) > 0:
-            if remaining < connection.timeout:
-                connection.timeout = remaining
-            chunk = connection.read(max(1, min(connection.in_waiting, 4096)))
-            if not chunk:
-                continue
-            *lines, partial_line = (partial_line + chunk).split(b"\n")
-            # Only complete console lines carry codes. Bound unrelated boot output.
-            partial_line = partial_line[-4096:]
-            for line in lines:
-                if qr_match := MATTER_QR_PATTERN.search(line):
-                    qr_payload = qr_match.group(1).decode("ascii")
-                if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
-                    manual_code = manual_match.group(1).decode("ascii")
-            if qr_payload and manual_code:
-                if json_output:
-                    print(
-                        json.dumps(
-                            {
-                                "chip": chip,
-                                "event": "matter_onboarding",
-                                "frontend": "matter",
-                                "manual_code": manual_code,
-                                "port": port,
-                                "qr_payload": qr_payload,
-                            },
-                            sort_keys=True,
-                        )
+        if reset_on_open:
+            _reset_matter_c3_usb(connection)
+        codes = _read_matter_codes(connection, deadline)
+        if (
+            codes is None
+            and after_flash
+            and chip == "c3"
+            and serial_console_mode(chip, port) == "usb_serial_jtag"
+        ):
+            # Give first-boot factory data generation the full initial window.
+            print("Matter codes missed on first boot. Restarting with the USB port open...")
+            _reset_matter_c3_usb(connection)
+            codes = _read_matter_codes(connection, time.monotonic() + timeout_seconds)
+        if codes:
+            qr_payload, manual_code = codes
+            if json_output:
+                print(
+                    json.dumps(
+                        {
+                            "chip": chip,
+                            "event": "matter_onboarding",
+                            "frontend": "matter",
+                            "manual_code": manual_code,
+                            "port": port,
+                            "qr_payload": qr_payload,
+                        },
+                        sort_keys=True,
                     )
-                else:
-                    print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
-                    print(f"  QR payload:  {qr_payload}")
-                    print(f"  Manual code: {manual_code}")
-                return True
+                )
+            else:
+                print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
+                print(f"  QR payload:  {qr_payload}")
+                print(f"  Manual code: {manual_code}")
+            return True
     except (OSError, serial.SerialException) as exc:
         print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {exc}{Style.RESET_ALL}")
     finally:
@@ -717,17 +754,16 @@ def read_matter_onboarding(
     return False
 
 
-def read_matter_onboarding_for_command(port: str, args, *, reset: bool | None = None) -> bool:
+def read_matter_onboarding_for_command(port: str, args, *, after_flash: bool = False) -> bool:
     """Read onboarding data using the command's optional JSON contract."""
-    if reset is None:
-        reset = not bool(getattr(args, "no_reset", False))
     timeout_seconds = float(getattr(args, "timeout", 20.0))
     return read_matter_onboarding(
         port,
         timeout_seconds=timeout_seconds,
         chip=getattr(args, "chip", None),
         json_output=bool(getattr(args, "json", False)),
-        reset=reset,
+        reset=not after_flash and not getattr(args, "no_reset", False),
+        after_flash=after_flash,
     )
 
 
@@ -886,7 +922,7 @@ def run_idf_command(frontend: str, args) -> None:
         if frontend == "matter" and not read_matter_onboarding_for_command(
             port,
             args,
-            reset=False,
+            after_flash=True,
         ):
             raise SystemExit(1)
         return

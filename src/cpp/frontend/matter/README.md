@@ -32,7 +32,7 @@ Complete the prerequisites in [local build prerequisites](../../../../docs/CLI.m
 ./espectre monitor --chip c3 --frontend matter --port /dev/cu.usbmodemXXXX
 ```
 
-The flash command prints the onboarding codes captured from the first boot. To retrieve the persisted codes later, run `./espectre matter qr --chip c3 --port /dev/cu.usbmodemXXXX`.
+The flash command prints the device’s onboarding codes. On ESP32-C3 native USB, it retries once with the port open if it misses the first boot messages. To retrieve the persisted codes later, run `./espectre matter qr --chip c3 --port /dev/cu.usbmodemXXXX`.
 
 The first build downloads and compiles the managed `esp_matter` dependency; no manual clone is required. See [`native` and `matter` commands](../../../../docs/CLI.md#native-and-matter) for Windows commands, build backends, and cache controls.
 

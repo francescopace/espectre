@@ -162,7 +162,7 @@ Matter also has:
 |---------|---------|
 | `qr` | Restart the device and print its QR payload and manual pairing code |
 
-`qr` requires `--chip`. Add `--no-reset` to read without restarting. After a reset, the CLI waits for the same serial port to return and reads both complete log lines within the remaining time. A partial line at timeout cannot produce a pairing code. The default is 20 seconds. Use `matter qr --timeout <seconds>` to change it. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. Treat these codes as secrets.
+`qr` requires `--chip`. Add `--no-reset` to read without restarting. On ESP32-C3 with native USB Serial/JTAG, the CLI opens the port before pulsing RTS so it can capture both startup lines. On other connections, it waits for the port to return after reset. A partial line at timeout cannot produce a pairing code. The default is 20 seconds. Use `matter qr --timeout <seconds>` to change it. `matter qr --json` and `matter flash --json` print the port, chip, QR payload, and pairing code for other tools. If the first boot after a Matter flash on ESP32-C3 native USB produces no complete pair within 20 seconds, the CLI restarts the board once with the port open and reads the codes again. Treat these codes as secrets.
 
 Examples:
 

@@ -317,6 +317,55 @@ def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> N
     assert reset_calls == []
 
 
+@pytest.mark.parametrize(("command", "no_reset", "boots", "expected_reads", "expect_codes"), [
+    ("qr", False, [b"", b"MATTER_QR=MT:NEW\nMATTER_MANUAL_CODE=12704227053\n"], [1], True),
+    ("qr", True, [b""], [0], False),
+    ("flash", False, [b"MATTER_QR=MT:FIRST\nMATTER_MANUAL_CODE=12704227053\n"], [0], True),
+    ("flash", False, [b"", b"MATTER_QR=MT:NEW\nMATTER_MANUAL_CODE=12704227053\n"], [0, 1], True),
+    ("flash", False, [b"MATTER_QR=MT:OLD\n", b"MATTER_MANUAL_CODE=12704227053\n"], [0, 1], False),
+])
+def test_c3_usb_matter_onboarding_keeps_port_open_across_reset(
+    monkeypatch, command, no_reset, boots, expected_reads, expect_codes,
+) -> None:
+    port = "/dev/cu.test"
+    clock = [0.0]
+    reads = []
+
+    class UsbPort:
+        def __init__(self, path, *, baudrate, timeout):
+            assert path == port
+            self.timeout = timeout
+            self.boot = 0
+
+        @property
+        def in_waiting(self):
+            return len(boots[self.boot])
+
+        def read(self, size):
+            if self.boot not in reads:
+                reads.append(self.boot)
+            chunk, boots[self.boot] = boots[self.boot], b""
+            if not chunk:
+                clock[0] += self.timeout
+            return chunk
+
+        def close(self):
+            pass
+
+    def reset_open_port(connection):
+        connection.boot += 1
+
+    monkeypatch.setitem(sys.modules, "serial", SimpleNamespace(Serial=UsbPort, SerialException=OSError))
+    monkeypatch.setattr(idf.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: port)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "usb_serial_jtag")
+    monkeypatch.setattr(idf, "_reset_matter_c3_usb", reset_open_port)
+    args = argparse.Namespace(chip="c3", no_reset=no_reset, timeout=1)
+    result = idf.read_matter_onboarding_for_command(port, args, after_flash=command == "flash")
+    assert result is expect_codes
+    assert reads == expected_reads
+
+
 def test_matter_onboarding_does_not_retry_serial_failure(monkeypatch) -> None:
     fake_serial = ModuleType("serial")
     opened: list[str] = []
@@ -2199,7 +2248,7 @@ def test_matter_flash_fails_when_startup_codes_are_not_captured(
     monkeypatch.setattr(
         idf,
         "read_matter_onboarding_for_command",
-        lambda port, _args, *, reset: onboarding.append((port, reset)) or False,
+        lambda port, _args, *, after_flash: onboarding.append((port, after_flash)) or False,
     )
 
     with pytest.raises(SystemExit) as exc_info:
@@ -2214,7 +2263,7 @@ def test_matter_flash_fails_when_startup_codes_are_not_captured(
         )
 
     assert exc_info.value.code == 1
-    assert onboarding == [("/dev/cu.test", False)]
+    assert onboarding == [("/dev/cu.test", True)]
 
 
 def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path) -> None:
