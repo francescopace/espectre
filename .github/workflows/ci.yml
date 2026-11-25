@@ -941,7 +941,7 @@ jobs:
 
       - name: Upload firmware vulnerability alerts
         if: always() && hashFiles('.cache/reports/firmware/esphome/results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: .cache/reports/firmware/esphome/results.sarif
           category: firmware/esphome
@@ -1000,7 +1000,7 @@ jobs:
 
       - name: Upload firmware vulnerability alerts
         if: always() && hashFiles('.cache/reports/firmware/matter/results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: .cache/reports/firmware/matter/results.sarif
           category: firmware/matter
@@ -1060,7 +1060,7 @@ jobs:
 
       - name: Upload firmware vulnerability alerts
         if: always() && hashFiles('.cache/reports/firmware/native/results.sarif') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: .cache/reports/firmware/native/results.sarif
           category: firmware/native
