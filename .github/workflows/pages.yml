@@ -76,11 +76,19 @@ jobs:
               if (latest?.conclusion !== 'success') {
                 throw new Error(`Source publication job has not succeeded: ${name}`);
               }
-              if (name === 'Publish Website') {
-                core.setOutput('pages_artifact', `github-pages-${latest.run_attempt}`);
-                core.setOutput('sitemap_artifact', `website-sitemap-${latest.run_attempt}`);
-              }
             }
+            // GitHub can copy successful jobs into a rerun without recreating their artifacts.
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: runId, per_page: 100,
+            });
+            const names = new Set(artifacts.filter(a => !a.expired).map(a => a.name));
+            let built = attempt;
+            while (built > 0 && !names.has(`github-pages-${built}`)) built--;
+            if (!built || !names.has(`website-sitemap-${built}`)) {
+              throw new Error('The verified Pages archive and matching sitemap are unavailable.');
+            }
+            core.setOutput('pages_artifact', `github-pages-${built}`);
+            core.setOutput('sitemap_artifact', `website-sitemap-${built}`);
             core.setOutput('run_id', String(runId));
             core.setOutput('head_sha', run.head_sha);
             core.setOutput('channel', snapshot ? 'preview' : 'release');
@@ -101,6 +109,7 @@ jobs:
           path: source-pages
 
       - name: Upload the verified Pages archive
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: github-pages
@@ -112,7 +121,41 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        with:
+          script: |
+            const artifactId = Number(process.env.ARTIFACT_ID);
+            const digest = process.env.ARTIFACT_DIGEST;
+            if (!Number.isSafeInteger(artifactId) || artifactId <= 0 || !/^[a-f0-9]{64}$/.test(digest)) {
+              throw new Error('Missing Pages upload ID or SHA-256 digest.');
+            }
+            // Preview and release can share a Git SHA while serving different catalogs.
+            const { data: deployment } = await github.rest.repos.createPagesDeployment({
+              ...context.repo, artifact_id: artifactId, pages_build_version: digest.slice(0, 40),
+              oidc_token: await core.getIDToken(),
+            });
+            core.setOutput('page_url', deployment.page_url);
+            const params = { ...context.repo, pages_deployment_id: deployment.id };
+            const deadline = Date.now() + 10 * 60 * 1000;
+            while (Date.now() < deadline) {
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              const result = await github.rest.repos.getPagesDeployment(params)
+                .catch(error => {
+                  if (error.status !== 404 && !(error.status >= 500 && error.status <= 599)) throw error;
+                  return null;
+                });
+              const status = result?.data.status;
+              if (status === 'succeed') return;
+              if (['deployment_failed', 'deployment_content_failed', 'deployment_cancelled',
+                   'deployment_lost'].includes(status)) {
+                throw new Error(`Pages deployment ${deployment.id}: ${status}`);
+              }
+            }
+            await github.rest.repos.cancelPagesDeployment(params);
+            throw new Error(`Pages deployment ${deployment.id} timed out.`);
 
       - name: Verify the published catalogs and signing keys
         env:
