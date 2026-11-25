@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### ESPHome
 
-- Repository firmware builds use ESP-IDF 6.1.1. Development images target ESPHome 2026.12.
+- Repository firmware builds use ESP-IDF 6.1.1. ESPHome development builds now track the official `dev` branch for 2026.12. Its built-in `espectre` component requests ESPectre SDK 3.2.2. [Upstream change](https://github.com/esphome/esphome/pull/23305)
 - The ESP32-S2 example enables TinyUSB for complete Improv Serial replies on native USB.
 - Official images and the examples use the `espectre` component built into ESPHome, with the `espectre_direct` add-on for the Direct API. The ESP32, S2, S3, C3, and C5 examples require ESPHome 2026.12 or later.
 - The external component is removed. To update a YAML that loads it, see [moving from the external component](../src/cpp/frontend/esphome/README.md#moving-from-the-external-component).
