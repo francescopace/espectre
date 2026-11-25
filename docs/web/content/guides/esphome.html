@@ -119,7 +119,8 @@ button:
   <h2 id="esphome-limits">Current limits</h2>
   <ul class="checklist">
     <li>The built-in component has no Direct API of its own. Add the <code>espectre_direct</code> add-on for Monitor, Find devices, CSI collection, and the <code>./espectre</code> device commands; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/README.md#the-direct-api-add-on" target="_blank" rel="noopener">ESPHome guide</a> shows how.</li>
-    <li>Recalibration is always available. Other Direct commands depend on the ESPHome platforms compiled into the image. Declare the corresponding entity to see its state in Home Assistant and restore supported settings after reboot. The device name, the access point pin, the <code>wifi_raw</code> destination, the Wi-Fi settings, and MQTT stay in your YAML.</li>
+    <li>Recalibration is always available. Other Direct commands depend on the ESPHome platforms compiled into the image. Declare the corresponding entity to see its state in Home Assistant and restore supported settings after reboot. Use YAML for the device name, the default <code>wifi_raw</code> destination, Wi-Fi credentials, and MQTT.</li>
+    <li>With SDK 3.2.2 or later, Device settings can select an access point or restore automatic selection. If a raw CSI stream returns <code>409</code> during the change, retry after the device finishes verifying the connection or restoring the previous pin.</li>
   </ul>
   <p>For every option and platform, see the <a href="https://esphome.io/components/espectre/" target="_blank" rel="noopener">ESPHome documentation</a>.</p>
 
