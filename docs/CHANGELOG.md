@@ -6,29 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ## [3.2.2] - 2026-11-25 - Raw Wi-Fi targets and Direct Wi-Fi recovery
 
-### SDK
+ESPectre 3.2.2 is a patch release that fixes issues with raw Wi-Fi targeting, CSI streaming, MQTT commands, and USB provisioning.
 
-- **Custom SDK bridges:** In 3.2.1, clients could open `GET /espectre/v1/csi` even when `raw_csi` was left at its default of `false`. In 3.2.2, that request returns HTTP `409`. To keep streaming on a supported runtime, set `RuntimeDirectHttpBridgeConfig::raw_csi` to `true` before bridge setup. Clients can check `capabilities.features.csi` before opening a stream, and peer discovery now advertises CSI only when enabled and supported.
-- Direct reports the active sensing settings and releases peer discovery on shutdown. `RuntimeDirectHttpBridge` and `RawCsiSessionController` now shut down when destroyed, so declare them after the service, runtime, and discovery they use.
-- `RawCsiSessionController::shutdown()` stops capture and keeps the service ready for the next collection. Use `detach()` to unregister the controller. `set_wifi_update_pending_callback()` holds off new streams while the frontend changes Wi-Fi. A stream refused because sensing is paused now says so instead of reporting a capture failure.
-- Stopping a raw stream gives the current write and the final HTTP chunk a shared 100 ms deadline. Direct preserves send failures that occur during stop and counts them in the stream diagnostics.
-- Wi-Fi apply states are available as `ESPECTRE_WIFI_APPLY_STATE_*` constants, and `espectre_wifi_apply_in_progress()` reports whether a change is still verifying or rolling back.
-- The MQTT transport assembles fragmented commands when only the first fragment carries the topic. It releases its client when destroyed, preserves the connection and subscriptions when validation rejects new settings, and `subscribe()` returns false before `setup()`.
-- In `wifi_raw`, setting the target to the connected AP’s BSSID now sends AP-directed frames, just like `auto`. The explicit target stays fixed across roaming.
-- Direct can return up to 32 access points from a frontend scan and report the saved BSSID and pin status. Device settings uses the saved BSSID to confirm automatic AP selection. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. Direct rejects pin changes during raw CSI collection. A new collection returns HTTP `409` while a pin change awaits acknowledgement or while the frontend reports that it is verifying or rolling back the change.
+### SDK fixes
 
-### CLI
+- In `wifi_raw` mode, targeting the connected access point by BSSID sends the same frames as `auto`. The explicit target stays fixed if the device roams.
+- To keep raw CSI streaming on a custom Direct bridge, set `RuntimeDirectHttpBridgeConfig::raw_csi` to `true` before setup. With the default setting, `GET /espectre/v1/csi` returns HTTP `409`. Clients can check `capabilities.features.csi` before opening a stream.
+- Declare `RuntimeDirectHttpBridge` and `RawCsiSessionController` after the services they use so those services remain available during shutdown. Use `RawCsiSessionController::shutdown()` to stop capture and allow another collection, or `detach()` to unregister the controller.
+- Direct can list up to 32 access points and report the saved BSSID. Frontends that manage Wi-Fi can scan or switch access points while sensing is stopped. Direct blocks pin changes during raw CSI collection and returns HTTP `409` for new streams while a pin change is pending.
+- MQTT accepts fragmented commands even when only the first fragment has a topic. Rejected settings leave the current connection and subscriptions active.
 
-- `matter qr` and `matter flash` wait for the selected USB port to reappear after reset and publish the commissioning codes only after receiving both complete log lines.
-- Improv Serial provisioning waits for the settings reply or a transition from provisioning to provisioned. After confirmation, a missing or damaged settings URL, or a USB disconnect while reading it, yields `endpoint: null`. Explicit device errors still fail provisioning.
-- The Native and ESPHome firmware benchmarks accept a successful provisioning result with a null endpoint. They use the configured Direct endpoint or discover a matching device.
+### Frontend fixes
 
-### Firmware
+- **Native and Matter** handle back-to-back USB provisioning requests on classic ESP32.
+- **Native** preserves binary Wi-Fi provisioning packets on classic ESP32 (#231) and reports provisioning as in progress while verifying credentials or restoring the previous connection.
+- **Matter** reports the saved BSSID pin for the commissioned network and the status of a pin change through Direct.
+- **Web installer** distinguishes an invalid provisioning packet from a failed Wi-Fi connection.
 
-- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native rejects new Direct raw CSI streams until a BSSID or Improv Wi-Fi change finishes, and Matter until a BSSID change finishes. Matter also reports the saved pin for the commissioned network and the status of the change in the Direct Wi-Fi resource.
-- Improv Serial preserves binary packets on UART consoles. Native can provision Wi-Fi on classic ESP32 boards when the SSID, password, or packet checksum contains a byte that the console would otherwise translate (#231). The web installer distinguishes a rejected packet from a failed Wi-Fi connection.
-- Native and Matter buffer incoming Improv frames on the UART console. On classic ESP32, two consecutive 110-byte requests could overflow the hardware FIFO before the frontend loop read them. A complete 110-byte Wi-Fi settings request already in the buffer is now processed in one loop iteration.
-- Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.
+### CLI fixes
+
+- USB provisioning waits for confirmation. If provisioning succeeds but the settings URL is unavailable, the CLI returns `endpoint: null`.
+- `matter qr` and `matter flash` wait for USB to reconnect and show the commissioning codes once both are complete.
 
 ---
 
