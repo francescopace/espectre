@@ -70,6 +70,7 @@
 
   <h2 id="collect-raw-csi" data-toc-label="Raw CSI">Collect raw CSI</h2>
   <p><code>GET /espectre/v1/csi</code> opens a binary CSI stream if <code>capabilities.features.csi</code> is true. Only one stream can be open at a time, and closing it ends the capture. While it is open, motion and other derived events stop. Capture and traffic keep running, and resource events stay published. Changes that conflict with it return HTTP <code>409</code>.</p>
+  <p>If opening the stream returns <code>409</code> during an access point change, retry after the change finishes. Native, Matter, and SDK frontends that report pin status reject new streams while verifying the new access point or restoring the previous one.</p>
   <div class="note"><strong>The CSI stream is binary.</strong> It contains CSI V8 records in order, each with a 60-byte little-endian header. See the API reference for the exact format.</div>
 
   <h2 id="handle-errors-and-security" data-toc-label="Errors and security">Handle errors and security</h2>

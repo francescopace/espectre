@@ -55,13 +55,15 @@ void RawCsiSessionController::configure(IDirectHttpService *service,
                                         uint64_t device_id,
                                         std::string chip,
                                         StoppedCallback stopped_callback,
-                                        StartedCallback started_callback) {
+                                        StartedCallback started_callback,
+                                        std::function<bool()> frontend_wifi_update_pending) {
   service_ = service;
   runtime_ = runtime;
   device_id_ = device_id;
   chip_ = std::move(chip);
   stopped_callback_ = std::move(stopped_callback);
   started_callback_ = std::move(started_callback);
+  frontend_wifi_update_pending_ = std::move(frontend_wifi_update_pending);
   if (service_ != nullptr) {
     service_->set_raw_session_requested_callback(
         [this](std::string *message) { return this->begin(message); });
@@ -78,7 +80,7 @@ bool RawCsiSessionController::begin(std::string *message) {
     if (message != nullptr) *message = "a CSI collection is already active";
     return false;
   }
-  if (runtime_->wifi_update_pending()) {
+  if (runtime_->wifi_update_pending() || (frontend_wifi_update_pending_ && frontend_wifi_update_pending_())) {
     if (message != nullptr) *message = "a Wi-Fi update is in progress";
     return false;
   }

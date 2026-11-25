@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 ### SDK
 
 - In `wifi_raw`, setting the target to the connected AP’s BSSID now sends AP-directed frames, just like `auto`. The explicit target stays fixed across roaming.
-- Direct can return up to 32 access points from a frontend scan and report the saved BSSID and pin status. Device settings uses the saved BSSID to confirm automatic AP selection. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. Direct rejects pin changes during raw CSI collection and prevents collection from starting while a pin change awaits acknowledgement.
+- Direct can return up to 32 access points from a frontend scan and report the saved BSSID and pin status. Device settings uses the saved BSSID to confirm automatic AP selection. Frontends that manage Wi-Fi can scan or change their access point while sensing is stopped. Direct rejects pin changes during raw CSI collection. A new collection returns HTTP `409` while a pin change awaits acknowledgement or while the frontend reports that it is verifying or rolling back the change.
 
 ### CLI
 
@@ -19,7 +19,7 @@ All notable changes to this project will be documented in this file.
 
 ### Firmware
 
-- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native Direct holds off raw CSI collection until a BSSID change finishes.
+- Native reports an Improv request as in progress while it verifies the submitted credentials or restores the previous connection. Native and Matter reject new Direct raw CSI streams until a BSSID change finishes. Matter also reports the saved pin for the commissioned network and the status of the change in the Direct Wi-Fi resource.
 - Improv Serial preserves binary packets on UART consoles. Native can provision Wi-Fi on classic ESP32 boards when the SSID, password, or packet checksum contains a byte that the console would otherwise translate (#231). The web installer distinguishes a rejected packet from a failed Wi-Fi connection.
 - Native and Matter buffer incoming Improv frames on the UART console. On classic ESP32, two consecutive 110-byte requests could overflow the hardware FIFO before the frontend loop read them. A complete 110-byte Wi-Fi settings request already in the buffer is now processed in one loop iteration.
 - Native and Matter now pin `espressif/mdns` to 1.15.0, matching ESPHome 2026.11.0.

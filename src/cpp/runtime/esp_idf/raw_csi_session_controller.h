@@ -39,14 +39,16 @@ class RawCsiSessionController {
    *
    * Neither object is owned; both must outlive the controller. `device_id`
    * must be nonzero and `chip` is the `CONFIG_IDF_TARGET` name; both are
-   * stamped on every record.
+   * stamped on every record. If supplied, `frontend_wifi_update_pending`
+   * prevents a new session while the frontend is changing access points.
    */
   void configure(IDirectHttpService *service,
                  RuntimeFrontendController *runtime,
                  uint64_t device_id,
                  std::string chip,
                  StoppedCallback stopped_callback = {},
-                 StartedCallback started_callback = {});
+                 StartedCallback started_callback = {},
+                 std::function<bool()> frontend_wifi_update_pending = {});
   /**
    * Start a session.
    *
@@ -70,6 +72,7 @@ class RawCsiSessionController {
   uint64_t device_id_{0U};
   std::string chip_;
   bool active_{false};
+  std::function<bool()> frontend_wifi_update_pending_{};
   StoppedCallback stopped_callback_{};
   StartedCallback started_callback_{};
 };

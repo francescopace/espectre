@@ -150,10 +150,18 @@ bool RuntimeDirectHttpBridge::setup_(IDirectHttpService *service,
     deferred_requests_enabled_ = false;
     return false;
   }
+  std::function<bool()> wifi_update_pending;
+  if (config_.wifi_snapshot_getter) {
+    wifi_update_pending = [this]() {
+      const DirectWifiSnapshot wifi = config_.wifi_snapshot_getter();
+      return wifi.apply_state == "verifying" || wifi.apply_state == "rolling_back";
+    };
+  }
   raw_session_controller_.configure(
       service_, runtime_, config_.device_id, config_.chip,
       [this](RawCsiStopReason) { (void) this->publish_event("sensing", this->sensing_payload_()); },
-      [this]() { (void) this->publish_event("sensing", this->sensing_payload_()); });
+      [this]() { (void) this->publish_event("sensing", this->sensing_payload_()); },
+      std::move(wifi_update_pending));
   return true;
 }
 

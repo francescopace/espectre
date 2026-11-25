@@ -28,6 +28,8 @@ class MatterFrontend : public IRuntimeListener {
                  IDirectHttpService *direct_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
+  /** Bind the commissioned network's pin service before starting Direct. The service must outlive Direct. */
+  void set_wifi_bssid_pin_service(WifiBssidPinService &service);
   void set_wifi_bssid_pin_setter(WifiBssidPinSetter setter);
   void set_wifi_bssid_pin_preflight(WifiBssidPinPreflight preflight);
   bool set_runtime_services_armed(bool armed);
@@ -71,6 +73,7 @@ class MatterFrontend : public IRuntimeListener {
   RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;
   RuntimeEventMailbox runtime_events_{};
+  std::function<DirectWifiSnapshot()> wifi_snapshot_getter_{};
   WifiBssidPinSetter wifi_bssid_pin_setter_{};
   WifiBssidPinPreflight wifi_bssid_pin_preflight_{};
   bool live_telemetry_enabled_{true};

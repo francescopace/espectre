@@ -172,6 +172,8 @@ SDK transport adapters should pass parsed requests through `FrontendCommandEngin
 
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
+If your frontend manages BSSID changes, report `verifying` or `rolling_back` in `DirectWifiSnapshot::apply_state` through `RuntimeDirectHttpBridgeConfig::wifi_snapshot_getter` while the change is in progress. The bridge checks this state when a client opens a raw CSI stream and returns HTTP `409` during either phase. Report `verifying` before `RuntimeDirectHttpBridgeConfig::wifi_bssid_pin_setter` returns: the bridge stops blocking new streams once the setter returns, so a later state change leaves a window in which a stream can open during the change. `WifiBssidPinService::request_update()` already does this.
+
 @subsection integration_guest_bridge Serving a runtime that another component owns
 
 One component owns the `RuntimeFrontendController`. When a second component adds Direct HTTP to that firmware, it must not write to the runtime behind the owner's back: the owner would publish stale state and save nothing.

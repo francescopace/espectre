@@ -354,6 +354,43 @@ void test_pending_pin_holds_off_raw_capture_until_response_completion(void) {
   TEST_ASSERT_EQUAL(1, apply_calls);
 }
 
+void test_raw_capture_waits_for_reported_wifi_verification_and_rollback(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeFrontendController owner;
+  TEST_ASSERT_TRUE(owner.setup(nullptr));
+  service_mock::MockDirectHttpService service;
+  RuntimeDirectHttpBridge bridge;
+  auto config = bridge_config();
+  config.raw_csi = true;
+  DirectWifiSnapshot wifi;
+  wifi.connected = true;
+  config.wifi_snapshot_getter = [&wifi]() { return wifi; };
+  config.wifi_bssid_pin_setter = [&wifi](const std::string &, bool, std::string *) {
+    wifi.apply_state = "verifying";
+    return true;
+  };
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+  auto pin = service.emit_deferred_request(1U, {"", "clear_wifi_bssid", "{}"});
+  TEST_ASSERT_TRUE(static_cast<bool>(pin.response_sent_callback));
+  pin.response_sent_callback(true);
+  TEST_ASSERT_FALSE(service.emit_raw_session_request());
+  wifi.apply_state = "rolling_back";
+  TEST_ASSERT_FALSE(service.emit_raw_session_request());
+  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+
+  for (const char *state : {"rolled_back", "applied", "recovery_required", "idle", ""}) {
+    wifi.apply_state = state;
+    TEST_ASSERT_TRUE(service.emit_raw_session_request());
+    TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  }
+
+  wifi.apply_state = "verifying";
+  config.wifi_snapshot_getter = {};
+  TEST_ASSERT_TRUE(bridge.setup_guest(&service, config, {}));
+  TEST_ASSERT_TRUE(service.emit_raw_session_request());
+  TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+}
+
 void test_frontend_scan_caps_matching_access_points(void) {
   RuntimeFrontendController owner;
   TEST_ASSERT_TRUE(owner.setup(nullptr));
@@ -394,6 +431,7 @@ int process(void) {
   RUN_TEST(test_guest_can_recover_wifi_after_sensing_stops);
   RUN_TEST(test_guest_refuses_wifi_pin_before_acknowledging_during_raw_collection);
   RUN_TEST(test_pending_pin_holds_off_raw_capture_until_response_completion);
+  RUN_TEST(test_raw_capture_waits_for_reported_wifi_verification_and_rollback);
   RUN_TEST(test_frontend_scan_caps_matching_access_points);
   return UNITY_END();
 }

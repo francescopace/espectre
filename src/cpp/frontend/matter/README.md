@@ -61,7 +61,7 @@ Direct provides sensing controls, diagnostics, BSSID selection, Basic Informatio
 
 Matter manages Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
 
-You can pin the device to one access point. The pin is tied to the commissioned network: it is ignored on another SSID until you clear it. Changing it reconnects without a reboot, and a failed change restores the previous pin. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
+You can pin the device to one access point. The pin is tied to the commissioned network: it is ignored on another SSID until you clear it. Changing it reconnects without a reboot, and a failed change restores the previous pin. Device settings shows the saved pin or automatic AP selection. While Matter verifies a change or restores the previous pin, opening a raw CSI stream returns HTTP `409`. See [Wi-Fi scan and BSSID selection](../../../../docs/API.md#wi-fi-scan-and-bssid-selection) for requests and [Wi-Fi and capture lifecycle](../../../../docs/CSI.md#wi-fi-and-capture-lifecycle) for capture restart behavior.
 
 Set build-time defaults in menuconfig; see [shared sensing options](../../../../docs/SDK.md#shared-sensing-options). Detector, traffic, and packet spacing changes made through Direct survive a reboot. See [tuning essentials](../../../../docs/TROUBLESHOOTING.md#tuning-essentials).
 

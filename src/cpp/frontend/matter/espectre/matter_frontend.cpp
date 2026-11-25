@@ -29,6 +29,24 @@ MatterFrontend::MatterFrontend(IMatterBindings *bindings,
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
+void MatterFrontend::set_wifi_bssid_pin_service(WifiBssidPinService &service) {
+  wifi_snapshot_getter_ = [&service]() {
+    DirectWifiSnapshot wifi = read_direct_wifi_snapshot();
+    if (wifi.ssid == service.stored_ssid()) wifi.pinned_bssid = service.stored_bssid();
+    wifi.apply_state = service.apply_state_name();
+    wifi.apply_message = service.apply_message();
+    return wifi;
+  };
+  set_wifi_bssid_pin_setter([&service](const std::string &bssid, bool force, std::string *message) {
+    return service.request_update(bssid, message, force);
+  });
+  set_wifi_bssid_pin_preflight([&service](std::string *message) {
+    if (!service.apply_pending()) return true;
+    if (message != nullptr) *message = "Wi-Fi BSSID update already in progress";
+    return false;
+  });
+}
+
 void MatterFrontend::set_wifi_bssid_pin_setter(WifiBssidPinSetter setter) {
   wifi_bssid_pin_setter_ = std::move(setter);
 }
@@ -132,7 +150,7 @@ bool MatterFrontend::start_direct_service_() {
                 }
                 return accepted;
               },
-              {},
+              wifi_snapshot_getter_,
               &peer_discovery_,
               [this]() { return this->runtime_.diagnostics_sample(); },
               &runtime_events_,

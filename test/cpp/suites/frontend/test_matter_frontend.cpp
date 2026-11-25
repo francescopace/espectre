@@ -9,7 +9,10 @@
  */
 #include "test_harness.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "nvs.h"
 
+#include <cstring>
 #include <vector>
 
 #define private public
@@ -44,6 +47,8 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
 }  // namespace
 
 void setUp(void) {
+  nvs_mock_reset();
+  esp_wifi_mock_reset();
   esp_timer_mock::reset();
   frontend_runtime_shim::reset();
   direct_http_service_mock::reset();
@@ -388,6 +393,61 @@ void test_matter_frontend_raw_session_uses_shared_controller_and_recovers(void) 
                     frontend.runtime_.operation_state());
 }
 
+void test_matter_wifi_reports_the_saved_pin_and_blocks_raw_csi_until_rollback_finishes(void) {
+  esp_timer_mock::reset(0, 0);
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  std::memcpy(g_esp_wifi_mock.current_ap_info.ssid, "MatterLab", sizeof("MatterLab"));
+  const uint8_t ap_bssid[] = {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
+  std::memcpy(g_esp_wifi_mock.current_ap_info.bssid, ap_bssid, sizeof(ap_bssid));
+
+  WifiBssidPinService pins;
+  WifiBssidPinServiceConfig pin_config;
+  pin_config.station_state_getter = []() {
+    const auto wifi = read_direct_wifi_snapshot();
+    return WifiBssidPinStationState{true, wifi.connected, true, wifi.ssid, wifi.bssid};
+  };
+  pin_config.apply_callback = [](const std::string &, std::string *, bool *) { return true; };
+  TEST_ASSERT_EQUAL(ESP_OK, pins.setup(pin_config));
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 11, &direct);
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  frontend.set_runtime_config(config);
+  frontend.set_wifi_bssid_pin_service(pins);
+  TEST_ASSERT_TRUE(frontend.setup());
+  const auto wifi_resource = [&direct]() {
+    return direct.emit_request(DirectRequest{"", "wifi", "{}", "/espectre/v1/wifi", "GET"});
+  };
+  const auto automatic = wifi_resource();
+  TEST_ASSERT_TRUE(automatic.find(R"("bssid":"02:11:22:33:44:55")") != std::string::npos);
+  TEST_ASSERT_TRUE(automatic.find(R"("pinned_bssid":"")") != std::string::npos);
+
+  TEST_ASSERT_TRUE(pins.request_update("02:11:22:33:44:55", nullptr));
+  auto request = direct.emit_deferred_request(
+      1U, DirectRequest{"pin", "set_wifi_bssid", R"({"bssid":"02:AA:BB:CC:DD:EE"})"});
+  TEST_ASSERT_TRUE(static_cast<bool>(request.response_sent_callback));
+  request.response_sent_callback(true);
+  const auto verifying = wifi_resource();
+  TEST_ASSERT_TRUE(verifying.find(R"("apply_state":"verifying")") != std::string::npos);
+  TEST_ASSERT_TRUE(verifying.find(R"("pinned_bssid":"02:11:22:33:44:55")") != std::string::npos);
+  TEST_ASSERT_TRUE(verifying.find("\"apply_message\":\"" + pins.apply_message() + "\"") != std::string::npos);
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
+
+  esp_timer_mock::advance(pin_config.candidate_timeout_ms * 1000LL);
+  pins.loop();
+  TEST_ASSERT_TRUE(wifi_resource().find(R"("apply_state":"rolling_back")") != std::string::npos);
+  TEST_ASSERT_FALSE(direct.emit_raw_session_request());
+  pins.notify_station_changed();
+  pins.loop();
+  TEST_ASSERT_TRUE(wifi_resource().find(R"("apply_state":"rolled_back")") != std::string::npos);
+  TEST_ASSERT_TRUE(direct.emit_raw_session_request());
+  TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::REQUESTED));
+
+  std::memcpy(g_esp_wifi_mock.current_ap_info.ssid, "OtherNet", sizeof("OtherNet"));
+  TEST_ASSERT_TRUE(wifi_resource().find(R"("pinned_bssid":"")") != std::string::npos);
+}
+
 void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   RuntimeConfig config;
   config.device_id = 0x0123456789abcdefULL;
@@ -524,6 +584,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_publishes_sensing_on_both_readiness_edges);
   RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_http);
   RUN_TEST(test_matter_frontend_raw_session_uses_shared_controller_and_recovers);
+  RUN_TEST(test_matter_wifi_reports_the_saved_pin_and_blocks_raw_csi_until_rollback_finishes);
   RUN_TEST(test_matter_direct_exposes_common_wifi_and_node_label_capabilities);
   RUN_TEST(test_matter_frontend_quiesces_sensing_while_wifi_is_reconfigured);
   RUN_TEST(test_matter_surface_mapping_helpers);

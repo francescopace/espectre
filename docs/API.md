@@ -116,7 +116,7 @@ During CSI collection, `mode` is `csi_collection`, `ready` is false, and `derive
 
 ### `wifi`
 
-The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown. Unknown RSSI is `null`. Native and SDK frontends that report pin status also return `pinned_bssid`, `apply_state`, and `apply_message`. An empty `pinned_bssid` means automatic AP selection, even when `bssid` identifies the connected AP. Native also returns `ip`. The station MAC address and credentials are never returned.
+The Direct resource contains `configured`, `connected`, `ssid`, `bssid`, `band`, `channel`, and `rssi_dbm`. `band` is `2g`, `5g`, or empty when unknown. Unknown RSSI is `null`. Native, Matter, and SDK frontends that report pin status also return `pinned_bssid`, `apply_state`, and `apply_message`. An empty `pinned_bssid` means automatic AP selection, even when `bssid` identifies the connected AP. Native also returns `ip`. The station MAC address and credentials are never returned.
 
 The MQTT `wifi` payload leaves out SSID, BSSID, and IP address.
 
@@ -265,7 +265,7 @@ These three routes return `202` before the device disconnects. `data` holds the 
 {"accepted":true,"code":"ok","message":"Wi-Fi BSSID update accepted","data":{"current_bssid":"11:22:33:44:55:66"}}
 ```
 
-If a Wi-Fi change is awaiting acknowledgement, a concurrent `GET /csi` returns HTTP `409`. Native also returns `409` while it verifies the change or restores the previous access point. Retry after the Wi-Fi change finishes.
+If a Wi-Fi change is awaiting acknowledgement, a concurrent `GET /csi` returns HTTP `409`. Native, Matter, and SDK frontends that report `apply_state` also return `409` during `verifying` and `rolling_back`, even if the previous access point is still reachable. Retry after the Wi-Fi change finishes.
 
 ### MQTT configuration
 
