@@ -26,6 +26,7 @@ export const app = [
     'device-session.js',
     'direct-discovery.js',
     'configure-tool.js',
+    'occupancy-comparison.js',
     'monitor-tool.js',
     'csi-tool.js',
     'game-tool.js',

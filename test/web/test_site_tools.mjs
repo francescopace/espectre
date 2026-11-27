@@ -351,7 +351,7 @@ function loadDeviceHttpRuntime({ renderDiagnostics = false } = {}) {
     });
     runSiteScript('docs/web/assets/js/espectre-direct.js', context);
     context.DirectProtocolClient = context.window.ESPectreDirectClient;
-    for (const file of ['device-session', 'monitor-tool', 'configure-tool', 'direct-discovery']) {
+    for (const file of ['device-session', 'occupancy-comparison', 'monitor-tool', 'configure-tool', 'direct-discovery']) {
         runSiteScript(`docs/web/assets/js/${file}.js`, context);
     }
     context.applySysinfo = (snapshot) => context.evaluateConfigVerification(snapshot);
@@ -873,6 +873,211 @@ describe('device HTTP request budgets', () => {
     });
 });
 
+describe('High Accuracy occupancy comparison', () => {
+    function fixture({ onSample, initial = {}, chip = 'ESP32-C6' } = {}) {
+        let now = 0;
+        const storage = new Map();
+        const elements = new Map();
+        const writes = [];
+        const state = { enabled: true, mode: 'sensing', calibrating: false, ready: true, detector: 'lightweight',
+            threshold: 0.62, traffic_generator_mode: 'ping', csi_sample_spacing: 'half_slot', csi_target_pps: 100, ...initial };
+        const before = { ...state };
+        const client = {
+            connected: true,
+            capabilities: { features: { csi_sample_spacing: true }, operations: [{ name: 'update_sensing' }], resources: ['diagnostics'] },
+            async request(method, resource, data) {
+                if (method === 'patch') {
+                    writes.push({ ...data });
+                    if (data.detector) state.threshold = 0.5;
+                    Object.assign(state, data);
+                    return { accepted: true };
+                }
+                if (resource === 'sensing') return { ...state };
+                if (!data.fields) return { fields: [{ name: 'csi_occupancy' }] };
+                assert.equal(state.detector, 'high_accuracy');
+                const occupancy = onSample ? onSample(state, context) :
+                    (state.traffic_generator_mode === 'dns' && state.csi_sample_spacing === 'distinct' ? 0.95 : 0.72);
+                return { timestamp_ms: now, csi_occupancy: occupancy };
+            }
+        };
+        const context = vm.createContext({
+            directClient: client, conn: { deviceId: 'device-A', chip, mode: 'direct' },
+            monitorReportSampling: null, stopDiagnosticsPolling() {}, syncDiagnosticsPolling() {},
+            Date: { now: () => now }, setTimeout: (fn, ms) => { now += ms; queueMicrotask(fn); },
+            localStorage: { getItem: k => storage.get(k) || null, setItem: (k, v) => storage.set(k, v),
+                removeItem: k => storage.delete(k) },
+            $: sel => {
+                if (!elements.has(sel)) elements.set(sel, {
+                    dataset: {}, addEventListener(type, fn) { this[type] = fn; },
+                    removeAttribute(name) { delete this[name]; },
+                    showModal() { this.open = true; }, close() { this.open = false; }
+                });
+                return elements.get(sel);
+            }
+        });
+        runSiteScript('docs/web/assets/js/occupancy-comparison.js', context);
+        const api = vm.runInContext('occupancyComparison', context);
+        api.init();
+        return { client, api, writes, storage, before, state, elements, context };
+    }
+
+    it('confirms a winning pair, restores detector and threshold, and applies only on request', async () => {
+        const f = fixture();
+        const result = await f.api.start('compare');
+        assert.equal(result.rows.length, 8); // Three generators on C6, two spacings, and two confirmations.
+        assert.deepEqual({ ...result.winner }, { traffic_generator_mode: 'dns', csi_sample_spacing: 'distinct' });
+        assert.deepEqual(f.state, f.before);
+        assert.equal(f.storage.size, 0);
+        assert.equal(f.api.report().complete, true);
+        assert.equal(f.api.report().csi_target_pps, 100);
+        assert.deepEqual({ ...f.api.report().recommended }, { ...result.winner });
+        assert.equal(f.elements.get('.js-occ-apply').hidden, false);
+        const count = f.writes.length;
+        await f.api.start('apply');
+        assert.deepEqual(f.writes.slice(count), [{ ...result.winner }]);
+        assert.equal(f.state.detector, 'lightweight');
+        assert.equal(f.state.threshold, 0.62);
+    });
+
+    it('opens live progress, resumes the same run after closing, and keeps its result available', async () => {
+        const progress = [];
+        const estimates = new Set();
+        const f = fixture({ onSample() {
+            const get = f.context.$;
+            const dialog = get('.js-occ-dialog');
+            assert.ok(dialog.open);
+            assert.equal(get('.js-occ-test').dataset.state, 'active');
+            progress.push(get('.js-occ-progress').value);
+            estimates.add(get('.js-occ-eta').textContent);
+            if (progress.length === 2) {
+                get('.js-occ-close').click();
+                assert.equal(dialog.open, false);
+                get('.js-occ-start').click();
+                assert.ok(dialog.open);
+            }
+            return 0.8;
+        } });
+        const get = f.context.$;
+        await get('.js-occ-start').click();
+        assert.ok(progress.some(value => value > 0 && value < get('.js-occ-progress').max));
+        assert.ok(estimates.size > 1);
+        assert.equal(get('.js-occ-test').dataset.state, 'done');
+        assert.equal(get('.js-occ-confirm').dataset.state, 'skipped');
+        assert.equal(get('.js-occ-recover').dataset.state, 'done');
+        assert.ok(get('.js-occ-measure').hidden);
+        get('.js-occ-close').click();
+        const writes = f.writes.length;
+        await get('.js-occ-start').click();
+        assert.ok(get('.js-occ-dialog').open);
+        assert.equal(f.writes.length, writes);
+    });
+
+    it('keeps the original pair on a tie and excludes stale samples', async () => {
+        const f = fixture({ onSample: () => 0.8 });
+        f.client.request = ((request) => async (...args) => {
+            const response = await request(...args);
+            if (response.timestamp_ms !== undefined && f.state.csi_sample_spacing === 'distinct') response.timestamp_ms = 42;
+            return response;
+        })(f.client.request);
+        const result = await f.api.start('compare');
+        assert.ok(result.rows.some(row => row.reason === 'Insufficient fresh samples'));
+        assert.ok(!result.winner);
+        assert.deepEqual(f.state, f.before);
+    });
+
+    for (const [scenario, original, rawMedian, rawP10, expected] of [
+        ['switches from ping at the raw preference limits', 'ping', 0.97, 0.91, 'wifi_raw'],
+        ['keeps raw at comparable occupancy', 'wifi_raw', 0.97, 0.91, null],
+        ['chooses ping when raw falls behind on median', 'dns', 0.969, 0.96, 'ping'],
+        ['chooses ping when raw falls behind on P10', 'wifi_raw', 0.98, 0.909, 'ping'],
+    ]) {
+        it(scenario, async () => {
+            let samples = 0;
+            const f = fixture({ chip: 'ESP32-C5', initial: { traffic_generator_mode: original }, onSample: state => {
+                const lowerTail = samples++ % 30 < 5;
+                if (state.traffic_generator_mode === 'ping') return lowerTail ? 0.96 : 0.98;
+                if (state.traffic_generator_mode === 'wifi_raw' && state.csi_sample_spacing === 'half_slot')
+                    return lowerTail ? rawP10 : rawMedian;
+                return 0.75;
+            } });
+            await f.api.start('compare');
+            const report = f.api.report();
+            assert.equal(report.recommended?.traffic_generator_mode ?? null, expected);
+            if (expected) {
+                assert.equal(report.recommended.csi_sample_spacing, 'half_slot');
+                assert.deepEqual(Array.from(report.measurements.filter(row => row.repeat), row => row.traffic_generator_mode),
+                    [original, expected]);
+            }
+            assert.deepEqual(f.state, f.before);
+        });
+    }
+
+    it('withholds raw when confirmation falls behind a competing source despite beating the original', async () => {
+        let samples = 0;
+        const f = fixture({ chip: 'ESP32-C5', initial: { traffic_generator_mode: 'external' }, onSample: state => {
+            if (state.traffic_generator_mode === 'ping') return 0.98;
+            if (state.traffic_generator_mode === 'wifi_raw' && state.csi_sample_spacing === 'distinct')
+                return ++samples <= 30 ? 0.98 : 0.90;
+            return 0.40;
+        } });
+        await f.api.start('compare');
+        const report = f.api.report();
+        assert.equal(report.measurements.at(-1).traffic_generator_mode, 'wifi_raw');
+        assert.equal(report.measurements.at(-1).repeat, true);
+        assert.equal(report.recommended, null);
+        assert.deepEqual(f.state, f.before);
+    });
+
+    it('withholds a recommendation when the second measurement loses its advantage', async () => {
+        let winnerSamples = 0;
+        const f = fixture({ onSample: state => {
+            if (state.traffic_generator_mode !== 'dns' || state.csi_sample_spacing !== 'distinct') return 0.70;
+            return ++winnerSamples <= 30 ? 0.90 : 0.70;
+        } });
+        const result = await f.api.start('compare');
+        assert.equal(result.rows.filter(row => row.repeat).length, 2);
+        assert.ok(!result.winner);
+        assert.deepEqual(f.state, f.before);
+    });
+
+    it('restores on cancellation and retries recovery only for the matching device', async () => {
+        let cancel = true;
+        const f = fixture({ onSample: () => {
+            if (cancel) f.elements.get('.js-occ-cancel').click();
+            else f.client.connected = false;
+            return 0.75;
+        } });
+        let result = await f.api.start('compare');
+        assert.match(result.status, /cancelled/i);
+        assert.deepEqual(f.state, f.before);
+        cancel = false;
+        result = await f.api.start('compare');
+        assert.match(result.status, /restoration pending/i);
+        assert.equal(f.storage.size, 1);
+        f.client.connected = true;
+        f.context.conn.deviceId = 'device-B';
+        assert.equal(await f.api.start('restore'), undefined);
+        assert.equal(f.state.detector, 'high_accuracy');
+        f.context.conn.deviceId = 'device-A';
+        await f.api.start('restore');
+        assert.deepEqual(f.state, f.before);
+        assert.equal(f.storage.size, 0);
+    });
+
+    it('leaves read-only devices alone and rejects an obsolete recommendation', async () => {
+        const f = fixture();
+        f.client.capabilities.features.csi_sample_spacing = false;
+        await f.api.start('compare');
+        assert.equal(f.writes.length, 0);
+        f.client.capabilities.features.csi_sample_spacing = true;
+        await f.api.start('compare');
+        f.state.threshold = 0.78;
+        const count = f.writes.length;
+        await f.api.start('apply');
+        assert.equal(f.writes.length, count);
+    });
+});
+
 describe('Web Monitor diagnostic report', () => {
     it('calculates min, median, and max for sampled rate values', () => {
         const runtime = loadDeviceHttpRuntime();
@@ -1318,7 +1523,7 @@ function loadDemoMonitor() {
         monitorEditOrCancel() {}, startMonitorDeviceNameEdit() {},
         monitorPublishCommand() { assert.fail('Demo must not send device commands'); },
     });
-    for (const file of ['device-session', 'monitor-tool']) {
+    for (const file of ['device-session', 'occupancy-comparison', 'monitor-tool']) {
         runSiteScript(`docs/web/assets/js/${file}.js`, context);
     }
     const state = vm.runInContext('conn', context);

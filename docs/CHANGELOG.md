@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [3.3.0] - Work in progress
 
 - The Web Monitor can copy or download a local diagnostic report with 30-second CSI and Wi-Fi statistics, recent motion and faults, redacted device state, and browser and site versions.
+- The Web Monitor compares CSI occupancy across traffic sources and packet spacing in High Accuracy, restores the original settings, and offers to apply the confirmed recommendation. Auto-tune shows progress and estimated testing time, and prefers raw Wi-Fi when occupancy is comparable.
 - **Micro** sends a single valid CORS origin on Direct responses so the Web Monitor can open the event stream and collect a diagnostic report.
 
 ---

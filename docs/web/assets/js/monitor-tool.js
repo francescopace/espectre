@@ -334,7 +334,7 @@
     }
 
     function syncDiagnosticsPolling() {
-        const canPoll = diagnosticsPanelOpen()
+        const canPoll = !occupancyComparison.busy() && diagnosticsPanelOpen()
             && (conn.mode === 'demo' || conn.mode === 'direct');
         if (!canPoll) {
             stopDiagnosticsPolling();
@@ -813,7 +813,7 @@
         sampleDurationSec = 30,
         sampleIntervalMs = 1000
     } = {}) {
-        if (monitorReportSampling) return Promise.resolve(null);
+        if (monitorReportSampling || occupancyComparison.busy()) return Promise.resolve(null);
         const mode = conn.mode;
         const direct = mode === 'direct';
         const client = directClient;
@@ -867,6 +867,7 @@
                     if (samplingState.timer) clearTimeout(samplingState.timer);
                     controller.abort();
                     monitorReportSampling = null;
+                    occupancyComparison.sync();
                     if (progressEl) progressEl.hidden = true;
                     if (startBtn) {
                         startBtn.disabled = false;
@@ -877,6 +878,7 @@
                 }
             };
             monitorReportSampling = samplingState;
+            occupancyComparison.sync();
 
             const isCurrent = () => {
                 if (monitorReportSampling !== samplingState) return false;
@@ -998,6 +1000,7 @@
                     wifi = { ssid: 'DemoNetwork', sta_ip: '192.168.1.50', sta_mac: '30:ae:a4:07:0a:24', wifi_channel: 6, password_configured: true };
                 }
 
+                const comparison = occupancyComparison.report();
                 const rawReport = {
                     timestamp: new Date().toISOString(),
                     sampling: {
@@ -1010,6 +1013,7 @@
                         wifi_rssi_dbm: calculateRateStats(samples.wifi_rssi_dbm)
                     },
                     diagnostics,
+                    ...(comparison ? { occupancy_comparison: comparison } : {}),
                     last_motion: session?.motion ?? null,
                     fault_events: session ? session.faults.slice() : [],
                     capabilities,
@@ -1043,6 +1047,7 @@
                 if (startBtn) startBtn.disabled = false;
                 if (copyBtn && typeof copyBtn.focus === 'function') copyBtn.focus();
                 monitorReportSampling = null;
+                occupancyComparison.sync();
                 toast(samplesCollected ? 'Diagnostic report ready.' : 'No diagnostic samples received. The report contains device state only.');
                 resolve(sanitized);
             };
@@ -1111,6 +1116,7 @@
     }
 
     function monitorInit() {
+        occupancyComparison.init();
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);

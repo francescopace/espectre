@@ -106,6 +106,15 @@
               </details>
             </div>
           </div>
+          <section class="live-auto-tune js-occ-panel" aria-labelledby="auto-tune-title" hidden>
+            <div class="live-calibration">
+              <div>
+                <strong id="auto-tune-title">Tune CSI occupancy</strong>
+                <p id="auto-tune-hint">Compare traffic sources and packet spacing in High Accuracy. Keep this tab open for 5–8 minutes. Review the recommendation before applying it.</p>
+              </div>
+              <button type="button" class="btn-secondary btn-sm js-occ-start" aria-haspopup="dialog" aria-controls="auto-tune-dialog" aria-describedby="auto-tune-hint">Auto-tune</button>
+            </div>
+          </section>
         </section>
       </div>
 
@@ -154,3 +163,33 @@
     </section>
   </div>
 </div>
+
+<dialog id="auto-tune-dialog" class="modal-card auto-tune-dialog js-occ-dialog" aria-labelledby="auto-tune-heading">
+  <div class="modal-head">
+    <h2 id="auto-tune-heading" tabindex="-1" autofocus>Auto-tune CSI occupancy</h2>
+    <button type="button" class="modal-close js-occ-close" aria-label="Close auto-tune">×</button>
+  </div>
+  <p class="modal-description">Keep this tab open while the device tests. You can hide this window and return to it from Motion settings.</p>
+  <ol class="auto-tune-steps js-occ-steps" aria-label="Auto-tune steps">
+    <li><span>Prepare High Accuracy mode</span><small class="js-occ-prepare"></small></li>
+    <li><span>Measure traffic sources and spacing</span><small class="js-occ-test"></small></li>
+    <li><span>Confirm a candidate, if found</span><small class="js-occ-confirm"></small></li>
+    <li><span>Restore your original settings</span><small class="js-occ-recover"></small></li>
+  </ol>
+  <p class="auto-tune-status js-occ-status" role="status"></p>
+  <div class="auto-tune-measure js-occ-measure" hidden>
+    <div class="auto-tune-metrics"><span class="js-occ-sample-count"></span><span class="js-occ-eta"></span></div>
+    <progress class="js-occ-progress" aria-label="Current measurement"></progress>
+    <small class="js-occ-clock"></small>
+  </div>
+  <details class="config-advanced js-occ-detail" hidden>
+    <summary>Measurement results</summary>
+    <pre class="diag-report-preview js-occ-results" tabindex="0" aria-label="Median and 10th percentile CSI occupancy"></pre>
+  </details>
+  <div class="modal-actions">
+    <button type="button" class="btn-secondary btn-sm js-occ-cancel" hidden>Cancel and restore</button>
+    <button type="button" class="btn-secondary btn-sm js-occ-again" hidden>Run again</button>
+    <button type="button" class="btn-primary btn-sm js-occ-restore" hidden>Restore settings</button>
+    <button type="button" class="btn-primary btn-sm js-occ-apply" hidden>Apply recommended settings</button>
+  </div>
+</dialog>

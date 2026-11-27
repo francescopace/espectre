@@ -2189,6 +2189,26 @@ body.modal-open { overflow: hidden; }
 .live-calibration strong { display: block; font-size: 12px; }
 .empty-state .live-calibration p,
 .live-calibration p { margin: 2px 0 0; color: var(--dim); font-size: 11px; line-height: 1.4; }
+.live-auto-tune { margin-top: 12px; }
+.live-auto-tune .live-calibration button { flex-shrink: 0; }
+body:has(.auto-tune-dialog[open]) { overflow: hidden; }
+.auto-tune-dialog { width: min(520px, calc(100% - 24px)); margin: auto; color: var(--text); overscroll-behavior: contain; }
+.auto-tune-dialog::backdrop { background: rgba(8, 12, 20, .56); backdrop-filter: blur(6px); }
+.auto-tune-dialog h2[tabindex="-1"]:focus { outline: none; }
+.auto-tune-steps { margin: 0; padding: 0; list-style: none; counter-reset: tune-step; }
+.auto-tune-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; counter-increment: tune-step; }
+.auto-tune-steps li::before { content: counter(tune-step); display: grid; place-items: center; height: 22px; border-radius: 50%; color: var(--dim); background: var(--surface2); font: 11px var(--font-mono); }
+.auto-tune-steps li:has([data-state="active"])::before { color: var(--on-accent); background: var(--accent); }
+.auto-tune-steps li:has([data-state="done"])::before { content: '✓'; color: var(--text); background: var(--ok-soft); }
+.auto-tune-steps small, .auto-tune-measure small { color: var(--dim); }
+.auto-tune-steps [data-state="active"] { color: var(--accent); font-weight: 600; }
+.auto-tune-status { margin: 16px 0 10px; font-size: 14px; font-weight: 600; }
+.auto-tune-measure { padding: 12px; background: var(--surface2); border-radius: 10px; font-size: 13px; }
+.auto-tune-metrics { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; font-variant-numeric: tabular-nums; }
+.auto-tune-measure progress { display: block; width: 100%; height: 10px; margin: 8px 0; accent-color: var(--accent); }
+.auto-tune-dialog details { margin-top: 12px; }
+.auto-tune-dialog .diag-report-preview { border: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.auto-tune-dialog .modal-actions:not(:has(button:not([hidden]))) { display: none; }
 .device-live-diagnostics { margin-top: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .device-live-diagnostics > summary {
   display: flex;
@@ -4020,6 +4040,7 @@ body.modal-open { overflow: hidden; }
   .device-motion-score strong { font-size: 20px; }
   .live-controls-grid { grid-template-columns: minmax(0, 1fr); }
   .live-control-wide { grid-column: auto; }
+  .auto-tune-dialog .modal-actions { grid-template-columns: 1fr; }
   .live-calibration { align-items: stretch; flex-direction: column; }
   .diag-report-card { align-items: stretch; flex-direction: column; }
   .diag-report-result-header { align-items: stretch; flex-direction: column; }

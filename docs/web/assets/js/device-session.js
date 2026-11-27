@@ -346,6 +346,7 @@
     }
 
     function syncSensingControls() {
+        occupancyComparison.sync();
         syncTrafficGeneratorOptions();
         const detector = document.getElementById('sense-detector')?.value;
         const trafficMode = document.getElementById('sense-generator-mode')?.value;
