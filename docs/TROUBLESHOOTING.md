@@ -136,4 +136,6 @@ Once connected, go back to [Check the sensing input](#check-the-sensing-input).
 
 ## Diagnostic report
 
-When opening an issue or troubleshooting with maintainers, open [Live motion](https://espectre.dev/tools/monitor/), expand **Diagnostics**, and select **Diagnostic report**. The monitor samples key rates (occupancy, accepted, filtered, and hardware errors) for 30 seconds and bundles device capabilities, health, sensing, Wi-Fi, and session faults. Private network identifiers (passwords, credentials, SSIDs, device names, hostnames, and IP/MAC addresses) are automatically redacted in the browser before generating the report, making the fenced JSON safe to copy directly into GitHub issues.
+In [Live motion](https://espectre.dev/tools/monitor/), expand **Diagnostics** and select **Generate report**. The monitor samples CSI occupancy, packet rates, and Wi-Fi signal for 30 seconds. It includes the latest motion observed on this connection and its fault events. The report uses the diagnostic fields advertised by the connected firmware. If no samples arrive, the report still includes device state and marks sampling as `no_samples`. A measured rate of zero is a valid sample.
+
+The browser masks device and network identifiers before displaying the preview. Review it, then select **Copy fenced JSON** to paste it into an issue, or **Download JSON** to save a file.

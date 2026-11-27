@@ -943,6 +943,104 @@ describe('Web Monitor diagnostic report', () => {
         );
     });
 
+    it('masks IPv6 identifiers and suppresses text when an identity read fails', () => {
+        const { context } = loadDeviceHttpRuntime();
+        const report = context.redactDiagnosticReport({
+            device: { name: 'Office' }, wifi: { ssid: 'Guest' },
+            diagnostics: { recent_logs: [{ message: 'Peers [fe80::1234%en0], ::ffff:10.20.30.40 and ff02::1 via ::1. Peer 2001:db8::2.' }] }
+        });
+        assert.equal(report.diagnostics.recent_logs[0].message,
+            'Peers [<redacted_ipv6>], <redacted_ipv6> and ff02::1 via ::1. Peer <redacted_ipv6>.');
+        for (const resource of [{ device: {}, wifi: { ssid: 'Guest' } }, { device: { name: 'Office' }, wifi: {} }]) {
+            const partial = context.redactDiagnosticReport({
+                ...resource, fault_events: [{ fault: { message: 'Office failed to join Guest at 10.20.30.40' } }]
+            });
+            assert.equal(partial.fault_events[0].fault.message, '[REDACTED]');
+        }
+    });
+
+    it('redacts short and overlapping identities in messages while retaining protocol identifiers', () => {
+        const { context } = loadDeviceHttpRuntime();
+        const capabilities = {
+            resources: ['sensing'], events: ['fault'],
+            operations: [{ name: 'update_sensing', method: 'PATCH', path: 'sensing', fields: ['threshold'] }]
+        };
+        const report = context.redactDiagnosticReport({
+            device: { name: 'TV', label: 'T' },
+            wifi: { ssid: 'TV.[1]', apply_message: 'TV / t / tv.[1]' },
+            fault_events: [{ fault: { message: 't / TV' } }],
+            capabilities
+        });
+        assert.equal(report.wifi.apply_message, '<redacted_name> / <redacted_label> / <redacted_ssid>');
+        assert.equal(report.fault_events[0].fault.message, '<redacted_label> / <redacted_name>');
+        assert.deepEqual(JSON.parse(JSON.stringify(report.capabilities)), capabilities);
+
+        const collision = context.redactDiagnosticReport({
+            device: { name: 'update_sensing' }, wifi: { ssid: 'AB', apply_message: 'Connected to AB' }, capabilities
+        });
+        assert.equal(collision.capabilities.operations[0].name, 'update_sensing');
+        assert.equal(collision.wifi.apply_message, 'Connected to <redacted_ssid>');
+    });
+
+    it('exports faults only from the current Direct session', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        runtime.context.$ = () => null;
+        const client = () => ({ connected: true, request: async (_method, resource) => {
+            if (resource === 'device') return { name: 'Example' };
+            if (resource === 'wifi') return { ssid: 'Guest' };
+            return { csi_accepted_pps: 0 };
+        } });
+        runtime.setClient(client());
+        runtime.context.ingestDirectEvent('fault', { code: 'old_device' });
+        runtime.setClient(client());
+        runtime.context.ingestDirectEvent('fault', { code: 'current_device' });
+        const result = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 1 });
+        await runtime.nextTimer();
+        const report = await result;
+        assert.deepEqual(Array.from(report.fault_events, event => event.fault.code), ['current_device']);
+        assert.equal(report.sampling.status, 'complete');
+        assert.equal(report.sampling.rates.csi_accepted_pps.median, 0);
+    });
+
+    it('keeps a cancelled resource read from publishing over a new report', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        const result = { hidden: true };
+        runtime.context.$ = selector => selector === '.js-mon-report-result' ? result : null;
+        let finishRead;
+        runtime.setClient({ connected: true, request: async (_method, resource) => {
+            if (resource === 'device') return new Promise(resolve => { finishRead = resolve; });
+            return { csi_accepted_pps: 1 };
+        } });
+        const first = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 1 });
+        await runtime.nextTimer();
+        runtime.context.monitorCancelDiagnosticReport();
+        assert.equal(await first, null);
+        const second = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 3 });
+        finishRead({ name: 'old device' });
+        await runtime.nextTimer();
+        assert.equal(result.hidden, true);
+        runtime.context.monitorCancelDiagnosticReport();
+        assert.equal(await second, null);
+    });
+
+    it('flags a report with device state but no usable diagnostic samples', async () => {
+        const runtime = loadDeviceHttpRuntime();
+        runtime.context.$ = () => null;
+        let polls = 0;
+        runtime.setClient({ connected: true, request: async (_method, resource) => {
+            if (resource === 'device') return { frontend: 'native' };
+            if (resource === 'diagnostics' && ++polls === 1) throw new Error('timeout');
+            return { csi_accepted_pps: null };
+        } });
+        const pending = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 1 });
+        await runtime.nextTimer();
+        const report = await pending;
+        assert.equal(report.device.frontend, 'native');
+        assert.equal(report.sampling.samples_collected, 0);
+        assert.equal(report.sampling.status, 'no_samples');
+        assert.equal(report.sampling.rates.csi_accepted_pps.median, null);
+    });
+
     it('samples diagnostics rates, gathers resources, and exposes copy/download actions', async () => {
         const runtime = loadDeviceHttpRuntime();
         const elements = new Map();
@@ -973,7 +1071,10 @@ describe('Web Monitor diagnostic report', () => {
             csi_occupancy: 0.85,
             csi_accepted_pps: 98.5,
             csi_filtered_pps: 1.2,
-            csi_hw_error_pps: 0.0
+            csi_hw_error_pps: 0.0,
+            wifi_rssi_dbm: -68,
+            csi_missing_slots_pps: 0,
+            wifi_channel: 6
         };
 
         const requests = [];
@@ -981,7 +1082,11 @@ describe('Web Monitor diagnostic report', () => {
             connected: true,
             request: async (method, resource, params) => {
                 requests.push([method, resource, params]);
-                if (resource === 'diagnostics') return diagnosticsData;
+                if (resource === 'diagnostics') {
+                    if (!params.fields) return { fields: Object.keys(diagnosticsData).map(name => ({ name })) };
+                    assert.ok(params.fields.every(field => Object.hasOwn(diagnosticsData, field)));
+                    return Object.fromEntries(params.fields.map(name => [name, diagnosticsData[name]]));
+                }
                 if (resource === 'device') return { name: 'Sensor 1', device_id: '1122334455667788' };
                 if (resource === 'wifi') return { ssid: 'LabWiFi', sta_ip: '10.0.0.45', sta_mac: '12:34:56:78:9a:bc' };
                 return {};
@@ -989,8 +1094,10 @@ describe('Web Monitor diagnostic report', () => {
         });
 
         runtime.run("route = 'tool-monitor'");
-        runtime.context.recordMonitorFault({ message: 'Synthetic fault', code: 42 });
+        runtime.context.ingestDirectEvent('fault', { message: 'Synthetic fault', code: 42 });
 
+        runtime.context.window.navigator = { userAgent: 'Chrome/151.0.0.0' };
+        runSiteScript('docs/web/assets/js/browser-support.js', runtime.context);
         const reportPromise = runtime.context.monitorStartDiagnosticReport({
             sampleDurationSec: 1,
             sampleIntervalMs: 1000
@@ -1011,6 +1118,10 @@ describe('Web Monitor diagnostic report', () => {
         const json = element('.js-mon-report-preview').textContent;
         assert.ok(json.length > 0);
 
+        assert.equal(report.client.browser_version, '151.0.0.0');
+        assert.equal(report.diagnostics.csi_missing_slots_pps, 0);
+        assert.equal(report.diagnostics.wifi_channel, 6);
+        assert.equal(report.sampling.wifi_rssi_dbm.min, -68);
         assert.equal(report.sampling.duration_seconds, 1);
         assert.equal(report.sampling.rates.csi_accepted_pps.min, 98.5);
         assert.equal(report.sampling.rates.csi_accepted_pps.max, 98.5);
@@ -1019,6 +1130,25 @@ describe('Web Monitor diagnostic report', () => {
         assert.equal(report.wifi.sta_ip, '10.0.x.x');
         assert.equal(report.fault_events.length, 1);
         assert.equal(report.fault_events[0].fault.message, 'Synthetic fault');
+
+        let copied;
+        runtime.context.navigator = { clipboard: { writeText: async value => { copied = value; } } };
+        await runtime.context.monitorCopyDiagnosticReport();
+        assert.equal(copied, '```json\n' + json + '\n```');
+
+        let downloaded;
+        const link = { click() { this.clicked = true; } };
+        runtime.context.Blob = Blob;
+        runtime.context.URL = class extends URL {
+            static createObjectURL(blob) { downloaded = blob; return 'blob:report'; }
+            static revokeObjectURL() {}
+        };
+        runtime.context.document.createElement = () => link;
+        runtime.context.document.body = { appendChild() {}, removeChild() {} };
+        runtime.context.monitorDownloadDiagnosticReport();
+        assert.equal(link.clicked, true);
+        assert.equal(await downloaded.text(), json);
+        assert.equal(downloaded.type, 'application/json');
 
         const pendingPromise = runtime.context.monitorStartDiagnosticReport({ sampleDurationSec: 5, sampleIntervalMs: 1000 });
         assert.equal(element('.js-mon-report-progress').hidden, false);

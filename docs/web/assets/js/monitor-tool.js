@@ -51,8 +51,7 @@
         calibrating: false,
         calibrationTimer: null,
         rawTargetSavePending: null,
-        rawTargetDiscovery: null,
-        sessionFaults: []
+        rawTargetDiscovery: null
     };
 
     function monitorStatus(message) {
@@ -83,6 +82,11 @@
     }
 
     function resetMonitorLiveView() {
+        const session = directResourceSessions.get(directClient);
+        if (session) {
+            session.faults.length = 0;
+            session.motion = null;
+        }
         monitorResetChart();
         const stateEl = $('.js-mon-state');
         if (stateEl) {
@@ -270,7 +274,6 @@
                 duration_seconds: Math.max(0, Math.round((Date.now() - monitor.connectedAt) / 1000))
             });
         }
-        resetMonitorReportView();
         resetMonitorSession();
     }
 
@@ -638,15 +641,6 @@
     let monitorReportSampling = null;
     let monitorReportJson = '';
 
-    function recordMonitorFault(data) {
-        if (!monitor.sessionFaults) monitor.sessionFaults = [];
-        monitor.sessionFaults.push({
-            at: Date.now(),
-            timestamp: new Date().toISOString(),
-            fault: data && typeof data === 'object' ? { ...data } : data
-        });
-    }
-
     function calculateRateStats(values) {
         const numbers = (values || [])
             .filter((v) => typeof v === 'number' && Number.isFinite(v))
@@ -664,105 +658,128 @@
     }
 
     function isMulticastOrBroadcastMac(mac) {
-        const clean = mac.toLowerCase();
-        if (clean === 'ff:ff:ff:ff:ff:ff' || clean === 'ff-ff-ff-ff-ff-ff') return true;
-        if (clean.startsWith('01:00:5e') || clean.startsWith('01-00-5e') || clean.startsWith('33:33')) return true;
-        return false;
+        return (parseInt(mac.slice(0, 2), 16) & 1) === 1;
     }
 
     function isMulticastOrLoopbackIp(ip) {
-        if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' || ip === '255.255.255.255') return true;
+        if (ip.startsWith('127.') || ip === '::1' || ip === '0.0.0.0' || ip === '255.255.255.255') return true;
         const first = parseInt(ip.split('.')[0], 10);
         if (first >= 224 && first <= 239) return true;
         return false;
     }
 
-    function redactMacAddress(value) {
-        return value.replace(/\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, (match) => {
-            if (isMulticastOrBroadcastMac(match)) return match;
-            const sep = match.includes(':') ? ':' : '-';
-            const parts = match.split(sep);
-            return `${parts[0]}${sep}${parts[1]}${sep}**${sep}**${sep}**${sep}**`;
-        });
-    }
-
-    function redactIpv4Address(value) {
-        return value.replace(/\b((?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)\.){3}(?:1\d\d|2[0-4]\d|25[0-5]|[1-9]\d|\d)\b/g, (match) => {
-            if (isMulticastOrLoopbackIp(match)) return match;
-            const parts = match.split('.');
-            return `${parts[0]}.${parts[1]}.x.x`;
-        });
-    }
-
     function redactDiagnosticReport(data) {
         if (!data || typeof data !== 'object') return data;
 
-        const sensitiveTerms = [];
-        const addTerm = (val, replacement) => {
-            if (typeof val === 'string' && val.trim().length >= 3) {
-                const escaped = val.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                sensitiveTerms.push({ pattern: new RegExp(escaped, 'gi'), replacement });
-            }
-        };
-
-        if (data.wifi && typeof data.wifi === 'object') {
-            addTerm(data.wifi.ssid, '<redacted_ssid>');
-            addTerm(data.wifi.sta_ssid, '<redacted_ssid>');
-            addTerm(data.wifi.ap_ssid, '<redacted_ssid>');
-        }
-        if (data.device && typeof data.device === 'object') {
-            addTerm(data.device.name, '<redacted_name>');
-            addTerm(data.device.label, '<redacted_label>');
-            addTerm(data.device.hostname, '<redacted_hostname>');
+        const terms = new Map();
+        for (const [value, replacement] of [
+            [data.wifi?.ssid, '<redacted_ssid>'],
+            [data.wifi?.sta_ssid, '<redacted_ssid>'],
+            [data.wifi?.ap_ssid, '<redacted_ssid>'],
+            [data.device?.name, '<redacted_name>'],
+            [data.device?.label, '<redacted_label>'],
+            [data.device?.hostname, '<redacted_hostname>'],
+            [data.device?.device_id, '<redacted_id>']
+        ]) {
+            if (typeof value !== 'string' || !value.length) continue;
+            const term = value.toLowerCase();
+            if (!terms.has(term)) terms.set(term, replacement);
         }
 
-        const sanitizeText = (str) => {
-            if (typeof str !== 'string') return str;
-            let out = str;
-            for (const { pattern, replacement } of sensitiveTerms) {
-                out = out.replace(pattern, replacement);
+        const secretKey = /password|passphrase|secret|token|api_key|private_key|credentials/i;
+        function collectSecrets(obj, withinSecret = false) {
+            for (const [key, val] of Object.entries(obj)) {
+                const secret = withinSecret || secretKey.test(key);
+                if (secret && typeof val === 'string' && val) terms.set(val.toLowerCase(), '[REDACTED]');
+                if (val && typeof val === 'object') collectSecrets(val, secret);
             }
-            out = out.replace(/\b[a-zA-Z0-9][-a-zA-Z0-9]*\.local\b/gi, '<redacted_hostname>.local');
-            out = redactMacAddress(out);
-            out = redactIpv4Address(out);
-            return out;
+        }
+        collectSecrets(data);
+
+        // Match once, longest identity first, so short names cannot alter a longer match or a placeholder.
+        const identities = [...terms.keys()].sort((a, b) => b.length - a.length)
+            .map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const identityAvailable = Boolean(data.device?.name && (data.wifi?.ssid || data.wifi?.sta_ssid));
+        const patterns = [
+            /(?<ipv6>(?<![\da-f:])(?:[\da-f]{0,4}:){2,}[\da-f:]*(?:\.[\da-f]+)*(?:%[\w-]+(?:\.[\w-]+)*)?)(?![\da-f:])/.source,
+            /(?<mac>\b(?:[\da-f]{2}[:-]){5}[\da-f]{2}\b)/.source,
+            /(?<ip>\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b)/.source,
+            /(?<hostname>\b(?:[a-z\d][-a-z\d]*\.)+local\b)/.source
+        ];
+        const addresses = new RegExp('^(?:' + patterns.join('|') + ')$', 'i');
+        const sensitive = new RegExp([...patterns, ...identities].join('|'), 'gi');
+        const replacement = (match, ipv6, mac, ip, hostname) => {
+            if (ipv6) {
+                // A colon-separated MAC or timestamp can also match the IPv6 candidate.
+                if (/^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(ipv6)) mac = ipv6;
+                else {
+                    const address = ipv6.split('%')[0];
+                    try {
+                        const host = new URL('http://[' + address + ']/').hostname;
+                        return host === '[::1]' || host === '[::]' || host.startsWith('[ff')
+                            ? address : '<redacted_ipv6>';
+                    } catch {
+                        if (address.includes('::') || address.split(':').length >= 8) return '<redacted_ipv6>';
+                        return terms.get(match.toLowerCase()) ?? match;
+                    }
+                }
+            }
+            if (mac) {
+                if (isMulticastOrBroadcastMac(mac)) return mac;
+                return mac.slice(0, 5) + (mac[2] + '**').repeat(4);
+            }
+            if (ip) return isMulticastOrLoopbackIp(ip) ? ip : ip.split('.').slice(0, 2).join('.') + '.x.x';
+            if (hostname) return '<redacted_hostname>.local';
+            return terms.get(match.toLowerCase());
         };
 
-        const transform = (key, val) => {
-            const lowerKey = (key || '').toLowerCase();
+        // These fields contain protocol tokens or report metadata even if a user picks the same name.
+        const structuredStrings = new Set([
+            'capabilities.resources', 'capabilities.events', 'capabilities.protocol_version',
+            'capabilities.operations.name', 'capabilities.operations.method', 'capabilities.operations.path',
+            'capabilities.operations.fields', 'sampling.status', 'timestamp', 'fault_events.timestamp',
+            'device.firmware_version', 'diagnostics.esp_idf_version', 'diagnostics.firmware_build_date',
+            'diagnostics.recent_logs.level', 'last_motion.state',
+            'device.chip', 'device.frontend', 'device.firmware', 'device.csi_profile', 'health.status',
+            'wifi.band', 'wifi.apply_state', 'sensing.mode', 'sensing.detector', 'sensing.traffic_generator_mode',
+            'sensing.csi_sample_spacing'
+        ]);
+
+        const transform = (key, val, path) => {
+            const lowerKey = key.toLowerCase();
 
             if (lowerKey === 'credentials' || lowerKey.endsWith('_credentials')) {
                 return undefined;
             }
 
-            if (lowerKey.includes('password') || lowerKey.includes('passphrase') || lowerKey.includes('secret') || lowerKey.includes('token') || lowerKey.includes('api_key') || lowerKey.includes('private_key')) {
+            if (secretKey.test(lowerKey)) {
                 if (typeof val === 'boolean') return val;
-                if (val && typeof val === 'string') return '[REDACTED]';
-                if (val && typeof val === 'object') return undefined;
-                return val;
+                return val == null ? val : '[REDACTED]';
             }
 
-            if (lowerKey === 'name' && typeof val === 'string') return '<redacted_name>';
-            if (lowerKey === 'label' && typeof val === 'string') return '<redacted_label>';
+            if (path === 'device.name' && typeof val === 'string') return '<redacted_name>';
+            if (path === 'device.label' && typeof val === 'string') return '<redacted_label>';
             if (lowerKey === 'hostname' && typeof val === 'string') return '<redacted_hostname>';
-            if (lowerKey === 'ssid' && typeof val === 'string') return '<redacted_ssid>';
+            if (['ssid', 'sta_ssid', 'ap_ssid'].includes(lowerKey) && typeof val === 'string') return '<redacted_ssid>';
 
-            if (lowerKey === 'device_id' && typeof val === 'string' && val.length >= 8) {
-                return `${val.slice(0, 4)}...${val.slice(-4)}`;
+            if (lowerKey === 'device_id' && typeof val === 'string') {
+                return val.length > 8 ? `${val.slice(0, 4)}...${val.slice(-4)}` : '<redacted_id>';
             }
 
             if (typeof val === 'string') {
-                return sanitizeText(val);
+                if (structuredStrings.has(path)) return val;
+                if (!identityAvailable && !addresses.test(val)) return '[REDACTED]';
+                return val.replace(sensitive, replacement);
             }
 
             if (Array.isArray(val)) {
-                return val.map((item) => transform(key, item)).filter((item) => item !== undefined);
+                return val.map((item) => transform(key, item, path)).filter((item) => item !== undefined);
             }
 
             if (val && typeof val === 'object') {
                 const result = {};
                 for (const [k, v] of Object.entries(val)) {
-                    const transformed = transform(k, v);
+                    const transformed = transform(k, v, path ? path + '.' + k : k);
                     if (transformed !== undefined) result[k] = transformed;
                 }
                 return result;
@@ -771,7 +788,7 @@
             return val;
         };
 
-        return transform('root', data);
+        return transform('', data, '');
     }
 
     function monitorCancelDiagnosticReport({ silent = false } = {}) {
@@ -799,15 +816,18 @@
         if (monitorReportSampling) return Promise.resolve(null);
         const mode = conn.mode;
         const direct = mode === 'direct';
+        const client = directClient;
         if (!direct && mode !== 'demo') {
             toast('Connect to a device before generating a diagnostic report.');
             return Promise.resolve(null);
         }
-        if (direct && !directClient?.connected) {
+        if (direct && !client?.connected) {
             toast('Direct HTTP connection is not ready. Connect and try again.');
             return Promise.resolve(null);
         }
 
+        const session = direct ? directResourceSession(client) : null;
+        monitorReportJson = '';
         const startBtn = $('.js-mon-report-start');
         if (startBtn) startBtn.disabled = true;
 
@@ -829,18 +849,22 @@
             csi_occupancy: [],
             csi_accepted_pps: [],
             csi_filtered_pps: [],
-            csi_hw_error_pps: []
+            csi_hw_error_pps: [],
+            csi_callback_pps: [],
+            generator_pps: [],
+            wifi_rssi_dbm: []
         };
 
-        let elapsedSec = 0;
+        let startedAt = Date.now();
+        const durationMs = sampleDurationSec * 1000;
+        let samplesCollected = 0;
         const controller = new AbortController();
 
         return new Promise((resolve) => {
             const samplingState = {
-                controller,
                 timer: null,
                 cancel(silent = false) {
-                    if (samplingState.timer) clearInterval(samplingState.timer);
+                    if (samplingState.timer) clearTimeout(samplingState.timer);
                     controller.abort();
                     monitorReportSampling = null;
                     if (progressEl) progressEl.hidden = true;
@@ -854,46 +878,79 @@
             };
             monitorReportSampling = samplingState;
 
+            const isCurrent = () => {
+                if (monitorReportSampling !== samplingState) return false;
+                if (conn.mode === mode && (!direct || (client.connected && directClient === client
+                    && directResourceSessions.get(client) === session))) return true;
+                samplingState.cancel(true);
+                toast('Device disconnected while sampling diagnostics.');
+                return false;
+            };
+
+            let available;
+            let sampleFields = Object.keys(samples);
+            const readResource = async (name, params = {}) => {
+                try {
+                    return await client.request('get', name, params, {
+                        timeoutMs: 5000,
+                        signal: controller.signal
+                    });
+                } catch {
+                    return { error: 'unavailable' };
+                }
+            };
+
             const pollSample = async () => {
-                if (monitorReportSampling !== samplingState) return;
-                if (direct && !directClient?.connected) {
-                    samplingState.cancel({ silent: true });
-                    toast('Device disconnected while sampling diagnostics.');
-                    return;
+                if (!isCurrent()) return;
+                if (direct && !available) {
+                    const catalog = await readResource('diagnostics');
+                    if (!isCurrent()) return;
+                    available = new Set(Array.isArray(catalog?.fields) ? catalog.fields.map(f => f.name) : []);
+                    sampleFields = available.size ? sampleFields.filter(field => available.has(field))
+                        : ['csi_occupancy', 'csi_accepted_pps', 'csi_filtered_pps', 'csi_hw_error_pps'];
+                    startedAt = Date.now();
                 }
-                if (direct && directClient?.connected) {
+                const pollStartedAt = Date.now();
+                let values;
+                if (direct) {
                     try {
-                        const res = await directClient.request('get', 'diagnostics', {
-                            fields: ['csi_occupancy', 'csi_accepted_pps', 'csi_filtered_pps', 'csi_hw_error_pps']
-                        }, { timeoutMs: Math.min(2000, sampleIntervalMs), signal: controller.signal });
-                        if (res && typeof res === 'object') {
-                            if (typeof res.csi_occupancy === 'number') samples.csi_occupancy.push(res.csi_occupancy);
-                            if (typeof res.csi_accepted_pps === 'number') samples.csi_accepted_pps.push(res.csi_accepted_pps);
-                            if (typeof res.csi_filtered_pps === 'number') samples.csi_filtered_pps.push(res.csi_filtered_pps);
-                            if (typeof res.csi_hw_error_pps === 'number') samples.csi_hw_error_pps.push(res.csi_hw_error_pps);
-                        }
+                        if (sampleFields.length) values = await client.request('get', 'diagnostics', { fields: sampleFields }, {
+                            timeoutMs: Math.min(2000, sampleIntervalMs), signal: controller.signal
+                        });
                     } catch {
-                        // Stale or dropped polling interval sample is ignored
+                        // Keep sampling after a missed read.
                     }
-                } else if (mode === 'demo') {
+                    if (!isCurrent()) return;
+                } else {
                     const targetPps = csiTargetPps();
-                    samples.csi_accepted_pps.push(Math.max(1, targetPps - 10));
-                    samples.csi_occupancy.push(Math.max(1, targetPps - 16) / targetPps);
-                    samples.csi_filtered_pps.push(0);
-                    samples.csi_hw_error_pps.push(0);
+                    values = {
+                        csi_accepted_pps: Math.max(1, targetPps - 10),
+                        csi_occupancy: Math.max(1, targetPps - 16) / targetPps,
+                        csi_filtered_pps: 0,
+                        csi_hw_error_pps: 0
+                    };
                 }
-                const pct = Math.min(100, Math.round((elapsedSec / sampleDurationSec) * 100));
+                let collected = false;
+                for (const [field, readings] of Object.entries(samples)) {
+                    if (Number.isFinite(values?.[field])) {
+                        readings.push(values[field]);
+                        if (field.startsWith('csi_')) collected = true;
+                    }
+                }
+                if (collected) samplesCollected++;
+                const elapsedMs = Date.now() - startedAt;
+                const pct = Math.min(100, Math.round(100 * elapsedMs / durationMs));
                 if (barEl) barEl.style.width = `${pct}%`;
                 if (trackEl) trackEl.setAttribute('aria-valuenow', String(pct));
-                if (statusEl) statusEl.textContent = `Sampling diagnostics (${Math.min(elapsedSec, sampleDurationSec)}/${sampleDurationSec}s)…`;
+                if (statusEl) statusEl.textContent = `Sampling diagnostics (${Math.min(Math.floor(elapsedMs / 1000), sampleDurationSec)}/${sampleDurationSec}s)…`;
 
-                if (elapsedSec >= sampleDurationSec) {
-                    if (samplingState.timer) clearInterval(samplingState.timer);
-                    samplingState.timer = null;
+                const remainingMs = durationMs - elapsedMs;
+                if (remainingMs <= 0) {
                     await finishReport();
-                    return;
+                } else {
+                    const untilNextPoll = Math.max(0, sampleIntervalMs - (Date.now() - pollStartedAt));
+                    samplingState.timer = setTimeout(pollSample, Math.min(untilNextPoll, remainingMs));
                 }
-                elapsedSec += Math.round(sampleIntervalMs / 1000) || 1;
             };
 
             const finishReport = async () => {
@@ -905,18 +962,14 @@
                 let health = {};
                 let sensing = {};
                 let wifi = {};
+                const diagnostics = {};
+                const reportFields = [
+                    'wifi_channel', 'free_memory_kb', 'minimum_free_memory_kb', 'loop_time_ms',
+                    'csi_callbacks_total', 'csi_accepted_total', 'csi_filtered_total', 'csi_hw_error_total',
+                    'csi_admitted_pps', 'csi_missing_slots_pps', 'csi_excess_pps', 'csi_stale_pps'
+                ];
 
-                if (direct && directClient?.connected) {
-                    const readResource = async (name) => {
-                        try {
-                            return await directClient.request('get', name, {}, {
-                                timeoutMs: 5000,
-                                signal: controller.signal
-                            });
-                        } catch (err) {
-                            return { error: err.message || String(err) };
-                        }
-                    };
+                if (direct) {
                     [capabilities, device, health, sensing, wifi] = await Promise.all([
                         readResource('capabilities'),
                         readResource('device'),
@@ -924,6 +977,14 @@
                         readResource('sensing'),
                         readResource('wifi')
                     ]);
+                    if (!isCurrent()) return;
+                    const selected = reportFields.filter(field => available.has(field));
+                    for (let i = 0; i < selected.length; i += 4) {
+                        const fields = selected.slice(i, i + 4);
+                        const values = await readResource('diagnostics', { fields });
+                        if (!isCurrent()) return;
+                        for (const field of fields) diagnostics[field] = values?.[field] ?? null;
+                    }
                 } else if (mode === 'demo') {
                     capabilities = { protocol_version: '1.0', resources: ['device', 'health', 'sensing', 'wifi', 'diagnostics'] };
                     device = {
@@ -939,26 +1000,18 @@
 
                 const rawReport = {
                     timestamp: new Date().toISOString(),
-                    client: {
-                        site: typeof window !== 'undefined' && window.location ? window.location.origin : '',
-                        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : ''
-                    },
                     sampling: {
                         duration_seconds: sampleDurationSec,
-                        samples_collected: Math.max(
-                            samples.csi_occupancy.length,
-                            samples.csi_accepted_pps.length,
-                            samples.csi_filtered_pps.length,
-                            samples.csi_hw_error_pps.length
-                        ),
-                        rates: {
-                            csi_occupancy: calculateRateStats(samples.csi_occupancy),
-                            csi_accepted_pps: calculateRateStats(samples.csi_accepted_pps),
-                            csi_filtered_pps: calculateRateStats(samples.csi_filtered_pps),
-                            csi_hw_error_pps: calculateRateStats(samples.csi_hw_error_pps)
-                        }
+                        status: samplesCollected ? 'complete' : 'no_samples',
+                        samples_collected: samplesCollected,
+                        rates: Object.fromEntries(Object.entries(samples)
+                            .filter(([name]) => name !== 'wifi_rssi_dbm')
+                            .map(([name, readings]) => [name, calculateRateStats(readings)])),
+                        wifi_rssi_dbm: calculateRateStats(samples.wifi_rssi_dbm)
                     },
-                    fault_events: monitor.sessionFaults ? monitor.sessionFaults.slice() : [],
+                    diagnostics,
+                    last_motion: session?.motion ?? null,
+                    fault_events: session ? session.faults.slice() : [],
                     capabilities,
                     device,
                     health,
@@ -966,7 +1019,22 @@
                     wifi
                 };
 
-                const sanitized = redactDiagnosticReport(rawReport);
+                const browser = window.ESPectreBrowserSupport?.current;
+                const revision = document.querySelector?.('meta[name="espectre-site-revision"]')?.content;
+                const asset = document.querySelector?.('script[src*="/assets/js/monitor-tool.js"]')?.src;
+                const sanitized = {
+                    privacy: 'Generated locally. Network and device identifiers are masked. Review before sharing.',
+                    source: mode,
+                    client: {
+                        site: ['espectre.dev', 'test.espectre.dev'].includes(window.location?.hostname)
+                            ? window.location.hostname : 'local_or_custom',
+                        site_revision: /^[a-f0-9]{40}$/i.test(revision) ? revision : null,
+                        monitor_revision: asset?.match(/[?&]v=([a-f0-9]{12})(?:&|$)/i)?.[1] ?? null,
+                        browser: browser?.browser ?? null,
+                        browser_version: browser?.browserVersion ?? null
+                    },
+                    ...redactDiagnosticReport(rawReport)
+                };
                 monitorReportJson = JSON.stringify(sanitized, null, 2);
 
                 if (previewEl) previewEl.textContent = monitorReportJson;
@@ -975,12 +1043,11 @@
                 if (startBtn) startBtn.disabled = false;
                 if (copyBtn && typeof copyBtn.focus === 'function') copyBtn.focus();
                 monitorReportSampling = null;
-                toast('Diagnostic report ready.');
+                toast(samplesCollected ? 'Diagnostic report ready.' : 'No diagnostic samples received. The report contains device state only.');
                 resolve(sanitized);
             };
 
             pollSample();
-            samplingState.timer = setInterval(pollSample, sampleIntervalMs);
         });
     }
 
@@ -1001,8 +1068,11 @@
                 ta.style.opacity = '0';
                 document.body.appendChild(ta);
                 ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
+                try {
+                    if (!document.execCommand('copy')) throw new Error('Copy was declined');
+                } finally {
+                    document.body.removeChild(ta);
+                }
             }
             if (copyBtn) {
                 const prevText = copyBtn.textContent;

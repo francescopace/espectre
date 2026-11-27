@@ -169,6 +169,12 @@ body:
         # or relevant YAML / sdkconfig lines / collector command
 
   - type: textarea
+    id: diagnostic_report
+    attributes:
+      label: Diagnostic report (optional)
+      description: In the Web Monitor, connect to the device and select Generate report. Review the preview, then paste the fenced JSON or attach the downloaded file.
+
+  - type: textarea
     id: logs
     attributes:
       label: Relevant logs

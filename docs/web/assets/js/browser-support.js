@@ -23,11 +23,12 @@
             : /Firefox\//i.test(userAgent) ? 'firefox'
                 : /(?:Chrome|CriOS)\//i.test(userAgent) ? 'chrome'
                     : /Safari\//i.test(userAgent) ? 'safari' : 'other';
-        const versionMatch = userAgent.match(browser === 'edge' ? /Edg\/(\d+)/i
-            : browser === 'firefox' ? /Firefox\/(\d+)/i
-                : browser === 'chrome' ? /(?:Chrome|CriOS)\/(\d+)/i
-                    : browser === 'safari' ? /Version\/(\d+)/i : null);
-        const browserMajor = versionMatch ? Number(versionMatch[1]) : 0;
+        const versionMatch = userAgent.match(browser === 'edge' ? /Edg\/(\d+(?:\.\d+)*)/i
+            : browser === 'firefox' ? /Firefox\/(\d+(?:\.\d+)*)/i
+                : browser === 'chrome' ? /(?:Chrome|CriOS)\/(\d+(?:\.\d+)*)/i
+                    : browser === 'safari' ? /Version\/(\d+(?:\.\d+)*)/i : null);
+        const browserVersion = versionMatch?.[1] || null;
+        const browserMajor = parseInt(browserVersion, 10) || 0;
         const operatingSystem = ios ? 'ios'
             : android ? 'android'
                 : /mac/i.test(platform) ? 'macos'
@@ -45,6 +46,7 @@
             serial,
             browser,
             browserMajor,
+            browserVersion,
             operatingSystem,
             hostedDirect,
             // ESPectre supports browser flashing only on desktop Chrome or Edge.

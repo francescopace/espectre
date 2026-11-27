@@ -175,6 +175,13 @@
 
     function ingestDirectEvent(name, data) {
         if (name === 'motion') {
+            if (directClient?.connected && Number.isFinite(data.score)) {
+                directResourceSession(directClient).motion = {
+                    score: data.score,
+                    state: data.state,
+                    timestamp_ms: data.timestamp_ms ?? null
+                };
+            }
             applySensingCadence(data);
             applyLiveTelemetry(
                 Number(data.score ?? 0),
@@ -200,7 +207,10 @@
         }
         if (name === 'ota') applyOtaStatus(data);
         if (name === 'fault') {
-            if (typeof recordMonitorFault === 'function') recordMonitorFault(data);
+            if (directClient?.connected) {
+                const at = Date.now();
+                directResourceSession(directClient).faults.push({ at, timestamp: new Date(at).toISOString(), fault: data });
+            }
             toast(data.message || 'The device reported a runtime fault.');
         }
     }
@@ -209,7 +219,7 @@
 
     function directResourceSession(client) {
         if (!directResourceSessions.has(client)) {
-            directResourceSessions.set(client, { snapshots: new Map(), pending: new Map() });
+            directResourceSessions.set(client, { snapshots: new Map(), pending: new Map(), faults: [] });
         }
         return directResourceSessions.get(client);
     }
