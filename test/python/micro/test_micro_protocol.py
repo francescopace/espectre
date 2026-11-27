@@ -623,7 +623,7 @@ static const cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value, const c
 }
 #define cJSON_ArrayForEach(entry,array) for (entry=(array) ? (array)->child : NULL; entry; entry=entry->next)
 #endif
-static bool direct_set_cors(httpd_req_t *r) { return true; }
+static bool direct_set_cors(httpd_req_t *r, char *origin, size_t capacity) { return true; }
 static bool direct_request_allowed(void) { return true; }
 static void direct_increment(unsigned *p) { ++*p; }
 static void httpd_resp_set_status(httpd_req_t *r, const char *s) { response_status=s; }

@@ -18,6 +18,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
+import argparse
+import re
 import sys
 from html import escape
 from html.parser import HTMLParser
@@ -315,4 +317,15 @@ def build() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--site-revision", help="Git commit to identify a deployed application shell")
+    args = parser.parse_args()
+    if args.site_revision and not re.fullmatch(r"[a-f0-9]{40}", args.site_revision):
+        parser.error("site revision must be a full Git commit hash")
     build()
+    if args.site_revision:
+        # Interactive routes load the root application shell.
+        shell = WEB_ROOT / "index.html"
+        marker = f'<meta name="espectre-site-revision" content="{args.site_revision}">'
+        content = re.sub(r'<meta name="espectre-site-revision" content="[^"]*">\n', "", shell.read_text())
+        shell.write_text(content.replace("<head>", "<head>\n" + marker, 1))

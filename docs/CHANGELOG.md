@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - Work in progress
+
+- The Web Monitor can copy or download a local diagnostic report with 30-second CSI and Wi-Fi statistics, recent motion and faults, redacted device state, and browser and site versions.
+- **Micro** sends a single valid CORS origin on Direct responses so the Web Monitor can open the event stream and collect a diagnostic report.
+
 ---
 
 ## [3.2.2] - 2026-11-25 - Raw Wi-Fi targets and Direct Wi-Fi recovery

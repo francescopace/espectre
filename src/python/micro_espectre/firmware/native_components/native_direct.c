@@ -376,16 +376,13 @@ static bool direct_read_origin(httpd_req_t *request, char *origin, size_t capaci
   return direct_origin_allowed(origin);
 }
 
-static bool direct_set_cors(httpd_req_t *request) {
-  char origin[96];
-  if (!direct_read_origin(request, origin, sizeof(origin))) {
+static bool direct_set_cors(httpd_req_t *request, char *origin, size_t capacity) {
+  if (!direct_read_origin(request, origin, capacity)) {
     return false;
   }
-  if (origin[0] != '\0') {
-    (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Origin", origin);
-  }
-  (void) httpd_resp_set_hdr(request, "Vary", "Origin");
-  return true;
+  // HTTPD retains header pointers until the first send in the calling handler.
+  return httpd_resp_set_hdr(request, "Access-Control-Allow-Origin", origin) == ESP_OK &&
+      httpd_resp_set_hdr(request, "Vary", "Origin") == ESP_OK;
 }
 
 static char *direct_replace_string(char **target, const char *source, size_t length) {
@@ -516,10 +513,6 @@ static esp_err_t direct_send_result(
       snapshot == NULL ? "}" : ",\"data\":");
   if (prefix_length < 0 || (size_t) prefix_length >= sizeof(prefix)) {
     return ESP_FAIL;
-  }
-  if (!direct_set_cors(request)) {
-    httpd_resp_set_status(request, "403 Forbidden");
-    return httpd_resp_sendstr(request, "Forbidden");
   }
   httpd_resp_set_status(request, http_status);
   httpd_resp_set_type(request, "application/json");
@@ -863,7 +856,8 @@ static bool direct_validate_request(httpd_req_t *request, const direct_route_t *
 }
 
 static esp_err_t direct_request_handler(httpd_req_t *request) {
-  if (!direct_set_cors(request)) {
+  char origin[96];
+  if (!direct_set_cors(request, origin, sizeof(origin))) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
   }
@@ -925,7 +919,8 @@ static esp_err_t direct_request_handler(httpd_req_t *request) {
 }
 
 static esp_err_t direct_options_handler(httpd_req_t *request) {
-  if (!direct_set_cors(request)) {
+  char origin[96];
+  if (!direct_set_cors(request, origin, sizeof(origin))) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
   }
@@ -1023,7 +1018,8 @@ static bool direct_start_heartbeat(void) {
 }
 
 static esp_err_t direct_events_handler(httpd_req_t *request) {
-  if (!direct_set_cors(request)) {
+  char origin[96];
+  if (!direct_set_cors(request, origin, sizeof(origin))) {
     httpd_resp_set_status(request, "403 Forbidden");
     return httpd_resp_sendstr(request, "Forbidden");
   }
@@ -1052,8 +1048,7 @@ static esp_err_t direct_events_handler(httpd_req_t *request) {
   httpd_resp_set_type(async_request, "text/event-stream");
   (void) httpd_resp_set_hdr(async_request, "Cache-Control", "no-store");
   (void) httpd_resp_set_hdr(async_request, "Connection", "keep-alive");
-  if (!direct_set_cors(async_request) ||
-      httpd_resp_send_chunk(async_request, ": connected\n\n", strlen(": connected\n\n")) != ESP_OK) {
+  if (httpd_resp_send_chunk(async_request, ": connected\n\n", strlen(": connected\n\n")) != ESP_OK) {
     direct_increment(&direct_state.send_failures);
     httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
